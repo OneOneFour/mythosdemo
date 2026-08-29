@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Underground Mythos Factory — visual mockup</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: #07060a; color: #cfc6b0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  #stage {
+    display: block;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    -ms-interpolation-mode: nearest-neighbor;
+    cursor: grab;
+    touch-action: none;
+  }
+  #stage.dragging { cursor: grabbing; }
+  #hint {
+    position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%);
+    font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: #6a6152; pointer-events: none; user-select: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<div id="hint">scroll or drag to descend &nbsp;·&nbsp; T tour &nbsp;·&nbsp; G grid</div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

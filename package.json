@@ -1,0 +1,16 @@
+{
+  "name": "mythos-factory",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pixel-art visual mockup for a gravity-fed vertical factory roguelike",
+  "type": "module",
+  "scripts": {
+    "start": "node tools/serve.mjs",
+    "dev": "node tools/serve.mjs",
+    "bundle": "node tools/bundle.mjs",
+    "check": "node tools/check.mjs"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {},
+  "devDependencies": {}
+}
