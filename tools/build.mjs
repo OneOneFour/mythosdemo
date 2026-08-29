@@ -39,7 +39,12 @@ if (!shell.includes(TAG))
 // the sequence is safe inside a JS string and inside a regex/comment alike.
 const safe = js.replaceAll('</script', '<\\/script');
 
-const html = shell.replace(TAG, `<script type="module">\n${safe}\n</script>`);
+// Use a REPLACER FUNCTION, not a replacement string. String.replace interprets
+// $&, $', $` and $1..$99 inside a replacement string, and minified JS contains
+// `$` in identifiers — a bundle containing `$&` silently re-inserted the very
+// <script src> tag it was replacing, producing a broken artifact that still
+// looked plausible. A function replacer disables all `$` interpretation.
+const html = shell.replace(TAG, () => `<script type="module">\n${safe}\n</script>`);
 
 await mkdir(dirname(OUT), { recursive: true });
 await writeFile(OUT, html);

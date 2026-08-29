@@ -57,6 +57,40 @@ scripted scene and compares the canvas pixel-for-pixel. If minification or
 bundling ever changes behaviour, `npm run parity` fails. Do not delete that
 test to make a build pass.
 
+### Can I `npm install` a runtime library?
+
+For the **build**, yes — esbuild resolves bare specifiers from `node_modules`
+and inlines them. Verified end to end with `simplex-noise`: installed,
+imported as `from 'simplex-noise'`, built, and the artifact booted from
+`file://` returning correct values.
+
+For **dev**, no, not on its own. `npm start` serves untransformed modules, and
+a browser cannot resolve a bare specifier:
+
+```
+TypeError: Failed to resolve module specifier "simplex-noise".
+Relative references must start with either "/", "./", or "../".
+```
+
+The fix is **an import map in `index.html`**, which is a native browser feature
+and needs no build step:
+
+```html
+<script type="importmap">
+{ "imports": { "simplex-noise": "/node_modules/simplex-noise/dist/esm/simplex-noise.js" } }
+</script>
+```
+
+Verified: with that map, dev boots clean AND the build still works, because
+esbuild ignores the map and resolves from `node_modules` directly. The cost is
+that `node_modules/` must be served in dev, and the map needs one entry per
+package pointing at that package's real ESM file.
+
+So a runtime dependency is *possible* and costs about three lines. It is still
+governed by the rule above — possible is not the same as warranted, and the
+library research concluded almost nothing is worth installing at runtime.
+Vendoring stays preferable for anything small enough to read.
+
 **`vendor/zzfx.micro.js` opens with `/*! @license`.** Those markers are
 load-bearing: esbuild strips comments without them, which silently dropped the
 MIT copyright notice from the shipped artifact once already. Any future
@@ -191,6 +225,14 @@ pixels moved. A human approves the baseline; the machine guards it after that.
   shipped with `export let d = 0;` inside a function body — it did not parse,
   and nothing imported it, so nobody noticed. `check.mjs` now imports every
   module for exactly this reason.
+- **`String.replace` interprets `$` in the *replacement* string.**
+  `tools/build.mjs` inlined the bundle with `shell.replace(TAG, bundleText)`.
+  Minified JS contains `$` in identifiers, and one `$&` in the bundle expanded
+  to the matched text — re-inserting the very `<script src="./src/main.js">`
+  tag it was replacing, into the middle of the JS. The artifact was corrupt but
+  looked plausible: correct file size, no build error. Always pass a replacer
+  **function**, which disables `$` expansion. The build script's own
+  self-contained check is what caught it; keep that check.
 - **A build step can silently drop a licence.** The vendored ZzFX MIT notice
   was minified away on the first `npm run build`; nothing failed, the artifact
   was simply non-compliant. Licence markers now guard it, and the build script

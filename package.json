@@ -2,7 +2,7 @@
   "name": "mythos-factory",
   "version": "0.1.0",
   "private": true,
-  "description": "Gravity-fed vertical factory roguelike \u2014 playable prototype",
+  "description": "Gravity-fed vertical factory roguelike — playable prototype",
   "type": "module",
   "scripts": {
     "start": "node tools/serve.mjs",
