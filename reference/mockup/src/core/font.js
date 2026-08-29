@@ -1,3 +1,7 @@
+import { H, R, W } from './canvas.js';
+import { P } from './palette.js';
+
+
 /* ---------- 5x7 bitmap font ---------- */
 export const GLYPHS = {
 'A':['01110','10001','10001','11111','10001','10001','10001'],

@@ -1,41 +1,51 @@
 import { mulberry } from './rng.js';
-import { buildWorld, world } from '../world/build.js';
-import { layoutContent } from '../world/layout.js';
 
 
 /* ============================================================
-   UNDERGROUND MYTHOS FACTORY — non-interactive visual mockup
-   Rendered at low internal resolution, upscaled nearest-neighbour.
-   Nothing simulates anything. It is all for looking at.
+   VIEWPORT
+
+   The one structural departure from the mockup: the world has its
+   own fixed coordinate space and the canvas is only a window onto
+   it. Resizing changes VIEW, never the world.
    ============================================================ */
-export const cv  = document.getElementById("stage");
+export const cv  = typeof document !== 'undefined' ? document.getElementById('stage') : null;
+export const ctx = cv ? cv.getContext('2d', { alpha: false }) : null;
 
-export const ctx = cv.getContext("2d", { alpha: false });
+/* Base resolution in world pixels. VIEW.w/h are how much world is
+   visible; SCALE is the nearest-neighbour upscale factor. */
+export const VIEW = { w: 320, h: 180, scale: 3 };
 
-
-/* ---------- pixel scaling ---------- */
-export let SCALE = 3, W = 480, H = 380;
-
-
-// Sizes the canvas and fixes the shaft centre. Does NOT build the world:
-// buildWorld() depends on the content tables, so the caller must run
-// resize() -> layoutContent() -> buildWorld() in that order.
 export function resize() {
-  SCALE = Math.max(2, Math.min(6, Math.round(window.innerHeight / 400)));
-  W = Math.max(200, Math.ceil(window.innerWidth  / SCALE));
-  H = Math.max(200, Math.ceil(window.innerHeight / SCALE));
-  cv.width = W; cv.height = H;
-  cv.style.width  = (W * SCALE) + "px";
-  cv.style.height = (H * SCALE) + "px";
+  const iw = (typeof window !== 'undefined' ? window.innerWidth  : 1600) || 1600;
+  const ih = (typeof window !== 'undefined' ? window.innerHeight : 900)  || 900;
+  VIEW.scale = Math.max(2, Math.min(6, Math.round(ih / 400)));
+  VIEW.w = Math.max(200, Math.ceil(iw / VIEW.scale));
+  VIEW.h = Math.max(180, Math.ceil(ih / VIEW.scale));
+  if (!cv) return;
+  cv.width = VIEW.w; cv.height = VIEW.h;
+  cv.style.width  = (VIEW.w * VIEW.scale) + 'px';
+  cv.style.height = (VIEW.h * VIEW.scale) + 'px';
   ctx.imageSmoothingEnabled = false;
-  CX = Math.round(W * 0.52);
 }
 
-export let CX = 240;                    // centre of the main elevator shaft
+
+/* ---------- offscreen canvases (chunks, sprite sheets) ---------- */
+export function offscreen(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  return { canvas: c, g };
+}
 
 
-/* ---------- small drawing helpers (integer pixels only) ---------- */
-export const R = (g, x, y, w, h, c) => { g.fillStyle = c; g.fillRect(x | 0, y | 0, Math.max(1, w | 0), Math.max(1, h | 0)); };
+/* ---------- integer-pixel drawing helpers ----------
+   Every coordinate is floored here so there is no path to a
+   sub-pixel anywhere in the renderer. */
+export const R = (g, x, y, w, h, c) => {
+  g.fillStyle = c;
+  g.fillRect(x | 0, y | 0, Math.max(1, w | 0), Math.max(1, h | 0));
+};
 
 export function lineTo(g, x0, y0, x1, y1, c, thick = 1) {
   x0 |= 0; y0 |= 0; x1 |= 0; y1 |= 0;
@@ -54,11 +64,9 @@ export function lineTo(g, x0, y0, x1, y1, c, thick = 1) {
 
 export function noiseFill(g, x0, y0, w, h, cols, density, seed, blk = 1) {
   const rng = mulberry(seed);
-  for (let y = y0; y < y0 + h; y += blk) {
-    for (let x = x0; x < x0 + w; x += blk) {
+  for (let y = y0; y < y0 + h; y += blk)
+    for (let x = x0; x < x0 + w; x += blk)
       if (rng() < density) R(g, x, y, blk, blk, cols[(rng() * cols.length) | 0]);
-    }
-  }
 }
 
 export function walk(g, x, y, len, col, seed, dxBias = 0, thick = 1) {
@@ -71,6 +79,7 @@ export function walk(g, x, y, len, col, seed, dxBias = 0, thick = 1) {
 }
 
 export function glow(g, x, y, r, col, a = 0.5) {
+  if (!(r > 0)) return;
   const grd = g.createRadialGradient(x, y, 0, x, y, r);
   grd.addColorStop(0, col); grd.addColorStop(1, 'rgba(0,0,0,0)');
   g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha = a;

@@ -1,57 +1,89 @@
-import { rebuild } from './bootstrap.js';
-import { SCALE, cv, resize } from './core/canvas.js';
-import { cam, clock, view } from './sim/state.js';
+import { VIEW, cv } from './core/canvas.js';
+import { cam, run, view } from './sim/state.js';
 
 
 /* ============================================================
    INPUT
+
+   Note for future edits: in the mockup this module existed but was
+   imported by nothing and did not even parse. It is wired into
+   main.js now, and tools/check.mjs imports it so it can never
+   silently rot again.
    ============================================================ */
-export function touched() { view.lastInput = clock.t; }
+export const cmd = {
+  left: false, right: false, up: false, down: false,
+  hop: false, dig: false, place: false,
+  mouse: false, mx: 0, my: 0, hasMouse: false
+};
 
-cv.addEventListener('wheel', e => {
-  e.preventDefault(); touched();
-  cam.target += e.deltaY * (e.deltaMode === 1 ? 16 : 0.6);
-}, { passive: false });
+/* hop and place are edge-triggered: held keys should not repeat-fire */
+let hopHeld = false, placeHeld = false;
 
-export let dragging = false, dragY = 0, dragStart = 0;
+export const wants = { restart: false, furnace: false };
 
-cv.addEventListener('pointerdown', e => {
-  dragging = true; dragY = e.clientY; dragStart = cam.target;
-  cv.classList.add('dragging'); cv.setPointerCapture(e.pointerId); touched();
-});
+const KEYS = {
+  a: 'left', arrowleft: 'left',
+  d: 'right', arrowright: 'right',
+  w: 'up', arrowup: 'up',
+  s: 'down', arrowdown: 'down'
+};
 
-cv.addEventListener('pointermove', e => {
-  if (!dragging) return;
-  cam.target = dragStart + (dragY - e.clientY) / SCALE; touched();
-});
+function set(k, down) {
+  const key = k.toLowerCase();
+  if (KEYS[key]) cmd[KEYS[key]] = down;
+  if (key === ' ') { if (down && !hopHeld) cmd.hop = true; hopHeld = down; }
+  if (key === 'x' || key === 'j') cmd.dig = down;
+  if (key === 'e') { if (down && !placeHeld) cmd.place = true; placeHeld = down; }
+}
 
-cv.addEventListener('pointerup', e => {
-  dragging = false; cv.classList.remove('dragging');
-});
+export function installInput() {
+  if (typeof addEventListener !== 'function') return;
 
-export const keys = {};
+  addEventListener('keydown', e => {
+    set(e.key, true);
+    const k = e.key.toLowerCase();
+    if (k === 'g') view.showGrid   = !view.showGrid;
+    if (k === 'c') view.showChunks = !view.showChunks;
+    if (k === 'h') view.showDebug  = !view.showDebug;
+    if (k === 'f') wants.furnace = true;
+    if (k === 'r' && run.dead) wants.restart = true;
+    if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k))
+      e.preventDefault();
+  });
 
-addEventListener('keydown', e => {
-  keys[e.key.toLowerCase()] = true;
-  if (e.key === 't' || e.key === 'T') { view.tour = !view.tour; view.lastInput = -99; }
-  if (e.key === 'g' || e.key === 'G') view.showGrid = !view.showGrid;
-  if ([' ', 'ArrowUp', 'ArrowDown'].includes(e.key)) e.preventDefault();
-});
+  addEventListener('keyup', e => set(e.key, false));
+  addEventListener('blur', () => {
+    for (const k of ['left', 'right', 'up', 'down', 'dig', 'place', 'mouse']) cmd[k] = false;
+    hopHeld = false; placeHeld = false;
+  });
 
-addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+  if (!cv) return;
 
-setInterval(() => {
-  export let d = 0;
-  if (keys['arrowdown'] || keys['s']) d += 5;
-  if (keys['arrowup']   || keys['w']) d -= 5;
-  if (keys['pagedown']) d += 22;
-  if (keys['pageup'])   d -= 22;
-  if (d) { cam.target += d; touched(); }
-}, 16);
+  const toWorld = e => {
+    const r = cv.getBoundingClientRect();
+    cmd.mx = cam.x + (e.clientX - r.left) / VIEW.scale;
+    cmd.my = cam.y + (e.clientY - r.top)  / VIEW.scale;
+    cmd.hasMouse = true;
+  };
 
-export let resizeTimer = 0;
+  cv.addEventListener('pointermove', toWorld);
+  cv.addEventListener('pointerdown', e => {
+    toWorld(e);
+    if (e.button === 2) cmd.place = true; else cmd.mouse = true;
+    cv.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  cv.addEventListener('pointerup', e => {
+    if (e.button === 2) cmd.place = false; else cmd.mouse = false;
+  });
+  cv.addEventListener('contextmenu', e => e.preventDefault());
+  cv.addEventListener('pointerleave', () => { cmd.hasMouse = false; cmd.mouse = false; });
+}
 
-addEventListener('resize', () => {
-  clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(rebuild, 120);   // rebuilding the strip is expensive
-});
+/* Called once per frame after the sim has read them. */
+export function clearEdges() {
+  cmd.hop = false;
+  cmd.place = false;
+  wants.furnace = false;
+  wants.restart = false;
+}
