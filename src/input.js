@@ -1,5 +1,6 @@
 import { VIEW, cv } from './core/canvas.js';
 import { cam, run, view } from './sim/state.js';
+import { audio, unlockAudio } from './core/sfx.js';
 
 
 /* ============================================================
@@ -40,11 +41,13 @@ export function installInput() {
   if (typeof addEventListener !== 'function') return;
 
   addEventListener('keydown', e => {
+    unlockAudio();                       // browsers need a gesture before audio
     set(e.key, true);
     const k = e.key.toLowerCase();
     if (k === 'g') view.showGrid   = !view.showGrid;
     if (k === 'c') view.showChunks = !view.showChunks;
     if (k === 'h') view.showDebug  = !view.showDebug;
+    if (k === 'm') audio.muted = !audio.muted;
     if (k === 'f') wants.furnace = true;
     if (k === 'r' && run.dead) wants.restart = true;
     if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k))
@@ -68,6 +71,7 @@ export function installInput() {
 
   cv.addEventListener('pointermove', toWorld);
   cv.addEventListener('pointerdown', e => {
+    unlockAudio();
     toWorld(e);
     if (e.button === 2) cmd.place = true; else cmd.mouse = true;
     cv.setPointerCapture(e.pointerId);

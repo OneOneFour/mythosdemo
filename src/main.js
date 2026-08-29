@@ -1,12 +1,14 @@
 import { VIEW, resize } from './core/canvas.js';
-import { TILE, WORLD_H, WORLD_W } from './world/grid.js';
+import { initAudio, resetSfx } from './core/sfx.js';
+import { seedRng } from './core/rng.js';
+import { WORLD_H, WORLD_W } from './world/grid.js';
 import { SITE, generate } from './world/generate.js';
 import { resetChunks } from './world/paint.js';
 import { cam, chips, clock, items, run, view } from './sim/state.js';
 import { PH, PW, player, spawnPlayer, updatePlayer } from './sim/player.js';
 import { updateItems } from './sim/items.js';
 import { aim, setAim, setAimKeys, updateMining } from './sim/mining.js';
-import { placeFurnace, resetStructures, structures, updateStructures } from './sim/structures.js';
+import { placeFurnace, resetStructures, updateStructures } from './sim/structures.js';
 import { resetTutorial, updateTutorial } from './sim/tutorial.js';
 import { cmd, clearEdges, installInput, wants } from './input.js';
 import { render } from './render/scene.js';
@@ -34,6 +36,12 @@ export function newRun(seed) {
   run.deepest = 0;
   run.toast = ''; run.toastT = 0;
 
+  seedRng(run.seed);            // every run is reproducible from its seed
+  // A run starts at t=0. Without this the title card never reappeared on
+  // restart, because step() recomputes titleFade from clock.t immediately.
+  clock.t = 0; clock.dt = 0; clock.frame = 0;
+  aim.tx = 0; aim.ty = 0; aim.valid = false;
+  resetSfx();
   generate(run.seed);
   resetChunks();
   resetStructures();
@@ -114,10 +122,37 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+/* ---------- test hook ----------
+   With ?test=1 the RAF loop does not start. The page instead exposes a
+   handle that lets Playwright advance an exact number of frames at an
+   exact dt and then render once, so a screenshot is bit-reproducible.
+   Nothing here runs in a normal session. */
+function installTestHook() {
+  globalThis.__mf = {
+    newRun, step, render, resize,
+    state: { cam, clock, run, view, items, chips },
+    player,
+    // advance n frames at a fixed dt, then draw
+    frames(n, dt = 1 / 60) { for (let i = 0; i < n; i++) step(dt); render(); },
+    // hold a command set down for n frames
+    hold(keys, n, dt = 1 / 60) {
+      for (const k of Object.keys(keys)) cmd[k] = keys[k];
+      for (let i = 0; i < n; i++) { step(dt); if (keys.hop) cmd.hop = false; }
+      for (const k of Object.keys(keys)) cmd[k] = false;
+      render();
+    },
+    ready: true
+  };
+}
+
 if (typeof document !== 'undefined' && document.getElementById('stage')) {
+  const testMode = typeof location !== 'undefined'
+                && new URLSearchParams(location.search).has('test');
   resize();
+  initAudio();
   installInput();
   newRun(1337);
   addEventListener('resize', () => { resize(); clampCam(); });
-  requestAnimationFrame(frame);
+  if (testMode) { installTestHook(); render(); }
+  else requestAnimationFrame(frame);
 }

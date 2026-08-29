@@ -9,11 +9,16 @@
     "dev": "node tools/serve.mjs",
     "check": "node tools/check.mjs",
     "check:mockup": "cd reference/mockup && node tools/check.mjs",
-    "check:all": "npm run check && npm run check:mockup"
+    "check:all": "npm run check && npm run check:mockup",
+    "test:visual": "playwright test",
+    "test:visual:update": "playwright test --update-snapshots",
+    "lint": "oxlint src tools tests",
+    "test": "npm run check && npm run test:visual"
   },
   "engines": {
     "node": ">=18"
   },
-  "dependencies": {},
-  "devDependencies": {}
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
+  }
 }

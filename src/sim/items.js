@@ -1,7 +1,9 @@
 import { P } from '../core/palette.js';
 import { TILE, WORLD_H, solidAt } from '../world/grid.js';
-import { GRAV, TERMINAL, chips, items, run, toast } from './state.js';
+import { GRAV, TERMINAL, chips, clock, items, run } from './state.js';
+import { play } from '../core/sfx.js';
 import { PH, PW, player } from './player.js';
+import { rand } from '../core/rng.js';
 
 
 /* ============================================================
@@ -24,7 +26,7 @@ export const PICKUP_R = 12;              // px
 
 export function spawnItem(x, y, kind, vx = 0, vy = -40) {
   if (!KIND[kind]) return;
-  items.push({ x, y, vx: vx + (Math.random() - 0.5) * 24, vy,
+  items.push({ x, y, vx: vx + (rand() - 0.5) * 24, vy,
                kind, rest: 0, age: 0, magnet: 0.35 });
 }
 
@@ -61,10 +63,11 @@ export function updateItems(dt) {
       const dx = it.x - pcx, dy = it.y - pcy;
       if (dx * dx + dy * dy < PICKUP_R * PICKUP_R) {
         collect(it.kind, 1);
+        play(it.kind === 'ingot' ? 'ingot' : 'pickup', clock.t);
         for (let k = 0; k < 3; k++)
-          chips.push({ x: it.x, y: it.y, vx: (Math.random() - 0.5) * 30,
-                       vy: -20 - Math.random() * 20, g: 200,
-                       life: 0.25 + Math.random() * 0.2, col: KIND[it.kind].col });
+          chips.push({ x: it.x, y: it.y, vx: (rand() - 0.5) * 30,
+                       vy: -20 - rand() * 20, g: 200,
+                       life: 0.25 + rand() * 0.2, col: KIND[it.kind].col });
         items.splice(i, 1);
       }
     }

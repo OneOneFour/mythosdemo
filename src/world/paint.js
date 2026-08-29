@@ -14,7 +14,7 @@ import { surface } from './generate.js';
    ~1/1500th of what a full bake cost. Each chunk keeps its own
    offscreen canvas; the renderer only blits.
    ============================================================ */
-const chunks = new Array(CHUNKS_X * CHUNKS_Y).fill(null);
+const chunks = Array.from({ length: CHUNKS_X * CHUNKS_Y }, () => null);
 
 export const stats = { painted: 0, repaints: 0 };
 

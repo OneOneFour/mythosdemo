@@ -1,5 +1,6 @@
 import { TILE, WORLD_H, WORLD_W, climbAt, solidAt } from '../world/grid.js';
 import { GRAV, TERMINAL, clock, run, toast } from './state.js';
+import { play } from '../core/sfx.js';
 
 
 /* ============================================================
@@ -37,6 +38,11 @@ export function spawnPlayer(txp, typ) {
   player.vx = player.vy = 0;
   player.onGround = false; player.onLadder = false; player.fallFrom = player.y;
   player.face = 1; player.wasAir = 0;
+  // Every remaining field too. Leaving these set carried jump grace and
+  // animation phase across a restart, which made two runs of the same seed
+  // render differently — caught by the determinism screenshot test.
+  player.coyote = 0; player.walkPhase = 0;
+  player.landFlash = 0; player.hurtFlash = 0; player.digAnim = false;
 }
 
 /* --- AABB helpers over the tile grid --- */
@@ -100,6 +106,7 @@ export function updatePlayer(dt, cmd) {
   if (hitFloor && !wasGround) {
     const v = p.wasAir;
     p.landFlash = Math.min(1, v / TERMINAL);
+    if (v > 60) play('land', clock.t);
     const h = fallHearts(v);
     // report the distance actually fallen, not one back-solved from velocity,
     // which terminal velocity would under-report on very long drops
@@ -180,6 +187,7 @@ export function hurt(hearts, cause) {
   run.hearts -= hearts;
   run.invuln = 0.9;
   player.hurtFlash = 1;
+  play(run.hearts <= 0 ? 'death' : 'hurt', clock.t);
   if (run.hearts <= 0) {
     run.hearts = 0; run.dead = true; run.deathCause = cause || 'UNKNOWN';
   } else {

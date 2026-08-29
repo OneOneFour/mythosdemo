@@ -3,7 +3,7 @@ import { P, mix } from '../core/palette.js';
 import { drawText, textWidth } from '../core/font.js';
 import { TILE } from '../world/grid.js';
 import { SURFACE_TY } from '../world/generate.js';
-import { cam, clock, run, view } from '../sim/state.js';
+import { clock, run, view } from '../sim/state.js';
 import { player } from '../sim/player.js';
 import { BEATS } from '../sim/tutorial.js';
 import { stats as sceneStats } from './scene.js';
@@ -26,7 +26,7 @@ export function drawHUD() {
   depth(W, 6);
   if (run.trial) trial(W, narrow);
   hint(W, H);
-  if (view.showDebug) debug(W, H);
+  if (view.showDebug) debug(W);
   if (run.dead) deathScreen(W, H);
   if (view.titleFade > 0 && !run.dead) title(W, H, view.titleFade);
 }
@@ -112,7 +112,7 @@ function hint(W, H) {
   drawText(ctx, msg, x + 6, y + 3, col, 1, 1);
 }
 
-function debug(W, H) {
+function debug(W) {
   const rows = [
     'FPS ' + (clock.dt > 0 ? Math.round(1 / clock.dt) : 0),
     'POS ' + Math.round(player.x) + ',' + Math.round(player.y),

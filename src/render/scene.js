@@ -1,9 +1,9 @@
 import { R, VIEW, ctx, glow, lineTo } from '../core/canvas.js';
 import { P, mix } from '../core/palette.js';
 import { hash2 } from '../core/rng.js';
-import { CHUNKS_X, CHUNKS_Y, CHUNK, CHUNK_PX, TILE, WORLD_H, WORLD_W } from '../world/grid.js';
+import { CHUNKS_X, CHUNKS_Y, CHUNK_PX, TILE, WORLD_H, WORLD_W } from '../world/grid.js';
 import { chunkAt } from '../world/paint.js';
-import { SURFACE_TY, surface } from '../world/generate.js';
+import { SURFACE_TY } from '../world/generate.js';
 import { cam, chips, clock, items, run, view } from '../sim/state.js';
 import { PH, PW, player } from '../sim/player.js';
 import { KIND } from '../sim/items.js';
@@ -154,7 +154,10 @@ function drawStructures(cx, cy) {
     const fire = Math.max(s.fire, s.prog > 0 ? 0.5 : 0);
     if (fire > 0.02) {
       const f = 3 + ((Math.sin(clock.t * 9) + 1) * 1.5 * fire) | 0;
-      R(ctx, x + 2, y + s.h - 2 - f, s.w - 4, f, Math.random() < 0.5 ? P.lavaB : P.lavaA);
+      // flicker from position + time, never from the RNG: rendering must be
+      // pure, or a screenshot would depend on how many times you drew.
+      const flick = hash2(s.tx * 31 + ((clock.t * 18) | 0), s.ty * 17);
+      R(ctx, x + 2, y + s.h - 2 - f, s.w - 4, f, flick < 0.5 ? P.lavaB : P.lavaA);
       glow(ctx, x + s.w / 2, y + s.h - 2, 12 + fire * 8, P.lavaB, 0.4 * fire);
     }
     // buffer readout as pips, so the machine's state is visible in-world
@@ -181,11 +184,16 @@ function drawAltar(cx, cy) {
   const x = (altar.tx * TILE - 4 - cx) | 0;
   const base = altar.ty * TILE + TILE;
   const y = (base - h - cy) | 0;
-  // shaft of light
-  const lg = ctx.createLinearGradient(0, Math.max(0, y - 200), 0, y + 10);
+  if (y < -240 || y > VIEW.h + 40) return;          // off-screen cull
+  // shaft of light. The 4th fillRect argument is a HEIGHT, not a coordinate —
+  // passing `y + 10` there made the shaft over-extend whenever the altar sat
+  // low on screen.
+  const top = Math.max(0, y - 200);
+  const hgt = Math.max(0, Math.min(VIEW.h, y + 10) - top);
+  const lg = ctx.createLinearGradient(0, top, 0, y + 10);
   lg.addColorStop(0, 'rgba(255,246,214,0)');
   lg.addColorStop(1, `rgba(255,246,214,${0.30 * altar.rise})`);
-  ctx.fillStyle = lg; ctx.fillRect(x - 6, Math.max(0, y - 200), 28, Math.min(VIEW.h, y + 10));
+  ctx.fillStyle = lg; ctx.fillRect(x - 6, top, 28, hgt);
   if (h > 0) {
     R(ctx, x, y, 16, h, P.marbleB);
     R(ctx, x, y, 16, 2, P.marbleA);

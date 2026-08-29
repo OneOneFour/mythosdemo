@@ -1,8 +1,10 @@
-import { TILE, setTile, solidAt, tileAt } from '../world/grid.js';
+import { TILE, solidAt, tileAt } from '../world/grid.js';
 import { AIR } from '../world/tiles.js';
-import { chips, items, run, toast } from './state.js';
+import { chips, clock, items, run, toast } from './state.js';
+import { play } from '../core/sfx.js';
 import { KIND, spawnItem, spend } from './items.js';
 import { PH, PW, player } from './player.js';
+import { rand } from '../core/rng.js';
 
 
 /* ============================================================
@@ -51,10 +53,11 @@ export function updateStructures(dt) {
       if (it.x < s.x || it.x > s.x + s.w || it.y < s.y - 2 || it.y > s.y + s.h) continue;
       s.buf[it.kind]++;
       for (let k = 0; k < 4; k++)
-        chips.push({ x: it.x, y: it.y, vx: (Math.random() - 0.5) * 24,
-                     vy: -30 - Math.random() * 20, g: 260,
+        chips.push({ x: it.x, y: it.y, vx: (rand() - 0.5) * 24,
+                     vy: -30 - rand() * 20, g: 260,
                      life: 0.3, col: KIND[it.kind].col });
       items.splice(i, 1);
+      if (!s.fire) play('ignite', clock.t);
       s.fire = 1;
     }
 
@@ -77,11 +80,11 @@ export function updateStructures(dt) {
       s.buf.timber -= s.recipe.timber;
       s.made++;
       // the ingot pops out of the mouth and falls, like everything else
-      spawnItem(s.x + s.w / 2, s.y - 4, s.out, (Math.random() - 0.5) * 20, -70);
+      spawnItem(s.x + s.w / 2, s.y - 4, s.out, (rand() - 0.5) * 20, -70);
       for (let k = 0; k < 10; k++)
-        chips.push({ x: s.x + s.w / 2, y: s.y, vx: (Math.random() - 0.5) * 70,
-                     vy: -50 - Math.random() * 50, g: 300,
-                     life: 0.4 + Math.random() * 0.4, col: '#ffd469' });
+        chips.push({ x: s.x + s.w / 2, y: s.y, vx: (rand() - 0.5) * 70,
+                     vy: -50 - rand() * 50, g: 300,
+                     life: 0.4 + rand() * 0.4, col: '#ffd469' });
     }
   }
 }

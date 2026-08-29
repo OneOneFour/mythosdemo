@@ -19,10 +19,14 @@ the change is explicitly about that trade.
 ## Commands
 
 ```bash
-npm install         # zero dependencies; instant
-npm start           # dev server on :5173 (ES modules need an HTTP origin)
-npm run check       # headless verification — RUN THIS AFTER ANY CHANGE
-npm run check:all   # the above, plus the mockup's own harness
+npm install              # dev tooling only; the game itself has no deps
+npm start                # dev server on :5173 (ES modules need an HTTP origin)
+npm run check            # headless verification — RUN THIS AFTER ANY CHANGE
+npm run test:visual      # screenshot regression in a real browser
+npm run test             # both of the above
+npm run lint             # oxlint, no config
+npm run check:mockup     # the preserved mockup's own harness
+npm run test:visual:update   # re-accept deliberate visual changes
 ```
 
 `npm run check` imports every module (including `input.js`), asserts the world
@@ -75,6 +79,30 @@ FUTURE_IDEAS.md  parked ideas
    respawn. Death ends the run.
 7. **Fall damage follows `docs/SPEC.md`**: 5 tiles safe, one heart per 32 px/s
    above 160 px/s, 20 tiles lethal. The check asserts all seven rows.
+8. **A run is bit-reproducible from its seed.** Everything in `sim/` and
+   `render/` draws randomness from `rand()` in `core/rng.js`, never from
+   `Math.random()`, and `newRun()` reseeds it. Rendering consumes no randomness
+   at all, so drawing twice cannot change the outcome. This buys seed sharing,
+   deterministic replay, and screenshot tests that diff at threshold zero — a
+   `Math.random()` call in a draw path silently breaks all three.
+9. **`newRun()` must reset *everything*.** Any field that survives a restart is
+   a determinism bug. `pickup.bob`, the player's animation phases and `clock.t`
+   all leaked once, and the screenshot test caught it as "the same seed renders
+   differently twice."
+
+## Verification, and what each layer can actually tell you
+
+| layer | catches | blind to |
+|---|---|---|
+| `npm run check` | imports, generation guarantees, the fall-damage table, all nine tutorial beats, collision fuzz at four viewports, dig repaint cost | anything visual; anything framerate-dependent, because it runs at a fixed `DT` |
+| `npm run test:visual` | appearance — chunk seams, palette drift, font off-by-ones, z-order, camera jitter — plus real-browser boot errors and seed determinism | whether the art is any *good*; only that it has not changed |
+| `npm run lint` | unused and undefined identifiers, which is where the mutable-state-object convention fails silently | everything else |
+
+Screenshots are bit-exact (`maxDiffPixels: 0`) because the renderer is
+deterministic by construction. **Do not raise that threshold to make a test
+pass.** A nonzero diff is a real change; either it is a regression, or it is
+intended and you run `npm run test:visual:update` and say in the commit why the
+pixels moved. A human approves the baseline; the machine guards it after that.
 
 ## Conventions
 
@@ -83,8 +111,17 @@ FUTURE_IDEAS.md  parked ideas
   introduce sub-pixel positioning or antialiased text.
 - **The HUD is drawn in the same pixel space** using the 5x7 bitmap font in
   `core/font.js`. Do not use `fillText` — mixed resolutions break the look.
-- **No dependencies.** Not a preference, a constraint. No bundler, no
-  framework, no CDN. If something seems to need a library, it doesn't.
+- **No runtime dependencies.** Not a preference, a constraint. The shipped
+  module graph is `src/` plus `vendor/` and nothing else: no bundler, no
+  framework, no CDN, no import maps. If something seems to need a library at
+  runtime, it doesn't.
+- **Dev dependencies are a separate question, and are allowed.** Playwright and
+  oxlint never enter the shipped artifact, so they do not violate the rule
+  above. Keep the distinction sharp: a `dependencies` entry is close to
+  forbidden, a `devDependencies` entry needs only to earn its keep.
+- **`vendor/` is for single-file, MIT-or-similar drop-ins**, copied in with
+  provenance and any local edits documented inline. `vendor/zzfx.micro.js` is
+  the model. This is not an npm install and must not become one.
 - **No `localStorage` / `sessionStorage`.** They fail in some embed contexts.
 - **Palette lives in `core/palette.js`.** Add named entries rather than
   inlining hex.
@@ -121,8 +158,15 @@ FUTURE_IDEAS.md  parked ideas
   shipped with `export let d = 0;` inside a function body — it did not parse,
   and nothing imported it, so nobody noticed. `check.mjs` now imports every
   module for exactly this reason.
-- **Testing honestly.** Run `npm run check` and report what it actually says.
-  Never claim a visual result is verified.
+- **A fixed-`DT` harness cannot see framerate bugs.** `check.mjs` re-implements
+  the frame loop at `DT = 1/60` instead of calling the real `step()`, which is
+  why three known framerate-dependent bugs pass green. Fixing that is queued.
+- **Rendering must stay pure.** The furnace flame briefly used `rand()`, which
+  meant a screenshot depended on how many times you had drawn. Derive
+  animation from `clock.t` and a position hash instead.
+- **Testing honestly.** Run `npm run check` and `npm run test:visual` and report
+  what they actually say. Screenshots prove appearance has not *changed*; they
+  do not prove it is good. That still needs a human.
 
 ## Working style
 

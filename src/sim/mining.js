@@ -1,9 +1,11 @@
 import { TILE, damage, dmgAt, inBounds, solidAt, tileAt, setTile } from '../world/grid.js';
-import { AIR, MAT, T } from '../world/tiles.js';
-import { chips, run, toast } from './state.js';
-import { PH, PW, boxSolid, player } from './player.js';
+import { AIR, MAT, T, hardOf } from '../world/tiles.js';
+import { chips, clock, run, toast } from './state.js';
+import { PH, PW, player } from './player.js';
 import { spawnItem, spend } from './items.js';
 import { notedDig } from './tutorial.js';
+import { play } from '../core/sfx.js';
+import { rand } from '../core/rng.js';
 
 
 /* ============================================================
@@ -50,21 +52,23 @@ export function updateMining(dt, cmd) {
       const before = dmgAt(aim.tx, aim.ty);
       const drop = damage(aim.tx, aim.ty, dt, PICK_POWER);
       // chips fly while the tile is still standing, so the swing has weight
-      if (dmgAt(aim.tx, aim.ty) > before && Math.random() < dt * 26)
-        chips.push({ x: aim.tx * TILE + Math.random() * TILE,
-                     y: aim.ty * TILE + Math.random() * TILE,
-                     vx: (Math.random() - 0.5) * 50, vy: -30 - Math.random() * 40,
-                     g: 340, life: 0.3 + Math.random() * 0.3, col: MAT[m].a });
+      if (dmgAt(aim.tx, aim.ty) > before) play('pick', clock.t);
+      if (dmgAt(aim.tx, aim.ty) > before && rand() < dt * 26)
+        chips.push({ x: aim.tx * TILE + rand() * TILE,
+                     y: aim.ty * TILE + rand() * TILE,
+                     vx: (rand() - 0.5) * 50, vy: -30 - rand() * 40,
+                     g: 340, life: 0.3 + rand() * 0.3, col: MAT[m].a });
       if (drop) {
         notedDig();
+        play(drop === 'copper' ? 'ore' : hardOf(m) > 0.5 ? 'breakHard' : 'breakSoft', clock.t);
         spawnItem(aim.tx * TILE + TILE / 2, aim.ty * TILE + TILE / 2, drop,
-                  0, -30 - Math.random() * 20);
+                  0, -30 - rand() * 20);
         for (let k = 0; k < 8; k++)
-          chips.push({ x: aim.tx * TILE + Math.random() * TILE,
-                       y: aim.ty * TILE + Math.random() * TILE,
-                       vx: (Math.random() - 0.5) * 90, vy: -40 - Math.random() * 60,
-                       g: 340, life: 0.35 + Math.random() * 0.4,
-                       col: Math.random() < 0.5 ? MAT[m].a : MAT[m].c });
+          chips.push({ x: aim.tx * TILE + rand() * TILE,
+                       y: aim.ty * TILE + rand() * TILE,
+                       vx: (rand() - 0.5) * 90, vy: -40 - rand() * 60,
+                       g: 340, life: 0.35 + rand() * 0.4,
+                       col: rand() < 0.5 ? MAT[m].a : MAT[m].c });
       }
     }
   }
@@ -94,5 +98,6 @@ export function placeLadder() {
   }
   run.ladderStock--;
   setTile(aim.tx, aim.ty, T.ladder);
+  play('ladder', clock.t);
   return true;
 }

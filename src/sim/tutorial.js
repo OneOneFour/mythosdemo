@@ -1,6 +1,7 @@
 import { TILE } from '../world/grid.js';
 import { SITE, surface } from '../world/generate.js';
 import { clock, run, toast } from './state.js';
+import { play } from '../core/sfx.js';
 import { PH, PW, player } from './player.js';
 import { structures } from './structures.js';
 
@@ -37,6 +38,7 @@ export function resetTutorial() {
   altar.tx = SITE.altar.tx; altar.ty = SITE.altar.ty;
   altar.risen = false; altar.rise = 0; altar.glow = 0;
   pickup.tx = SITE.pick.tx; pickup.ty = SITE.pick.ty; pickup.taken = false;
+  pickup.bob = 0;
   run.beat = 0; run.trial = null;
   run.gift = null;
   toast(BEATS[0].hint, 4);
@@ -77,6 +79,7 @@ export function updateTutorial(dt) {
       run.trial.have = run.trial.need;
       run.trial.done = true;
       run.gift = 'furnace';
+      play('divine', clock.t);
       toast('TRIAL MET. A CRUDE FURNACE IS YOURS — PRESS F TO PLACE', 6);
       if (beatId() === 'deliver') advance();
     }
@@ -108,6 +111,7 @@ export function updateTutorial(dt) {
         toast('AND UP IS NOT.', 3.5);
         advance();
         altar.risen = true;
+        play('divine', clock.t);
       }
       break;
 
@@ -116,6 +120,7 @@ export function updateTutorial(dt) {
         run.trial = { need: 10, have: Math.min(10, run.inv.copper), done: false,
                       what: 'RAW COPPER', from: 'ZEUS' };
         toast('ZEUS: TEN OF THE RED METAL. NO HURRY. WE HAVE FOREVER.', 6);
+        play('trial', clock.t);
         advance();
       }
       break;

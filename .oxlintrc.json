@@ -1,0 +1,6 @@
+{
+  "ignorePatterns": ["vendor/**", "reference/**", "node_modules/**", "dist/**"],
+  "rules": {
+    "no-unused-vars": "warn"
+  }
+}

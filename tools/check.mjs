@@ -68,9 +68,12 @@ const ok   = m => console.log('  ok   ' + m);
 /* ---- import everything, including input.js. The mockup shipped an input
         module that was orphaned AND unparseable; importing it here means
         that cannot happen again silently. ---- */
+/* Several of these bindings are deliberately unused: importing the module IS
+   the assertion. The mockup shipped an input.js that nothing imported and that
+   did not parse, and nobody noticed for weeks. */
 const cv    = await import('../src/core/canvas.js');
-const font  = await import('../src/core/font.js');
-const pal   = await import('../src/core/palette.js');
+const _font  = await import('../src/core/font.js');
+const _pal   = await import('../src/core/palette.js');
 const rng   = await import('../src/core/rng.js');
 const tiles = await import('../src/world/tiles.js');
 const grid  = await import('../src/world/grid.js');
@@ -82,9 +85,9 @@ const itm   = await import('../src/sim/items.js');
 const min   = await import('../src/sim/mining.js');
 const str   = await import('../src/sim/structures.js');
 const tut   = await import('../src/sim/tutorial.js');
-const input = await import('../src/input.js');
+const _input = await import('../src/input.js');
 const scene = await import('../src/render/scene.js');
-const hud   = await import('../src/render/hud.js');
+const _hud   = await import('../src/render/hud.js');
 const main  = await import('../src/main.js');
 
 console.log('\nimported all 18 modules (input.js included)\n');
@@ -206,7 +209,6 @@ console.log('\n2. fall damage curve (docs/SPEC.md)');
 
   // and a real simulated drop must actually kill
   main.newRun(1337);
-  const p = plr.player;
   // carve a clear 24-tile shaft and drop the player down it
   const dtx = gen.SPAWN_TX;
   for (let y = gen.surface[dtx]; y < gen.surface[dtx] + 26; y++) {
@@ -381,8 +383,11 @@ for (const [w, h] of [[390, 844], [768, 1024], [1600, 900], [3440, 1440]]) {
     const p = plr.player;
     if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.vy)) nonFinite++;
     if (plr.boxSolid(p.x, p.y, plr.PW, plr.PH)) stuck++;
-    if (state.run.dead) main.newRun(1337), state.run.hasPick = true,
-                        state.run.hearts = 99, state.run.maxHearts = 99;
+    if (state.run.dead) {
+      main.newRun(1337);
+      state.run.hasPick = true;
+      state.run.hearts = 99; state.run.maxHearts = 99;
+    }
   }
   if (nonFinite) fail(`${w}x${h}: ${nonFinite} frames with non-finite player state`);
   if (stuck)     fail(`${w}x${h}: player inside solid rock on ${stuck} frames`);
@@ -395,7 +400,6 @@ for (const [w, h] of [[390, 844], [768, 1024], [1600, 900], [3440, 1440]]) {
   if (buried) fail(`${w}x${h}: ${buried} items at rest inside solid rock`);
 
   // render every depth band
-  let painted0 = paint.stats.painted;
   for (let y = 0; y <= grid.WORLD_H - cv.VIEW.h; y += 64) {
     state.cam.y = y; state.cam.x = (y * 3) % Math.max(1, grid.WORLD_W - cv.VIEW.w);
     try { scene.render(); } catch (e) { fail(`render at y=${y}: ${e.message}`); break; }
