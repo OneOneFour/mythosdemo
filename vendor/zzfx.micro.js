@@ -1,4 +1,4 @@
-/* ZzFX - Zuper Zmall Zound Zynth - v1.3.2
+/*! @license ZzFX - Zuper Zmall Zound Zynth - v1.3.2
    Copyright (c) 2019 Frank Force. MIT License.
    https://github.com/KilledByAPixel/ZzFX
 
@@ -13,7 +13,9 @@
              imports every module, so module-load construction breaks CI.
      EDIT 2  the context is created on first actual play instead.
 
-   Do not reformat this file. Re-vendoring should re-apply the two edits
+   The `/*!` and `@license` markers above are load-bearing: esbuild strips
+   comments without them, which would drop the MIT notice from the shipped
+   artifact. Do not reformat this file. Re-vendoring should re-apply the two edits
    rather than hand-merge. Game-facing API is src/core/sfx.js, not this.
    ---------------------------------------------------------------------- */
 let // ZzFXMicro - Zuper Zmall Zound Zynth - v1.3.2 by Frank Force

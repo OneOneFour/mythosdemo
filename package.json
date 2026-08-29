@@ -13,12 +13,16 @@
     "test:visual": "playwright test",
     "test:visual:update": "playwright test --update-snapshots",
     "lint": "oxlint src tools tests",
-    "test": "npm run check && npm run test:visual"
+    "test": "npm run check && npm run build && npm run test:visual",
+    "build": "node tools/build.mjs",
+    "preview": "esbuild --servedir=dist --serve=5174",
+    "parity": "node tools/build.mjs && playwright test -g parity"
   },
   "engines": {
     "node": ">=18"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.1"
+    "@playwright/test": "^1.62.1",
+    "esbuild": "^0.28.2"
   }
 }

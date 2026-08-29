@@ -207,3 +207,49 @@ test('the same seed renders identically twice', async ({ page }) => {
   const b = await hashOf();
   expect(b).toBe(a);
 });
+
+/* ============================================================
+   DEV / BUILD PARITY
+
+   Dev serves src/ as untransformed native ES modules; the shipping
+   artifact is bundled and minified by esbuild. That is a real
+   divergence risk — the whole reason the project avoided a build
+   step for so long. So assert it directly rather than trusting it:
+   drive both to the same state and compare the canvas pixel-for-pixel.
+
+   Requires `npm run build` first; `npm run parity` does both.
+   ============================================================ */
+const SCENE = () => {
+  __mf.newRun(9001);
+  __mf.state.clock.t = 10;
+  __mf.state.run.hasPick = true;
+  __mf.hold({ right: 1 }, 60);
+  __mf.hold({ dig: 1, down: 1 }, 90);
+  __mf.frames(120);
+  const c = document.getElementById('stage');
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  let h = 2166136261;
+  for (let i = 0; i < d.length; i += 4) {
+    h ^= d[i] | (d[i + 1] << 8) | (d[i + 2] << 16);
+    h = Math.imul(h, 16777619);
+  }
+  return { hash: h >>> 0, w: c.width, h2: c.height };
+};
+
+test('parity: the built artifact renders identically to dev', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', e => errors.push('dev/built: ' + e));
+
+  await page.goto('/?test=1');
+  await page.waitForFunction(() => globalThis.__mf?.ready);
+  const dev = await page.evaluate(SCENE);
+
+  await page.goto('/dist/mythos-factory.html?test=1');
+  await page.waitForFunction(() => globalThis.__mf?.ready);
+  const built = await page.evaluate(SCENE);
+
+  expect(errors).toEqual([]);
+  expect(built.w).toBe(dev.w);
+  expect(built.h2).toBe(dev.h2);
+  expect(built.hash).toBe(dev.hash);
+});

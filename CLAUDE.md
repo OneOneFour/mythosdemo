@@ -19,15 +19,48 @@ the change is explicitly about that trade.
 ## Commands
 
 ```bash
-npm install              # dev tooling only; the game itself has no deps
-npm start                # dev server on :5173 (ES modules need an HTTP origin)
+npm install              # dev tooling only; the game ships zero runtime deps
+npm start                # dev server on :5173, UNTRANSFORMED native ES modules
 npm run check            # headless verification — RUN THIS AFTER ANY CHANGE
-npm run test:visual      # screenshot regression in a real browser
-npm run test             # both of the above
+npm run build            # esbuild -> dist/mythos-factory.html, one file
+npm run preview          # serve the built artifact on :5174
+npm run parity           # build, then assert dev and dist render identically
+npm run test             # check + build + full visual suite
 npm run lint             # oxlint, no config
-npm run check:mockup     # the preserved mockup's own harness
 npm run test:visual:update   # re-accept deliberate visual changes
+npm run check:mockup     # the preserved mockup's own harness
 ```
+
+## The build, and why dev does not use it
+
+Two paths, deliberately:
+
+- **Dev (`npm start`)** serves `src/` as native ES modules with **no transform
+  at all**. What you debug is what you wrote — real line numbers, no source
+  maps, the module graph inspectable in devtools. This is the property the
+  project's old no-build rule existed to protect, and it is worth keeping.
+- **Release (`npm run build`)** runs esbuild: bundle, minify, inline into one
+  self-contained `dist/mythos-factory.html`. ~36 KB, no external requests,
+  verified to boot from `file://`.
+
+esbuild was chosen over Rollup and Vite on measured cost: esbuild is **2
+packages** with bundling, minification and `node_modules` resolution built in.
+Rollup needs `@rollup/plugin-node-resolve` and `@rollup/plugin-terser` for the
+same job, which is **31 packages**. Vite is 16 and would also replace the dev
+server — reasonable, but it buys most of its value for frameworks this project
+does not use. esbuild also provides `--serve`/`--servedir`/`--watch`, so no
+second tool is needed; `npm run preview` uses it.
+
+**Two paths means a divergence risk, so it is asserted, not assumed.** The
+parity test drives both the dev page and the built artifact through the same
+scripted scene and compares the canvas pixel-for-pixel. If minification or
+bundling ever changes behaviour, `npm run parity` fails. Do not delete that
+test to make a build pass.
+
+**`vendor/zzfx.micro.js` opens with `/*! @license`.** Those markers are
+load-bearing: esbuild strips comments without them, which silently dropped the
+MIT copyright notice from the shipped artifact once already. Any future
+vendored file needs the same marker.
 
 `npm run check` imports every module (including `input.js`), asserts the world
 generates with its tutorial guarantees intact, verifies the fall-damage table
@@ -115,10 +148,10 @@ pixels moved. A human approves the baseline; the machine guards it after that.
   module graph is `src/` plus `vendor/` and nothing else: no bundler, no
   framework, no CDN, no import maps. If something seems to need a library at
   runtime, it doesn't.
-- **Dev dependencies are a separate question, and are allowed.** Playwright and
-  oxlint never enter the shipped artifact, so they do not violate the rule
-  above. Keep the distinction sharp: a `dependencies` entry is close to
-  forbidden, a `devDependencies` entry needs only to earn its keep.
+- **Dev dependencies are a separate question, and are allowed.** esbuild,
+  Playwright and oxlint never enter the shipped artifact, so they do not
+  violate the rule above. Keep the distinction sharp: a `dependencies` entry is
+  close to forbidden, a `devDependencies` entry needs only to earn its keep.
 - **`vendor/` is for single-file, MIT-or-similar drop-ins**, copied in with
   provenance and any local edits documented inline. `vendor/zzfx.micro.js` is
   the model. This is not an npm install and must not become one.
@@ -158,6 +191,14 @@ pixels moved. A human approves the baseline; the machine guards it after that.
   shipped with `export let d = 0;` inside a function body — it did not parse,
   and nothing imported it, so nobody noticed. `check.mjs` now imports every
   module for exactly this reason.
+- **A build step can silently drop a licence.** The vendored ZzFX MIT notice
+  was minified away on the first `npm run build`; nothing failed, the artifact
+  was simply non-compliant. Licence markers now guard it, and the build script
+  prints whether the output is self-contained.
+- **I removed the bundler and did not say so.** Restructuring moved the
+  mockup's `tools/bundle.mjs` into `reference/` and left the project with no
+  way to produce a shippable artifact for two commits. If you move a tool,
+  either port it or record its absence.
 - **A fixed-`DT` harness cannot see framerate bugs.** `check.mjs` re-implements
   the frame loop at `DT = 1/60` instead of calling the real `step()`, which is
   why three known framerate-dependent bugs pass green. Fixing that is queued.
