@@ -223,6 +223,62 @@ console.log('\n2. fall damage curve (docs/SPEC.md)');
 
 
 /* ============================================================
+   2b. HARDNESS IS SECONDS-TO-BREAK AT ANY FRAMERATE
+
+   Mining progress was once a Uint8Array holding a 0..255 fraction, so the
+   per-frame increment `(dt / hard) * 255` truncated to an integer and any
+   material became permanently unmineable above `255 / hard` fps. Granite
+   died above 106 fps — every 120 Hz display. This sweeps real framerates
+   AND a hypothetical very hard material, because the failure got worse the
+   harder the material was.
+   ============================================================ */
+console.log('\n2b. hardness honours its spec at every framerate');
+{
+  const RATES = [20, 30, 60, 90, 107, 120, 144, 165, 240];
+  let worst = 0, worstAt = '';
+  for (const id of ['seam', 'soil', 'lime', 'copper', 'granite']) {
+    const spec = tiles.hardOf(tiles.T[id]);
+    for (const fps of RATES) {
+      const dt = 1 / fps;
+      main.newRun(1337);
+      grid.setTile(50, 200, tiles.T[id]);
+      let t = 0, broke = false;
+      for (let f = 0; f < fps * 30; f++) {
+        grid.damage(50, 200, dt, 1); t += dt;
+        if (grid.tileAt(50, 200) === tiles.AIR) { broke = true; break; }
+      }
+      if (!broke) { fail(`${id} is UNMINEABLE at ${fps} fps`); continue; }
+      // one frame of over-shoot is inherent: you can only break on a frame
+      const err = Math.abs(t - spec);
+      if (err > dt + 1e-6) fail(`${id} at ${fps} fps took ${t.toFixed(3)}s, spec ${spec}s`);
+      if (err > worst) { worst = err; worstAt = `${id}@${fps}fps`; }
+    }
+  }
+  ok(`5 materials x ${RATES.length} framerates within one frame of spec ` +
+     `(worst ${worst.toFixed(4)}s, ${worstAt})`);
+
+  // a much harder material is where the old bug was catastrophic
+  tiles.MAT.push({ id: 'testadamant', solid: true, hard: 8.0, drop: 'stone',
+                   a: '#fff', b: '#888', c: '#444', name: 'TEST' });
+  const ad = tiles.MAT.length - 1;
+  let allBroke = true;
+  for (const fps of [30, 60, 120, 240]) {
+    const dt = 1 / fps;
+    main.newRun(1337);
+    grid.setTile(50, 200, ad);
+    let t = 0, broke = false;
+    for (let f = 0; f < fps * 60; f++) {
+      grid.damage(50, 200, dt, 1); t += dt;
+      if (grid.tileAt(50, 200) === tiles.AIR) { broke = true; break; }
+    }
+    if (!broke) { fail(`a hard=8.0 material is UNMINEABLE at ${fps} fps`); allBroke = false; }
+  }
+  tiles.MAT.pop();
+  if (allBroke) ok('a hypothetical hard=8.0 material is mineable at 30-240 fps');
+}
+
+
+/* ============================================================
    3. SCRIPTED PLAYTHROUGH OF THE BEAT SHEET
    ============================================================ */
 console.log('\n3. scripted playthrough of the first two minutes');

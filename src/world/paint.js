@@ -1,7 +1,7 @@
 import { R, offscreen } from '../core/canvas.js';
 import { P, mix } from '../core/palette.js';
 import { hash2 } from '../core/rng.js';
-import { CHUNK, CHUNKS_X, CHUNKS_Y, CHUNK_PX, TILE, grid, idx, tileAt } from './grid.js';
+import { CHUNK, CHUNKS_X, CHUNKS_Y, CHUNK_PX, TILE, dmgAt, grid, tileAt } from './grid.js';
 import { AIR, MAT, isSolid } from './tiles.js';
 import { surface } from './generate.js';
 
@@ -131,7 +131,7 @@ function paintTile(g, px, py, tx, ty, m) {
       R(g, px + hx, py + hy, 1, 1, P.veinA);
     }
 
-  const d = grid.dmg[idx(tx, ty)] / 255;
+  const d = dmgAt(tx, ty);
   if (d > 0.05) paintCracks(g, px, py, tx, ty, d);
 }
 
