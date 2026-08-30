@@ -1,0 +1,269 @@
+/* LAYER view — THE FRAME. Composes the passes and owns nothing but the order
+   they happen in. Imports `core`, `data` and READ-ONLY `model` queries.
+
+   ============================================================================
+   `render()` PERFORMS NO MODEL WRITES, AND THAT IS PROVABLE.
+   The static half: `tools/layers.mjs` forbids `view -> rules`, and nothing here
+   imports a `write` namespace. The dynamic half: `model/epoch.js` counts every
+   mutation, and the check tool asserts the counter does not move across a call
+   to this function. Two partial nets where a type system would give one
+   guarantee — stated honestly rather than claimed as proof.
+   ============================================================================
+
+   BANDS ARE LAID OUT IN ONE SHARED WORLD-PIXEL SPACE, so more than one can be
+   on screen at once and this loop draws every band the viewport touches. There
+   is no "current band" in the renderer; the camera is a window onto world
+   pixels and the band a thing belongs to is a property of the thing.
+
+   PASS ORDER: void, then per band (sky, then chunks), then machines, items,
+   player, chips, field overlay, atmosphere, debug, HUD. Anything that reads as
+   lighting comes after everything it lights. */
+
+import { drawText } from '../core/font.js';
+import { mix } from '../core/palette.js';
+import { R, glow, lineTo } from '../core/pixels.js';
+import { hash2 } from '../core/rng.js';
+import { colour } from '../data/palette.js';
+import { FIELDS } from '../data/world.js';
+import { fieldAt, hasField } from '../model/fields.js';
+import { items } from '../model/items.js';
+import { machines } from '../model/machines.js';
+import { PH, PW, player } from '../model/player.js';
+import { run } from '../model/run.js';
+import { bandAt, bands, chunkPx, heightPx, widthPx } from '../model/world.js';
+import { chips, drawChips } from './fx.js';
+import { drawHUD } from './hud.js';
+import { beginFrame, chunkCanvas, paintItem, paintMachine } from './paint.js';
+
+const INK = {
+  void:   colour('abyC'),
+  cloud:  colour('cloudA'),
+  cloudLo: colour('cloudC'),
+  skin:   '#d8a878',
+  tunicA: '#b8433a',
+  tunicB: '#8d2f29',
+  hair:   '#3a2416',
+  eye:    '#1a1014',
+  haft:   colour('woodB'),
+  head:   colour('irA'),
+  hurt:   '#ff4a4a',
+  heat:   colour('hot'),
+  grid:   colour('watB'),
+  chunk:  '#ff7fd0'
+};
+
+export const stats = { chunksDrawn: 0, bandsDrawn: 0 };
+
+/* `f` is the frame context assembled by `shell/main.js`:
+     { cam:{x,y}, t, dt, frame, W, H, flags }
+   Passed in rather than imported, because the clock and the camera are devices'
+   business and `view` may not import `shell`. */
+export function render(g, f) {
+  const { cam, W, H } = f;
+  cam.x = Math.round(cam.x); cam.y = Math.round(cam.y);
+  beginFrame();
+
+  R(g, 0, 0, W, H, INK.void);
+  stats.chunksDrawn = 0; stats.bandsDrawn = 0;
+
+  for (const b of bands) {
+    if (!visible(b, cam, W, H)) continue;
+    stats.bandsDrawn++;
+    drawSky(g, b, f);
+    drawChunks(g, b, cam, W, H);
+  }
+
+  for (const m of machines)
+    paintMachine(g, m, (m.box.x - cam.x) | 0, (m.box.y - cam.y) | 0, f.t);
+
+  drawItems(g, f);
+  drawPlayer(g, f);
+  drawChips(g, cam, W, H);
+  drawFields(g, f);
+  atmosphere(g, f);
+
+  if (f.flags.showGrid)   overlay(g, cam, W, H, player.band?.tile ?? 8, INK.grid, 0.16);
+  if (f.flags.showChunks) overlay(g, cam, W, H, player.band ? chunkPx(player.band) : 128, INK.chunk, 0.5);
+
+  drawHUD(g, f);
+}
+
+const visible = (b, cam, W, H) =>
+  b.origin.x < cam.x + W && b.origin.x + widthPx(b) > cam.x &&
+  b.origin.y < cam.y + H && b.origin.y + heightPx(b) > cam.y;
+
+/* ---------- sky ----------
+   A band's `look.sky` is the colour above its ground line and `look.tint` is
+   what the rock below is made of; the gradient between them is what makes a
+   horizon. A band whose `floorTy` is 0 (the deep ones) has no sky region at all
+   and this costs nothing. */
+function drawSky(g, b, f) {
+  const { cam, W, H } = f;
+  const l = b.cfg.look || {};
+  const top = b.origin.y - cam.y;
+  const horizon = b.origin.y + (b.cfg.floorTy ?? 0) * b.tile - cam.y;
+  const y0 = Math.max(0, top), y1 = Math.min(H, horizon);
+  if (y1 <= y0) return;
+
+  const grd = g.createLinearGradient(0, top, 0, horizon + 40);
+  grd.addColorStop(0, colour(l.sky ?? 'abyB'));
+  grd.addColorStop(1, mix(colour(l.sky ?? 'abyB'), colour(l.tint ?? 'abyC'), 0.5));
+  g.fillStyle = grd;
+  g.fillRect(0, y0, W, y1 - y0);
+
+  /* Drifting cloud puffs, from a positional hash plus the clock. The drift is
+     `f.t`, never `rand()`: a repaint must not advance anything. */
+  const span = widthPx(b) + 260;
+  for (let i = 0; i < 14; i++) {
+    const sp = 2 + (i % 4) * 1.6;
+    const x = ((hash2(i, 2001 + b.ord) * span + f.t * sp) % span) - 130
+            + b.origin.x - cam.x * 0.35;
+    const y = top + 14 + hash2(i, 2003 + b.ord) * Math.max(1, horizon - top - 20);
+    if (y < y0 - 30 || y > y1 || x < -60 || x > W + 60) continue;
+    g.globalAlpha = 0.55;
+    puff(g, x | 0, y | 0, (14 + hash2(i, 2007 + b.ord) * 26) | 0);
+    g.globalAlpha = 1;
+  }
+}
+
+function puff(g, x, y, w) {
+  const h = Math.max(3, (w * 0.34) | 0);
+  R(g, x, y, w, h, INK.cloud);
+  R(g, x + ((w * 0.2) | 0), y - ((h * 0.6) | 0), (w * 0.5) | 0, h, INK.cloud);
+  R(g, x + ((w * 0.55) | 0), y - ((h * 0.3) | 0), (w * 0.3) | 0, h,
+    mix(INK.cloud, INK.cloudLo, 0.3));
+}
+
+/* ---------- terrain ---------- */
+function drawChunks(g, b, cam, W, H) {
+  const px = chunkPx(b);
+  const ox = b.origin.x - cam.x, oy = b.origin.y - cam.y;
+  const c0x = Math.max(0, Math.floor(-ox / px));
+  const c1x = Math.min(b.cx - 1, Math.floor((W - ox) / px));
+  const c0y = Math.max(0, Math.floor(-oy / px));
+  const c1y = Math.min(b.cy - 1, Math.floor((H - oy) / px));
+
+  for (let cy = c0y; cy <= c1y; cy++)
+    for (let cx = c0x; cx <= c1x; cx++) {
+      const canvas = chunkCanvas(b, cx, cy);
+      if (!canvas) continue;                    // headless: no offscreen surface
+      g.drawImage(canvas, (ox + cx * px) | 0, (oy + cy * px) | 0);
+      stats.chunksDrawn++;
+    }
+}
+
+/* ---------- entities ---------- */
+function drawItems(g, f) {
+  const { cam, W, H } = f;
+  for (const it of items) {
+    const x = (it.x - cam.x) | 0, y = (it.y - cam.y) | 0;
+    if (x < -8 || x > W + 8 || y < -8 || y > H + 8) continue;
+    paintItem(g, it, x, y, f.t);
+  }
+}
+
+function drawPlayer(g, f) {
+  if (run.dead) return;
+  const p = player;
+  const x = (p.x - f.cam.x) | 0, y = (p.y - f.cam.y) | 0;
+  /* Blink while invulnerable, so a hit is legible. Derived from the clock, not
+     from a counter this function would have to advance. */
+  if (run.invuln > 0 && ((f.t * 14) | 0) % 2 === 0) return;
+
+  const step = p.walkPhase ? (Math.sin(p.walkPhase) > 0 ? 1 : 0) : 0;
+  R(g, x + 1, y + 10, 3, 6, INK.tunicB);                    // legs
+  R(g, x + 4, y + 10, 3, 6 - step, INK.tunicB);
+  R(g, x, y + 4, PW, 7, INK.tunicA);                        // torso
+  R(g, x, y + 4, PW, 1, mix(INK.tunicA, INK.cloud, 0.3));
+  R(g, x + 2, y, 5, 5, INK.skin);                           // head
+  R(g, x + 2, y, 5, 1, INK.hair);
+  R(g, x + (p.face > 0 ? 5 : 2), y + 2, 1, 1, INK.eye);     // eye
+
+  if (run.hasPick) {                                        // held out front
+    const hx = x + (p.face > 0 ? PW : -1), hy = y + 6;
+    const sw = p.digging ? 1 : 0;
+    lineTo(g, hx, hy + sw, hx + p.face * 4, hy - 3 + sw * 4, INK.haft);
+    R(g, hx + p.face * 4, hy - 4 + sw * 4, 2, 2, INK.head);
+  }
+  if (p.hurtFlash > 0) {
+    g.globalAlpha = p.hurtFlash * 0.7;
+    R(g, x - 1, y - 1, PW + 2, PH + 2, INK.hurt);
+    g.globalAlpha = 1;
+  }
+}
+
+/* ---------- fields ----------
+   Fields do NOT go through the chunk cache. Those canvases exist to avoid
+   repainting static rock; a heat plume changes every frame and would thrash
+   them. So this is a viewport-culled pass that reads `fieldAt` and nothing else,
+   and it is where fog of war would go for exactly the same reason. */
+function drawFields(g, f) {
+  const { cam, W, H } = f;
+  for (const b of bands) {
+    if (!visible(b, cam, W, H)) continue;
+    for (const name of FIELDS) {
+      if (!hasField(b, name)) continue;
+      const t = b.tile;
+      const x0 = Math.max(0, Math.floor((cam.x - b.origin.x) / t));
+      const x1 = Math.min(b.tw, Math.ceil((cam.x + W - b.origin.x) / t));
+      const y0 = Math.max(0, Math.floor((cam.y - b.origin.y) / t));
+      const y1 = Math.min(b.th, Math.ceil((cam.y + H - b.origin.y) / t));
+      for (let ty = y0; ty < y1; ty++)
+        for (let tx = x0; tx < x1; tx++) {
+          const v = fieldAt(b, name, tx, ty);
+          if (v < 0.5) continue;
+          g.globalAlpha = Math.min(0.45, v / 120);
+          R(g, b.origin.x + tx * t - cam.x, b.origin.y + ty * t - cam.y, t, t, INK.heat);
+          g.globalAlpha = 1;
+        }
+    }
+  }
+}
+
+/* ---------- atmosphere ----------
+   Depth tint from the band under the camera's centre: its `look.ambient` is how
+   much light the row claims reaches it. A vignette on top, because the frame
+   edge is where the eye leaks out. */
+function atmosphere(g, f) {
+  const { cam, W, H } = f;
+  const b = bandAt(cam.x + W / 2, cam.y + H / 2);
+  const amb = b?.cfg.look?.ambient ?? 1;
+  if (amb < 0.98) {
+    g.globalAlpha = Math.min(0.55, (1 - amb) * 1.1);
+    R(g, 0, 0, W, H, INK.void);
+    g.globalAlpha = 1;
+  }
+  const grd = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.32,
+                                     W / 2, H / 2, Math.max(W, H) * 0.76);
+  grd.addColorStop(0, 'rgba(0,0,0,0)');
+  grd.addColorStop(1, 'rgba(0,0,0,0.5)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, W, H);
+
+  /* A machine's halo is light and therefore belongs after the tint, or it would
+     be dimmed by the dark it is supposed to push back. */
+  for (const m of machines) {
+    if (!(m.fire > 0.02)) continue;
+    glow(g, m.box.x + m.box.w / 2 - cam.x, m.box.y + m.box.h - 2 - cam.y,
+         12 + m.fire * 8, INK.heat, 0.4 * m.fire);
+  }
+}
+
+function overlay(g, cam, W, H, pitch, col, alpha) {
+  g.globalAlpha = alpha; g.fillStyle = col;
+  for (let x = -(((cam.x % pitch) + pitch) % pitch); x < W; x += pitch) g.fillRect(x, 0, 1, H);
+  for (let y = -(((cam.y % pitch) + pitch) % pitch); y < H; y += pitch) g.fillRect(0, y, W, 1);
+  g.globalAlpha = 1;
+}
+
+/* A one-line band label, so the seam between two bands is legible while the
+   world is still this thin. `drawText` and not `fillText`, always. */
+export function bandLabel(g, f) {
+  const b = player.band;
+  if (!b) return;
+  drawText(g, b.name, 6, f.H - 26, colour('uiDim'), 1, 1);
+}
+
+/* Chips are drawn from `view/fx.js`; re-exported so `shell` has one import for
+   the whole draw surface and does not have to know how the passes are split. */
+export { chips };

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mythos Factory — layered prototype</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: #07060a; color: #cfc6b0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  /* Nearest-neighbour upscale. The canvas is ~1/3 window resolution and every
+     pixel in it is drawn on an integer boundary; smoothing here would undo the
+     whole look. All three properties are needed for full browser coverage. */
+  #stage {
+    display: block;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    -ms-interpolation-mode: nearest-neighbor;
+    cursor: crosshair;
+    touch-action: none;
+  }
+  #keys {
+    position: fixed; left: 50%; bottom: 4px; transform: translateX(-50%);
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: #4a4438; pointer-events: none; user-select: none;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<div id="keys">
+  A/D move &nbsp;·&nbsp; W/S climb &nbsp;·&nbsp; Space hop &nbsp;·&nbsp;
+  click or X dig &nbsp;·&nbsp; E build &nbsp;·&nbsp; F furnace &nbsp;·&nbsp;
+  L winch &nbsp;·&nbsp; T trinket &nbsp;·&nbsp; B boon &nbsp;·&nbsp;
+  G grid &nbsp;·&nbsp; C chunks &nbsp;·&nbsp; H debug &nbsp;·&nbsp;
+  M mute &nbsp;·&nbsp; R restart
+</div>
+<script type="module" src="./src/shell/main.js"></script>
+</body>
+</html>
