@@ -92,7 +92,7 @@ function integrate(it, dt, grav, term) {
 /* One substep: x then y, each resolved on its own, so an item sliding along a
    wall does not lose its fall. */
 function hop(it, dx, dy, half) {
-  const b0 = it.band, t = b0.tile;
+  const b0 = it.band;
 
   if (dx) {
     const nx = it.x + dx;

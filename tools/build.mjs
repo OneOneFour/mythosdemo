@@ -17,7 +17,7 @@ const OUT  = join(ROOT, 'dist', 'mythos-factory.html');
 const minify = !process.argv.includes('--no-minify');
 
 const result = await build({
-  entryPoints: [join(ROOT, 'src', 'main.js')],
+  entryPoints: [join(ROOT, 'src', 'shell', 'main.js')],
   bundle: true,
   format: 'esm',
   target: ['es2022'],
@@ -31,7 +31,7 @@ const js = result.outputFiles[0].text;
 
 const shell = await readFile(join(ROOT, 'index.html'), 'utf8');
 
-const TAG = '<script type="module" src="./src/main.js"></script>';
+const TAG = '<script type="module" src="./src/shell/main.js"></script>';
 if (!shell.includes(TAG))
   throw new Error(`index.html no longer contains the expected script tag:\n  ${TAG}`);
 

@@ -5,16 +5,21 @@ Working notes for this repo. Read this before changing anything.
 ## What this is
 
 A **playable prototype** of a gravity-fed vertical factory roguelike (Greek
-myth, underground alchemy). You walk, dig, place ladders, take fall damage, and
-die permanently. The first two minutes are implemented end to end.
+myth, underground alchemy). Scaffolding, not a game yet: the architecture is
+complete and the core loop runs, and content is deliberately thin.
 
-It replaced a non-interactive visual mockup, which is preserved verbatim in
-`reference/mockup/` as the art target. **Do not develop the mockup.** Read it
-for painting technique and composition, then leave it alone.
+Read **`ARCHITECTURE.md` before changing anything.** It was written before the
+code so it governs rather than describes, and section 7 records what was
+rejected so those arguments are not re-litigated. `docs/rfc/` holds the full
+reasoning: six competing proposals, a graded review, three built prototypes and
+a final code review.
 
-The project's whole premise is one sentence: **down is free, up is expensive.**
-Anything that makes ascent cheap or convenient is a bug, not a feature, unless
-the change is explicitly about that trade.
+`reference/mockup/` is the original non-interactive pixel-art mockup, preserved
+as the art target. **Do not develop it.**
+
+The project's premise is one sentence: **down is free, up is expensive.**
+Anything that makes ascent cheap is a bug, not a feature, unless the change is
+explicitly about that trade.
 
 ## Commands
 
@@ -28,148 +33,103 @@ npm run parity           # build, then assert dev and dist render identically
 npm run test             # check + build + full visual suite
 npm run lint             # oxlint, no config
 npm run test:visual:update   # re-accept deliberate visual changes
-npm run check:mockup     # the preserved mockup's own harness
 ```
-
-## The build, and why dev does not use it
-
-Two paths, deliberately:
-
-- **Dev (`npm start`)** serves `src/` as native ES modules with **no transform
-  at all**. What you debug is what you wrote — real line numbers, no source
-  maps, the module graph inspectable in devtools. This is the property the
-  project's old no-build rule existed to protect, and it is worth keeping.
-- **Release (`npm run build`)** runs esbuild: bundle, minify, inline into one
-  self-contained `dist/mythos-factory.html`. ~36 KB, no external requests,
-  verified to boot from `file://`.
-
-esbuild was chosen over Rollup and Vite on measured cost: esbuild is **2
-packages** with bundling, minification and `node_modules` resolution built in.
-Rollup needs `@rollup/plugin-node-resolve` and `@rollup/plugin-terser` for the
-same job, which is **31 packages**. Vite is 16 and would also replace the dev
-server — reasonable, but it buys most of its value for frameworks this project
-does not use. esbuild also provides `--serve`/`--servedir`/`--watch`, so no
-second tool is needed; `npm run preview` uses it.
-
-**Two paths means a divergence risk, so it is asserted, not assumed.** The
-parity test drives both the dev page and the built artifact through the same
-scripted scene and compares the canvas pixel-for-pixel. If minification or
-bundling ever changes behaviour, `npm run parity` fails. Do not delete that
-test to make a build pass.
-
-### Can I `npm install` a runtime library?
-
-For the **build**, yes — esbuild resolves bare specifiers from `node_modules`
-and inlines them. Verified end to end with `simplex-noise`: installed,
-imported as `from 'simplex-noise'`, built, and the artifact booted from
-`file://` returning correct values.
-
-For **dev**, no, not on its own. `npm start` serves untransformed modules, and
-a browser cannot resolve a bare specifier:
-
-```
-TypeError: Failed to resolve module specifier "simplex-noise".
-Relative references must start with either "/", "./", or "../".
-```
-
-The fix is **an import map in `index.html`**, which is a native browser feature
-and needs no build step:
-
-```html
-<script type="importmap">
-{ "imports": { "simplex-noise": "/node_modules/simplex-noise/dist/esm/simplex-noise.js" } }
-</script>
-```
-
-Verified: with that map, dev boots clean AND the build still works, because
-esbuild ignores the map and resolves from `node_modules` directly. The cost is
-that `node_modules/` must be served in dev, and the map needs one entry per
-package pointing at that package's real ESM file.
-
-So a runtime dependency is *possible* and costs about three lines. It is still
-governed by the rule above — possible is not the same as warranted, and the
-library research concluded almost nothing is worth installing at runtime.
-Vendoring stays preferable for anything small enough to read.
-
-**`vendor/zzfx.micro.js` opens with `/*! @license`.** Those markers are
-load-bearing: esbuild strips comments without them, which silently dropped the
-MIT copyright notice from the shipped artifact once already. Any future
-vendored file needs the same marker.
-
-`npm run check` imports every module (including `input.js`), asserts the world
-generates with its tutorial guarantees intact, verifies the fall-damage table
-against `docs/SPEC.md`, **drives a scripted bot through all nine tutorial
-beats**, fuzzes the player against the tile grid at four viewport sizes, and
-measures how many chunks a single dig repaints.
-
-**It cannot tell you whether anything looks good.** Visual changes need a human
-to eyeball them; say so rather than claiming a visual result is verified.
 
 ## Where to look
 
-`src/world/grid.js` is the file that matters. It is the single source of truth
-for solidity, material and mining state. Read it before touching `tiles.js`,
-`generate.js`, or `paint.js`.
+```
+src/core/    pure utilities — rng, palette, bitmap font, pixel ops, canvas
+src/data/    frozen content tables — substances, forms, machines, tuning, world
+src/model/   world state and queries. Owns numbers, makes no decisions.
+src/rules/   mechanics. Owns decisions and consequences.
+src/view/    rendering and HUD. Reads the model, never mutates it.
+src/shell/   the loop, input, devices, wiring. schedule.js states the rules order.
+tools/       serve, build, check, layers
+docs/        SPEC (locked numbers), DESIGN (the game), MIGRATION, rfc/
+```
 
-```
-src/core/      canvas + camera-independent viewport, pixel primitives,
-               palette, 5x7 bitmap font, RNG
-src/world/     tiles (material table), grid (chunked storage),
-               generate (tutorial band), paint (per-chunk rendering)
-src/sim/       state, player, items, mining, structures, tutorial
-src/render/    scene, hud
-src/main.js    boot + loop      src/input.js  keyboard and mouse
-tools/         serve, check
-reference/     the original non-interactive mockup — read-only
-docs/          SPEC.md (locked decisions), DESIGN.md (reasoning)
-FUTURE_IDEAS.md  parked ideas
-```
+**Nothing may import upward. `rules` and `view` may never import each other.**
+`rules` modules are siblings and do not import one another — their order is
+stated once, in `src/shell/schedule.js`, with a comment explaining every
+adjacent pair. `tools/layers.mjs` enforces all of it as section 0 of
+`npm run check`, with a budget of 0 that may only go down.
+
+Two rules answer most "where does this go?" questions:
+
+1. **`model` owns the number and the query; `rules` owns the decision and the
+   consequence.** Storage has the lifetime of the world, a decision the
+   lifetime of a frame. This is not cosmetic — mining progress used to live in
+   the tile store, which is *why* it was a truncated byte, which is why hard
+   material became unmineable above a threshold framerate.
+2. **A substance is an element; anything you can hold is substance x form.** A
+   thing with no element of its own is a form of the element it came from.
+
+## The two things that make content cheap
+
+**Tunables are split by name.** `data/tuning.js` is the frozen design;
+`model/mods.js` is the run-scoped modifier list; `eff(id, scope)` is the only
+reader. **No file except `model/mods.js` may import `data/tuning.js`**, and the
+layer checker enforces it — which is what makes the store unbypassable and
+therefore what lets a god's trinket change walk speed at all. A scoped key
+narrows to a substance or a machine, so `rate.kiln_divine` speeds one machine.
+
+**Notification flows downward as data.** `rules` never calls `play()` or
+`toast()`; it pushes a row onto `model/journal.js` and `shell/notify.js` drains
+it once a frame. Measured cost: 0.49 microseconds per frame. The real cost is
+one frame of latency, which is fine for sound and wrong for anything needing a
+same-frame response.
 
 ## Invariants — breaking these breaks the premise
 
-1. **The tile grid is the only truth.** Solidity, appearance and mining state
-   all come from `grid.mat`/`grid.dmg`. Never introduce a second collision
-   model — the mockup had a bitmap and a rect list that could disagree, and
-   that is why it could not support digging.
-2. **World coordinates are absolute.** `WORLD_W`/`WORLD_H` never depend on
-   `innerWidth`. Resizing moves the camera and nothing else. The mockup
-   rebuilt its world on resize; that is exactly what we escaped.
-3. **A dig repaints its chunk, not the world.** `markDirty()` flags at most the
-   touched chunk plus seam neighbours. The check asserts this. If a change makes
-   a dig dirty many chunks, fix the dirty tracking, don't relax the assertion.
-4. **Down is free, up is expensive.** Falling is fast and costs hearts. Climbing
-   is 30 px/s — half walk speed — and costs timber. Preserve that asymmetry.
-5. **Mined material becomes a physical falling item**, never a direct inventory
-   credit. This is how the player learns the thesis before any machine exists.
+1. **The tile grid is the only source of truth for terrain.** Never a second
+   collision model.
+2. **World coordinates are absolute per band**, and a band carries its own
+   dimensions and tile size. Resizing the window moves the camera and nothing
+   else. World size is not a module constant and tile arrays are not allocated
+   at import — that was the biggest structural blocker in the old code.
+3. **A dig repaints its chunk, not the world.**
+4. **Down is free, up is expensive.** Falling is fast and costs hearts;
+   climbing is half walk speed and costs material; the winch ascends only with
+   a lit burner. Five independent lift stages, never one continuous cage.
+5. **Mined material becomes a falling item**, never a direct inventory credit.
    Machines are catch boxes: material that falls in is free.
-6. **Health is five discrete hearts.** No partial hearts, no regeneration, no
-   respawn. Death ends the run.
-7. **Fall damage follows `docs/SPEC.md`**: 5 tiles safe, one heart per 32 px/s
-   above 160 px/s, 20 tiles lethal. The check asserts all seven rows.
-8. **A run is bit-reproducible from its seed.** Everything in `sim/` and
-   `render/` draws randomness from `rand()` in `core/rng.js`, never from
-   `Math.random()`, and `newRun()` reseeds it. Rendering consumes no randomness
-   at all, so drawing twice cannot change the outcome. This buys seed sharing,
-   deterministic replay, and screenshot tests that diff at threshold zero — a
-   `Math.random()` call in a draw path silently breaks all three.
-9. **`newRun()` must reset *everything*.** Any field that survives a restart is
-   a determinism bug. `pickup.bob`, the player's animation phases and `clock.t`
-   all leaked once, and the screenshot test caught it as "the same seed renders
-   differently twice."
+6. **Health is five discrete hearts.** No partials, no regeneration, no respawn.
+7. **A run is bit-reproducible from its seed.** All randomness through `rand()`;
+   **rendering consumes none.** A `rand()` call in a draw path breaks seed
+   sharing, replay and screenshot testing at once.
+8. **`newRun()` resets everything.** A field surviving a restart is a
+   determinism bug.
+9. **`view` never mutates `model`.** The epoch counter proves it: `model` bumps
+   on every write and the check asserts the counter is unchanged across a
+   render.
+10. **Hardness is seconds-to-break at any framerate.** The simulation runs a
+    fixed 1/120 s step and no `rules` module ever sees a variable dt, so a tile
+    takes its stated time and a 5-tile drop measures 40 px at 30 fps and at
+    144 fps alike.
+11. **Integer pixels only.** No `fillText`.
+12. **No runtime dependencies.** Dev tooling is a separate question and is
+    allowed.
 
 ## Verification, and what each layer can actually tell you
 
 | layer | catches | blind to |
 |---|---|---|
-| `npm run check` | imports, generation guarantees, the fall-damage table, all nine tutorial beats, collision fuzz at four viewports, dig repaint cost | anything visual; anything framerate-dependent, because it runs at a fixed `DT` |
-| `npm run test:visual` | appearance — chunk seams, palette drift, font off-by-ones, z-order, camera jitter — plus real-browser boot errors and seed determinism | whether the art is any *good*; only that it has not changed |
-| `npm run lint` | unused and undefined identifiers, which is where the mutable-state-object convention fails silently | everything else |
+| `npm run check` | dependency direction, unresolved content names, render purity, hardness at 8 framerates, the fall table, a 7,200-frame collision fuzz, seed determinism, every band rendering | anything visual |
+| `npm run test:visual` | appearance *changing* — chunk seams, palette drift, font off-by-ones, z-order — plus real-browser boot errors and dev/dist parity | whether the art is any *good* |
+| `npm run lint` | unused and undefined identifiers, where the mutable-state-object convention fails silently | everything else |
+
+`tools/layers.mjs` checks **direction and names, not sense.** It will not notice
+an unreachable recipe, a machine with no way to be fed, or a wrong number.
 
 Screenshots are bit-exact (`maxDiffPixels: 0`) because the renderer is
 deterministic by construction. **Do not raise that threshold to make a test
-pass.** A nonzero diff is a real change; either it is a regression, or it is
-intended and you run `npm run test:visual:update` and say in the commit why the
-pixels moved. A human approves the baseline; the machine guards it after that.
+pass.** A nonzero diff is either a regression or an intended change — in the
+second case run `npm run test:visual:update` and say in the commit why the
+pixels moved.
+
+**The current baselines are UNREVIEWED.** They were re-taken mechanically after
+the architecture refactor to catch future regressions, not because anyone judged
+them good.
 
 ## Conventions
 
@@ -247,6 +207,24 @@ pixels moved. A human approves the baseline; the machine guards it after that.
 - **Rendering must stay pure.** The furnace flame briefly used `rand()`, which
   meant a screenshot depended on how many times you had drawn. Derive
   animation from `clock.t` and a position hash instead.
+- **A harness can be wrong about correct code.** Rewriting `check.mjs` after the
+  refactor produced ten failures, and every single one was the harness, not the
+  game: `TUNE` maps id to a *row* rather than a number, a trinket key is dotted
+  (`rate.furnace` is tunable `rate` scoped to `furnace`), `NAMED_UNITS` is an
+  array, and a recipe with `from:` draws named units from a source rather than
+  substance-form selectors. Before believing a new assertion, check the shape of
+  what you are asserting against.
+- **Use the validator that already exists.** `data/forms.js` exports
+  `expand(sel)` specifically to prove a selector is not empty — the failure mode
+  that would let a substance pile up in a buffer no recipe consumes. A
+  hand-rolled string check was written first and was strictly worse.
+- **A test can silently test nothing.** Two screenshot tests set `flags.grid`
+  when the real name is `flags.showGrid`, so they baselined a scene with the
+  overlays off and passed. If a test asserts a feature is visible, prove the
+  pixels differ with it off.
+- **Hardcoded click coordinates break at other viewports.** A test clicking at
+  (400, 300) fails on the phone project, where the base buffer is 200x422. Drive
+  input through the keyboard or through the model, not through geometry.
 - **Testing honestly.** Run `npm run check` and `npm run test:visual` and report
   what they actually say. Screenshots prove appearance has not *changed*; they
   do not prove it is good. That still needs a human.

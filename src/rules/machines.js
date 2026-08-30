@@ -29,7 +29,6 @@
 
 import { overlaps } from '../core/math.js';
 import { F, matches } from '../data/forms.js';
-import { MACH } from '../data/machines.js';
 import { recipesOf } from '../data/recipes.js';
 import { SOURCES } from '../data/sources.js';
 import { hasField, write as fw, fieldAt } from '../model/fields.js';
