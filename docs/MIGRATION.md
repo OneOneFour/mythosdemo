@@ -12,7 +12,47 @@ seam present and demonstrated once; content deliberately thin.
 
 ---
 
-## The one decision I am making, flag it if you disagree
+## Decisions — all settled
+
+| question | answer |
+|---|---|
+| content model | **substance x form** |
+| old `src/` | **deleted.** Git history is the archive; no `reference/v1-flat/` |
+| staged lift | **one working stage**, as a machine, pointed **surface -> astral** |
+| world bands | **three**: astral / surface / topsoil |
+| tutorial | seam only, zero beats |
+| item identity | `{sub, form}` + `mass`. Not purity/fragility/temperature |
+| heat field | seam only, no diffusion |
+| journal | replaces audio **and** `toast()` |
+| save string | not in this pass; the run/meta split in the object shape only |
+| screenshots | re-baselined, labelled unreviewed |
+
+## Bands — a design addition, not just a count
+
+```
+ASTRAL / HEAVENLY   minor gods. Reachable.
+SURFACE             spawn.
+TOPSOIL             first digging band.
+```
+
+This is the reason the lift is worth scaffolding now. Before three bands,
+"up is expensive" had no destination — the gods were unreachable clouds and the
+lift moved boxes to nowhere. With an astral band the core loop closes inside
+the scaffolding: dig down (free), haul to surface, lift up (expensive), deliver.
+
+**Reading being made, which cuts against `docs/DESIGN.md`:** that document says
+the sky gods "shout demands from clouds you cannot reach", and that Hades'
+characterisation depends on the contrast of arriving in person. Here **minor
+gods are reachable** — that is what makes them minor, and the first astral
+level is somewhere the player can stand. Major gods stay unreachable. If astral
+should be goods-only, that is a small change now and a large one later.
+
+Consequences to build for:
+- band ordinals are never assumed to be zero; a band is a value, not a global
+- vertical travel between bands is a mechanic (the lift), not a camera trick
+- each band carries its own dimensions, tile size and strata, from `data/world.js`
+
+## The content-model decision, in full
 
 **`substance × form`, not flat substances.** The review left this open and I am
 taking it, because:
@@ -69,8 +109,9 @@ rather than describes:
 
 ## Phase 1 — preserve the old, scaffold the new
 
-1. `git mv src reference/v1-flat` and `git mv index.html reference/v1-flat/`.
-   Keep it runnable the way `reference/mockup/` is, for side-by-side reading.
+1. Delete the old `src/` and `index.html`. Git history is the archive — the
+   owner chose deletion over a `reference/` copy, and `reference/mockup/`
+   already covers the "read the old one" case for the art.
 2. New `src/` with the six layer directories, each carrying a `README` line in
    its first file stating what may import it.
 3. `tools/layers.mjs` **first**, before there is anything to check, so no
