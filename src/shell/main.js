@@ -22,7 +22,7 @@ import { items } from '../model/items.js';
 import { machines } from '../model/machines.js';
 import { PH, PW, player, write as playerw } from '../model/player.js';
 import { pocketRows, run } from '../model/run.js';
-import { bands, heightPx, widthPx } from '../model/world.js';
+import { bands, heightPx, widthPx, write as worldw } from '../model/world.js';
 import { placeMachine, placeTile, placeableFromPockets } from '../rules/placement.js';
 import { step as stepFx } from '../view/fx.js';
 import { render } from '../view/scene.js';
@@ -226,6 +226,13 @@ function installTestHook() {
        a `{sub, form}` pair instead of guessing a pixel coordinate — the same
        trap CLAUDE.md's "hardcoded click coordinates" mistake describes. */
     hover: hoverInfo, hits: pocketHits,
+
+    /* Fog of war, TEST ONLY. `model/world.js#write.revealAll` has no other
+       caller: several screenshot tests park the camera at a band the player
+       never walked to, to prove TERRAIN rendering is correct, which is a
+       question fog of war must not be allowed to swallow just because it now
+       exists. Nothing a real playthrough does ever reaches this. */
+    revealAll: b => worldw.revealAll(b),
 
     /* Move the pointer to a SCREEN pixel (canvas space, same units `hits`
        reports in) without a real DOM pointer event -- there is no browser

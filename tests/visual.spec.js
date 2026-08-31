@@ -70,12 +70,21 @@ test('digging down into topsoil', async ({ page }) => {
   await shot(page, 'digging.png');
 });
 
+/* Fog of war (below) hides anything the player has not stood next to, and this
+   test's whole point is the OPPOSITE question: does astral terrain render
+   correctly at all. The player never sets foot there in this suite, so
+   without the test-only `revealAll` escape hatch this would now screenshot a
+   uniform hidden-colour rectangle -- technically correct fog behaviour, and
+   exactly the "a test that measures the wrong thing passes and teaches
+   nothing" failure CLAUDE.md warns about, because a real terrain regression
+   would then pass unnoticed too. */
 test('the astral band', async ({ page }) => {
   await boot(page);
   await settle(page);
   await page.evaluate(async () => {
     const w = await import('/src/model/world.js');
     const astral = w.bands.find(b => b.id === 'astral');
+    __mf.revealAll(astral);
     __mf.cam.x = astral.origin.x;
     __mf.cam.y = astral.origin.y;
     __mf.draw();
@@ -83,12 +92,16 @@ test('the astral band', async ({ page }) => {
   await shot(page, 'astral.png');
 });
 
+/* Same reasoning as the astral band test above: the player never digs this
+   deep during `settle()`, so this proves topsoil terrain renders correctly,
+   not that fog of war paints black -- a different, already-covered claim. */
 test('the topsoil band', async ({ page }) => {
   await boot(page);
   await settle(page);
   await page.evaluate(async () => {
     const w = await import('/src/model/world.js');
     const top = w.bands.find(b => b.id === 'topsoil');
+    __mf.revealAll(top);
     __mf.cam.x = top.origin.x;
     __mf.cam.y = top.origin.y + 200;
     __mf.draw();
@@ -110,6 +123,15 @@ test('a placed furnace', async ({ page }) => {
      SPACE" refusal since it was written; the baseline just never said so
      because nothing asserted the placement had actually succeeded. */
   await page.evaluate(() => { __mf.cmd.hasMouse = false; });
+  /* `reach` (3.2 tiles) reaches well past the 1-tile fog radius the player's
+     own presence earns each frame, so a furnace built at reach's edge would
+     screenshot as a rectangle of fog with a machine somewhere unrenderable
+     underneath it -- this test's point is the furnace's OWN look (body, trim,
+     mouth, fire, pips), not fog, so the surface band is fully revealed here. */
+  await page.evaluate(async () => {
+    const { bandOf } = await import('/src/model/world.js');
+    __mf.revealAll(bandOf('surface'));
+  });
   await page.keyboard.press('f');
   await page.evaluate(() => __mf.frames(240));
   expect(await page.evaluate(() => __mf.machines.length)).toBe(1);
@@ -381,6 +403,111 @@ test('debug overlays on, for seam inspection', async ({ page }) => {
     __mf.frames(2);
   });
   await shot(page, 'overlays.png');
+});
+
+/* ============================================================
+   FOG OF WAR
+
+   The confirmed rule: a tile reveals once the player has stood in it or in
+   one of its 4 orthogonal neighbours, and never un-reveals. The two tests
+   below that touch `rules/reveal.js` call its `step()` DIRECTLY after
+   teleporting the player via `model/player.js#write.move`/`write.band`,
+   rather than walking there with `__mf.hold`/`frames` -- that isolates the
+   mechanism from physics entirely, which matters because an 800-tile-deep
+   teleport lands the player embedded in solid rock, and letting a real
+   physics substep run there would immediately start falling/collision
+   resolution that has nothing to do with what these tests are checking.
+   ============================================================ */
+
+test('an unexplored area renders as the hidden colour, whatever terrain is actually there', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const info = await page.evaluate(async () => {
+    const { bandOf } = await import('/src/model/world.js');
+    const { P } = await import('/src/core/palette.js');
+
+    /* The astral band, unvisited exactly as in `the astral band` test above,
+       and picked FOR this test over the (also unvisited) topsoil band for one
+       reason: astral's `look.ambient` is 1.0, so `view/scene.js#atmosphere`'s
+       depth tint never fires there (topsoil's 0.6 would darken the sampled
+       pixel with a second, unrelated blend on top of the fog colour, which is
+       a real compositing detail worth its own test, not noise in this one).
+       No `revealAll` here: this test's whole point is the opposite of that
+       one's. */
+    const astral = bandOf('astral');
+    __mf.cam.x = astral.origin.x;
+    __mf.cam.y = astral.origin.y;
+    __mf.draw();
+
+    const c = document.getElementById('stage');
+    const [r, g, b] = c.getContext('2d')
+      .getImageData((c.width / 2) | 0, (c.height / 2) | 0, 1, 1).data;
+    return { r, g, b, fog: P.abyA };
+  });
+
+  const [er, eg, eb] = [info.fog.slice(1, 3), info.fog.slice(3, 5), info.fog.slice(5, 7)]
+    .map(h => parseInt(h, 16));
+  expect([info.r, info.g, info.b]).toEqual([er, eg, eb]);
+});
+
+test('a tile the player stood beside stays revealed after they walk far away (permanence)', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const info = await page.evaluate(async () => {
+    const { bandOf, seenAt, worldX, worldY } = await import('/src/model/world.js');
+    const { write: pw } = await import('/src/model/player.js');
+    const { step: revealStep } = await import('/src/rules/reveal.js');
+
+    const band = bandOf('topsoil');
+    const tx = 40, ty = 40;
+
+    pw.band(band);
+    pw.move(worldX(band, tx), worldY(band, ty));       // hitbox top-left AT this tile
+    revealStep();
+    const whileThere = seenAt(band, tx, ty);
+
+    /* 60 tiles clear of the tile itself and every one of its neighbours, and
+       `revealStep()` run again there -- a radius-based implementation (the
+       bug this test exists to catch, per the brief: "easy to accidentally
+       re-hide, or to only reveal while currently adjacent") would have
+       nothing left revealing `tx,ty` at this point; a memory-based one, which
+       is what was built, has no mechanism that could ever turn a bit back off. */
+    pw.move(worldX(band, tx + 60), worldY(band, ty));
+    revealStep();
+    const afterLeaving = seenAt(band, tx, ty);
+
+    return { whileThere, afterLeaving };
+  });
+
+  expect(info.whileThere).toBe(true);
+  expect(info.afterLeaving).toBe(true);
+});
+
+test('fog resets to fully unrevealed on newRun()', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const info = await page.evaluate(async () => {
+    const { bandOf, seenAt, worldX, worldY } = await import('/src/model/world.js');
+    const { write: pw } = await import('/src/model/player.js');
+    const { step: revealStep } = await import('/src/rules/reveal.js');
+
+    const before = bandOf('topsoil');
+    const tx = 10, ty = 10;
+    pw.band(before);
+    pw.move(worldX(before, tx), worldY(before, ty));
+    revealStep();
+    const seenBefore = seenAt(before, tx, ty);
+
+    __mf.newRun(2024);
+    const after = bandOf('topsoil');
+    const seenAfter = seenAt(after, tx, ty);
+
+    return { seenBefore, seenAfter, freshBand: after !== before };
+  });
+
+  expect(info.seenBefore).toBe(true);
+  expect(info.freshBand).toBe(true);        // newRun() reallocates, never reuses
+  expect(info.seenAfter).toBe(false);       // ARCHITECTURE invariant 8
 });
 
 test('the same seed renders identically twice', async ({ page }) => {

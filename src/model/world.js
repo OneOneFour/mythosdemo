@@ -43,6 +43,17 @@ export const write = {
          side-effect-free. The epoch assertion is what forced this, and it is a
          better invalidation scheme than the flag it replaced. */
       ver: null,
+      /* Fog of war: one bit per tile, permanent for the run. A `Uint8Array` and
+         not a `Set` of indices -- unlike `fields.js#act`, which is deliberately
+         sparse because most tiles never carry heat, MOST tiles in an explored
+         band eventually get seen, so a dense byte array is both the simpler
+         and the smaller structure once play has gone on a while. It does NOT
+         bump `ver`: a chunk canvas caches the STATIC rock texture, and reveal
+         is a live overlay pass in `view/scene.js`, the same split
+         `model/fields.js`'s own header already argues for heat. Never reset by
+         anything short of `newRun()` reallocating the band outright -- there is
+         no un-reveal action, which is the whole feature. */
+      seen: new Uint8Array(cfg.tw * cfg.th),
       fields: {},                      // filled by `model/fields.js`
       cfg                              // the frozen row, for strata and `look`
     };
@@ -52,8 +63,33 @@ export const write = {
     return b;
   },
 
-  clear() { bands.length = 0; bump(); }
+  clear() { bands.length = 0; bump(); },
+
+  /* Permanent, one-way: a tile once revealed stays revealed for the rest of
+     the run (the product decision this feature exists to implement). Returns
+     false for an out-of-bounds tile or one already revealed, so a caller need
+     not diff -- the same shape `model/tiles.js#write.set` already uses. */
+  reveal(b, tx, ty) {
+    if (!inBounds(b, tx, ty)) return false;
+    const i = idx(b, tx, ty);
+    if (b.seen[i]) return false;
+    b.seen[i] = 1;
+    bump();
+    return true;
+  },
+
+  /* TEST-ONLY escape hatch, exposed through `__mf` in `shell/main.js`. Several
+     screenshot tests park the camera at a band the player never walked to, to
+     prove TERRAIN rendering is correct -- a question fog of war must not be
+     allowed to swallow. Nothing in real play ever calls this; a run that used
+     it would not be reproducible from a walk, only from a cheat. */
+  revealAll(b) { b.seen.fill(1); bump(); }
 };
+
+/* Has the player ever stood in or beside this tile? False out of bounds, same
+   as a query would report "no rock there" rather than throwing -- there is
+   nothing to reveal past the edge of a band's own grid. */
+export const seenAt = (b, tx, ty) => inBounds(b, tx, ty) && b.seen[idx(b, tx, ty)] === 1;
 
 /* ---- band lookup ---- */
 

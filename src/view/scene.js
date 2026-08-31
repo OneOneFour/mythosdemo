@@ -16,8 +16,11 @@
    pixels and the band a thing belongs to is a property of the thing.
 
    PASS ORDER: void, then per band (sky, then chunks), then machines, items,
-   player, chips, field overlay, atmosphere, debug, HUD. Anything that reads as
-   lighting comes after everything it lights. */
+   player, chips, field overlay, fog of war, atmosphere, debug, HUD. Anything
+   that reads as lighting comes after everything it lights -- which is also
+   why fog sits AFTER the field overlay rather than merely near it: fog hides
+   a tile "regardless of what's actually there" (the confirmed rule), and a
+   heat glow is one more thing that is actually there. */
 
 import { drawText } from '../core/font.js';
 import { mix } from '../core/palette.js';
@@ -30,7 +33,7 @@ import { items } from '../model/items.js';
 import { machines } from '../model/machines.js';
 import { PH, PW, player } from '../model/player.js';
 import { hasPick, run } from '../model/run.js';
-import { bandAt, bands, chunkPx, heightPx, widthPx } from '../model/world.js';
+import { bandAt, bands, chunkPx, heightPx, seenAt, widthPx } from '../model/world.js';
 import { chips, drawChips } from './fx.js';
 import { drawHUD } from './hud.js';
 import { beginFrame, chunkCanvas, paintItem, paintMachine } from './paint.js';
@@ -49,7 +52,8 @@ const INK = {
   hurt:   '#ff4a4a',
   heat:   colour('hot'),
   grid:   colour('watB'),
-  chunk:  '#ff7fd0'
+  chunk:  '#ff7fd0',
+  fog:    colour('abyA')
 };
 
 export const stats = { chunksDrawn: 0, bandsDrawn: 0 };
@@ -80,6 +84,7 @@ export function render(g, f) {
   drawPlayer(g, f);
   drawChips(g, cam, W, H);
   drawFields(g, f);
+  drawFog(g, f);
   atmosphere(g, f);
 
   if (f.flags.showGrid)   overlay(g, cam, W, H, player.band?.tile ?? 8, INK.grid, 0.16);
@@ -196,7 +201,10 @@ function drawPlayer(g, f) {
    Fields do NOT go through the chunk cache. Those canvases exist to avoid
    repainting static rock; a heat plume changes every frame and would thrash
    them. So this is a viewport-culled pass that reads `fieldAt` and nothing else,
-   and it is where fog of war would go for exactly the same reason. */
+   and fog of war (below) is the same shape of pass for the same reason: a
+   permanent bit per tile is still a LIVE read every frame, because the chunk
+   canvas it would otherwise sit on caches the static rock underneath, not
+   whether the player has earned the right to see it. */
 function drawFields(g, f) {
   const { cam, W, H } = f;
   for (const b of bands) {
@@ -216,6 +224,51 @@ function drawFields(g, f) {
           R(g, b.origin.x + tx * t - cam.x, b.origin.y + ty * t - cam.y, t, t, INK.heat);
           g.globalAlpha = 1;
         }
+    }
+  }
+}
+
+/* ---------- fog of war ----------
+   The one hard rule this pass exists to enforce: an unrevealed tile is opaque
+   REGARDLESS OF WHAT IS ACTUALLY THERE, so it draws AFTER terrain, machines,
+   items, the player, chips and the field overlay -- everything that could
+   possibly leak a hint about ground the player has not earned the right to
+   see -- and BEFORE `atmosphere`'s machine-fire glow, which is gated on
+   `seenAt` itself for the same reason (see below).
+
+   `seenAt` IS THE ONLY MODEL CALL HERE. This file never calls
+   `model/world.js#write.reveal` -- that write lives in `rules/reveal.js`,
+   and `view` importing a `write` namespace at all is exactly what the
+   epoch-unchanged-across-a-render check exists to catch.
+
+   VIEWPORT-CULLED with the identical tile-range math `drawFields` uses two
+   functions up, and RUN-MERGED: a freshly spawned band the player has barely
+   explored is otherwise dozens of 8 px squares wide per row, so this walks
+   each row once and paints one wide rect per contiguous run of unseen tiles
+   instead. `tx <= x1` (not `<`) walks one extra "virtual" column past the
+   visible edge purely as a sentinel that is never itself drawn (`hidden` is
+   forced false there), so a run still open at the edge of the screen flushes
+   without a second copy of the flush logic after the loop. */
+function drawFog(g, f) {
+  const { cam, W, H } = f;
+  for (const b of bands) {
+    if (!visible(b, cam, W, H)) continue;
+    const t = b.tile;
+    const x0 = Math.max(0, Math.floor((cam.x - b.origin.x) / t));
+    const x1 = Math.min(b.tw, Math.ceil((cam.x + W - b.origin.x) / t));
+    const y0 = Math.max(0, Math.floor((cam.y - b.origin.y) / t));
+    const y1 = Math.min(b.th, Math.ceil((cam.y + H - b.origin.y) / t));
+
+    for (let ty = y0; ty < y1; ty++) {
+      let run = -1;
+      for (let tx = x0; tx <= x1; tx++) {
+        const hidden = tx < x1 && !seenAt(b, tx, ty);
+        if (hidden) { if (run < 0) run = tx; continue; }
+        if (run < 0) continue;
+        R(g, b.origin.x + run * t - cam.x, b.origin.y + ty * t - cam.y,
+          (tx - run) * t, t, INK.fog);
+        run = -1;
+      }
     }
   }
 }
@@ -241,9 +294,14 @@ function atmosphere(g, f) {
   g.fillRect(0, 0, W, H);
 
   /* A machine's halo is light and therefore belongs after the tint, or it would
-     be dimmed by the dark it is supposed to push back. */
+     be dimmed by the dark it is supposed to push back -- which is also why it
+     runs after `drawFog`, not before, and why it is gated on `seenAt` even
+     though `drawFog` already ran: `glow` paints with `globalCompositeOperation
+     'lighter'`, so it would ADD light straight through an opaque fog rect
+     instead of being hidden by it. An active furnace's fire behind fog must
+     not out itself by lighting the fog from within. */
   for (const m of machines) {
-    if (!(m.fire > 0.02)) continue;
+    if (!(m.fire > 0.02) || !seenAt(m.band, m.tx, m.ty)) continue;
     glow(g, m.box.x + m.box.w / 2 - cam.x, m.box.y + m.box.h - 2 - cam.y,
          12 + m.fire * 8, INK.heat, 0.4 * m.fire);
   }

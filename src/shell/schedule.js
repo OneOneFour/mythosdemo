@@ -14,6 +14,15 @@
 
      aim before player     the reticle is resolved against where the player IS,
                            so the tile you were pointing at is the tile you dig.
+     player before reveal   fog of war reveals from wherever the player's
+                           hitbox rests THIS frame, not last frame's position --
+                           the same freshness `player before mining`, two lines
+                           down, already relies on for reach. `reveal` reads
+                           nothing mining touches and writes nothing anything
+                           else reads, so it costs nothing to sit here rather
+                           than after `mining` -- it is placed immediately
+                           after its one dependency, the same convention `aim
+                           before player` above already follows.
      player before mining   moving first means reach is measured from this
                            frame's position, not the last one's.
      mining before items    a tile broken this frame drops before anything falls,
@@ -85,12 +94,14 @@ import * as lift from '../rules/lift.js';
 import * as machines from '../rules/machines.js';
 import * as mining from '../rules/mining.js';
 import * as player from '../rules/player.js';
+import * as reveal from '../rules/reveal.js';
 import * as trinkets from '../rules/trinkets.js';
 
 export const STEPS = [
   { id: 'clock',    step: (dt) => rw.tick(dt) },
   { id: 'aim',      step: (dt, cmd) => aim(cmd) },
   { id: 'player',   step: (dt, cmd) => player.step(dt, cmd) },
+  { id: 'reveal',   step: () => reveal.step() },
   { id: 'mining',   step: (dt, cmd) => mining.step(dt, cmd) },
   { id: 'items',    step: (dt) => items.step(dt) },
   { id: 'belts',    step: (dt) => belts.step(dt) },
