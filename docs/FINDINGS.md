@@ -6,6 +6,19 @@ rewrite history here.
 
 ---
 
+## Phase 5a review (orchestrator)
+
+- **`oxlint` is not a declared `devDependency`.** `package.json#scripts.lint`
+  runs `oxlint src tools tests` directly (not via `npx`), and it currently
+  passes only because an earlier ad hoc install left a binary in
+  `node_modules/.bin`. First flagged in Phase 3's own report (`npx oxlint`
+  resolving without an explicit dependency) and reconfirmed at Phase 5a's
+  review. A genuinely fresh `npm install` on a clean checkout would fail
+  `npm run lint`. Pick up in **Phase 6**, which owns `package.json`'s
+  scripts/dependency hygiene as part of harness work — add `oxlint` to
+  `devDependencies` at whatever version is currently in use (`1.80.0` as of
+  this writing).
+
 ## Phase 2a (encumbrance, dropping, and ladders)
 
 - **Pre-existing bug, fixed in this commit despite being outside FILE
