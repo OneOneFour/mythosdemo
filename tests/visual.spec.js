@@ -112,8 +112,8 @@ test('the topsoil band', async ({ page }) => {
 test('a placed furnace', async ({ page }) => {
   await boot(page);
   await settle(page);
-  /* Keyboard aim, not mouse: a hardcoded click position is off-canvas at phone
-     size, where the base buffer is 200x422. No direction held: `aimAtKeys`
+  /* Keyboard aim, not mouse: a hardcoded click position is fragile against the
+     resizable desktop viewport. No direction held: `aimAtKeys`
      with neither up nor down aims to the SIDE, at the player's own row — which
      on solid ground is open air with the floor directly beneath it, exactly
      where a 2-tall machine fits. Aiming DOWN (as this test used to) lands on
@@ -767,7 +767,7 @@ test('the map overview shows explored terrain and leaves unexplored terrain undr
 /* A pixel-sampling test proves the fog rule; it says nothing about whether the
    whole-world layout actually reads as a sensible overview -- three bands
    stacked top to bottom, correctly scaled, not overlapping, not clipped off
-   the common desktop/phone viewports this suite already covers. That needs a
+   the desktop viewport this suite covers. That needs a
    screenshot, same as `overlays.png` exists alongside the fog pixel tests
    above rather than instead of them. Fully revealed, same reasoning
    `astral.png`/`topsoil.png` already use: the point here is the OVERVIEW
@@ -885,8 +885,9 @@ test('hovering an inventory pair resolves a tooltip naming it', async ({ page })
        down to just the burden bar -- so the open inventory panel's own row is
        now the only hit `pocketRows()` produces once `collect()` has run.
        Finding it this way, rather than a hardcoded screen coordinate, is what
-       keeps the assertion honest at both the desktop and phone viewports
-       (CLAUDE.md: a hardcoded click position breaks at the other one). */
+       keeps the assertion honest against a resizable desktop viewport
+       (CLAUDE.md: a hardcoded click position breaks if the window size
+       changes). */
     const hits = __mf.hits.filter(h => h.sub === S.copper && h.form === F.ore);
     const panelHit = hits[hits.length - 1];
     __mf.mouseAt(panelHit.x + 2, panelHit.y + 2);
@@ -908,11 +909,9 @@ test('hovering an inventory pair resolves a tooltip naming it', async ({ page })
    own additions to the test hook (`src/shell/main.js#installTestHook`).
    `intent` locates its target rect from `__mf.ui()`'s OWN live projection of
    what was actually drawn this frame — never a hardcoded screen coordinate,
-   which CLAUDE.md records breaks at the phone project's viewport (verified
-   directly against playwright.config.js for this phase: the phone project
-   is 390x844 CSS px, not the smaller figure an earlier draft of this plan
-   assumed — `__mf.intent`/`__mf.hits` sidestep the question entirely by
-   reading geometry back rather than asserting it). `give` is TEST ONLY,
+   which CLAUDE.md records breaks the moment the viewport changes size
+   (`__mf.intent`/`__mf.hits` sidestep the question entirely by reading
+   geometry back rather than asserting it). `give` is TEST ONLY,
    gated the same way every other `__mf` method already is (`?test=1`), and
    exists so a flow's OWN point (a furnace smelting, a queued craft draining)
    does not have to spend its frame budget re-proving mining or pickup that
@@ -1383,7 +1382,7 @@ test('NO-SPAWN GUARD: with flags.showDebug off, F, L, T and B produce no entity 
    `page.mouse.up()` below is the faithful stand-in for that under the
    disabled loop. Every target rect comes from `__mf.ui`'s own live
    projection of what was actually drawn, never a hardcoded pixel (CLAUDE.md:
-   a coordinate that works at the desktop viewport fails at the phone one). */
+   a coordinate that works at one viewport size fails at another). */
 
 async function toClient(page, sx, sy) {
   return page.evaluate(async ({ sx, sy }) => {

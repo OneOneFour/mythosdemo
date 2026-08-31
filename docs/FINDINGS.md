@@ -1014,3 +1014,28 @@ the gaps and judgment calls the reversal forced.
   recording so a future reader is not confused by a hud.js diff that
   appears alongside this commit in history but belongs to a different
   change.
+
+- **Desktop-only scope reduction: the `phone` Playwright project is gone**
+  (`playwright.config.js`), along with every `*-phone-*.png` baseline under
+  `tests/visual.spec.js-snapshots/`. Stale comments in `tests/visual.spec.js`
+  that justified the "never a hardcoded pixel coordinate" discipline by
+  citing the phone project specifically were reworded to cite the
+  still-real reason (a resizable desktop window) instead of a project that
+  no longer exists — the discipline itself (drive clicks through
+  `__mf.hits`/`__mf.ui()` rects) was kept, since it is still correct for a
+  desktop-only game whose window can be resized.
+
+  Audited `src/` for phone-only scaffolding and found none worth removing.
+  Two things look phone-adjacent by name but are genuinely general
+  narrow-window handling, not phone-only, so they were left alone:
+  `core/canvas.js#resize`'s `Math.max(200, ...)` / `Math.max(180, ...)`
+  floors (a degenerate-size safety clamp, not a phone breakpoint — it fires
+  for any tiny window, desktop included), and `view/hud.js`'s panel clamps
+  below ~240 px of base width (the same reasoning: a small desktop window
+  can still hit that width). The one ambiguous spot is `view/hud.js`'s own
+  comment calling the 200 px figure the "phone floor" — the number and the
+  clamp are real and worth keeping, but the label is a holdover from when
+  phone was a supported target; left as-is since renaming it is cosmetic
+  and the surrounding CLAUDE.md/BUILD_PLAN.md/FINDINGS.md mentions of the
+  phone project elsewhere are historical war-story records of past bugs,
+  not current requirements, and were left untouched for the same reason.
