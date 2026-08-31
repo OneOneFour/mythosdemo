@@ -77,23 +77,9 @@ test('digging down into topsoil', async ({ page }) => {
    falling drop matching the actual strata mined, the same three things a
    real player would notice going wrong.
 
-   REAL BUG FOUND WHILE WRITING THIS TEST, recorded in `docs/FINDINGS.md`:
-   the player's 6px hitbox (`PW`) is narrower than an 8px tile, so whenever
-   `player.x` is not itself a multiple of the tile size, the hitbox straddles
-   TWO tile columns (`rules/player.js#boxSolid`'s `t0`/`t1`) -- but `aim`
-   only ever targets ONE of them (the column under the player's CENTRE,
-   `rules/mining.js#aimAtKeys`). Digging straight down from an unaligned `x`
-   clears that one column and then wedges on the untouched neighbour
-   forever: `onGround` never goes false, no further tile ever breaks, and
-   `digging.png` above -- unreviewed, per CLAUDE.md's own warning -- has
-   apparently been a screenshot of the player standing exactly where they
-   started the whole time. Fixing it means changing `rules/player.js` and/or
-   `rules/mining.js`, both outside this task's FILE OWNERSHIP, so this test
-   instead does what `click-to-arm: dig down, then place the dropped gravel
-   back into the exact hole` above already does for the identical
-   "don't trust natural worldgen" reason -- hand-carve a known shaft and
-   place the player EXACTLY tile-aligned over it -- to test the mechanic this
-   task actually owns without tripping over the one it does not. */
+   Hand-carves a known shaft and places the player EXACTLY tile-aligned over
+   it, for the same "don't trust natural worldgen" reason `click-to-arm: dig
+   down, then place the dropped gravel back into the exact hole` above does. */
 test('digging straight down: no drift, monotonic depth, correct drops', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -335,21 +321,12 @@ test('a placed furnace', async ({ page }) => {
     const { bandOf } = await import('/src/model/world.js');
     __mf.revealAll(bandOf('surface'));
   });
-  /* Design reversal, superseding Phase 3's cost-at-placement deviation
-     (`docs/FINDINGS.md`): `furnace` is now a HELD ITEM
-     (`furnace/rig`, `data/forms.js#rig`), built by
-     `data/recipes.js#furnace` and spent at placement, not a bill charged
-     when a machine is set down. `f` no longer exists at all -- see
-     `shell/input.js`'s own comment. Given directly here (this test's own
-     point is the furnace's LOOK, not the crafting grind to earn one), and
-     placed through the quickbar's own digit keys (`docs/FINDINGS.md`: the
-     old digit-driven BUILD menu is retired -- click-to-arm, mouse or digit,
-     against the quickbar is the one placement path now) -- assign the held
-     `furnace/rig` pair to slot 0 directly through `shell/ui.js#assignQuickbar`
-     rather than a real drag (this test's own point is the furnace's look,
-     not the quickbar's own drag-assignment, which the click-to-arm tests
-     already cover), then press '1' (`view/ui/quickbar.js#slotForDigit`: '1'
-     is slot 0) to arm it, then 'e' to place it. */
+  /* The held `furnace/rig` is given directly, and assigned to quickbar slot 0
+     through `shell/ui.js#assignQuickbar` rather than by a real drag, because
+     this test's own point is the furnace's LOOK -- not the crafting grind or
+     the drag-assignment, both of which other tests cover. Then '1'
+     (`view/ui/quickbar.js#slotForDigit`: '1' is slot 0) arms it and 'e'
+     places it. */
   await page.evaluate(async () => {
     const { write } = await import('/src/model/run.js');
     const { S } = await import('/src/data/substances.js');
@@ -404,11 +381,10 @@ test('a digit key arms the matching quickbar slot, not just any held item', asyn
 
   /* Two held machine items, in DIFFERENT quickbar slots -- furnace in slot 0
      (digit '1'), press in slot 2 (digit '3'), per
-     `view/ui/quickbar.js#slotForDigit`'s own digit-to-slot mapping. Design
-     reversal (`docs/FINDINGS.md`): both are held `<id>/rig` items
-     (`data/recipes.js#furnace`/`press_machine`), given directly here -- this
-     test's own point is WHICH machine a digit arms and places, not the
-     crafting grind to earn either. Assigned through
+     `view/ui/quickbar.js#slotForDigit`'s own digit-to-slot mapping. Both are
+     held `<id>/rig` items (`data/recipes.js#furnace`/`press_machine`), given
+     directly here -- this test's own point is WHICH machine a digit arms and
+     places, not the crafting grind to earn either. Assigned through
      `shell/ui.js#assignQuickbar` directly rather than a real drag -- the
      drag-to-assign gesture itself is exercised elsewhere; this test's point
      is the digit key. */
@@ -505,9 +481,9 @@ test('holding the hand-craft key smelts ore into an ingot, spending exactly its 
    Every test hand-carves its own small patch of the surface band -- clearing
    a rectangle to air and forcing a solid floor under exactly the belt's own
    four-tile footprint -- rather than trusting that seed 1337's natural
-   terrain happens to have a flat run near spawn. That is the same caution
-   CLAUDE.md's furnace story is about: a test that only ever finds rock
-   nearby would report "refused" as if it were "did not drag".
+   terrain happens to have a flat run near spawn. A test that only ever finds
+   rock nearby would report "refused" as if it were "did not drag".
+   See docs/DEVELOPER_GUIDE.md#writing-tests
    ============================================================ */
 
 /* `tx0..tx0+3` at `ty0` becomes the belt's own footprint, cleared to air (or
@@ -544,11 +520,9 @@ test('a fuelled belt drags a resting item across its footprint and releases it o
     const band = bandOf('surface');
     const tx0 = 10, ty0 = 15;
 
-    /* `belt_r` is now a held `belt_r/rig` item (design reversal,
-       `docs/FINDINGS.md`) spent by `placeMachine` at placement, not a
-       material bill charged there -- given directly, so this also proves
-       the placement really does spend the held item and not merely declare
-       one. */
+    /* `belt_r` is a held `belt_r/rig` item spent by `placeMachine` at
+       placement -- given directly, so this also proves the placement really
+       does spend the held item and not merely declare one. */
     rw.collect(S.belt_r, F.rig, 1);
     const belt = placeMachine(band, 'belt_r', tx0, ty0);
 
@@ -720,6 +694,7 @@ test('debug overlays on, for seam inspection', async ({ page }) => {
    Pass A for the whole surface band before a test gets to assert anything --
    a fresh `newRun()` with no frames run yet is the only way to observe an
    actually-unrevealed band to compare against.
+   See docs/DEVELOPER_GUIDE.md#writing-tests
    ============================================================ */
 
 test('an unexplored area renders as the hidden colour, whatever terrain is actually there', async ({ page }) => {
@@ -948,7 +923,8 @@ test('a large enclosed air pocket is revealed only partway in from the edge (Pas
    calling `rules/reveal.js#step()` directly (isolating the mechanism from
    physics, exactly like the permanence test above), and then the player is
    moved AWAY before drawing -- otherwise the map's own player marker would
-   paint over the very pixel this test samples. */
+   paint over the very pixel this test samples.
+   See docs/DEVELOPER_GUIDE.md#writing-tests */
 test('the map overview shows explored terrain and leaves unexplored terrain undrawn', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -1157,30 +1133,27 @@ test('hovering an inventory pair resolves a tooltip naming it', async ({ page })
 });
 
 /* ============================================================
-   PHASE 6, TIER 3 — state-asserted flows over the real GUI/debug surface.
+   State-asserted flows over the real GUI/debug surface.
 
-   `__mf.intent(name, args)` and `__mf.give(sub, form, n)` are this phase's
-   own additions to the test hook (`src/shell/main.js#installTestHook`).
-   `intent` locates its target rect from `__mf.ui()`'s OWN live projection of
-   what was actually drawn this frame — never a hardcoded screen coordinate,
-   which CLAUDE.md records breaks the moment the viewport changes size
-   (`__mf.intent`/`__mf.hits` sidestep the question entirely by reading
-   geometry back rather than asserting it). `give` is TEST ONLY,
-   gated the same way every other `__mf` method already is (`?test=1`), and
-   exists so a flow's OWN point (a furnace smelting, a queued craft draining)
-   does not have to spend its frame budget re-proving mining or pickup that
-   other tests already cover end to end.
+   `__mf.intent(name, args)` locates its target rect from `__mf.ui()`'s OWN
+   live projection of what was actually drawn this frame — never a hardcoded
+   screen coordinate, which CLAUDE.md records breaks the moment the viewport
+   changes size. `__mf.give(sub, form, n)` is TEST ONLY, gated the same way
+   every other `__mf` method already is (`?test=1`), and exists so a flow's
+   OWN point (a furnace smelting, a queued craft draining) does not have to
+   spend its frame budget re-proving mining or pickup that other tests already
+   cover end to end. See docs/DEVELOPER_GUIDE.md#the-test-hook
    ============================================================ */
 
 /* ============================================================
-   PHASE 6, TIER 4 — new visual framings. Fixed seed, fixed substep count,
-   maxDiffPixels stays 0 (playwright.config.js). Every pair below is taken as
-   a PAIR on purpose (CLAUDE.md: a test that asserts a feature is visible
-   must prove the pixels differ with it off, not merely eyeball the one
-   screenshot with it on) — the unlit/lit shaft are two separately-baselined
+   New visual framings. Fixed seed, fixed substep count, maxDiffPixels stays 0
+   (playwright.config.js). Every pair below is taken as a PAIR on purpose
+   (CLAUDE.md: a test that asserts a feature is visible must prove the pixels
+   differ with it off) — the unlit/lit shaft are two separately-baselined
    images, so a future regression that made lighting a no-op would have to
    change at least one of them relative to its OWN accepted baseline to stay
    green, not merely look plausible next to the other.
+   See docs/DEVELOPER_GUIDE.md#writing-tests
    ============================================================ */
 
 /* Both shaft screenshots share this setup: a hand-carved shaft in topsoil
@@ -1264,15 +1237,12 @@ test('the Character tab', async ({ page }) => {
   await shot(page, 'ui-character.png');
 });
 
-/* No recipe is genuinely lockable this build -- `model/run.js#RUN_SCHEMA.known`
-   is seeded with EVERY `HAND_RECIPES` id in `write.reset()` (Phase 5b's own
-   documented reason: no drop/tribute/draft source that reveals a NEW recipe
-   exists yet, so "everything currently craftable is known" is the honest
-   starting state). The silhouette-rendering CODE PATH is real and wired
+/* No recipe is genuinely lockable in this build -- `model/run.js
+   #RUN_SCHEMA.known` is seeded with EVERY `HAND_RECIPES` id in
+   `write.reset()`. The silhouette-rendering CODE PATH is real and wired
    (`view/ui/mainPanel.js`'s `!known` branch), but there is nothing to feed it
-   a locked id with in this build — screenshotting the tab AS IT ACTUALLY
-   RENDERS today, rather than fabricating a locked recipe that cannot
-   currently occur in play. */
+   a locked id with, so this screenshots the tab AS IT ACTUALLY RENDERS today
+   rather than fabricating a locked recipe that cannot currently occur. */
 test('the Crafting tab', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -1324,16 +1294,11 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
     const { bandOf } = await import('/src/model/world.js');
     __mf.revealAll(bandOf('surface'));
     /* "mine 12 copper ore" is stood in for by `give` -- the flow's own point
-       is the chain (craft -> place -> feed -> smelt), not the mining grind,
-       exactly the substitution `docs/BUILD_PLAN.md` Phase 3's own tests
-       already made for the identical reason. Design reversal, superseding
-       Phase 3's cost-at-placement deviation (`docs/FINDINGS.md`): a furnace
-       is now CRAFTED (`data/recipes.js#furnace`: 12 copper/ore + 6
-       timber/log, 8.0s) into a held `furnace/rig` item, THEN placed --
-       "craft nothing" is no longer true of this flow, which is the whole
-       point of the reversal, so a bit more of each material is given on top
-       of the bill, or there is nothing left to actually smelt once the
-       furnace itself has been built. */
+       is the chain (craft -> place -> feed -> smelt), not the mining grind.
+       A furnace is CRAFTED (`data/recipes.js#furnace`: 12 copper/ore + 6
+       timber/log, 8.0s) into a held `furnace/rig` item, THEN placed, so a bit
+       more of each material is given on top of the bill or there is nothing
+       left to actually smelt once the furnace itself has been built. */
     __mf.give(S.copper, F.ore, 12 + 8);
     __mf.give(S.timber, F.log, 6 + 2);
     __mf.cmd.hasMouse = false;
@@ -1435,14 +1400,10 @@ test('craft peg rungs by hand, place a brazier in a dark room, and the strata be
     const litBefore = lightAt(band, darkTile.tx, darkTile.ty);
     const seenBefore = seenAt(band, darkTile.tx, darkTile.ty);
 
-    /* Design reversal, superseding Phase 3's cost-at-placement deviation
-       (`docs/FINDINGS.md`): `brazier` is now a held `brazier/rig` item
-       (given directly -- this test's own point is the light, not the
-       crafting grind), spent by `placeMachine` at placement. The timber
-       given here is pure FUEL for the machine's own buffer (`handFeed`
-       pulls it from the pockets within reach), no longer also a build
-       cost -- `stone/gravel` is dropped entirely, since it was only ever
-       part of the old cost bill and the brazier's buffer never accepted it. */
+    /* `brazier` is a held `brazier/rig` item (given directly -- this test's
+       own point is the light, not the crafting grind), spent by `placeMachine`
+       at placement. The timber given here is pure FUEL for the machine's own
+       buffer (`handFeed` pulls it from the pockets within reach). */
     __mf.give(S.brazier, F.rig, 1);
     __mf.give(S.timber, F.log, 4);
     const brazier = placeMachine(band, 'brazier', tx0 + 2, ty0 + h - 1);   // adjacent, in hand-feed reach
@@ -1605,10 +1566,9 @@ test('granting a boon in debug activates it, and it expires back to the base eff
   expect(afterExpiry.value).toBe(before.value);
 });
 
-/* NO-SPAWN GUARD: the enforcement mechanism for Phase 3's and Phase 4's
-   whole point (docs/BUILD_PLAN.md Phase 6) -- with `flags.showDebug` off,
-   F/L/T/B must produce no entity and no item, exactly the debug-gated
-   machine/draft spawns `src/shell/input.js` guards behind that flag. */
+/* NO-SPAWN GUARD: with `flags.showDebug` off, F/L/T/B must produce no entity
+   and no item, exactly the debug-gated machine/draft spawns
+   `src/shell/input.js` guards behind that flag. */
 test('NO-SPAWN GUARD: with flags.showDebug off, F, L, T and B produce no entity and no item', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -1635,7 +1595,7 @@ test('NO-SPAWN GUARD: with flags.showDebug off, F, L, T and B produce no entity 
    not `__mf.intent()`'s internal shortcut, because these are UI-interaction
    bug fixes and only a real click proves a real click works.
 
-   CRITICAL TIMING TRAP, found and root-caused once this session: under
+   CRITICAL TIMING TRAP (docs/DEVELOPER_GUIDE.md#writing-tests): under
    `?test=1` the RAF loop never starts (`src/shell/main.js`'s own
    `installTestHook` guard at the bottom of that file), so a bare
    `page.mouse.click()` fires mousedown+mouseup with ZERO time between them

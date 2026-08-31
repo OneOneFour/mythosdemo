@@ -8,6 +8,7 @@
 //
 // It CANNOT tell you whether anything looks good. Screenshot tests cover
 // appearance changing; a human covers appearance being right.
+// See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves
 
 import { fileURLToPath } from 'node:url';
 import { checkLayers } from './layers.mjs';
@@ -256,7 +257,8 @@ console.log('\n1. content resolves');
   /* `forms.expand(sel)` is the purpose-built validator: it returns every legal
      substance x form pair a selector covers, and an EMPTY result is exactly the
      failure that would let a substance accumulate in a buffer no recipe
-     consumes. Use it rather than string-matching ids. */
+     consumes. Use it rather than string-matching ids.
+     See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves */
   for (const m of D_mach.MACHINES) {
     for (const r of m.recipes || []) {
       /* A recipe with `from:` draws from a NON-ITEM source, so its inputs are
@@ -467,12 +469,11 @@ console.log('\n3. behaviour');
   else ok('BURDEN: 7,200-frame fuzz never carried more than eff(\'burden\')');
 }
 
-/* --- a trinket is an item now: drafting it drops a relic, picking it up
-   and EQUIPPING it changes an effective value, and spending it out of the
-   inventory restores the base -- all through `run.inv`/`run.equipped`, none
-   of it through a dedicated list (Phase 4, docs/BUILD_PLAN.md: an equip slot
-   is a SELECTION over `run.inv`, not a second inventory, so holding alone is
-   no longer enough -- it must also be equipped). --- */
+/* --- a trinket is an item: drafting it drops a relic, picking it up and
+   EQUIPPING it changes an effective value, and spending it out of the
+   inventory restores the base -- all through `run.inv`/`run.equipped`, none of
+   it through a dedicated list, so holding alone is not enough.
+   See docs/DEVELOPER_GUIDE.md#the-four-gift-tiers --- */
 {
   boot.newRun(1337);
   const t = (D_trk.TRINKETS || [])[0];
@@ -626,7 +627,8 @@ console.log('\n4. Phase 6 probes');
    compare a recipe's own output against, only its own bookkeeping). What
    THIS catches is a bug no static table check can: a future code path that
    bypasses the write API to poke `run.inv`/`items`/`m.buf` directly. Prints
-   the substep where the two figures first disagree. --- */
+   the substep where the two figures first disagree.
+   See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves --- */
 {
   const seed = 5150;
   boot.newRun(seed);
@@ -693,9 +695,9 @@ console.log('\n4. Phase 6 probes');
 /* --- HAND EQUALS MACHINE: every hand:true recipe is the SAME OBJECT a
    machine names. tools/content.mjs's assertion 7 already proves this
    statically over the content tables; re-asserted here, live, over
-   `data/machines.js#MACH`/`data/recipes.js#recipesOf`, because
-   docs/BUILD_PLAN.md names it explicitly at this tier too and it costs
-   nothing to check twice from two angles. --- */
+   `data/machines.js#MACH`/`data/recipes.js#recipesOf`, because it costs
+   nothing to check twice from two angles.
+   See docs/DEVELOPER_GUIDE.md#adding-a-recipe --- */
 {
   let bad = 0;
   for (const m of D_mach.MACH) {
@@ -782,7 +784,8 @@ console.log('\n4. Phase 6 probes');
    was implemented, so an exact match is not required), and is only asserted
    to be finite, positive and within a broad, clearly-labelled sanity band --
    loose enough not to fail on an honest retune, tight enough to catch a
-   broken one (a zero or negative k, an inverted ratio table). --- */
+   broken one (a zero or negative k, an inverted ratio table).
+   See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves --- */
 {
   const liftDef = D_mach.MACH[D_mach.M.lift];
   const topsoil = world.bandOf('topsoil');

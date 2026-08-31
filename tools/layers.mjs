@@ -4,9 +4,8 @@
 // resolves it to a layer, and fails on any illegal edge. It runs as section 0
 // of `npm run check`, so an illegal edge cannot be committed green.
 //
-// What it CANNOT do: it checks direction and names, not sense. It will not
-// notice an unreachable recipe, a machine with no way to be fed, or a wrong
-// number. Behavioural probes cover some of that; a human covers the rest.
+// What it CANNOT do: it checks direction and names, not sense.
+// See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves
 
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';

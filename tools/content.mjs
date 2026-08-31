@@ -5,9 +5,9 @@
 // CONTENT TABLES it guards are self-consistent: every selector expands, every
 // mass is real, every machine's build bill is payable and obtainable, no
 // recipe manufactures mass, and every tunable a data row names actually
-// exists. Exported the same way `tools/layers.mjs` exports `checkLayers`, run
-// as section 1b of `npm run check`, and runnable alone via `npm run
-// check:content` for a pre-commit hook.
+// exists. Run as section 1b of `npm run check`, and runnable alone via
+// `npm run check:content`.
+// See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves
 //
 // Imports from src/data and src/model directly. tools/ is outside the layer
 // graph `tools/layers.mjs` scans (it only walks src/), so this is not a rules
@@ -106,7 +106,8 @@ export function checkContent({ quiet = false } = {}) {
 
   /* ---- 1. every recipe selector expands, and every literal output pair is
      legal -- USE data/forms.js#expand and model/items.js#holdable; do not
-     hand-roll a string check (CLAUDE.md records that mistake). ---- */
+     hand-roll a string check (CLAUDE.md records that mistake).
+     See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves ---- */
   for (const r of recipes) {
     if (!r.from) {
       for (const sel of Object.keys(r.in || {})) {
@@ -162,7 +163,8 @@ export function checkContent({ quiet = false } = {}) {
      bill's exact pair) can ask the SAME transitive question assertion 5 (an
      orphan recipe output) already had to answer, rather than the shallower
      one-hop "mined, or produced by ANY recipe whose OWN inputs might
-     themselves be unreachable" check this file shipped with in Phase 1. */
+     themselves be unreachable" check this file shipped with.
+     See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves */
   const R = new Set(mined.map(p => keyOf(p.sub, p.form)));
   const reachableSubsFor = sel => {
     const subs = new Set();
@@ -326,9 +328,10 @@ export function checkContent({ quiet = false } = {}) {
 
   /* ---- 8. every tunable key named by any data/ modifier row resolves,
      scope included. Written generically over "any data row with a `mods`
-     array" -- Phase 4 gave `data/boons.js` real `mods` rows and this needed
-     NO edit for that, exactly as the comment predicted; `GRANTS` costs
-     nothing extra to include since its rows carry no `mods` at all. ---- */
+     array", which is why it needed NO edit when `data/boons.js` gained real
+     `mods` rows; `GRANTS` costs nothing extra to include since its rows carry
+     no `mods` at all.
+     See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves ---- */
   for (const row of [...TRINKETS, ...GRANTS, ...BOONS]) {
     for (const mod of row.mods || []) {
       checks++;
