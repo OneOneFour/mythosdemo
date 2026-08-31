@@ -26,7 +26,7 @@ import { itemsNear, massOfPair } from '../model/items.js';
 import { defOf, machineAt } from '../model/machines.js';
 import { run } from '../model/run.js';
 import { baseHardOf, formRowOf, rowOf, tileAt } from '../model/tiles.js';
-import { bandAt, tileX, tileY } from '../model/world.js';
+import { bandAt, seenAt, tileX, tileY } from '../model/world.js';
 
 /* One "HARD n.nnS" line, or none. `baseHardOf` returns `Infinity` for both
    "this substance has no `tile` block at all" (a relic) and literal bedrock --
@@ -97,7 +97,16 @@ export function resolveHover(f, hudHits) {
   const m = machineAt(band, tx, ty);
   if (m) return { x: sx, y: sy, lines: [defOf(m).name] };
 
+  /* FOG OF WAR MUST NOT LEAK TILE IDENTITY (bug fix): an unseen tile shows no
+     tooltip at all, not a generic placeholder -- a placeholder line would
+     still tell the player "there is exactly one kind of thing here", which
+     is a bit less than the substance name but still information fog is
+     supposed to withhold. Checked ONLY here, not above: an item, a machine
+     and an inventory slot are none of them terrain, and `seenAt` has nothing
+     to say about whether a falling item or a placed machine is visible --
+     those already have their own, unrelated, reasons to show or not show. */
   const byte = tileAt(band, tx, ty);
   if (byte === AIR) return null;
+  if (!seenAt(band, tx, ty)) return null;
   return { x: sx, y: sy, lines: describeTile(byte) };
 }
