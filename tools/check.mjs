@@ -99,7 +99,7 @@ const D_form = await import('../src/data/forms.js');
 const D_mach = await import('../src/data/machines.js');
 const D_tune = await import('../src/data/tuning.js');
 const D_trk  = await import('../src/data/trinkets.js');
-const D_boon = await import('../src/data/boons.js');
+const D_grant = await import('../src/data/grants.js');
 const D_src  = await import('../src/data/sources.js');
 const D_world = await import('../src/data/world.js');
 const world  = await import('../src/model/world.js');
@@ -169,9 +169,9 @@ console.log('\n1. content resolves');
     }
   }
   const machIds = new Set(D_mach.MACHINES.map(m => m.id));
-  for (const [id, b] of Object.entries(D_boon.MACHINE_BOONS || D_boon.BOONS || {}))
-    if (b.grants && !machIds.has(b.grants))
-      { fail(`boon ${id}: grants unknown machine "${b.grants}"`); bad++; }
+  for (const [id, g] of Object.entries(D_grant.GRANT || {}))
+    if (g.grants && !machIds.has(g.grants))
+      { fail(`grant ${id}: grants unknown machine "${g.grants}"`); bad++; }
 
   if (!bad) ok(`${D_sub.SUBSTANCES.length} substances, ${formIds.size} forms, ` +
                `${D_mach.MACHINES.length} machines, all names resolve`);

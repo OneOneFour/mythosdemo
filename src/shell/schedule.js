@@ -97,9 +97,9 @@
 
 import { write as rw } from '../model/run.js';
 import * as belts from '../rules/belts.js';
-import * as boons from '../rules/boons.js';
 import * as crafting from '../rules/crafting.js';
 import * as fields from '../rules/fields.js';
+import * as grants from '../rules/grants.js';
 import * as items from '../rules/items.js';
 import * as lift from '../rules/lift.js';
 import * as light from '../rules/light.js';
@@ -140,4 +140,4 @@ export function stepAll(dt, cmd) {
 /* Re-exported so `shell/boot.js` has one import for the rules it must call
    OUTSIDE the per-frame order — granting and placement are events, not steps,
    and putting them in the array above would be a lie about when they happen. */
-export { boons, trinkets };
+export { grants, trinkets };

@@ -27,7 +27,7 @@
 
 import { AIR, F, FORM, byHudOrder, matches } from '../data/forms.js';
 import { SUB } from '../data/substances.js';
-import { STARTING_MACHINES } from '../data/boons.js';
+import { STARTING_MACHINES } from '../data/grants.js';
 import { M, MACH } from '../data/machines.js';
 import { SPAWN_BAND } from '../data/world.js';
 import { bump } from './epoch.js';

@@ -95,7 +95,15 @@ export function installInput() {
     if (k === 'o') flags.showMap    = !flags.showMap;
     if (k === 'm') audio.muted = !audio.muted;
     if (k === 't') wants.draft = 'trinket';
-    if (k === 'b') wants.draft = 'boon';
+    /* 'b' drafted the MACHINE-GRANT tier when that was still (mis)named
+       "boon" -- `docs/BUILD_PLAN.md` Phase 4 Step 1's rename to
+       `data/grants.js`/`rules/grants.js`. Renamed the intent string to
+       'grant' in the SAME commit as that rename, for zero behaviour change:
+       'b' still does exactly what it did. Phase 4 Step 2 gives 'b' back to
+       the new TIMED tier (its mnemonic is a better fit for "boon" than
+       "grant" ever was) and moves this draft to a new key -- see that
+       step's own edit to this file for the full KEYS-table check. */
+    if (k === 'b') wants.draft = 'grant';
     if (k === 'r') wants.restart = true;
 
     /* `f`/`l` USED to spawn a furnace/lift from nothing, unconditionally --

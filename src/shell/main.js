@@ -30,7 +30,7 @@ import { render } from '../view/scene.js';
 import { boot, newRun } from './boot.js';
 import { clearEdges, cmd, flags, pointer, wants } from './input.js';
 import { drainJournal } from './notify.js';
-import { boons, stepAll, trinkets } from './schedule.js';
+import { grants, stepAll, trinkets } from './schedule.js';
 import { hoverInfo, pocketHits } from '../view/hud.js';
 
 export const STEP = 1 / 120;
@@ -145,9 +145,9 @@ function applyIntents() {
     if (t) trinkets.grant(t.id);
     wants.draft = null;
   }
-  if (wants.draft === 'boon') {
-    const b = boons.draftable()[0];
-    if (b) boons.grant(b.id);
+  if (wants.draft === 'grant') {
+    const g = grants.draftable()[0];
+    if (g) grants.grant(g.id);
     wants.draft = null;
   }
 }

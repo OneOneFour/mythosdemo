@@ -20,7 +20,7 @@ import { RECIPES, recipesOf } from '../src/data/recipes.js';
 import { MACH } from '../src/data/machines.js';
 import { TUNE } from '../src/data/tuning.js';
 import { TRINKETS } from '../src/data/trinkets.js';
-import { BOONS } from '../src/data/boons.js';
+import { GRANTS } from '../src/data/grants.js';
 import { holdable, massOfPair } from '../src/model/items.js';
 
 const EPS = 1e-6;
@@ -270,7 +270,7 @@ export function checkContent({ quiet = false } = {}) {
      scope included. Written generically over "any data row with a `mods`
      array" so a future table (boons, once Phase 4 gives them mods) needs no
      edit here. ---- */
-  for (const row of [...TRINKETS, ...BOONS]) {
+  for (const row of [...TRINKETS, ...GRANTS]) {
     for (const mod of row.mods || []) {
       checks++;
       const raw = mod.tunable || mod.key || '';
