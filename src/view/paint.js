@@ -22,6 +22,7 @@
    replaced — two viewports could not share one flag. */
 
 import { offscreen } from '../core/canvas.js';
+import { drawText } from '../core/font.js';
 import { mix } from '../core/palette.js';
 import { R } from '../core/pixels.js';
 import { hash2 } from '../core/rng.js';
@@ -29,7 +30,7 @@ import { AIR } from '../data/forms.js';
 import { MACH } from '../data/machines.js';
 import { colour } from '../data/palette.js';
 import { SUB } from '../data/substances.js';
-import { fill } from '../model/machines.js';
+import { fill, statusOf } from '../model/machines.js';
 import { progressAt } from '../model/mining.js';
 import { sizeOf } from '../model/items.js';
 import { eff } from '../model/mods.js';
@@ -227,7 +228,11 @@ const INK = {
   fireLo: colour('lavaB'),
   spark:  mix(colour('ichor'), colour('cloudA'), 0.6),
   white:  colour('cloudA'),
-  ui:     colour('ui')
+  ui:     colour('ui'),
+  /* The stalled-machine warning badge. `uiHeart` is the same red the HUD's
+     own hearts/refusal text already uses -- reused, not invented, so "this
+     is a warning" reads the same colour everywhere in the game. */
+  warn:   colour('uiHeart')
 };
 
 /* ---------- the look cache ----------
@@ -319,5 +324,14 @@ export function paintMachine(g, m, px, py, t) {
     R(g, px + 2, py + 4 + p.row * 3, w - 4, 2, INK.pipOff);
     if (bar > 0) R(g, px + 2, py + 4 + p.row * 3, bar, 2, f > 0.55 ? INK.fireHi : INK.ui);
   }
+
+  /* The stalled-machine warning (`model/machines.js#statusOf`). A "silent
+     stall" (`rules/machines.js`'s own phrase) otherwise has no visible sign
+     at all beyond the fire glow simply never lighting -- easy to miss next
+     to a machine that has never once run. Keyed off the STATUS VALUE only,
+     never a name: a plain glyph in the badge colour, top-right corner,
+     the same "one rect, one glyph" placeholder convention
+     `view/ui/mainPanel.js#glyphOf` already uses for an unresolved identity. */
+  if (statusOf(m) === 'no-fuel') drawText(g, '!', px + w - 6, py + 1, INK.warn, 1, 1);
 }
 

@@ -14,6 +14,7 @@
 import { rect } from '../core/math.js';
 import { MACH } from '../data/machines.js';
 import { expand, matches } from '../data/forms.js';
+import { recipesOf } from '../data/recipes.js';
 import { bump } from './epoch.js';
 import { keyOf, parseKey } from './items.js';
 import { worldX, worldY } from './world.js';
@@ -136,6 +137,54 @@ export function fill(m, sel) {
 }
 
 export const full = (m, sel) => count(m, sel) >= capOf(MACH[m.def], sel);
+
+/* Which port/hand-feed/recipe selector, if any, is this definition's fuel
+   requirement -- the exact star-slash-hash-fuel text every fuel-burning row
+   already spells in `data/machines.js`'s `ports`/`handFeed` and
+   `data/recipes.js`'s `in` clauses (see `data/forms.js`'s own selector-
+   grammar comment for why that is spelled in words here too), found rather
+   than re-declared so `statusOf` below can never disagree with what the
+   machine actually accepts. Checked in that order
+   because every fuel-burning row today declares it on a port (and usually
+   hand-feed too); the recipe scan is what still catches a machine whose
+   fuel requirement is expressed only inline (there is none today, but a row
+   is free to be that shape). `null` for a machine that needs no fuel at all.
+   Memoised per definition, the same reason `capOf`'s selector expansion is:
+   this is a query `view` calls per machine per frame, and definitions are
+   frozen data, so the cache is bounded by the content. */
+const fuelSelCache = new Map();
+export function fuelSelectorOf(def) {
+  if (fuelSelCache.has(def)) return fuelSelCache.get(def);
+  let sel = null;
+  for (const p of def.ports || []) {
+    if (sel || p.mode !== 'in') continue;
+    sel = (p.accepts || []).find(s => s.includes('#fuel')) || null;
+  }
+  if (!sel) sel = (def.handFeed?.from || []).find(s => s.includes('#fuel')) || null;
+  if (!sel) for (const r of recipesOf(def)) {
+    if (sel) break;
+    sel = Object.keys(r.in || {}).find(s => s.includes('#fuel')) || null;
+  }
+  fuelSelCache.set(def, sel);
+  return sel;
+}
+
+/* `'running' | 'no-fuel' | 'idle'` -- the pure read behind the stalled-machine
+   warning badge (`view/paint.js#paintMachine`) and the hover tooltip's status
+   line (`view/hover.js`). `'running'` mirrors `m.running` exactly. `'no-fuel'`
+   is reserved for a machine that actually NEEDS fuel (`fuelSelectorOf` found
+   a selector) and whose buffer holds none of it right now -- the "silent
+   stall" `rules/machines.js`'s own comments describe but, before this, never
+   surfaced anywhere a player could see. Everything else -- has what it needs
+   but is not mid-recipe, or needs nothing at all -- is `'idle'`; this
+   function never has to know WHY a recipe did not fire, only whether fuel is
+   the reason. */
+export function statusOf(m) {
+  if (m.running) return 'running';
+  const sel = fuelSelectorOf(MACH[m.def]);
+  if (sel && count(m, sel) <= 0) return 'no-fuel';
+  return 'idle';
+}
 
 export const machinesInBand = b => machines.filter(m => m.band === b);
 export const machineAt = (band, tx, ty) => machines.find(m =>

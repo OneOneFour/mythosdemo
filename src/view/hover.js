@@ -22,11 +22,50 @@
    over; a tile is the default everything else stands on. */
 
 import { AIR, FORM, labelOf, packTile } from '../data/forms.js';
+import { recipesOf } from '../data/recipes.js';
 import { itemsNear, massOfPair } from '../model/items.js';
-import { defOf, machineAt } from '../model/machines.js';
+import { count, defOf, firstMatching, machineAt, statusOf } from '../model/machines.js';
 import { run } from '../model/run.js';
 import { baseHardOf, formRowOf, rowOf, tileAt } from '../model/tiles.js';
 import { bandAt, seenAt, tileX, tileY } from '../model/world.js';
+
+/* Plain words for `model/machines.js#statusOf`'s three states -- the hover
+   tooltip's own second line for a placed machine, so a stall is legible
+   before this task there was NO visible sign of one at all beyond a fire
+   glow that simply never lit. */
+const STATUS_WORDS = { running: 'RUNNING', 'no-fuel': 'NO FUEL', idle: 'IDLE' };
+
+/* The recipe this machine would run right now, judged by the SAME "every
+   input clause satisfied" test `rules/machines.js#choose` applies -- but
+   display-only and deliberately narrower: only a recipe sourced from the
+   ordinary buffer (no `from`, or `from:'buffer'`) is considered, since a bare
+   unit source (the lift's own hearts, `data/sources.js#vital`) has no
+   buffered pair for a tooltip to name. `view` may not import `rules`, which
+   is why this re-reads the buffer directly through `count` rather than
+   calling `choose` itself. */
+function currentRecipe(m, def) {
+  for (const r of recipesOf(def)) {
+    if (r.from && r.from !== 'buffer') continue;
+    const ins = r.in || {};
+    if (Object.keys(ins).every(sel => count(m, sel) >= ins[sel])) return r;
+  }
+  return null;
+}
+
+/* A legible name for what a recipe makes. Most NAMED rows already carry one
+   (`RECIPES.smelt.name`); a machine's own INLINE recipe (the lift's honest-
+   fuel row, the belt's, the brazier's) does not, so this falls back to
+   naming the actual buffered pair satisfying each input clause -- never
+   `undefined`, never a blank line, per this task's own requirement. */
+function recipeLabel(m, r) {
+  const ins = r.in || {};
+  if (r.name) return r.name;
+  const parts = Object.keys(ins).map(sel => {
+    const pair = firstMatching(m, sel, ins[sel]);
+    return pair ? labelOf(pair.sub, pair.form) : sel.toUpperCase();
+  });
+  return parts.length ? parts.join(' + ') : 'SOMETHING';
+}
 
 /* One "HARD n.nnS" line, or none. `baseHardOf` returns `Infinity` for both
    "this substance has no `tile` block at all" (a relic) and literal bedrock --
@@ -95,7 +134,13 @@ export function resolveHover(f, hudHits) {
 
   const tx = tileX(band, wx), ty = tileY(band, wy);
   const m = machineAt(band, tx, ty);
-  if (m) return { x: sx, y: sy, lines: [defOf(m).name] };
+  if (m) {
+    const def = defOf(m);
+    const lines = [def.name, STATUS_WORDS[statusOf(m)]];
+    const r = currentRecipe(m, def);
+    if (r) lines.push('MAKING ' + recipeLabel(m, r));
+    return { x: sx, y: sy, lines };
+  }
 
   /* FOG OF WAR MUST NOT LEAK TILE IDENTITY (bug fix): an unseen tile shows no
      tooltip at all, not a generic placeholder -- a placeholder line would
