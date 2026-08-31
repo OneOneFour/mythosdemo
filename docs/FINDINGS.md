@@ -656,3 +656,159 @@ rewrite history here.
   that). This is the intended "only one thing owns the keyboard at a time"
   behaviour a real text input gives for free and this project has to hand-
   roll (no DOM `<input>` under `stage.cv`, per invariant 11).
+
+## Phase 6 (harness)
+
+- **No pre-commit hook infrastructure exists in this repo, so `check:content`
+  is not wired to one.** Checked `.git/hooks` (nothing but the sample scripts
+  Git ships by default) and the repo root/`package.json` for a Husky config
+  or a `.huskyrc`/`simple-git-hooks` entry — none exists. Inventing a hook
+  framework was explicitly out of scope for this phase ("if no pre-commit
+  infrastructure exists in this repo, skip that part and note it here rather
+  than inventing a new hook system"). `npm run check:content` remains
+  runnable on demand and is also section 1b of `npm run check`, so it is not
+  unreachable — it is simply not yet enforced automatically before a commit.
+  A future phase that wants that enforcement should add Husky (or an
+  equivalent) as a `devDependency` and a `.husky/pre-commit` calling
+  `npm run check:content`, rather than hand-rolling a `.git/hooks/pre-commit`
+  script that `npm install` cannot install for a second clone.
+
+- **`tools/content.mjs`'s new depth-gate assertion (14) had a real bug on its
+  first pass, caught by this phase's own "deliberately break it" requirement
+  — not by real content.** `minMineDepth(subOrd)` compared a strata row's
+  `s.sub` (a bare content-id STRING, e.g. `'granite'`, exactly as
+  `data/world.js` writes it) directly against the ORDINAL its caller passed
+  in (`S[subId]`, a number) — `string !== number` is always `true` in JS, so
+  every substance's minimum mine depth silently came back `Infinity` and the
+  new assertion could never fire, on real content OR on a deliberately broken
+  one. Found immediately when the required "confirm this fails" step (see
+  the phase's own acceptance criterion) produced zero violations against an
+  obviously-broken `cyclops_maw.minDepth`. Fixed by translating the strata
+  row's id through `S[...]` before comparing, matching how every other query
+  in this file already works in ordinals. Left as a reminder of CLAUDE.md's
+  own warning: "a test that measures the wrong thing passes and teaches
+  nothing" — the fix was verified by re-running the same deliberate break and
+  watching it fail correctly this time.
+
+- **CONSERVATION (Tier 2, `tools/check.mjs`) is a STRUCTURAL bookkeeping
+  check, not a re-derivation of mass fairness.** A live ledger has no
+  independent "correct" answer to compare a recipe's own output against --
+  only its own bookkeeping -- so a dynamic conservation test can only ever
+  prove "every mass bucket (`run.inv`, `items`, a machine's `buf`) changed
+  exactly as much as its own accountable writers say it did", which is a
+  real, different, and structurally meaningful claim: it would catch a
+  future code path that pokes one of those three buckets directly instead of
+  going through `model/items.js#write.spawn/remove`,
+  `model/run.js#write.collect/spend` or `model/machines.js#write.take/
+  consume`. Whether a RECIPE nets mass from nothing (a content bug, not an
+  engine one) is, and remains, `tools/content.mjs` assertion 6's job -- the
+  two checks are complementary, not duplicates, and this was verified by
+  deliberately bypassing the write API (a direct `run.inv[...] +=` inside the
+  fuzz loop) rather than by editing a recipe's numbers, which this
+  particular assertion is provably insensitive to (see the "T2=T3" and
+  "BREAK-EVEN DEPTH" entries below for the same "what does a LIVE test add
+  over a STATIC one" question asked twice more).
+
+- **T2=T3's hand-mining half is a direct call to
+  `model/mining.js#write.add`, not a controlled player run through the real
+  aim/collision pipeline.** Getting a real player's hitbox to sit dead
+  centre on one tile row for 60 consecutive substeps (so `aimAtKeys`
+  resolves to the SAME tile every frame) needs exact sub-pixel placement
+  against `PW`/`PH`/tile-size arithmetic that is fragile to get right by
+  hand and, if gotten wrong, fails for a reason that has nothing to do with
+  T2=T3 -- and would only end up re-proving `rules/mining.js`'s own
+  aim-resolution plumbing, not the RATE the test is actually about. The
+  placed Talos Head side runs through the real `stepReal`/`main.step`
+  pipeline in full (it is autonomous, so it has no such fragility), which is
+  the stronger half of the two anyway.
+
+- **BREAK-EVEN DEPTH's `k` is derived from live game numbers (the lift's
+  honest fuel mass, its span in tiles, one raw-ore item's mass), not
+  restated as a module constant.** `docs/DESIGN.md`'s "around depth 30" is a
+  PRE-IMPLEMENTATION estimate, written before the lift/fuel economy existed
+  in code at all (that file's own words: "the fuel economics are not
+  simulated"). Computing `k` from what actually shipped gives raw ore a
+  break-even of ~10 tiles, not ~30 -- printed for a human to compare, and
+  the assertion itself only checks the SHAPE the design argument depends on
+  (finite, positive, strictly deeper per compression tier, and within a
+  broad sanity band), not the exact figure, so a future honest retune of the
+  lift's span, its fuel, or the compression ratios moves the printed number
+  without failing the suite for no reason. See the DETERMINISM/CONSERVATION
+  entries above for the same reasoning pattern applied to two other
+  Phase 6 probes.
+
+- **`src/shell/main.js#installTestHook` grew two new members,
+  `__mf.intent(name, args)` and `__mf.give(sub, form, n)`, named here per the
+  phase's own instruction ("more than trivial").** `give` is one line
+  (`runw.collect`) and needs no further comment. `intent` is a small
+  dispatcher (`tab` / `slot` / `wheel` / `drag`) that locates its target rect
+  from `__mf.ui()`'s own live projection rather than a hardcoded screen
+  coordinate, arms the matching `cmd.uiClick`/`uiShift`/`uiCtrl`/`uiWheel`/
+  `uiDown` flags, and runs exactly one substep so the real
+  `applyUiIntents()` dispatcher (unexported, and rightly so — it is not a
+  public API, only this handle's own methods reach it) processes it. Needed
+  one new import in `src/shell/main.js` (`write as runw` from
+  `model/run.js`), nothing else.
+
+- **The three Tier 3 flows that place a machine, craft by hand, or drop
+  material all needed real fixture debugging before they measured anything
+  true, none of it a game bug.** Kept here because each is the exact
+  "measures the wrong thing" trap CLAUDE.md warns about, caught only by
+  actually reading what the state showed rather than trusting a plausible
+  assertion:
+    - The furnace flow's ingot count was rounding to 12 ore + 6 log which is
+      the furnace's OWN build cost (`docs/SPEC.md` section 13) — there was
+      nothing left to actually smelt once the bill was paid. Fixed by giving
+      more than the bill.
+    - The furnace flow's ingot then never reached the pockets because
+      `rules/machines.js#produce` ejects a finished good from the machine's
+      OWN mouth (the furnace's `top` port), which rests near the footprint's
+      CENTRE — while the player who placed it is standing at the SIDE (per
+      `rules/mining.js#aimAtKeys`'s "aim to the side" resolution with no
+      up/down held), outside `eff('pickupR')` (10 px). Fixed by moving the
+      player under the machine's centre after placing it, the same thing a
+      real player would do to hand-feed or collect from what they just
+      built.
+    - The drop/climb flow's shed-then-reabsorb cycle: dropping material at
+      the player's own feet and never moving away means anything given time
+      to clear `rules/items.js#MAGNET_DELAY` (0.35s = 42 substeps) gets
+      picked right back up. Fixed by shedding in a burst tighter than that
+      window, with margin, since the immediately-following climb check
+      itself runs long enough to cross the delay and reclaim a few units.
+    - The craft-queue flow over-crafted (7-8 completions instead of 5) when
+      driven as ONE `__mf.frames(1400)` call: `shell/main.js#tickCraftQueue`
+      only drains what it can see in the journal SINCE THE LAST call, once
+      per real animation frame in actual play, so a single giant batch holds
+      `cmd.craft` continuously for the whole window regardless of how many
+      times the queue should already have emptied. Fixed by ticking in small
+      batches, the faithful stand-in for "once per real frame".
+
+- **The phone project's screenshots are already blank in this sandbox,
+  before and after this phase.** Every `phone` baseline this phase added
+  (`shaft-*`, `ui-*`) hashes byte-IDENTICAL to the pre-existing, already-
+  accepted `surface-phone-darwin.png` — a solid black canvas with only the
+  DOM key-hints bar visible underneath it. This is a pre-existing
+  characteristic of running this suite's `phone` project (390x844, per
+  `playwright.config.js`, not the 200x422 figure an earlier draft of the
+  build plan assumed) in THIS headless environment, not something Phase 6
+  introduced: it reproduces on the ALREADY-COMMITTED `surface.png` baseline
+  too. `maxDiffPixels: 0` still does its job either way (a future change
+  that actually fixed or further broke phone rendering would move at least
+  one of these bytes), but the phone screenshots are not currently proving
+  anything about canvas CONTENT the way the desktop ones do. Not fixed here
+  — out of this phase's scope (a rendering/environment question, not a
+  harness-assertion one) — but worth a human's attention before trusting a
+  phone screenshot diff at face value.
+
+- **`conflictsWith` symmetry is NOT required by design, only consistency
+  where both directions happen to exist.** `rules/boons.js#step` only ever
+  resolves a conflict off the boon granted LATER (it walks forward from an
+  earlier index looking for a rival at a later one), so today's two shipped
+  hostile pairs are deliberately ONE-DIRECTIONAL: `poseidon-flood` names
+  `hephaestus-forge`, and `hephaestus-forge` does not name it back. That is
+  accepted design (the rivalry only fires when the aggressor is the one cast
+  second), not a gap. `tools/content.mjs`'s new lint therefore does not
+  require both directions to be declared — it only requires that WHERE both
+  are declared, their `mode`s agree, since a pair disagreeing about
+  suppress-vs-invert would make the outcome depend on grant order in a way no
+  content author would choose on purpose.

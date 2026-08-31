@@ -22,7 +22,7 @@ import { items } from '../model/items.js';
 import { peek as journalPeek } from '../model/journal.js';
 import { machines } from '../model/machines.js';
 import { PH, PW, player, write as playerw } from '../model/player.js';
-import { pocketRows, run } from '../model/run.js';
+import { pocketRows, run, write as runw } from '../model/run.js';
 import { bands, heightPx, widthPx, write as worldw } from '../model/world.js';
 import { dropHeaviest } from '../rules/items.js';
 import { deconstruct, placeMachine, placeTile, placeableFromPockets } from '../rules/placement.js';
@@ -563,7 +563,83 @@ function installTestHook() {
       stepFx(n * dt);
       drainJournal(clock.t);
       draw();
-    }
+    },
+
+    /* Phase 6 (docs/BUILD_PLAN.md) TIER 3: the widget layer's own intents,
+       driven through whatever `__mf.ui()` already says was actually drawn --
+       NEVER a hardcoded pixel coordinate (CLAUDE.md: a click at (400, 300)
+       fails on the phone project, whose base buffer is a different size).
+       Every case locates its target rect from THIS handle's own live `ui`
+       getter (the exact `pocketHits`/`hoverInfo` idiom every other read-back
+       on this object already uses), converts it to a WORLD position the same
+       way `mouseAt` does, arms the matching `cmd.uiClick`/`uiShift`/`uiCtrl`/
+       `uiWheel`/`uiDown` flags, and runs exactly one substep so
+       `applyIntents()`'s dispatcher (which self-clears every edge flag it
+       reads) actually processes it -- a caller never has to know that detail
+       to use this. Returns false, doing nothing, if the named target was not
+       actually drawn this frame (a closed panel, an out-of-range slot). */
+    intent(name, args = {}) {
+      const proj = this.ui;
+      const at = (sx, sy, { shift = false, ctrl = false, down = false } = {}) => {
+        cmd.mx = cam.x + sx; cmd.my = cam.y + sy; cmd.hasMouse = true;
+        cmd.uiShift = shift; cmd.uiCtrl = ctrl;
+        if (down) cmd.uiDown = true; else cmd.uiClick = true;
+      };
+
+      if (name === 'tab') {
+        const row = proj.tabs.find(t => t.id === args.row);
+        const hit = row && row.hits.find(h => h.id === args.tab);
+        if (!hit) return false;
+        at(hit.x + hit.w / 2, hit.y + hit.h / 2);
+        this.frames(1);
+        return true;
+      }
+
+      if (name === 'slot') {
+        const grid = proj.grids.find(g => g.id === args.grid);
+        const slot = grid && grid.slots[args.index];
+        if (!slot) return false;
+        at(slot.x + slot.w / 2, slot.y + slot.h / 2, { shift: !!args.shift, ctrl: !!args.ctrl });
+        this.frames(1);
+        return true;
+      }
+
+      if (name === 'wheel') {
+        const grid = proj.grids.find(g => g.id === args.grid);
+        if (!grid) return false;
+        cmd.mx = cam.x + grid.x + 1; cmd.my = cam.y + grid.y + 1; cmd.hasMouse = true;
+        cmd.uiWheel = args.delta ?? 1;
+        this.frames(1);
+        return true;
+      }
+
+      if (name === 'drag') {
+        const fromGrid = proj.grids.find(g => g.id === args.fromGrid);
+        const fromSlot = fromGrid && fromGrid.slots[args.fromIndex];
+        const toGrid = proj.grids.find(g => g.id === args.toGrid);
+        const toSlot = toGrid && toGrid.slots[args.toIndex];
+        if (!fromSlot || !toSlot) return false;
+        at(fromSlot.x + fromSlot.w / 2, fromSlot.y + fromSlot.h / 2, { down: true });
+        this.frames(1);
+        cmd.mx = cam.x + toSlot.x + toSlot.w / 2; cmd.my = cam.y + toSlot.y + toSlot.h / 2;
+        cmd.uiDown = false;
+        this.frames(1);
+        return true;
+      }
+
+      return false;
+    },
+
+    /* TEST ONLY, and inert outside `?test=1`: this whole function --
+       `installTestHook` -- is only ever called from the bottom of this file
+       behind the SAME `testMode` guard as everything else on `__mf`
+       (`new URLSearchParams(location.search).has('test')`), so there is no
+       second gate to add here. Credits directly into the pockets, bypassing
+       every mining/pickup rule -- the point is to arrange a SCENARIO (e.g.
+       "the pockets are over the hard cap") without spending a test's frame
+       budget re-proving mining or pickup, which other tests already cover
+       end to end. */
+    give(sub, form, n) { runw.collect(sub, form, n); }
   };
 }
 

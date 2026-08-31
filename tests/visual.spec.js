@@ -898,6 +898,442 @@ test('hovering an inventory pair resolves a tooltip naming it', async ({ page })
   expect(info.hover.lines.some(l => l.startsWith('MASS'))).toBe(true);
 });
 
+/* ============================================================
+   PHASE 6, TIER 3 — state-asserted flows over the real GUI/debug surface.
+
+   `__mf.intent(name, args)` and `__mf.give(sub, form, n)` are this phase's
+   own additions to the test hook (`src/shell/main.js#installTestHook`).
+   `intent` locates its target rect from `__mf.ui()`'s OWN live projection of
+   what was actually drawn this frame — never a hardcoded screen coordinate,
+   which CLAUDE.md records breaks at the phone project's viewport (verified
+   directly against playwright.config.js for this phase: the phone project
+   is 390x844 CSS px, not the smaller figure an earlier draft of this plan
+   assumed — `__mf.intent`/`__mf.hits` sidestep the question entirely by
+   reading geometry back rather than asserting it). `give` is TEST ONLY,
+   gated the same way every other `__mf` method already is (`?test=1`), and
+   exists so a flow's OWN point (a furnace smelting, a queued craft draining)
+   does not have to spend its frame budget re-proving mining or pickup that
+   other tests already cover end to end.
+   ============================================================ */
+
+/* ============================================================
+   PHASE 6, TIER 4 — new visual framings. Fixed seed, fixed substep count,
+   maxDiffPixels stays 0 (playwright.config.js). Every pair below is taken as
+   a PAIR on purpose (CLAUDE.md: a test that asserts a feature is visible
+   must prove the pixels differ with it off, not merely eyeball the one
+   screenshot with it on) — the unlit/lit shaft are two separately-baselined
+   images, so a future regression that made lighting a no-op would have to
+   change at least one of them relative to its OWN accepted baseline to stay
+   green, not merely look plausible next to the other.
+   ============================================================ */
+
+/* Both shaft screenshots share this setup: a hand-carved shaft in topsoil
+   with a copper vein wall to hide, fully REVEALED (the test-only
+   `write.revealAll` escape hatch — this is about the darkness pass, not fog,
+   the same reasoning `astral.png`/`topsoil.png` already use above). */
+async function carveShaft(page, tx0, ty0, w, h) {
+  await page.evaluate(async ({ tx0, ty0, w, h }) => {
+    const { S } = await import('/src/data/substances.js');
+    const { bandOf, worldX, worldY, write: ww } = await import('/src/model/world.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { write: pw } = await import('/src/model/player.js');
+    const { banner } = await import('/src/view/fx.js');
+
+    const band = bandOf('topsoil');
+    for (let ty = ty0; ty < ty0 + h; ty++) for (let tx = tx0; tx < tx0 + w; tx++) tw.clear(band, tx, ty);
+    for (let ty = ty0 + 4; ty < ty0 + 8; ty++) tw.set(band, tx0, ty, S.copper);   // a vein to hide in the dark
+    tw.set(band, tx0 + 2, ty0 + h - 1, S.stone);                                 // a floor for the brazier
+
+    pw.band(band);
+    pw.move(worldX(band, tx0 + 2), worldY(band, ty0 + 2));
+    ww.revealAll(band);
+    banner.fade = 0;   // past the opening title, same reasoning `settle()`'s own header gives
+
+    __mf.cam.x = worldX(band, tx0) - 16;
+    __mf.cam.y = worldY(band, ty0) - 16;
+  }, { tx0, ty0, w, h });
+}
+
+test('an unlit shaft', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await carveShaft(page, 40, 100, 6, 12);
+  await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(2); });
+  await shot(page, 'shaft-unlit.png');
+});
+
+test('the same shaft lit by a brazier', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await carveShaft(page, 40, 100, 6, 12);
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { M } = await import('/src/data/machines.js');
+    const { write: mw } = await import('/src/model/machines.js');
+    const { bandOf } = await import('/src/model/world.js');
+
+    const brazier = mw.place(bandOf('topsoil'), M.brazier, 42, 111);
+    mw.take(brazier, S.timber, F.log, 4);
+    __mf.cmd.hasMouse = false;
+    __mf.frames(700);          // > 6s honest-fuel recipe, then settle
+  });
+  await shot(page, 'shaft-lit.png');
+});
+
+test('the Character tab', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { write: rw } = await import('/src/model/run.js');
+    const { open, setTab } = await import('/src/shell/ui.js');
+    const { grant, equipFirst, step: trinketStep } = await import('/src/rules/trinkets.js');
+    const { banner } = await import('/src/view/fx.js');
+
+    rw.collect(S.copper, F.ore, 5);
+    rw.collect(S.timber, F.log, 3);
+    grant('bellows');
+    __mf.frames(200);          // let the drafted relic fall and land in the pockets
+    equipFirst();
+    trinketStep();             // sync model/mods.js so the resolved deltas actually show
+
+    open('main');
+    setTab('main', 'char');
+    __mf.cmd.hasMouse = false;
+    banner.fade = 0;
+    __mf.frames(2);
+  });
+  await shot(page, 'ui-character.png');
+});
+
+/* No recipe is genuinely lockable this build -- `model/run.js#RUN_SCHEMA.known`
+   is seeded with EVERY `HAND_RECIPES` id in `write.reset()` (Phase 5b's own
+   documented reason: no drop/tribute/draft source that reveals a NEW recipe
+   exists yet, so "everything currently craftable is known" is the honest
+   starting state). The silhouette-rendering CODE PATH is real and wired
+   (`view/ui/mainPanel.js`'s `!known` branch), but there is nothing to feed it
+   a locked id with in this build — screenshotting the tab AS IT ACTUALLY
+   RENDERS today, rather than fabricating a locked recipe that cannot
+   currently occur in play. */
+test('the Crafting tab', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { write: rw } = await import('/src/model/run.js');
+    const { open, setTab } = await import('/src/shell/ui.js');
+    const { banner } = await import('/src/view/fx.js');
+
+    rw.collect(S.copper, F.ore, 5);
+    rw.collect(S.timber, F.log, 4);
+    open('main');
+    setTab('main', 'craft');
+    __mf.cmd.hasMouse = false;
+    banner.fade = 0;
+    __mf.frames(2);
+  });
+  await shot(page, 'ui-crafting.png');
+});
+
+test('the boon stack with active boons', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { grant } = await import('/src/rules/boons.js');
+    const { BOONS } = await import('/src/data/boons.js');
+    const { banner } = await import('/src/view/fx.js');
+    /* Three MUTUALLY NON-HOSTILE boons (indices 0, 2, 4 -- `data/boons.js`'s
+       own two conflicting pairs are 0/1 and 2/3), so all three stay active
+       and visible at once rather than one suppressing or inverting another. */
+    grant(BOONS[0].id);
+    grant(BOONS[2].id);
+    grant(BOONS[4].id);
+    __mf.cmd.hasMouse = false;
+    banner.fade = 0;
+    __mf.frames(2);
+  });
+  await shot(page, 'ui-boon-stack.png');
+});
+
+test('cold start -> mine 12 copper ore -> craft nothing -> place a furnace -> it smelts', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { bandOf } = await import('/src/model/world.js');
+    __mf.revealAll(bandOf('surface'));
+    /* "mine 12 copper ore" is stood in for by `give` -- the flow's own point
+       is the chain (afford -> place -> feed -> smelt), not the mining grind,
+       exactly the substitution `docs/BUILD_PLAN.md` Phase 3's own tests
+       already make for the identical reason. The furnace's OWN build cost
+       (docs/SPEC.md section 13) is exactly 12 copper/ore + 6 timber/log --
+       spent whole at placement -- so a bit more of each is given on top,
+       or there is nothing left to actually smelt once the bill is paid. */
+    __mf.give(S.copper, F.ore, 12 + 8);
+    __mf.give(S.timber, F.log, 6 + 2);
+    __mf.cmd.hasMouse = false;
+    __mf.flags.showInv = true;
+  });
+  await page.keyboard.press('1');        // furnace is index 0 of STARTING_MACHINES
+  const result = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    const { write: pw, PW } = await import('/src/model/player.js');
+    __mf.flags.showInv = false;
+
+    /* The finished ingot ejects from the furnace's TOP mouth and falls back
+       to rest roughly under the machine's own centre -- past
+       `eff('pickupR')` (10 px) from where the player was STANDING to place
+       it (the aim reticle sits at the player's own row, to the side, per
+       `rules/mining.js#aimAtKeys`, not at the footprint's centre). A real
+       player would walk over to hand-feed or collect from a machine they
+       just placed; teleported here directly under its centre rather than
+       walked there, since how far a walk covers is `rules/player.js`'s own
+       concern and already thoroughly covered elsewhere -- this flow's point
+       is the smelt chain, not a second proof of walk speed. */
+    __mf.frames(1);                      // let the keypress above actually place it
+    const m = __mf.machines[0];
+    pw.move(m.box.x + m.box.w / 2 - PW / 2, __mf.player.y);
+
+    __mf.frames(1500);                   // several 4.0s smelt cycles, plus fall + pickup
+    return { machines: __mf.machines.length, ingot: invCount(S.copper, F.ingot) };
+  });
+
+  expect(result.machines).toBe(1);
+  expect(result.ingot).toBeGreaterThan(0);
+});
+
+test('craft peg rungs by hand, place a brazier in a dark room, and the strata become visible where they were not', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const result = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    const { bandOf, seenAt, lightAt, worldX, worldY } = await import('/src/model/world.js');
+    const { write: pw } = await import('/src/model/player.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { placeMachine } = await import('/src/rules/placement.js');
+
+    /* Peg rungs BY HAND -- the real hand-craft key, not a grant. */
+    __mf.give(S.timber, F.log, 2);
+    __mf.hold({ craft: 1 }, 300);
+    __mf.frames(60);
+    const rungsHeld = invCount(S.timber, F.rung);
+
+    /* A sealed, dark room deep in topsoil, far from anywhere `settle()`'s
+       spawn-adjacent reveal already touched. Floor at ty0+h so a `footing:1`
+       machine (the brazier) can stand on the room's own bottommost row. */
+    const band = bandOf('topsoil');
+    const tx0 = 50, ty0 = 150, w = 8, h = 6;
+    for (let ty = ty0; ty < ty0 + h; ty++) for (let tx = tx0; tx < tx0 + w; tx++) tw.clear(band, tx, ty);
+    for (let tx = tx0 - 1; tx <= tx0 + w; tx++) {
+      tw.set(band, tx, ty0 - 1, S.stone);
+      tw.set(band, tx, ty0 + h, S.stone);
+    }
+    for (let ty = ty0 - 1; ty <= ty0 + h; ty++) {
+      tw.set(band, tx0 - 1, ty, S.stone);
+      tw.set(band, tx0 + w, ty, S.stone);
+    }
+
+    pw.band(band);
+    pw.move(worldX(band, tx0 + 1), worldY(band, ty0 + h - 2));   // feet flush on the floor
+    __mf.frames(30);
+
+    const darkTile = { tx: tx0 + w - 2, ty: ty0 };                // the far corner, several tiles off
+    const litBefore = lightAt(band, darkTile.tx, darkTile.ty);
+    const seenBefore = seenAt(band, darkTile.tx, darkTile.ty);
+
+    __mf.give(S.timber, F.log, 8);
+    __mf.give(S.stone, F.gravel, 2);
+    const brazier = placeMachine(band, 'brazier', tx0 + 2, ty0 + h - 1);   // adjacent, in hand-feed reach
+    __mf.frames(900);                                              // > 6s honest-fuel, several times over
+
+    const litAfter = lightAt(band, darkTile.tx, darkTile.ty);
+    const seenAfter = seenAt(band, darkTile.tx, darkTile.ty);
+
+    return { rungsHeld, brazierPlaced: !!brazier, litBefore, litAfter, seenBefore, seenAfter };
+  });
+
+  expect(result.rungsHeld).toBeGreaterThan(0);
+  expect(result.brazierPlaced).toBe(true);
+  expect(result.litBefore).toBe(0);
+  expect(result.litAfter).toBeGreaterThan(0);
+  expect(result.seenAfter).toBe(true);
+});
+
+test('overloaded past 40 T, a climb intent is refused; dropping the heaviest pair lets it succeed', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { eff } = await import('/src/model/mods.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { write: pw } = await import('/src/model/player.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+
+    const band = bandOf('topsoil');
+    const tx = 10, ty = 40;
+    for (let dy = -1; dy <= 4; dy++) tw.clear(band, tx, ty + dy);
+    tw.set(band, tx, ty + 4, S.timber, F.log);        // a ladder tile
+    pw.band(band);
+    pw.move(worldX(band, tx), worldY(band, ty + 3));  // straddling the ladder tile
+
+    /* Over the hard cap: heavy enough that ONE drop cannot bring it back
+       under, so "climb succeeds" below has to hold across more than a single
+       drop -- `dropHeaviest` (the 'q' key) always sheds the single heaviest
+       pair, one unit at a time, per its own header. copper/ore's massOfPair
+       is exactly 1.0 T/unit, so this many units is this many talents. */
+    const need = eff('burden') * 1.3;
+    __mf.give(S.copper, F.ore, Math.ceil(need));
+    __mf.cmd.hasMouse = false;
+  });
+
+  const y0 = await page.evaluate(() => __mf.player.y);
+  await page.evaluate(() => __mf.hold({ up: 1 }, 30));
+  const afterRefused = await page.evaluate(() => __mf.player.y);
+  expect(afterRefused).toBeGreaterThanOrEqual(y0);      // no upward movement while over the cap
+
+  /* Drop the heaviest pair (copper/ore, the only thing held) repeatedly
+     until back under the cap -- `q` is edge-triggered, one unit per press,
+     not held. Each press is exactly ONE substep (`hold(keys, 1)`) and the
+     whole burst stays well under `rules/items.js#MAGNET_DELAY` (0.35s = 42
+     substeps at the fixed 1/120s step): the player never moves away from
+     where they are dropping, so anything given time to clear the pickup
+     delay while still sitting at their feet would simply be picked back up,
+     undoing the very shedding this is testing. */
+  const underCap = await page.evaluate(async () => {
+    const { eff } = await import('/src/model/mods.js');
+    const { burdenOf } = await import('/src/model/run.js');
+    /* Target well under the cap, not just barely under it: the climb check
+       right after this runs long enough (60 substeps, 0.5s) to cross
+       MAGNET_DELAY, and the player never moves away from the drop pile
+       before starting to climb, so some of what was just shed WILL be
+       picked back up mid-climb. Margin is what keeps that from tipping the
+       player back over the cap before the climb assertion below gets to
+       run. */
+    for (let i = 0; i < 39 && burdenOf() >= eff('burden') * 0.6; i++) __mf.hold({ drop: 1 }, 1);
+    return burdenOf() < eff('burden');
+  });
+  expect(underCap).toBe(true);
+
+  const yBeforeClimb = await page.evaluate(() => __mf.player.y);
+  await page.evaluate(() => __mf.hold({ up: 1 }, 60));
+  const yAfterClimb = await page.evaluate(() => __mf.player.y);
+  expect(yAfterClimb).toBeLessThan(yBeforeClimb);       // now climbs, i.e. moves UP (world y decreases)
+});
+
+test('opening the GUI, shift-clicking a recipe queues 5, and ticking drains them into the pockets', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const result = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    const { open, setTab } = await import('/src/shell/ui.js');
+
+    __mf.give(S.timber, F.log, 20);      // 5 runs of peg_rungs (2 logs each)
+    open('main');
+    setTab('main', 'craft');
+    __mf.frames(1);                       // draw once so __mf.ui() reflects the open panel
+
+    __mf.intent('tab', { row: 'main-craft-cat', tab: 'placeables' });   // rung is form.tile -> 'placeables'
+    const grid = __mf.ui.grids.find(g => g.id === 'recipes');
+    const index = grid ? grid.slots.findIndex(s => s.sub === S.timber && s.form === F.rung) : -1;
+
+    __mf.intent('slot', { grid: 'recipes', index, shift: true });
+    const queueAfterClick = __mf.ui.craftQueue.length;
+
+    /* `tickCraftQueue()` only drains completions it can see in the journal
+       SINCE THE LAST `frames()` call -- it runs once at the end of whichever
+       batch of substeps it is given, exactly once per real animation frame
+       in actual play. Calling `frames(1400)` as ONE batch would hold
+       `cmd.craft` continuously for the WHOLE window regardless of how many
+       times the queue should have already emptied and stopped re-asserting
+       it, over-crafting past what was queued. Ticking in small batches is
+       what makes this a faithful stand-in for "one call per real frame". */
+    for (let i = 0; i < 40 && __mf.ui.craftQueue.length; i++) __mf.frames(40);
+    /* The queue empties the instant the LAST completion's 'produce' journal
+       row is seen, which is before that completion's own physical output has
+       necessarily finished falling and clearing the pickup delay -- a few
+       more frames lets the last item land in the pockets like every other
+       one already has. */
+    __mf.frames(120);
+
+    return { index, queueAfterClick, rungs: invCount(S.timber, F.rung) };
+  });
+
+  expect(result.index).toBeGreaterThanOrEqual(0);
+  expect(result.queueAfterClick).toBe(5);
+  expect(result.rungs).toBe(20);          // 5 completions x 4 rungs each
+});
+
+test('granting a boon in debug activates it, and it expires back to the base eff() value', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(() => { __mf.flags.showDebug = true; __mf.cmd.hasMouse = false; });
+
+  const before = await page.evaluate(async () => {
+    const { eff } = await import('/src/model/mods.js');
+    const { BOONS } = await import('/src/data/boons.js');
+    const b = BOONS[0];
+    const raw = b.mods[0].key;
+    const dot = raw.indexOf('.');
+    return { key: dot < 0 ? raw : raw.slice(0, dot), scope: dot < 0 ? undefined : raw.slice(dot + 1),
+             secs: b.secs, value: eff(dot < 0 ? raw : raw.slice(0, dot), dot < 0 ? undefined : raw.slice(dot + 1)) };
+  });
+
+  await page.keyboard.press('b');         // the debug timed-boon draft (flags.showDebug required)
+  const afterGrant = await page.evaluate(async ({ key, scope }) => {
+    __mf.frames(3);
+    const { eff } = await import('/src/model/mods.js');
+    const { boons } = await import('/src/model/boons.js');
+    return { active: boons.active.length > 0, value: eff(key, scope) };
+  }, before);
+
+  expect(afterGrant.active).toBe(true);               // the HUD's own timer stack draws exactly this list
+  expect(afterGrant.value).not.toBe(before.value);
+
+  const afterExpiry = await page.evaluate(async ({ key, scope, secs }) => {
+    __mf.frames(Math.ceil((secs + 1) * 120));
+    const { eff } = await import('/src/model/mods.js');
+    const { boons } = await import('/src/model/boons.js');
+    return { active: boons.active.length > 0, value: eff(key, scope) };
+  }, before);
+
+  expect(afterExpiry.active).toBe(false);
+  expect(afterExpiry.value).toBe(before.value);
+});
+
+/* NO-SPAWN GUARD: the enforcement mechanism for Phase 3's and Phase 4's
+   whole point (docs/BUILD_PLAN.md Phase 6) -- with `flags.showDebug` off,
+   F/L/T/B must produce no entity and no item, exactly the debug-gated
+   machine/draft spawns `src/shell/input.js` guards behind that flag. */
+test('NO-SPAWN GUARD: with flags.showDebug off, F, L, T and B produce no entity and no item', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const before = await page.evaluate(() => {
+    __mf.flags.showDebug = false;
+    __mf.cmd.hasMouse = false;
+    return { machines: __mf.machines.length, items: __mf.items.length };
+  });
+
+  for (const key of ['f', 'l', 't', 'b']) {
+    await page.keyboard.press(key);
+    await page.evaluate(() => __mf.frames(5));
+  }
+
+  const after = await page.evaluate(() => ({ machines: __mf.machines.length, items: __mf.items.length }));
+  expect(after.machines).toBe(before.machines);
+  expect(after.items).toBe(before.items);
+});
+
 /* Dev serves src/ untransformed; dist is bundled and minified by esbuild.
    That is a real divergence risk, so it is asserted rather than assumed.
    Requires `npm run build` first — `npm run parity` does both. */
