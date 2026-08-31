@@ -18,19 +18,37 @@
                            frame's position, not the last one's.
      mining before items    a tile broken this frame drops before anything falls,
                            so the drop gets a full step of gravity immediately.
-     items before crafting  a hand-craft is spent straight out of `run.inv`, and
+     items before belts     a belt drags what just landed, not what was resting
+                           a whole frame stale — the same freshness `items
+                           before machines` (below) already relies on, paid
+                           here first because a belt's own drag has to run on
+                           this frame's true positions too. `rules/belts.js`
+                           re-indexes the item grid itself after it moves
+                           anything, so nothing downstream of it — crafting,
+                           trinkets, machines — ever sees a position `items`
+                           rebuilt the index for but a belt has since moved.
+     belts before crafting  unrelated ledgers: a belt spends its own charge and
+                           moves items on the ground, a hand-craft spends the
+                           PLAYER's pockets, and neither reads the other. Placed
+                           here rather than after `trinkets` so the two steps
+                           that move physical things in the world — what just
+                           fell, what just got dragged — stay adjacent, and so
+                           the ORIGINAL "items before crafting" promise this
+                           pair used to state directly still holds transitively:
                            an ingredient `items` just caught with the pickup
-                           radius is already there by the time this runs — so
-                           holding the craft key through the exact frame an
-                           ingredient lands still counts that frame toward the
-                           bar, not the next one. The cost of putting it here
-                           rather than before `items` (as `mining` sits, for its
-                           own drop) is that a COMPLETED craft's output item
-                           waits one extra frame for its first gravity step;
-                           judged the smaller loss, since a player is far more
-                           likely to feel a fresh pickup count toward a craft
-                           already in progress than to notice one frame of an
-                           item sitting nearly still at the moment it appears.
+                           radius is already in `run.inv` by the time `crafting`
+                           runs, whether or not a belt sits between them, since
+                           nothing in `belts` touches `run.inv`. (The rest of
+                           that promise, for the record: holding the craft key
+                           through the exact frame an ingredient lands still
+                           counts that frame toward the bar, not the next one.
+                           The cost of that is a COMPLETED craft's own output
+                           item waits one extra frame for its first gravity
+                           step — judged the smaller loss, since a player is
+                           far more likely to feel a fresh pickup count toward
+                           a craft already in progress than to notice one frame
+                           of an item sitting nearly still at the moment it
+                           appears.)
      crafting before trinkets  spending or gaining pocket material this frame
                            is visible to the trinket sync in the SAME frame,
                            the same promise `items before trinkets` already
@@ -41,6 +59,14 @@
                            `items` is what rebuilt the spatial index.
      trinkets before machines  a rate modifier a relic just turned on should
                            apply to this same frame's recipe tick, not the next.
+
+                           THIS IS ALSO WHY `belts`, THREE STEPS EARLIER, IS
+                           STILL BEFORE `machines`: a belt that dragged an item
+                           into a furnace's mouth this frame has to be caught
+                           by that furnace's catch box THIS frame, or a
+                           belt-fed machine is one frame slower than a
+                           hand-fed one for no reason a player could ever see.
+                           `machines` is where that catch box is checked.
      machines before lift   a charge banked this frame turns the drum now, so
                            feeding the winch and it moving are one beat.
      fields last            emissions made this frame decay from NEXT frame, so a
@@ -50,6 +76,7 @@
    decision, and no `rules` module may claim ownership of the frame. */
 
 import { write as rw } from '../model/run.js';
+import * as belts from '../rules/belts.js';
 import * as boons from '../rules/boons.js';
 import * as crafting from '../rules/crafting.js';
 import * as fields from '../rules/fields.js';
@@ -66,6 +93,7 @@ export const STEPS = [
   { id: 'player',   step: (dt, cmd) => player.step(dt, cmd) },
   { id: 'mining',   step: (dt, cmd) => mining.step(dt, cmd) },
   { id: 'items',    step: (dt) => items.step(dt) },
+  { id: 'belts',    step: (dt) => belts.step(dt) },
   { id: 'crafting', step: (dt, cmd) => crafting.step(dt, cmd) },
   { id: 'trinkets', step: () => trinkets.step() },
   { id: 'machines', step: (dt) => machines.step(dt) },

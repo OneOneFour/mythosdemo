@@ -37,5 +37,15 @@ export const BOON = Object.freeze(Object.fromEntries(
    pressing plates a reward rather than a given. Once tribute past cycle 1
    exists, this almost certainly wants to move to a `BOONS` row instead — a
    press earned late is refinement-quota pressure; a press free from spawn is
-   just an unused row on the HUD. */
-export const STARTING_MACHINES = Object.freeze(['furnace', 'lift', 'press']);
+   just an unused row on the HUD.
+
+   `belt_r` / `belt_l` are here PROVISIONALLY TOO, and more so than `press`:
+   belts are supposed to be RARE per `docs/DESIGN.md`'s genre statement, so a
+   belt costing plate is only half the point if it is also handed out free at
+   spawn. They are free-for-testability now for the same reason every row in
+   this list is — there is no director yet to decide when a god would offer
+   one — but this is the row on this list most likely to move to `BOONS` the
+   moment there is one: earned late, a belt is a real reward for the cost it
+   already carries; free from spawn, the cost is just a tax on a starting
+   machine, which is backwards. */
+export const STARTING_MACHINES = Object.freeze(['furnace', 'lift', 'press', 'belt_r', 'belt_l']);

@@ -183,7 +183,70 @@ export const MACHINES = [
        this machine's data. */
     look:{ body:'irB', trim:'irA', base:'irD', fire:true,
            pips:[ { sel:'*/#ingot', row:0 }, { sel:'*/#fuel', row:1 } ],
-           sfx:{ accept:'ignite', produce:'ingot' } } }
+           sfx:{ accept:'ignite', produce:'ingot' } } },
+
+  /* ---- BELT: horizontal relocation, and the one machine explicitly priced to
+     be RARE. `docs/DESIGN.md`'s genre statement names flat, cheap horizontal
+     logistics as the thing this project refuses to become, so this is the
+     first row to carry a nonzero `cost` for real (`press`, above, is free
+     provisionally, for a reason its own comment states) -- 2 plate and 4
+     gravel, priced in the game's own SECOND compression tier rather than raw
+     ore, so a lane of these is a plate-shipping decision and not a doorstep
+     mat laid beside every machine.
+
+     IT RUNS NO TRANSFORM. `rules/machines.js`'s generic interpreter turns
+     inputs into outputs; a belt turns a POSITION into a later position with
+     the SAME substance and form throughout, which is a shape `out` clauses
+     cannot express and should not be made to. `rules/belts.js` is the sibling
+     module that reads `belt.dir` off this row and drags a resting item along
+     the footprint -- `rules/lift.js#carry()` turned ninety degrees, per its
+     own file header.
+
+     THE FUEL RECIPE IS THE LIFT'S HONEST-FUEL ROW, VERBATIM IN SHAPE: `out:[]`
+     banks a CHARGE through the ordinary `produce()` path below, the exact
+     mechanism a lift stage uses, and `rules/belts.js` spends exactly one
+     charge per item it delivers off the belt's end. Nothing in this file or
+     that one can tell a belt's charge from a lift's.
+
+     4 tiles long, 1 tall, `footing:4` -- a full solid floor under the whole
+     span, not just the two end tiles a taller machine checks. `th:1` is why
+     `rules/placement.js`'s footing loop (which walks every column under the
+     footprint regardless of how many rows tall it is) already covers this
+     with no change: it was written for an arbitrary `tw`, not for `th:2`
+     specifically.
+
+     `belt:{ dir }` is the one key here `rules/belts.js` reads that no other
+     machine's row carries: `1` drags toward increasing world x, `-1` toward
+     decreasing. `belt_l` is `belt_r` with that key and the id/name flipped via
+     `variantOf` -- the same near-free variant `kiln_divine` proves above. ---- */
+  { id:'belt_r', name:'CONVEYOR (RIGHT)',
+    tw:4, th:1, footing:4,
+
+    ports:[ { side:'top', mode:'in', accepts:['*/#fuel'] } ],
+
+    buffer:{ cap:{ '*/#fuel':2 } },
+
+    catchBox:{ mouth:'top', slack:2 },
+    handFeed:{ reach:10, from:['*/#fuel'] },
+
+    belt:{ dir:1 },
+
+    recipes:[ { in:{ '*/#fuel':1 }, out:[], secs:6.0 } ],
+
+    cost:{ 'copper/plate':2, 'stone/gravel':4 },
+
+    /* Timber-and-iron, not the furnace's fired clay: a belt is built, not
+       stoked, and `fire:true` here reads as the burner that pays for the
+       drag rather than a kiln. Reuses `ignite`/`winch` for accept/produce --
+       the same borrow `press` makes for accept/produce, and for the same
+       reason: no dedicated belt sound row exists yet, and inventing one is
+       audio content, not this machine's data. */
+    look:{ body:'woodB', trim:'irA', base:'irD', fire:true,
+           pips:[ { sel:'*/#fuel', row:0 } ],
+           sfx:{ accept:'ignite', produce:'winch' } } },
+
+  { id:'belt_l', name:'CONVEYOR (LEFT)', variantOf:'belt_r',
+    belt:{ dir:-1 } }
 ];
 
 /* ---- variant expansion, then derived indices, built once, frozen ------------

@@ -182,6 +182,195 @@ test('holding the hand-craft key smelts ore into an ingot, spending exactly its 
   expect(info.after).toEqual({ ore: 0, fuel: 0, ingot: 1 });
 });
 
+/* ============================================================
+   BELTS
+
+   `rules/belts.js`'s own header explains why a belt is not a recipe-driven
+   transform: it drags a RESTING item along its footprint for as long as its
+   machine record holds a fuel-bought CHARGE, and does nothing the instant it
+   does not. A screenshot cannot tell "moved" from "always looked like this",
+   so all three tests below read item and machine state back directly.
+
+   Every test hand-carves its own small patch of the surface band -- clearing
+   a rectangle to air and forcing a solid floor under exactly the belt's own
+   four-tile footprint -- rather than trusting that seed 1337's natural
+   terrain happens to have a flat run near spawn. That is the same caution
+   CLAUDE.md's furnace story is about: a test that only ever finds rock
+   nearby would report "refused" as if it were "did not drag".
+   ============================================================ */
+
+/* `tx0..tx0+3` at `ty0` becomes the belt's own footprint, cleared to air (or
+   `placeMachine` refuses it as occupied); `ty0+1` under the WHOLE span is
+   forced solid, exactly the floor `footing:4` demands; everything else in the
+   rectangle -- above the belt and PAST its right edge alike -- stays air, so
+   a delivered item has open space to fall into rather than more floor. */
+async function carveBeltFloor(page, tx0, ty0) {
+  await page.evaluate(async ({ tx0, ty0 }) => {
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { S } = await import('/src/data/substances.js');
+    const { bandOf } = await import('/src/model/world.js');
+    const band = bandOf('surface');
+    for (let x = tx0 - 2; x <= tx0 + 12; x++)
+      for (let y = ty0 - 6; y <= ty0 + 10; y++) tw.clear(band, x, y);
+    for (let x = tx0; x <= tx0 + 3; x++) tw.set(band, x, ty0 + 1, S.stone);
+  }, { tx0, ty0 });
+}
+
+test('a fuelled belt drags a resting item across its footprint and releases it off the end', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await carveBeltFloor(page, 10, 15);
+
+  const info = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { write: rw } = await import('/src/model/run.js');
+    const { write: iw } = await import('/src/model/items.js');
+    const { write: mw } = await import('/src/model/machines.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { placeMachine } = await import('/src/rules/placement.js');
+
+    const band = bandOf('surface');
+    const tx0 = 10, ty0 = 15;
+
+    /* The build bill this row carries (`data/machines.js`'s `belt_r`): 2
+       copper plate, 4 stone gravel. Collected, not granted, so this also
+       proves the cost is real and not merely declared. */
+    rw.collect(S.copper, F.plate, 2);
+    rw.collect(S.stone, F.gravel, 4);
+    const belt = placeMachine(band, 'belt_r', tx0, ty0);
+
+    /* Land the item FIRST, on an unfuelled belt, and confirm it is inert
+       before a single charge exists. Feeding the burner before the item has
+       even landed would race the two: `beltSpeed` (50 px/s) crossing this
+       belt's 4 tiles takes about the same half-second the item's own fall
+       takes to settle, so a belt already charged when the item lands can
+       land AND fully cross AND release within one "let it settle" window,
+       and the intermediate "resting, not yet dragged" state this asserts
+       would never be observed. Landing it on a cold belt removes the race. */
+    const it = iw.spawn(band, worldX(band, tx0) + 4, worldY(band, ty0 - 3), S.copper, F.ore, 0, 0);
+    __mf.frames(120);                    // time to fall 4 tiles and settle
+    const landed = { x: it.x, y: it.y, rest: it.rest };
+
+    /* Straight into the buffer -- the same effect standing in reach and
+       hand-feeding would have, without needing the player's own position in
+       this test. One fuel unit is one 6-second run of the honest-fuel recipe
+       this row shares with the lift, which banks exactly one charge. */
+    mw.take(belt, S.timber, F.log, 1);
+    __mf.frames(760);                    // > 6s at the fixed 1/120s step
+    const charged = belt.charges;
+
+    __mf.frames(420);                    // cross the belt, release, refall
+    const settled = { x: it.x, y: it.y, rest: it.rest };
+
+    return {
+      charged, landed, settled,
+      chargesAfter: belt.charges,
+      boxRight: belt.box.x + belt.box.w
+    };
+  });
+
+  expect(info.charged).toBe(1);
+  expect(info.landed.rest).toBe(1);                    // it actually landed and rested
+  /* Delivered off the end: past the belt's own right edge, and -- because the
+     far side was carved to open air -- resting again lower than where it
+     landed on the belt, meaning it fell further after release rather than
+     stopping dead at the lip. */
+  expect(info.settled.x).toBeGreaterThanOrEqual(info.boxRight);
+  expect(info.settled.y).toBeGreaterThan(info.landed.y + 8);
+  expect(info.settled.rest).toBe(1);                   // and came to rest again
+  expect(info.chargesAfter).toBe(0);                   // exactly the one charge it had
+});
+
+test('a belt with no fuel charge does not drag a resting item', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await carveBeltFloor(page, 10, 15);
+
+  const info = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { write: rw } = await import('/src/model/run.js');
+    const { write: iw } = await import('/src/model/items.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { placeMachine } = await import('/src/rules/placement.js');
+
+    const band = bandOf('surface');
+    const tx0 = 10, ty0 = 15;
+
+    rw.collect(S.copper, F.plate, 2);
+    rw.collect(S.stone, F.gravel, 4);
+    const belt = placeMachine(band, 'belt_r', tx0, ty0);
+    /* No fuel goes in this time. `belt.charges` starts, and stays, 0. */
+
+    const it = iw.spawn(band, worldX(band, tx0) + 4, worldY(band, ty0 - 3), S.copper, F.ore, 0, 0);
+    __mf.frames(120);
+    const landed = { x: it.x, y: it.y, rest: it.rest };
+
+    __mf.frames(420);                    // same window the fuelled test drags across
+    const after = { x: it.x, y: it.y, rest: it.rest };
+
+    return { charges: belt.charges, landed, after };
+  });
+
+  expect(info.charges).toBe(0);
+  expect(info.landed.rest).toBe(1);
+  /* The gate actually gates something: same footprint, same window, no fuel
+     -- the item neither moves nor leaves the surface it rested on. */
+  expect(info.after.x).toBe(info.landed.x);
+  expect(info.after.y).toBe(info.landed.y);
+  expect(info.after.rest).toBe(1);
+});
+
+/* The 400-item cap (`rules/items.js#MAX_ITEMS`) is a hard cap on the GLOBAL
+   item list, not a per-machine buffer, so a belt cannot make it leak or go
+   non-finite merely by being mid-drag when the cap trims the oldest items out
+   from under it. `belt.charges` is set directly here (bypassing the fuel
+   economy the two tests above already cover) so the frame budget goes to
+   proving the physics holds under load, not to re-proving the burner works. */
+test('a belt dragging far more items than the cap allows stays finite and within it', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await carveBeltFloor(page, 10, 15);
+
+  const info = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { write: rw } = await import('/src/model/run.js');
+    const { write: iw, items } = await import('/src/model/items.js');
+    const { write: mw } = await import('/src/model/machines.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { placeMachine } = await import('/src/rules/placement.js');
+
+    const band = bandOf('surface');
+    const tx0 = 10, ty0 = 15;
+
+    rw.collect(S.copper, F.plate, 2);
+    rw.collect(S.stone, F.gravel, 4);
+    const belt = placeMachine(band, 'belt_r', tx0, ty0);
+    mw.charge(belt, 1e6);                // never runs dry for the length of this probe
+
+    const before = items.length;
+    for (let i = 0; i < 450; i++)
+      iw.spawn(band, worldX(band, tx0) + (i % 32), worldY(band, ty0 - 3), S.copper, F.ore, 0, 0);
+    const spawned = items.length - before;
+
+    __mf.frames(600);
+
+    return {
+      spawned,
+      count: items.length,
+      allFinite: items.every(it =>
+        Number.isFinite(it.x) && Number.isFinite(it.y) &&
+        Number.isFinite(it.vx) && Number.isFinite(it.vy))
+    };
+  });
+
+  expect(info.spawned).toBe(450);          // more than the cap, confirmed spawned
+  expect(info.count).toBeLessThanOrEqual(400);   // rules/items.js#MAX_ITEMS
+  expect(info.allFinite).toBe(true);
+});
+
 test('debug overlays on, for seam inspection', async ({ page }) => {
   await boot(page);
   await settle(page);

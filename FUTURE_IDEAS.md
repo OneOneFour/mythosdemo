@@ -75,3 +75,38 @@ in full in `docs/DESIGN.md`. Listed here so the backlog is in one place.
 - **Tartarus below Hades.** The Titans are Prometheus's kin, chained by the same
   gods starving you over quotas. The reason to dig past where the ore stops
   improving.
+
+---
+
+## Mechanical power for belts, as an alternative to burner fuel
+
+**Idea.** Belts (`rules/belts.js`) currently run on the same burner/charge
+mechanism as the lift: feed a machine fuel, it banks a charge, the charge gets
+spent moving material. A discussed alternative is MECHANICAL power instead of
+combustion — a waterwheel or drop-weight driven by material already falling
+through the factory (a waterfall, a chute of ore under gravity), possibly
+sharing a gear-train with the lift's own winch drum, so building more belts
+competes with the lift for the same mechanical budget rather than each having
+an independent fuel bill. A manual hand-crank is the degenerate case of the
+same idea — the player's own effort standing in for a mechanism, the way
+`rules/crafting.js` already lets hands stand in for a machine.
+
+**Why it's parked.** All three (falling-object power, a lift/belt gear-split,
+hand-cranking) are a real transport/allocation mechanism — power has to be
+generated somewhere, carried somewhere, and split between competing draws —
+and `model/fields.js` documents diffusion as a deliberately unbuilt seam for
+exactly this reason: a spatial power field needs real infrastructure this
+project does not have yet. The burner/charge model was chosen for this phase
+specifically because it needed none of that: a charge is a number on a machine
+record, banked and spent by the exact same generic recipe path a furnace
+already uses.
+
+**Not to be confused with:** a separate, previously-discussed "blood winch"
+idea where a player SACRIFICES HP to instantly TELEPORT resources rather than
+moving them physically — a teleport-for-blood mechanic with no belt or lift
+involved at all. That is distinct from the heart-fuel-for-lift-charge trade
+`data/machines.js`'s `lift` row already implements today (the winch's second
+recipe, `{ in:{heart:1}, from:'vital' }`, spends hearts for an ordinary lift
+charge once timber runs out) — the existing mechanic already goes by "blood
+winch" in `docs/DESIGN.md`'s prose, and a future teleport-on-blood idea would
+need a different name to avoid the two getting conflated.

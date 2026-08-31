@@ -56,6 +56,14 @@ export const TUNABLES = [
   { id:'liftUp',    kind:'value', base:11,   unit:'px/s',   note:'ascend. Only with a lit burner.' },
   { id:'liftDown',  kind:'value', base:26,   unit:'px/s',   note:'descend. 2.4x faster, and free.' },
 
+  /* ---- belts. Horizontal, not vertical, so neither "down is free" nor "up is
+     expensive" applies directly -- the cost is paid up front, in `cost` on
+     `data/machines.js`'s belt rows, and continuously, in the fuel that keeps
+     `rules/belts.js` dragging at all. This number is deliberately closer to
+     `walk` than to either lift speed: a belt earns its keep by running
+     unattended, not by outrunning the player. */
+  { id:'beltSpeed', kind:'value', base:50,   unit:'px/s',   note:'drag speed while charged. See rules/belts.js.' },
+
   /* ---- fields. Seam only: `rules/fields.js` decays and does not diffuse. ---- */
   { id:'heatDecay', kind:'value', base:0.35, unit:'/s',     note:'fraction lost per second' },
 
