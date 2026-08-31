@@ -94,24 +94,50 @@ pays the same brutal upward tariff as everything else.
 *Not implemented.* The mockup places cooling towers directly above the crucible
 row to state the conflict compositionally, and has a static water table.
 
-## God boons
+## God gifts — four tiers, and the word for each
 
-Three tiers, drafted 1-of-3 after each cycle:
+This section used to call every drafted tier a "boon" and treat trinkets as a
+subtype of boon. It no longer does, because "boon" is now the name of a
+specific, *timed* thing. The vocabulary below is binding on the code; see
+`CLAUDE.md` §"Resolved decisions" D1 for the file-by-file mapping, and
+`docs/BUILD_PLAN.md` Phase 4 for the migration.
 
-- **Trinkets** — passive modifiers
-- **Machines** — new production verbs
-- **Miracles** — one-shot terrain edits (calcify a lava flow, collapse a lake,
-  petrify a nest)
+| term | lifetime | source | surfaced as |
+|---|---|---|---|
+| **Boon** | timed, N seconds | god grant, altar use, miracle side-effect | top-right timer stack |
+| **Trinket** | whole run, while equipped | drop, tribute reward, cycle draft | equipment slots, Character tab |
+| **Miracle** | one shot | draft | a consumable you carry |
+| **Machine grant** | whole run, permanent | cycle reward | a new row in the BUILD list |
 
-The rule that makes it interesting: **boons from different gods are mutually
+Three of the four are the old list under sharper names: **Trinkets** are still
+passive modifiers, **Machines** are still new production verbs (renamed *machine
+grant*, since a machine is granted rather than owned), and **Miracles** are
+still one-shot terrain edits — calcify a lava flow, collapse a lake, petrify a
+nest. What is new is **Boons**: a timed effect that happens *to* you and counts
+down in the corner of the screen. Nothing in that stack is clickable. A boon is
+not a resource you spend; it is weather. That is the Prometheus of it.
+
+A draft is still 1-of-3 after each cycle, and may now mix tiers — a timer, a
+trinket and a machine offered against each other is a real decision in a way
+three trinkets is not.
+
+The rule that makes it interesting: **gifts from different gods are mutually
 hostile.** Poseidon's aquifer tap floods the strata Hephaestus's kilns need
-dry. Dionysus's vats want the exact temperature band your smelters ruin. And
-some gifts are traps — a lifter that runs on blood instead of fuel, offered on
-cycle 3 when you are desperate. Prometheus's whole story is that divine gifts
-come with terms.
+dry. Dionysus's vats want the exact temperature band your smelters ruin. Two
+hostile gifts must not silently co-exist, so a row carries `conflictsWith`: the
+later gift either suppresses or *inverts* the earlier one, and the HUD says
+which. And some gifts are traps — a lifter that runs on blood instead of fuel,
+offered on cycle 3 when you are desperate. Prometheus's whole story is that
+divine gifts come with terms.
 
-*Not implemented.* The HUD shows three static boon cards, one of them the
-cursed blood winch.
+*Partially implemented.* The machine-grant tier is real and works end to end —
+today it still sits in the misnamed `data/boons.js` / `rules/boons.js` and
+becomes `data/grants.js` / `rules/grants.js` in Phase 4 — writing `run.granted`,
+which `rules/placement.js` refuses anything absent from. The trinket tier is
+real and reaches numbers through `model/mods.js`, though a trinket is currently
+active merely by being *held* rather than equipped to a slot. Timed boons,
+miracles, `conflictsWith`, equip slots and the draft itself are not built. The
+HUD shows three static cards, one of them the cursed blood winch.
 
 ## Monsters
 
@@ -175,17 +201,35 @@ masked as `????????` in the favour panel until you descend far enough.
 
 ## Implemented vs design-only, at a glance
 
-| | mockup |
-|---|---|
-| vertical strata, carved drifts and shafts | yes |
-| gravity-fed material flow, piles, backpressure | yes |
-| refinement ratios (`perOut`) | yes |
-| staged lift as the bottleneck | yes |
-| mining rigs, breakout, haulage | yes |
-| spoil dumped to lava for free | yes |
-| suspicion meter, Hades gated by depth | cosmetic |
-| tribute cycles, boon drafting, favour | cosmetic |
-| buoyant heat, bottom-up flooding | no |
-| monsters, aggro from emissions, ichor economy | no |
-| destructible terrain, fog of war, player movement | no |
-| run loop, death, meta-progression | no |
+Two columns, because they are two different artefacts: `reference/mockup/` is
+the non-interactive pixel-art mockup (preserved as the art target, not
+developed), and **prototype** is the playable build in `src/`. Where prototype
+says *planned*, `docs/BUILD_PLAN.md` names the phase.
+
+| | mockup | prototype |
+|---|---|---|
+| vertical strata, carved drifts and shafts | yes | yes (three bands, `data/world.js`) |
+| destructible terrain, player movement, fall damage | no | yes |
+| gravity-fed material flow, piles, backpressure | yes | yes |
+| refinement ratios | yes (`perOut`) | yes (`smelt` 4:1, `press` 12:1) |
+| hand-craft matching the machine's own rate | no | yes (`rules/crafting.js`) |
+| staged lift as the bottleneck | yes | yes (`lift` machine, one stage) |
+| belts, priced to be rare | no | yes (`belt_r` / `belt_l`) |
+| fog of war, permanent, plus a map overview | no | yes (`rules/reveal.js`) |
+| mining rigs, breakout, haulage | yes | no — planned, Phase 2c |
+| tiered picks gating hard strata | no | no — planned, Phase 2c |
+| real darkness and carried/placed light | no | no — planned, Phase 2b |
+| encumbrance in talents gating ascent | no | no — planned, Phase 2a |
+| ladders as a crafted, tiered item | no | partial: any timber log places as a rung; no peg-rung recipe, no fast tier — Phase 2a |
+| machines built from a real material bill | no | partial: `cost` exists and belts carry one; furnace and winch are still free — Phase 3 |
+| machine-grant tier of god gifts | cosmetic | yes (`run.granted`) |
+| trinket tier, reaching numbers through one pipeline | cosmetic | yes (`model/mods.js`); equip slots planned, Phase 4 |
+| timed boons with a countdown | no | no — planned, Phase 4 |
+| miracles, `conflictsWith` hostile gods | cosmetic | no — planned, Phase 4 |
+| dense in-canvas inventory / crafting GUI | no | partial: a one-panel HUD list; no grid, queue or tabs — Phase 5 |
+| spoil dumped to lava for free | yes | no |
+| suspicion meter, Hades gated by depth | cosmetic | no |
+| tribute cycles, boon drafting, favour | cosmetic | no (drafting is exercisable by key, no director) |
+| buoyant heat, bottom-up flooding | no | seam only: `rules/fields.js` decays, does not diffuse |
+| monsters, aggro from emissions, ichor economy | no | no |
+| run loop, death, meta-progression | no | partial: death and `newRun()` are real; `meta` has no save |

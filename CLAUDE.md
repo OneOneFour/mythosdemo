@@ -243,4 +243,112 @@ check it before tuning anything. `docs/DESIGN.md` holds the game design
 reasoning (run structure, cost-of-ascension maths, god boons, the Hades act);
 much of it is not implemented and that file marks which is which.
 `FUTURE_IDEAS.md` is the backlog. `docs/concept-art-prompts.md` holds the
-image-generation prompt pack.
+image-generation prompt pack. `docs/BUILD_PLAN.md` is the ordered, phased plan
+for taking the prototype to a fuller game, and `docs/FINDINGS.md` is where a
+phase agent parks anything out of its own scope.
+
+---
+
+## Resolved decisions — vocabulary, units and gates
+
+These four were decided before the `docs/BUILD_PLAN.md` phases began, so that
+every phase inherits one answer rather than re-litigating it. They are binding
+on `docs/DESIGN.md` too: doc and code may not drift on the vocabulary.
+
+### D1 — four modifier tiers, and the word for each
+
+`docs/DESIGN.md` used to call all three drafted tiers "boons" and treat trinkets
+as a subtype. It no longer does. There are **four** tiers, because the code
+already had one the old three-way split had no slot for:
+
+| term | lifetime | source | where it lives | surfaced as |
+|---|---|---|---|---|
+| **Boon** | TIMED, N seconds | god grant, altar, miracle side-effect | `data/boons.js` (new content), `model/boons.js`, `rules/boons.js` | top-right timer stack in `view/hud.js` |
+| **Trinket** | whole run, while equipped | drop, tribute reward, cycle draft | `data/trinkets.js` (unchanged), `rules/trinkets.js` | equipment slots in the Character tab |
+| **Miracle** | one shot | draft | `data/miracles.js`, `rules/miracles.js` | a consumable held pair in the pockets |
+| **Machine grant** | whole run, permanent | cycle reward | `data/grants.js`, `rules/grants.js` | a new row in the BUILD list |
+
+**What happens to today's `data/boons.js`.** Its content is the *machine-grant*
+tier — `gift-kiln` grants `kiln_divine`, and `STARTING_MACHINES` seeds
+`run.granted`. That is `docs/DESIGN.md`'s **Machines** tier, which the file was
+simply misnamed for. So: today's `BOONS` / `BOON` / `STARTING_MACHINES` move
+verbatim to **`src/data/grants.js`** as `GRANTS` / `GRANT` /
+`STARTING_MACHINES`, and `rules/boons.js` moves verbatim to
+**`src/rules/grants.js`**. The name `boons` is then free for the timed tier,
+which is new content in a new `data/boons.js`.
+
+All four tiers stay `data/` tables in the existing frozen-table style. Every
+tier that carries a *modifier* — Boons and Trinkets — reaches it only through
+`model/mods.js`, using the same `{ key, mul, add }` row shape `data/trinkets.js`
+already uses and the same fixed order of application stated in
+`model/mods.js`. There is no second stat pipeline; a modifier that cannot reach
+a tunable is a modifier that does not exist. `mods.rows[].src` is the trinket id
+today, so a timed boon's rows are keyed **`'boon:' + id`** to guarantee the two
+tiers can never remove each other's rows.
+
+A **miracle is a held pair**, per the substance × form rule: a new `phial` form
+with `subTags:['miracle']`, crossed with a `miracle`-tagged substance row per
+miracle. That keeps a miracle from ever satisfying a `relic` selector by
+accident, exactly as `relic`'s own `subTags` keeps a trinket out of an ore
+selector.
+
+**Trinket equip slots are a selection, not a second inventory.** `run.equipped`
+is a fixed-length array of substance ids, capped by a new `trinketSlots`
+tunable, and `rules/trinkets.js` syncs `model/mods.js` from
+`run.equipped ∩ run.inv` rather than from `run.inv` alone. An id in a slot that
+is no longer held is ignored and cleared by the same sync, so the two cannot
+disagree — which was the whole reason the old `run.trinkets` list was deleted.
+
+### D2 — the GUI is canvas-drawn, and it is `view`
+
+Retained-mode widget layer, drawn with `R()` / `lineTo()` and the 5x7 bitmap
+font, integer pixels, no `fillText`. This is not a new constraint; it is the
+HUD convention already in force. There is no DOM overlay and no new top-level
+`ui/` directory:
+
+- **primitives and panels** are `view`, under **`src/view/ui/`**. Same-layer
+  imports are legal, so `view/hud.js` may import `view/ui/panel.js`.
+- **which panel is open, the focused slot, the drag payload** are `shell` — a
+  state object in **`src/shell/ui.js`**, handed to `view` through `frameCtx`
+  exactly as `shell/input.js#flags` already is. `view` may not import `shell`.
+- **a click that does something** is `shell` calling `rules`. `view` reports the
+  rectangles it drew (the `view/hud.js#pocketHits` idiom); `shell` hit-tests and
+  dispatches. `view` never calls `rules` and never mutates `model` — the epoch
+  check in `npm run check` proves the second half of that.
+- **`__mf.ui`** is the serialisable projection of the live widget tree, exposed
+  on the existing single test handle rather than a second `window.__ui` global.
+  It is a projection of real state, never a copy.
+
+### D3 — mass is in talents, and a carry cap is new state
+
+The unit is the **talent (T)**, displayed `BURDEN 12.5 / 40 T`. Mass semantics
+already exist and do not change: `model/items.js#massOf` /
+`#massOfPair` return `SUB[sub].item.mass * FORM[form].massK`, and
+`view/hud.js`'s inventory panel already prints it. What is new is **a cap and a
+total**: `burdenOf()` in `model/run.js` sums `massOfPair × n` over `run.inv`,
+and the cap is a `data/tuning.js` row read through `eff('burden')`.
+
+### D4 — encumbrance gates ascent, and nothing else
+
+The player-scale expression of "down is free, up is expensive". Three tunables,
+never constants: `burden` (hard cap, base 40 T), `burdenSoft` (0.75) and
+`burdenClimbFloor` (0.40).
+
+- below the soft cap: normal climb.
+- soft → hard: climb speed falls linearly from 1.0 to `burdenClimbFloor`.
+- at or over the hard cap: **climbing is impossible.** Ladder-up, hop and
+  boarding a lift stage upward are all refused, legibly, through a journal row.
+- **walking on level ground and every downward movement are never affected.**
+  You can always fall.
+- a pickup that would cross the hard cap is refused, with a journal row.
+
+Two deliberate exceptions, both for reasons already recorded in this file:
+
+1. **The one-tile auto-step in `rules/player.js#moveX` is not gated.** Gating a
+   height gain on state is exactly the mistake that wedged a player in their own
+   shaft permanently, and an over-cap player must be able to walk over rubble to
+   reach the ledge they need to drop ore onto.
+2. **A drop verb is a prerequisite, not a nicety.** There is no way to put
+   material down today. Shipping the lockout without one is a soft-lock, so
+   `rules/items.js` gains a drop before `rules/player.js` gains the gate. This
+   is called out again in `docs/BUILD_PLAN.md` Phase 2a.
