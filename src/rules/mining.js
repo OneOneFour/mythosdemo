@@ -38,9 +38,9 @@ import { push } from '../model/journal.js';
 import { write as digw, workAt } from '../model/mining.js';
 import { write as iw } from '../model/items.js';
 import { eff } from '../model/mods.js';
-import { player, playerCentre } from '../model/player.js';
+import { PW, player, playerCentre } from '../model/player.js';
 import { bestTool, hasPick, invCount, run } from '../model/run.js';
-import { baseHardAt, dropAt, subAt, tileAt, write as tw } from '../model/tiles.js';
+import { baseHardAt, dropAt, solidAt, subAt, tileAt, write as tw } from '../model/tiles.js';
 import { bandAt, inBounds, tileX, tileY, worldX, worldY } from '../model/world.js';
 
 /* A break above this many BASE seconds reads as stone rather than as soil. The
@@ -73,17 +73,56 @@ export function aimAtWorld(wx, wy) {
   resolve(c.x + dx, c.y + dy);
 }
 
-/* Keyboard fallback: the tile the player faces, or the one under/over them. */
+/* Keyboard fallback: the tile the player faces, or the one under/over them.
+
+   STRAIGHT DOWN (`cmd.down` with no horizontal key) is special-cased below,
+   not resolved through the generic centre-x `resolve()`. Every other
+   direction picks a single column fine, because the player is never wedged
+   BY it — but straight down is exactly the tile `boxSolid` (`rules/player.js`)
+   tests both columns of, and `PW` (6px, `model/player.js`) is narrower than a
+   tile (8px), so continuous, never-grid-snapped walk physics almost never
+   leaves `player.x` a multiple of the tile size. A fixed centre-x column
+   breaks one of the two columns the hitbox straddles and leaves the other
+   solid forever: the player is wedged standing on what reads as open air
+   from directly overhead (docs/FINDINGS.md, "Machine status/hover/
+   right-click-deconstruct pass"). */
 export function aimAtKeys(cmd) {
   const c = playerCentre();
   const b = player.band;
   if (!b) return;
+
+  if (cmd.down && !cmd.left && !cmd.right) { resolveStraightDown(c, b); return; }
+
   let px = c.x, py = c.y;
   if (cmd.down)    py += b.tile;
   else if (cmd.up) py -= b.tile;
   else             px += player.face * b.tile;
   if (cmd.down && (cmd.left || cmd.right)) px += player.face * b.tile;
   resolve(px, py);
+}
+
+/* Targets whichever of the two columns the player's hitbox can straddle is
+   CURRENTLY solid at the row just below their feet — recomputed fresh every
+   call, so no state is needed beyond `model/mining.js`'s existing per-tile
+   work map. Once the targeted column breaks, the next resolve finds it no
+   longer solid and retargets the other one if it still is, so the two break
+   SEQUENTIALLY at their normal one-tile hardness cost each — never both at
+   once for the price of one. When the player is tile-aligned (the two
+   columns coincide) or neither column is currently blocking (e.g. digging
+   ahead of a fall), this degenerates to the same centre-x column the old
+   unconditional `resolve()` always used, so aligned play is unchanged. */
+function resolveStraightDown(c, b) {
+  const py = c.y + b.tile;                       // the row just below the feet
+  const bb = bandAt(c.x, py);
+  if (!bb) { aw.set(null, 0, 0, false); return; }
+  const ty = tileY(bb, py);
+  const tx0 = tileX(bb, player.x), tx1 = tileX(bb, player.x + PW - 1);
+  let target = tileX(bb, c.x);
+  if (tx0 !== tx1) {
+    if (solidAt(bb, tx0, ty)) target = tx0;
+    else if (solidAt(bb, tx1, ty)) target = tx1;
+  }
+  aw.set(bb, target, ty, inBounds(bb, target, ty));
 }
 
 function resolve(px, py) {

@@ -1098,3 +1098,48 @@ entry is only the one thing found outside that ownership.
   without also exercising the collision bug above. It passes; the mechanic
   it actually tests (no horizontal drift, monotonic depth, correct drops per
   tile) is confirmed correct once alignment is not itself in question.
+
+## Fixed: the non-tile-aligned straight-down dig wedge, above
+
+The bug diagnosed above is fixed, entirely in `rules/mining.js` — the
+chosen direction from the finding's own list of options ("checking which of
+the two straddled columns is CURRENTLY blocking the fall"), not the
+grid-snap option the finding also listed and this task's brief explicitly
+ruled out.
+
+`aimAtKeys` now special-cases straight-down aim (`cmd.down` with no
+`left`/`right`) into a new `resolveStraightDown`, which computes the same
+two tile columns `rules/player.js#boxSolid` would test (`tileX` of
+`player.x` and of `player.x + PW - 1`) and targets whichever one is
+CURRENTLY `solidAt` the row just below the player's feet. Recomputed fresh
+on every aim resolve, with no new persistent state — once the targeted
+column breaks, the next resolve finds it no longer solid and retargets the
+other one if it is still standing, so the two columns break SEQUENTIALLY,
+each at its own normal one-tile hardness cost, never both progressing for
+the price of one. When the two columns coincide (tile-aligned play) or
+neither is currently solid, it falls back to the same centre-x column the
+old unconditional `resolve()` always used, so aligned play — including the
+hand-carved shaft test above — is byte-for-byte unchanged. `boxSolid` /
+`moveY` in `rules/player.js` were not touched, as the finding's own
+FILE OWNERSHIP note anticipated they would not need to be.
+
+Verified with a new test, `'digging straight down from a non-tile-aligned x
+still breaks through'` (`tests/visual.spec.js`), which places the player 3px
+off the tile grid — deliberately not a multiple of the 8px tile, unlike the
+hand-carved test above — over a shaft carved in BOTH columns the 6px hitbox
+can straddle, and confirms a held `down`+`dig` breaks every row in both
+columns and the player's depth (`run.deepest`, `player.y`) increases by
+several tile-heights with no stall. Manually re-confirmed at five more
+offsets (1, 2, 4, 5, 7px) via `__mf`, all descending multiple tiles cleanly.
+
+The existing `'digging down into topsoil'` screenshot baseline
+(`digging-desktop-darwin.png`) was re-accepted: before the fix it showed the
+player standing at ground level with no visible shaft at all (the bug,
+caught on camera); after the fix it shows a real dug shaft several tiles
+deep with the player standing at the bottom of it. That is the bug being
+fixed, not a regression — re-baselined via `npm run test:visual:update`.
+
+`npm run check` (hardness at 8 framerates, the 7,200-frame collision fuzz,
+the fall-damage table, determinism, all Phase 6 probes), `npm run
+check:content`, `npm run lint`, and the full `npm run test` (build + all 49
+Playwright specs) all pass unchanged after the fix.

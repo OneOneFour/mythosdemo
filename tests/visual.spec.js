@@ -189,6 +189,90 @@ test('digging straight down: no drift, monotonic depth, correct drops', async ({
     expect(result.actualByPair[key]).toBeGreaterThanOrEqual(result.expectedByPair[key]);
 });
 
+/* THE BUG ITSELF (`docs/FINDINGS.md`, "Machine status/hover/right-click-
+   deconstruct pass"), now fixed in `rules/mining.js#aimAtKeys` /
+   `resolveStraightDown`, and this is the test that actually exercises the
+   condition that triggers it: unlike the hand-carved shaft test above, the
+   player here is placed 3px off the tile grid on purpose (`PW` is 6px, a
+   tile is 8px, and ordinary walk physics -- no acceleration, never
+   grid-snapped -- essentially never lands on a multiple of 8 by accident).
+   Both tile columns the 6px hitbox straddles are carved as a real shaft, so
+   a fixed centre-x aim would clear only one of them and wedge forever on the
+   other, exactly as `docs/FINDINGS.md` describes and as the OLD code did
+   (verified by hand against the pre-fix build before writing the assertions
+   below: `run.deepest` never moved past the depth of one broken tile). */
+test('digging straight down from a non-tile-aligned x still breaks through', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const result = await page.evaluate(async () => {
+    const { tileAt, write: tw } = await import('/src/model/tiles.js');
+    const { run, write: rw } = await import('/src/model/run.js');
+    const { write: pw, PH, PW } = await import('/src/model/player.js');
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+
+    const band = bandOf('topsoil');
+    const tx = 60, ty = 100, DEPTH = 5;
+    const OFFSET = 3;                     // deliberately NOT a multiple of band.tile (8)
+
+    // clear a wide enough box that neither straddled column nor its neighbours
+    // carry stray solid material from worldgen.
+    for (let dy = -2; dy <= DEPTH + 1; dy++)
+      for (let dx = -1; dx <= 2; dx++) tw.clear(band, tx + dx, ty + dy);
+    // both columns the hitbox can straddle (tx and tx+1) are real shaft, the
+    // whole point: neither column may be a free ride down.
+    for (let i = 0; i < DEPTH; i++) {
+      tw.set(band, tx,     ty + i, S.soil);
+      tw.set(band, tx + 1, ty + i, S.soil);
+    }
+    tw.set(band, tx,     ty + DEPTH, S.stone);   // a floor past TARGET_ROWS
+    tw.set(band, tx + 1, ty + DEPTH, S.stone);
+
+    rw.collect(S.pick, F.relic, 1);
+    pw.band(band);
+    // feet flush on the shaft's top tile, x offset ON PURPOSE.
+    pw.move(worldX(band, tx) + OFFSET, worldY(band, ty) - PH);
+
+    __mf.cmd.hasMouse = false;
+    __mf.cmd.down = true;
+    __mf.cmd.dig = true;
+
+    const startY = __mf.player.y;
+    const startDeepest = run.deepest;
+
+    // generous budget: each tile costs ~0.5s of dig at 120Hz (60 substeps),
+    // and up to 2*DEPTH tiles may need breaking (both straddled columns,
+    // sequentially, per row) before the player is clear to fall through.
+    __mf.frames(2 * DEPTH * 60 + 600);
+
+    __mf.cmd.down = false;
+    __mf.cmd.dig = false;
+
+    const TARGET_ROWS = DEPTH - 1;   // leave the hard stone floor unbroken
+    let brokenBoth = 0;
+    for (let i = 0; i < TARGET_ROWS; i++) {
+      const a = tileAt(band, tx, ty + i) === 0;      // AIR
+      const b2 = tileAt(band, tx + 1, ty + i) === 0;
+      if (a && b2) brokenBoth++;
+    }
+
+    return {
+      startY, endY: __mf.player.y, startDeepest, endDeepest: run.deepest,
+      brokenBoth, TARGET_ROWS, tile: band.tile, PW
+    };
+  });
+
+  // both straddled columns broke through for every row attempted -- neither
+  // one was left standing as a permanent wedge.
+  expect(result.brokenBoth).toBe(result.TARGET_ROWS);
+
+  // the player actually descended -- not the sawtooth "accelerate then snap
+  // back to the same value" the pre-fix bug produced.
+  expect(result.endY).toBeGreaterThan(result.startY + result.tile * (result.TARGET_ROWS - 1));
+  expect(result.endDeepest).toBeGreaterThan(result.startDeepest);
+});
+
 /* Fog of war (below) hides anything the player has not stood next to, and this
    test's whole point is the OPPOSITE question: does astral terrain render
    correctly at all. The player never sets foot there in this suite, so
