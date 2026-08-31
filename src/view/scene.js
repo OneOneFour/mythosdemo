@@ -31,10 +31,11 @@ import { FIELDS } from '../data/world.js';
 import { fieldAt, hasField } from '../model/fields.js';
 import { items } from '../model/items.js';
 import { machines } from '../model/machines.js';
+import { eff } from '../model/mods.js';
 import { PH, PW, player, playerCentre } from '../model/player.js';
 import { hasPick, run } from '../model/run.js';
 import { rowAt } from '../model/tiles.js';
-import { bandAt, bands, chunkPx, heightPx, seenAt, widthPx } from '../model/world.js';
+import { bandAt, bands, chunkPx, heightPx, lightAt, seenAt, widthPx } from '../model/world.js';
 import { chips, drawChips } from './fx.js';
 import { drawHUD } from './hud.js';
 import { beginFrame, chunkCanvas, paintItem, paintMachine } from './paint.js';
@@ -103,6 +104,7 @@ export function render(g, f) {
   drawPlayer(g, f);
   drawChips(g, cam, W, H);
   drawFields(g, f);
+  drawDarkness(g, f);
   drawFog(g, f);
   atmosphere(g, f);
 
@@ -310,6 +312,74 @@ function drawFields(g, f) {
           R(g, b.origin.x + tx * t - cam.x, b.origin.y + ty * t - cam.y, t, t, INK.heat);
           g.globalAlpha = 1;
         }
+    }
+  }
+}
+
+/* ---------- darkness ----------
+   Two separate facts, one pass each: `drawFog` below hides a tile that has
+   NEVER been seen, regardless of what is actually there -- that is memory,
+   `model/world.js#b.seen`, permanent and one-way. This pass renders the OTHER
+   fact, `b.light` -- how lit a tile is RIGHT NOW -- for tiles that already
+   passed the fog test, so a torch burning out darkens a remembered room
+   without erasing the memory of it. Runs after terrain, machines, items, the
+   player, chips and the field overlay (everything it should darken has
+   already been painted) and BEFORE `drawFog`, which is the one pass allowed
+   to win outright -- an unseen tile must stay opaque regardless of light.
+
+   QUANTISED to three fixed alpha steps over the tile's own painted colour,
+   not a gradient: a torch is a prerequisite for reading detail, not a mood
+   dial. `DARK_ALPHA[0]` is deliberately close to opaque -- both "a seen tile
+   reads as remembered-but-dark, not as fog" (some of the true colour still
+   shows through, where fog shows none) and "an ore vein is indistinguishable
+   from rock below light ~4" (that same small remainder swamps a two-pixel
+   glint) are true at once because 6% of a distinct base colour still reads as
+   "differs from flat fog" while looking, at a glance, like plain dark rock.
+
+   ROW-RUN COALESCED exactly like `drawFog` below: one wide rect per
+   contiguous run of tiles sharing a bucket, not one rect per tile.
+
+   NOT ADDITIVE. The existing machine-fire glow in `atmosphere()` paints with
+   `globalCompositeOperation:'lighter'` and is gated on `seenAt` for a stated
+   reason: additive light would shine straight through an opaque fog rect
+   painted UNDER it. This pass is the opposite direction -- it SUBTRACTS
+   brightness with ordinary alpha compositing, runs entirely before `drawFog`,
+   and touches only tiles `seenAt` already allows -- so there is no matching
+   way for it to leak information about an unseen tile from the other side. */
+const DARK = colour('abyC');
+const DARK_ALPHA = [0.94, 0.55, 0.22];   // level 0-4 / 5-9 / 10-14 (>= lightMax: none)
+
+function darkBucket(level, max) {
+  if (level >= max) return -1;
+  if (level <= 4) return 0;
+  if (level <= 9) return 1;
+  return 2;
+}
+
+function drawDarkness(g, f) {
+  const { cam, W, H } = f;
+  const max = eff('lightMax');
+  for (const b of bands) {
+    if (!visible(b, cam, W, H)) continue;
+    const t = b.tile;
+    const x0 = Math.max(0, Math.floor((cam.x - b.origin.x) / t));
+    const x1 = Math.min(b.tw, Math.ceil((cam.x + W - b.origin.x) / t));
+    const y0 = Math.max(0, Math.floor((cam.y - b.origin.y) / t));
+    const y1 = Math.min(b.th, Math.ceil((cam.y + H - b.origin.y) / t));
+
+    for (let ty = y0; ty < y1; ty++) {
+      let run = -1, cur = -1;
+      for (let tx = x0; tx <= x1; tx++) {
+        const bucket = tx < x1 && seenAt(b, tx, ty) ? darkBucket(lightAt(b, tx, ty), max) : -1;
+        if (bucket === cur) continue;
+        if (cur >= 0) {
+          g.globalAlpha = DARK_ALPHA[cur];
+          R(g, b.origin.x + run * t - cam.x, b.origin.y + ty * t - cam.y,
+            (tx - run) * t, t, DARK);
+          g.globalAlpha = 1;
+        }
+        run = tx; cur = bucket;
+      }
     }
   }
 }

@@ -48,4 +48,13 @@ export const BOON = Object.freeze(Object.fromEntries(
    moment there is one: earned late, a belt is a real reward for the cost it
    already carries; free from spawn, the cost is just a tax on a starting
    machine, which is backwards. */
-export const STARTING_MACHINES = Object.freeze(['furnace', 'lift', 'press', 'belt_r', 'belt_l']);
+/* `brazier` and `hearth` (Phase 2b, `docs/BUILD_PLAN.md`) are here for the
+   identical "free for testability now, no director exists yet to gate them
+   behind" reason `press`/`belt_r`/`belt_l` already state above -- outside
+   this phase's own FILE OWNERSHIP list, added anyway because without it
+   neither machine is placeable at all (nothing else grants a machine before
+   a director exists) and the phase's own required manual verification is
+   "place a brazier ... none of that may require a debug key." See
+   docs/FINDINGS.md. */
+export const STARTING_MACHINES = Object.freeze(
+  ['furnace', 'lift', 'press', 'belt_r', 'belt_l', 'brazier', 'hearth']);

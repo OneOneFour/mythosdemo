@@ -54,6 +54,23 @@ export const write = {
          anything short of `newRun()` reallocating the band outright -- there is
          no un-reveal action, which is the whole feature. */
       seen: new Uint8Array(cfg.tw * cfg.th),
+      /* Current lighting, 0..eff('lightMax'), one byte per tile. Storage
+         only -- the DECISION of what lights what is `rules/light.js`. Unlike
+         `seen` above, this is NOT permanent: it goes down as well as up, so a
+         torch that burns out darkens the room again while `seen` keeps the
+         memory of it forever. Same reason it does not bump `ver` either: a
+         chunk canvas caches the STATIC rock texture, and light -- like fog --
+         is a LIVE overlay pass in `view/scene.js`, never baked into the
+         bitmap. */
+      light: new Uint8Array(cfg.tw * cfg.th),
+      /* Bumped once per recompute, by `rules/light.js#write.touchLight`,
+         never per frame. `write.setLight` cannot double as this signal --
+         it fires per TILE during a recompute and would make every recompute
+         look like hundreds of separate changes -- so this is the one counter
+         `rules/reveal.js#passB` can fold into its own throttle to notice "a
+         brazier just lit up" even though that event alone never touches a
+         tile byte and therefore never bumps a chunk `ver`. */
+      lightVer: 0,
       fields: {},                      // filled by `model/fields.js`
       cfg                              // the frozen row, for strata and `look`
     };
@@ -94,13 +111,47 @@ export const write = {
      ground a tree is standing on). Rows are contiguous in `b.seen` (`idx` is
      `ty * b.tw + tx`), so revealing every row below `toTy` is one `fill` call
      over a slice, not a nested loop. */
-  revealRows(b, toTy) { b.seen.fill(1, 0, Math.min(toTy, b.th) * b.tw); bump(); }
+  revealRows(b, toTy) { b.seen.fill(1, 0, Math.min(toTy, b.th) * b.tw); bump(); },
+
+  /* ---- lighting. `rules/light.js` is the only caller. Storage and the
+     "raise, don't overwrite" rule are here; the BFS that decides WHAT level
+     a tile ends up at is entirely that file's business. ---- */
+
+  /* A recompute seeds many sources into the same tile and the tile should end
+     up at the BRIGHTEST one that reached it, so this only ever raises --
+     mirroring `reveal`'s "only ever sets" shape one level up, with a number
+     instead of a bit. The caller clears the band first (see `clearLight`)
+     when it wants the field to actually go dark somewhere it no longer
+     reaches. */
+  setLight(b, tx, ty, level) {
+    if (!inBounds(b, tx, ty)) return false;
+    const i = idx(b, tx, ty);
+    if (level <= b.light[i]) return false;
+    b.light[i] = level;
+    bump();
+    return true;
+  },
+
+  /* Whole-band reset before a recompute -- light, unlike fog, must be able to
+     go all the way back to zero somewhere it no longer reaches (a moved
+     brazier, a spent brand), and `setLight`'s raise-only rule cannot do that
+     by itself. */
+  clearLight(b) { b.light.fill(0); bump(); },
+
+  /* The one signal `rules/reveal.js#passB` needs and cannot derive any other
+     way -- see the field comment on `lightVer` in `allocate`. */
+  touchLight(b) { b.lightVer++; bump(); }
 };
 
 /* Has the player ever stood in or beside this tile? False out of bounds, same
    as a query would report "no rock there" rather than throwing -- there is
    nothing to reveal past the edge of a band's own grid. */
 export const seenAt = (b, tx, ty) => inBounds(b, tx, ty) && b.seen[idx(b, tx, ty)] === 1;
+
+/* Current light level, 0..eff('lightMax'). 0 out of bounds -- there is
+   nothing to light past the edge of a band's own grid, the same convention
+   `seenAt` uses for "no", not an exception. */
+export const lightAt = (b, tx, ty) => inBounds(b, tx, ty) ? b.light[idx(b, tx, ty)] : 0;
 
 /* ---- band lookup ---- */
 

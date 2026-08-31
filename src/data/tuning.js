@@ -117,6 +117,12 @@ export const TUNABLES = [
   { id:'lightFalloffAir',  kind:'value', base:1,  unit:'levels', note:'lost per tile of open air the light BFS crosses' },
   { id:'lightFalloffRock', kind:'value', base:3,  unit:'levels', note:'lost per tile of solid rock the light BFS crosses' },
   { id:'brandSecs',        kind:'value', base:90, unit:'s',      note:'one lit timber/brand burns this long, then is consumed' },
+  /* Phase 2b addition, not anticipated by Phase 1's own light rows above --
+     see docs/FINDINGS.md. The carried brand's own brightness while lit; a
+     literal on a data/machines.js row would have nowhere to live for it,
+     since the brand is a substance/form pair (rules/light.js), not a machine,
+     and rules/light.js is the only reader. */
+  { id:'brandLevel',       kind:'value', base:9,  unit:'levels', note:'light level while a timber/brand is lit' },
 
   /* ---- tool tiers (Phase 2c). `hard` already scales a substance's
      seconds-to-break; this is a SEPARATE gate on whether a tool may swing at

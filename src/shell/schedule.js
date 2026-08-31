@@ -14,17 +14,28 @@
 
      aim before player     the reticle is resolved against where the player IS,
                            so the tile you were pointing at is the tile you dig.
-     player before reveal   fog of war reveals from wherever the player's
-                           hitbox rests THIS frame, not last frame's position --
-                           the same freshness `player before mining`, two lines
-                           down, already relies on for reach. `reveal` reads
-                           nothing mining touches and writes nothing anything
-                           else reads, so it costs nothing to sit here rather
-                           than after `mining` -- it is placed immediately
-                           after its one dependency, the same convention `aim
-                           before player` above already follows.
      player before mining   moving first means reach is measured from this
                            frame's position, not the last one's.
+     mining before light    a tile broken this frame can open a new path for
+                           light THIS frame -- a wall that just came down
+                           between the player and a lit corridor should not
+                           wait a frame to brighten. `rules/light.js` reads
+                           tile solidity, never mining state directly, so this
+                           is freshness, not a data dependency.
+     light before reveal    fog of war's own flood (`rules/reveal.js#passB`)
+                           gates past its first ring on `lightAt()`, so it has
+                           to read THIS frame's light field, not last frame's
+                           -- otherwise a torch lighting up a corridor and the
+                           corridor becoming visible would be one frame apart
+                           for no reason a player could ever see, the same
+                           freshness argument `items before machines`, further
+                           down, already makes for a catch box. (`reveal` used
+                           to sit immediately after `player`, on the grounds
+                           that it read nothing mining touched and wrote
+                           nothing anything else read -- true before this
+                           phase, and exactly the invariant gating Pass B on
+                           light breaks, which is why it moved instead of
+                           gaining a second, contradictory adjacency comment.)
      mining before items    a tile broken this frame drops before anything falls,
                            so the drop gets a full step of gravity immediately.
      items before belts     a belt drags what just landed, not what was resting
@@ -91,6 +102,7 @@ import * as crafting from '../rules/crafting.js';
 import * as fields from '../rules/fields.js';
 import * as items from '../rules/items.js';
 import * as lift from '../rules/lift.js';
+import * as light from '../rules/light.js';
 import * as machines from '../rules/machines.js';
 import * as mining from '../rules/mining.js';
 import * as player from '../rules/player.js';
@@ -101,8 +113,9 @@ export const STEPS = [
   { id: 'clock',    step: (dt) => rw.tick(dt) },
   { id: 'aim',      step: (dt, cmd) => aim(cmd) },
   { id: 'player',   step: (dt, cmd) => player.step(dt, cmd) },
-  { id: 'reveal',   step: () => reveal.step() },
   { id: 'mining',   step: (dt, cmd) => mining.step(dt, cmd) },
+  { id: 'light',    step: (dt) => light.step(dt) },
+  { id: 'reveal',   step: () => reveal.step() },
   { id: 'items',    step: (dt) => items.step(dt) },
   { id: 'belts',    step: (dt) => belts.step(dt) },
   { id: 'crafting', step: (dt, cmd) => crafting.step(dt, cmd) },

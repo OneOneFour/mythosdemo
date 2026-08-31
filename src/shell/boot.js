@@ -19,7 +19,7 @@
      7  fields.write.allocate(...)  needs the band record from (6)
      8  generate(band)              needs (6) and (3)
      9  player.write.spawn(...)     needs (8), or it spawns inside rock
-    10  items.write.spawn(pick)     needs (9) for a position to plant it beside
+    10  items.write.spawn(pick/brand)  needs (9) for a position to plant beside
 
    Getting this wrong throws during boot and renders NOTHING AT ALL, which is
    the exact mistake recorded in CLAUDE.md. It is written down here because it
@@ -117,6 +117,15 @@ export function newRun(seed = (Math.random() * 1e9) | 0) {
          tile like anything else and the existing pickup radius does the rest,
          which is what `model/run.js#hasPick()` reads. --- */
   itemw.spawn(home, worldX(home, spawnTx + 4), worldY(home, floorTy - 1), S.pick, F.relic, 0, 0);
+
+  /* --- Prometheus's fire, stolen once. A `timber/brand` on the OTHER side of
+         spawn from the pickaxe, inside the same shelf, planted rather than
+         handed over for the identical reason: nothing teleports into your
+         hands. `rules/light.js` lights it automatically the moment it enters
+         the pockets -- there is no separate "light your torch" verb -- so
+         picking it up is the whole of "acquiring the run's first light
+         source". --- */
+  itemw.spawn(home, worldX(home, spawnTx - 4), worldY(home, floorTy - 1), S.timber, F.brand, 0, 0);
 
   title('MYTHOS FACTORY', 'TORMENT I', 2.6);
   return player;

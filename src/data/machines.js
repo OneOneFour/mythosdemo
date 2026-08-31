@@ -56,6 +56,20 @@
      look        appearance only. `view/` is the only reader, and no machine or
                  substance name appears anywhere in `view/`.
 
+     light       { level, whileRunning }. Phase 2b's one new interpreter key:
+                 `rules/light.js` reads it exactly like every other key here,
+                 no machine name involved. `level` is a number, or the literal
+                 string `'max'`, a sentinel meaning "read `eff('lightMax')` at
+                 tick time" -- this file may not import `model/mods.js` (only
+                 `model/mods.js` may import `data/tuning.js`), so a row that
+                 needs to track a tunable rather than state a constant has to
+                 say the WORD and let the interpreter resolve it. Absent
+                 `whileRunning` (or `false`) means the machine emits whenever
+                 it exists, placed or not; `true` gates it on `m.running`,
+                 the same flag the fire-glow look already reads, which for a
+                 fuel-charge recipe (`out:[]`) stays true for as long as the
+                 buffer holds at least one charge's worth -- "while fuelled".
+
    Rows are append-only: the index is the id a save stores. */
 
 import { colour } from './palette.js';
@@ -246,7 +260,74 @@ export const MACHINES = [
            sfx:{ accept:'ignite', produce:'winch' } } },
 
   { id:'belt_l', name:'CONVEYOR (LEFT)', variantOf:'belt_r',
-    belt:{ dir:-1 } }
+    belt:{ dir:-1 } },
+
+  /* ---- BRAZIER: the placed, fuel-powered light source (Phase 2b). Prometheus
+     carried the fire; a brazier is where you put it down. Same honest-fuel
+     recipe SHAPE the lift and the belt already use -- `out:[]` banks a
+     charge, and `rules/machines.js#choose` keeps `m.running` true for as long
+     as the buffer holds at least one, with no code here or there able to tell
+     this charge from a lift's or a belt's. `light:{ level:12, whileRunning:
+     true }` is therefore "lit while fuelled" for free: the moment the last
+     charge is spent, `m.running` goes false and `rules/light.js`'s next
+     recompute (triggered by the emitter signature changing, not by any tile
+     write) darkens the room again. 1x1, footing 1 -- a bowl on the ground,
+     not a structure. ---- */
+  { id:'brazier', name:'BRAZIER',
+    tw:1, th:1, footing:1,
+
+    ports:[ { side:'top', mode:'in', accepts:['*/#fuel'] } ],
+
+    buffer:{ cap:{ '*/#fuel':2 } },
+
+    catchBox:{ mouth:'top', slack:2 },
+    handFeed:{ reach:10, from:['*/#fuel'] },
+
+    recipes:[ { in:{ '*/#fuel':1 }, out:[], secs:6.0 } ],
+
+    cost:{ 'timber/log':4, 'stone/gravel':2 },
+
+    light:{ level:12, whileRunning:true },
+
+    look:{ body:'ochreB', trim:'ochreA', base:'ochreD', fire:true,
+           pips:[ { sel:'*/#fuel', row:0 } ],
+           sfx:{ accept:'ignite', produce:'winch' } } },
+
+  /* ---- HEARTH: placed, never expires, and priced FOR NOW at 2 copper/plate
+     rather than in the essence tier `docs/DESIGN.md` actually wants for it --
+     essence does not exist as of this phase (Phase 1's table, not this
+     phase's to invent one row early for). See docs/FINDINGS.md. No `recipes`
+     at all, so `rules/machines.js#choose` always returns null for it and
+     `m.running` never goes true -- `light:{level:'max'}` has no
+     `whileRunning`, so it does not care: absent means "lit for as long as it
+     exists", which for a machine with no fuel to run out of is "never
+     expires". `level:'max'` tracks `eff('lightMax')` itself rather than a
+     frozen 15, so a boon that ever widened the daylight ceiling would widen
+     the hearth's own light with it, for the same reason the daylight seed in
+     `rules/light.js` reads `eff('lightMax')` and not a literal. ---- */
+  { id:'hearth', name:'HEARTH',
+    tw:2, th:2, footing:2,
+
+    cost:{ 'copper/plate':2 },
+
+    /* An `in:{}` recipe is satisfied by construction -- `rules/machines.js#
+       choose`'s availability loop iterates zero selectors and stays `ok` --
+       so `m.running` goes true the instant this is placed and STAYS true
+       forever: `secs:Infinity` means `m.prog` (which only ever grows) can
+       never reach it, so nothing is ever spent or produced. This is here
+       ONLY so the existing generic fire-glow look (`view/paint.js`, gated on
+       `m.running`) reads as lit with no interpreter change -- `light:{level:
+       'max'}` below has no `whileRunning` and would read as "always lit"
+       with no recipe at all; this is purely the visual match for that
+       already-true fact. */
+    recipes:[ { in:{}, out:[], secs:Infinity } ],
+
+    light:{ level:'max' },
+
+    /* No `sfx`: `accept`/`produce` are never pushed for a recipe with no
+       inputs and no outputs, so there is nothing here for either key to
+       name. */
+    look:{ body:'basB', trim:'basA', base:'basD', fire:true, halo:'ichor' } }
 ];
 
 /* ---- variant expansion, then derived indices, built once, frozen ------------

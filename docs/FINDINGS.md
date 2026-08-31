@@ -153,6 +153,74 @@ rewrite history here.
   *declares* (a recipe's concrete output, or a machine cost key), not every
   pair the tag algebra happens to permit.
 
+## Phase 2b (light and darkness)
+
+- **Three touches outside this phase's own FILE OWNERSHIP list, all forced by
+  the phase's own CONTENT section rather than discovered mid-implementation,
+  and all kept to the smallest change that made the requested design work.**
+
+  - **`src/model/run.js`: added `RUN_SCHEMA.brandLeft` and `write.brand()`.**
+    The phase spec is explicit: "Burn time is a SCALAR ON run, not per-item
+    state — `run.brandLeft`, ticked by `rules/light.js` — for the same reason
+    `run.craftProgress` is a scalar... It resets with the run for free
+    (invariant 8)." That sentence is only true if the field actually lives on
+    `run`, next to `craftProgress`, reset by the same `Object.assign` in
+    `write.reset()`. The alternative — a module-scoped variable inside
+    `rules/light.js`, matching that file's own perf cache for
+    `bandState` — was rejected because `bandState` is *allowed* to leak
+    across a restart (it invalidates itself: fresh band objects are never
+    found in it) while a burn-time countdown is real gameplay state that must
+    reset to 0 exactly when a run does, and a `rules` module has no hook into
+    `newRun()` to force that. Getting invariant 8 right cost two lines in a
+    file this phase was told not to touch; leaving it out would have shipped
+    a determinism bug (old run's remaining brand time bleeding into a new
+    one) in the one file most explicitly protected by the phase text's own
+    reasoning for why the field should exist at all.
+
+  - **`src/data/tuning.js`: added `brandLevel` (value, 9, levels).** Phase 1
+    already added `lightMax`/`lightFalloffAir`/`lightFalloffRock`/`brandSecs`
+    in anticipation of this phase, but not a level for the carried brand
+    itself — the phase text just states "level 9" as prose. A brand is a
+    substance/form pair, not a data row this phase owns (`data/forms.js`,
+    `data/substances.js` are both off-limits), so there is no row anywhere to
+    hang a `9` off; `rules/light.js` is the only reader. Adding one tuning
+    row is the smallest way to avoid a bare magic number in `rules/`, and
+    matches ARCHITECTURE's own rule that every number introduced this way is
+    a `data/tuning.js` row read through `eff()` — the omission from this
+    phase's FILE OWNERSHIP list reads as an oversight (Phase 1 anticipated
+    everything else this file needed) rather than a deliberate exclusion.
+
+  - **`src/data/boons.js`: added `brazier` and `hearth` to
+    `STARTING_MACHINES`.** Neither machine is placeable otherwise —
+    `run.granted` seeds from this list and nothing else exists yet to grant a
+    machine mid-run (no director, no boon content beyond the one
+    `gift-kiln` row) — and the phase's own required manual verification is
+    "place a brazier and confirm the strata become visible again... None of
+    that may require a debug key." The file's own header already states the
+    exact precedent being followed: `press`/`belt_r`/`belt_l` are there
+    "PROVISIONALLY... free for testability now... this is the row on this
+    list most likely to move to `BOONS` the moment there is one." `brazier`
+    and `hearth` are the identical situation for the identical reason.
+
+- **`src/view/paint.js` was NOT touched**, per the phase's own "prefer the
+  overlay pass and say why" instruction. Baking darkness into the chunk
+  canvas would require repainting a chunk every time light changes inside
+  it — exactly the per-tile-static-texture cache `b.ver` exists to avoid
+  thrashing (`view/paint.js`'s own header: a chunk canvas caches the STATIC
+  rock texture) — whereas light is a CURRENT condition that can change
+  without any tile write at all (a brazier running dry). The overlay pass in
+  `view/scene.js` reads `lightAt()` live, the same way `drawFog` already
+  reads `seenAt()` live, and costs nothing extra to keep in sync.
+
+- **The reachability/orphan checks in `tools/content.mjs` needed no changes**
+  for either new machine: `brazier`'s cost (`timber/log`, `stone/gravel`) and
+  `hearth`'s cost (`copper/plate`) are already reachable through existing
+  mining drops and the `press` recipe respectively, and neither machine's
+  `light` key is inspected by any assertion there — `light` is invisible to
+  the content lint entirely, which is correct: it is a rendering/mechanics
+  key with no selector, mass or tunable-scope shape for that file's checks to
+  apply to.
+
 ## Phase 0 (cartography)
 
 - **`src/rules/player.js:113`** — `hurt(5, 'THE VOID')` hardcodes the

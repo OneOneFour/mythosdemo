@@ -32,6 +32,20 @@
      flood at distance 0, so "reveal here and the tiles right next to it"
      still happens even in a fully solid dead end, exactly as before.
 
+     PHASE 2b ADDITION -- the flood must not walk through UNLIT air, or a
+     player could map a pitch-black cavern by the simple act of standing in
+     it, which is not "somewhat visible" by any reading. Past distance 1 (the
+     always-revealed immediate neighbours above, which is exactly what keeps
+     the fully-solid-dead-end case working) a tile is only enqueued for
+     further exploration if `model/world.js#lightAt` says it is lit at all.
+     It is still REVEALED regardless -- "you can see the wall you are facing"
+     already applied to a SOLID neighbour for the same reason; an unlit-but-
+     open neighbour now gets the identical treatment: visible because it is
+     right there, but the flood does not continue past it into the dark
+     beyond. `rules/light.js` runs immediately before this step (see
+     `shell/schedule.js`), so the level being read is this frame's, not
+     stale.
+
    Both passes only ever call `model/world.js#write.reveal`.
    ============================================================================
 
@@ -47,7 +61,7 @@
 import { eff } from '../model/mods.js';
 import { player, playerBox } from '../model/player.js';
 import { skyExposedAt, solidAt } from '../model/tiles.js';
-import { chunkOf, chunkVer, inBounds, tileX, tileY, write as ww } from '../model/world.js';
+import { chunkOf, chunkVer, inBounds, lightAt, tileX, tileY, write as ww } from '../model/world.js';
 
 /* Perf-only cache for Pass B, MODULE-LOCAL AND DELIBERATELY NOT IN `model/`:
    nothing outside this file reads it, it carries no gameplay meaning, and it
@@ -137,13 +151,22 @@ function passA(b, tx0, ty0, tx1, ty1) {
    since a dig at reach's edge (3.2 tiles) can land in an adjacent chunk right
    on a seam. Skipping only when BOTH the occupied tiles AND every one of
    those versions are unchanged means the flood reruns exactly when it could
-   possibly find something new, and cannot do less than that. */
+   possibly find something new, and cannot do less than that.
+
+   PHASE 2b ADDITION: `b.lightVer` folds into the same sum. A brazier lighting
+   up or running dry never touches a tile byte, so it never bumps a chunk
+   `ver` at all -- without this, a newly-lit corridor would stay dark on the
+   map until some UNRELATED tile write nearby happened to force a rerun.
+   `model/world.js#write.touchLight` is bumped once per light recompute by
+   `rules/light.js`, which runs immediately before this step, so this frame's
+   relight is what a stale check here would otherwise miss. */
 function passB(b, tx0, ty0, tx1, ty1) {
   const c0 = chunkOf(b, tx0, ty0), c1 = chunkOf(b, tx1, ty1);
   let ver = 0;
   for (let cy = c0.cy - 1; cy <= c1.cy + 1; cy++)
     for (let cx = c0.cx - 1; cx <= c1.cx + 1; cx++)
       if (cx >= 0 && cx < b.cx && cy >= 0 && cy < b.cy) ver += chunkVer(b, cx, cy);
+  ver += b.lightVer;
 
   if (b === lastBand && tx0 === lastTx0 && ty0 === lastTy0 &&
       tx1 === lastTx1 && ty1 === lastTy1 && ver === lastVer) return;
@@ -172,7 +195,12 @@ function passB(b, tx0, ty0, tx1, ty1) {
       if (seen.has(k)) continue;
       seen.add(k);
       ww.reveal(b, nx, ny);                     // the wall you're facing, too
-      if (solidAt(b, nx, ny)) continue;          // but light stops at rock
+      if (solidAt(b, nx, ny)) continue;          // but sight stops at rock
+      /* Past the always-revealed first ring (d === 0 -> d + 1 === 1), the
+         flood may not continue into a tile with no light reaching it AT ALL
+         this frame -- otherwise standing in a pitch-black cavern would still
+         map the whole thing, one graph-hop at a time. */
+      if (d >= 1 && lightAt(b, nx, ny) < 1) continue;
       queue.push({ tx: nx, ty: ny, d: d + 1 });
     }
   }

@@ -196,3 +196,55 @@ the hard cap is refused and the item stays on the ground (`rules/items.js`).
 A new drop verb (`Q`, `rules/items.js#dropHeaviest`) spends exactly one unit
 of the heaviest held pair, tossed with `eff('tossUp')`/`eff('tossSpread')` —
 the prerequisite for the lockout not being a soft-lock.
+
+## 11. Light and darkness (Phase 2b)
+
+Two separate per-tile facts, both in `src/model/world.js`: `b.seen` is
+permanent memory (unchanged this phase); `b.light` is a current condition,
+0..`eff('lightMax')`, recomputed by `src/rules/light.js` and read by the
+darkness pass in `src/view/scene.js` and by fog of war's own bounded flood
+(`src/rules/reveal.js#passB`), which may no longer enqueue a tile past its
+first ring unless `lightAt() >= 1`.
+
+| tunable | value | unit | meaning |
+|---|---|---|---|
+| `lightMax` | 15 | levels | daylight, and the ceiling any emitter can reach (Phase 1 row) |
+| `lightFalloffAir` | 1 | levels | lost per tile of open air the light BFS crosses (Phase 1 row) |
+| `lightFalloffRock` | 3 | levels | lost per tile of solid rock the light BFS crosses (Phase 1 row) |
+| `brandSecs` | 90 | s | one lit `timber/brand` burns this long (Phase 1 row) |
+| `brandLevel` | 9 | levels | light level while a `timber/brand` is lit (new, Phase 2b — see `docs/FINDINGS.md`) |
+
+New machine rows (`src/data/machines.js`), both using the new `light:{level,
+whileRunning}` interpreter key:
+
+| machine | footprint | cost | light | notes |
+|---|---|---|---|---|
+| `brazier` | 1x1 | 4 `timber/log` + 2 `stone/gravel` | level 12, `whileRunning:true` | honest-fuel recipe (`out:[]`, banks a charge), same shape the lift and belt already use; lit for as long as the buffer holds fuel |
+| `hearth` | 2x2 | 2 `copper/plate` (**provisional** — design wants this in the essence tier, which does not exist yet; reprice when it lands) | level `'max'` (tracks `eff('lightMax')`) | no fuel, never expires; an `in:{}, secs:Infinity` recipe keeps `m.running` true purely so the existing fire-glow look renders, no interpreter change |
+
+Both are in `STARTING_MACHINES` (`src/data/machines.js`... `src/data/boons.js`)
+for testability, same precedent as `press`/`belt_r`/`belt_l` — no director
+exists yet to gate them behind a boon.
+
+The starting kit (`src/shell/boot.js`) plants one `timber/brand` beside the
+stock pickaxe, on the opposite side of spawn, inside the same flat shelf.
+`run.brandLeft` (new `RUN_SCHEMA` field, `src/model/run.js` — see
+`docs/FINDINGS.md` for why this phase touched that file) auto-relights from
+the pockets the instant it reaches zero, with no separate "light your torch"
+verb.
+
+**Schedule reorder.** The live step order was `player -> reveal -> mining ->
+...` (not `player -> mining -> reveal -> ...` as `docs/BUILD_PLAN.md`
+originally assumed — corrected after Phase 0's audit). It is now
+`player -> mining -> light -> reveal -> items -> ...`: a tile broken this
+frame can open a light path this frame (`mining before light`), and fog of
+war's flood must read this frame's light field, not last frame's
+(`light before reveal`). `reveal` no longer sits immediately after `player`.
+
+**Darkness rendering.** `src/view/scene.js#drawDarkness` quantises `b.light`
+into three fixed alpha steps over the tile's own already-painted colour
+(0.94 / 0.55 / 0.22 for levels 0-4 / 5-9 / 10-14; no overlay at `lightMax`),
+row-run coalesced like `drawFog`, drawn after terrain/fields and before fog.
+A seen-but-dark tile therefore stays visibly distinct from both a fully-lit
+tile and an unseen (fog) one, and an ore vein is visually swamped by the
+darkest step well before its glint treatment could read as ore.

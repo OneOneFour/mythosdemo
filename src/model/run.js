@@ -52,7 +52,20 @@ export const RUN_SCHEMA = Object.freeze({
      mid-hold (a different recipe now matches first) starts the bar over
      instead of quietly carrying old progress into a different item. See
      `rules/crafting.js`. */
-  craftProgress: 0, craftRecipe: null
+  craftProgress: 0, craftRecipe: null,
+
+  /* Seconds left on the one lit `timber/brand`. Same shape as `craftProgress`
+     immediately above and for the identical reason: a player has one pair of
+     hands, there is only ever one lit brand, and a scalar on `run` resets
+     with everything else (invariant 8) for free. Written and ticked by
+     `rules/light.js`, which is OUTSIDE this file's FILE OWNERSHIP for Phase
+     2b of `docs/BUILD_PLAN.md` -- see `docs/FINDINGS.md` for why this one
+     field and its one writer were added anyway: `docs/BUILD_PLAN.md` itself
+     specifies "run.brandLeft ... for the same reason run.craftProgress is a
+     scalar", and the only alternative was module-scoped state in
+     `rules/light.js` with no `newRun()` hook to clear it -- a field that
+     survives a restart, which invariant 8 exists to forbid. */
+  brandLeft: 0
 });
 
 export const META_SCHEMA = Object.freeze({
@@ -129,7 +142,10 @@ export const write = {
 
   /* The hand-craft bar, written as one pair so a recipe change and its reset
      progress can never be observed half-applied. */
-  craft(progress, recipe) { run.craftProgress = progress; run.craftRecipe = recipe; bump(); }
+  craft(progress, recipe) { run.craftProgress = progress; run.craftRecipe = recipe; bump(); },
+
+  /* The one lit brand's remaining burn time. See `RUN_SCHEMA.brandLeft`. */
+  brand(secsLeft) { run.brandLeft = Math.max(0, secsLeft); bump(); }
 };
 
 /* ---- queries ---- */
