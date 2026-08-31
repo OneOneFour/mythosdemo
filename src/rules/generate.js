@@ -2,13 +2,11 @@
    writes tiles. Imports `core`, `data`, `model`. Imports no other `rules`
    module; its place in the boot order is stated in `shell/boot.js`.
 
-   ============================================================================
-   WHY GENERATION IS A `rules` MODULE AND NOT A `model` ONE.
-   `model` owns the number and the query; `rules` owns the decision and the
-   consequence. "Where does a copper blob go" is a decision — it consumes the
-   run's random stream, it depends on tunables, and it has the lifetime of one
-   boot. `model/world.js` allocates the array; this file decides what is in it.
-   ============================================================================
+   WHY GENERATION IS A `rules` MODULE AND NOT A `model` ONE: "where does a
+   copper blob go" is a decision, and `model` owns the number and the query
+   while `rules` owns the decision and the consequence. `model/world.js`
+   allocates the array; this file decides what is in it. See
+   docs/DEVELOPER_GUIDE.md#bands-and-worldgen
 
    THE KIND TABLE IS THE WHOLE FILE. `data/world.js` declares strata rows by
    `kind`, exports `STRATA_KINDS`, and the assertion at the bottom fails at

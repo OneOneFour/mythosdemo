@@ -2,40 +2,30 @@
    `core` or `data` directly -- `model/mods.js` is the one exception, since
    that is the only legal door to a tunable). Imports no other `rules` module.
 
-   ============================================================================
-   A TILE, ONCE REVEALED, IS NEVER RE-HIDDEN. That has not changed and does not
-   change here. The product decision this file exists to implement is memory,
-   not a shrinking light radius, so this only ever SETS a bit in
-   `model/world.js#seen` and never clears one. The storage already enforces
-   the permanence -- `write.reveal` has no opposite -- so this file's only job
-   is deciding WHICH bits to set, once a frame. WHAT changed is the answer to
-   that question: it used to be "the player's own tile and its 4 neighbours,
-   always" (radius 1, no line of sight at all); it is now real sight, split
-   into two independent passes because a single algorithm covering both would
-   be a full recursive-shadowcasting field-of-view implementation, and that is
-   overkill for the confirmed brief ("see everything on an open surface,
-   somewhat into a cavern") -- two cheap, separately-understandable passes
-   read as simpler and are simpler, not merely simpler-looking.
+   A TILE, ONCE REVEALED, IS NEVER RE-HIDDEN. The product decision this file
+   exists to implement is memory, not a shrinking light radius, so this only
+   ever SETS a bit in `model/world.js#seen` and never clears one. The storage
+   already enforces the permanence -- `write.reveal` has no opposite -- so this
+   file's only job is deciding WHICH bits to set, once a frame. `seen` versus
+   `light`: docs/DEVELOPER_GUIDE.md#pass-order-and-darkness
 
-     PASS A -- open sky. Unbounded. "Down is free, up is expensive" says
-     nothing about sight, and there is nothing to obstruct a view across open
-     air, so standing anywhere with a clear shot to the top of the band's own
-     grid reveals the WHOLE sky-exposed silhouette of that band, not a radius
-     around the player.
+   Two independent passes:
+
+     PASS A -- open sky. Unbounded, and reads no tunable: there is nothing to
+     obstruct a view across open air, so standing anywhere with a clear shot to
+     the top of the band's own grid reveals the WHOLE sky-exposed silhouette of
+     that band, not a radius around the player.
 
      PASS B -- underground. Bounded. A flood-fill through open tiles, blocked
      by solid rock, capped at a graph distance (`eff('sightRadius')`,
-     `data/tuning.js`) -- "light spreads through open air, blocked by solid
-     rock" is a deliberately simple stand-in for real line of sight, not an
-     approximation of shadowcasting. This is also what SUBSUMES the old
-     radius-1 rule: the player's own occupied tiles are always seeded into the
-     flood at distance 0, so "reveal here and the tiles right next to it"
-     still happens even in a fully solid dead end, exactly as before.
+     `data/tuning.js`). The player's own occupied tiles are always seeded into
+     the flood at distance 0, so "reveal here and the tiles right next to it"
+     still happens even in a fully solid dead end.
 
-     PHASE 2b ADDITION -- the flood must not walk through UNLIT air, or a
-     player could map a pitch-black cavern by the simple act of standing in
-     it, which is not "somewhat visible" by any reading. Past distance 1 (the
-     always-revealed immediate neighbours above, which is exactly what keeps
+     The flood must not walk through UNLIT air, or a player could map a
+     pitch-black cavern by the simple act of standing in it, which is not
+     "somewhat visible" by any reading. Past distance 1 (the always-revealed
+     immediate neighbours above, which is exactly what keeps
      the fully-solid-dead-end case working) a tile is only enqueued for
      further exploration if `model/world.js#lightAt` says it is lit at all.
      It is still REVEALED regardless -- "you can see the wall you are facing"
@@ -47,7 +37,6 @@
      stale.
 
    Both passes only ever call `model/world.js#write.reveal`.
-   ============================================================================
 
    OCCUPIED TILES, NOT ONE POINT. The player's hitbox (`PW`x`PH`, `model/
    player.js`) is 6x16 px in an 8 px tile -- 16 px is exactly two rows when the
@@ -63,14 +52,14 @@ import { player, playerBox } from '../model/player.js';
 import { skyExposedAt, solidAt } from '../model/tiles.js';
 import { chunkOf, chunkVer, inBounds, lightAt, tileX, tileY, write as ww } from '../model/world.js';
 
-/* Perf-only cache for Pass B, MODULE-LOCAL AND DELIBERATELY NOT IN `model/`:
-   nothing outside this file reads it, it carries no gameplay meaning, and it
-   does not need to survive `newRun()` for correctness -- `model/world.js#
-   write.allocate` always hands out a fresh band object, so `b === lastBand`
-   is already false the instant a run restarts, with no reset call to wire up
-   or forget. Reset to `null` on the early-return-no-band path below too, so a
-   band going away mid-frame (there is no such path today, but nothing here
-   should rely on that) can't leave a stale reference pointing at a dead one. */
+/* Perf-only cache for Pass B, MODULE-LOCAL AND DELIBERATELY NOT IN `model/`
+   (docs/DEVELOPER_GUIDE.md#module-local-perf-caches): keyed by the band
+   OBJECT, and `model/world.js#write.allocate` always hands out a fresh one, so
+   `b === lastBand` is already false the instant a run restarts, with no reset
+   call to wire up or forget. Reset to `null` on the early-return-no-band path
+   below too, so a band going away mid-frame (there is no such path today, but
+   nothing here should rely on that) can't leave a stale reference pointing at
+   a dead one. */
 let lastBand = null, lastTx0 = NaN, lastTy0 = NaN, lastTx1 = NaN, lastTy1 = NaN, lastVer = NaN;
 
 export function step() {

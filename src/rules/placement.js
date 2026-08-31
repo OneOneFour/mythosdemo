@@ -1,40 +1,33 @@
 /* LAYER rules — PLACEMENT: putting a machine or a tile into the world.
    Imports `core`, `data`, `model`. Imports no other `rules` module.
 
-   ============================================================================
    THE FOOTPRINT CHECK READS `tw`, `th` AND `footing` OFF THE ROW, so every
    machine that will ever exist is placeable and there is no `placeFurnace()`
    anywhere. The previous codebase had eighteen lines of furnace-specific
    footprint checking in a module that also reached into the player, the tile
-   grid, the item list, the toast queue and the audio device.
-   ============================================================================
+   grid, the item list, the toast queue and the audio device. See
+   docs/DEVELOPER_GUIDE.md#adding-a-machine
 
    WHAT MAY BE PLACED IS A RUN-STATE SET, NOT A REGISTRY EDIT. `run.granted`
-   holds machine ids, seeded from `data/boons.js#STARTING_MACHINES` and extended
-   by `rules/boons.js`. `data/machines.js` is a plain frozen table read at
-   placement time, so granting a machine mid-run costs no architecture at all.
+   holds machine ids, seeded from `data/grants.js#STARTING_MACHINES` and
+   extended by `rules/grants.js`. `data/machines.js` is a plain frozen table
+   read at placement time, so granting a machine mid-run costs no architecture.
 
    Every refusal pushes a journal row carrying its reason. `shell/notify.js`
    turns that into text; nothing here knows what a toast is.
 
-   A GRANTED MACHINE IS A HELD ITEM (design reversal superseding Phase 3's
-   cost-at-placement deviation -- see `data/forms.js#rig` and the
-   machine-substance block in `data/substances.js` for the full argument).
-   `model/run.js#machineHeldSub` names which substance's `rig` pair a machine
-   id places from; `placementCheck` checks `invCount(that, F.rig) > 0` after
-   every other refusal, and exactly ONE unit is spent with `rw.spend` only
-   once every other check has already passed, so a refused placement never
-   touches the pockets.
+   A GRANTED MACHINE IS A HELD ITEM. `model/run.js#machineHeldSub` names which
+   substance's `rig` pair a machine id places from; `placementCheck` checks
+   `invCount(that, F.rig) > 0` after every other refusal, and exactly ONE unit
+   is spent with `rw.spend` only once every other check has already passed, so
+   a refused placement never touches the pockets.
 
-   ============================================================================
-   PHASE 3: THE VALIDITY DECISION ITSELF LIVES IN `model/run.js#placementCheck`
-   NOW, NOT HERE. `view`'s ghost preview needs the identical yes/no this
-   function enforces and `view` may not import `rules` -- the same reason
-   `canAfford`/`canPlace` were already model queries rather than private to
-   this file. This function's own job shrank to "call the query, and turn a
-   `false` into a journal row plus the actual mutation" -- ONE implementation
-   of the checks, TWO readers of the answer.
-   ============================================================================ */
+   THE VALIDITY DECISION ITSELF LIVES IN `model/run.js#placementCheck`, NOT
+   HERE: `view`'s ghost preview needs the identical yes/no this function
+   enforces and `view` may not import `rules`. This function's own job is
+   "call the query, and turn a `false` into a journal row plus the actual
+   mutation" -- ONE implementation of the checks, TWO readers of the answer.
+   See docs/DEVELOPER_GUIDE.md#one-decision-two-readers */
 
 import { rand } from '../core/rng.js';
 import { AIR, F, FORM, NATIVE } from '../data/forms.js';
@@ -112,28 +105,22 @@ export function deconstruct(band, tx, ty) {
     iw.spawn(band, cx, cy, heldSub, F.rig, (rand() - 0.5) * 2 * spread, -up);
 
   mw.remove(m);
-  /* Reuses the 'place' journal kind: `shell/notify.js`'s TEXT handler already
-     renders `{machine}` as "<NAME> PLACED", the wrong verb for a removal but
-     the closest shape already wired -- `shell/notify.js`/`data/sfx.js` (the
-     only files that could add a dedicated 'deconstruct' kind and its text)
-     are outside this phase's FILE OWNERSHIP, the identical constraint
-     Phase 2a's drop verb hit for the same reason. See `docs/FINDINGS.md`. */
   push('place', { x: m.box.x, y: m.box.y }, { machine: def.id });
   return true;
 }
 
 /* ---------- tiles ----------
    Only a form carrying a `tile` block may be placed as terrain -- `log`,
-   `rung`, `stair` and now `gravel` -- so building a ladder and felling a
-   tree are the same two nouns in different places. There is no ladder id,
-   no ladder recipe and no ladder code. See `data/forms.js`. */
+   `rung`, `stair` and `gravel`. There is no ladder id, no ladder recipe and no
+   ladder code. See docs/DEVELOPER_GUIDE.md#adding-a-form */
 
 /* Every `{sub, form}` pair in the pockets that could be PLACED -- a
    tile-capable form (terrain: `log`, `rung`, `stair`, `gravel`) OR a
    machine's own `rig` pair (a structure: `rules/placement.js#placeMachine`)
    -- in HUD order. `shell/main.js#applyIntents`'s `cmd.place` branch places
    the first of these, dispatching to `placeTile` or `placeMachine`
-   depending on which kind it is; a real build menu would offer the list. */
+   depending on which kind it is; a real build menu would offer the list.
+   See docs/DEVELOPER_GUIDE.md#adding-a-form */
 export function placeableFromPockets(rows) {
   return rows.filter(r => r.n > 0 && (FORM[r.form]?.tile || r.form === F.rig));
 }

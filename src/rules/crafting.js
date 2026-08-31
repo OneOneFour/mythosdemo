@@ -1,17 +1,12 @@
 /* LAYER rules — CRAFTING: the player's own hands, as a rate-limited machine.
    Imports `core`, `data`, `model`. Imports no other `rules` module.
 
-   ============================================================================
-   THE THESIS THIS FILE EXISTS TO SERVE, from `docs/DESIGN.md`'s "hands versus
-   machines": hand-crafting must not be strictly worse than the machine that
-   runs the same recipe, or every machine in the game would earn its keep by
-   having no substitute rather than by throughput. So this runs the SAME named
-   recipe a machine would (`smelt`, `press` -- anything `data/recipes.js` marks
-   `hand:true`), at the machine's own `secs`, spending and producing exactly
-   what the machine spends and produces. The only thing a machine buys over
-   this file is that it keeps running once the player walks away, and a
-   player has exactly one pair of hands to hold this key with.
-   ============================================================================
+   THE THESIS THIS FILE EXISTS TO SERVE: hand-crafting must not be strictly
+   worse than the machine that runs the same recipe, or every machine in the
+   game would earn its keep by having no substitute rather than by throughput.
+   So this runs the SAME named recipe a machine would, at the machine's own
+   `secs`, spending and producing exactly what the machine does. See
+   docs/DEVELOPER_GUIDE.md#adding-a-recipe
 
    PROGRESS IS A SCALAR ON `run`, NOT A MAP. `model/mining.js` keeps a Map
    because several tiles can be part-dug at once; a player has one pair of
@@ -33,8 +28,8 @@ import { run, write as rw } from '../model/run.js';
 /* The largest single pocketed pair matching a selector, with at least `need`
    units. Rules siblings may not import one another, so this is the same
    shape as `rules/machines.js`'s private `bestPair`, re-derived over the
-   player's pockets rather than shared -- eight lines here is cheaper than a
-   module neither file is allowed to import. */
+   player's pockets rather than shared. See
+   docs/DEVELOPER_GUIDE.md#duplication-across-a-layer-boundary */
 function bestPocketed(sel, need) {
   for (const k in run.inv) {
     if (run.inv[k] < need) continue;
@@ -45,9 +40,10 @@ function bestPocketed(sel, need) {
 }
 
 /* First hand-craftable recipe the player currently has every input for --
-   "first match wins, a real menu would let you choose", the same convention
-   `rules/placement.js#placeableFromPockets` and the trinket/boon draft in
-   `shell/main.js#applyIntents` already use. Returns which pocketed pair
+   "first match wins, a real menu would let you choose"; declaration order in
+   `data/recipes.js` is therefore load-bearing, see
+   docs/DEVELOPER_GUIDE.md#hand-recipe-declaration-order. Returns which
+   pocketed pair
    satisfied each selector alongside the recipe, so completion can spend and
    derive a `subFrom` output without re-deriving the match. */
 function choose() {

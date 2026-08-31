@@ -1,15 +1,14 @@
 /* LAYER rules — BELTS: fuel-powered horizontal relocation.
    Imports `core`, `data`, `model`. Imports no other `rules` module.
 
-   ============================================================================
    A BELT IS NOT A RECIPE-DRIVEN MACHINE THE WAY `furnace`/`press` ARE. Those
    turn inputs into outputs; a belt turns a POSITION into a later position,
    with no substance or form change anywhere in between. `rules/machines.js`'s
    generic interpreter has no `out` clause shaped like "keep whatever this
    already was, moving sideways at whatever height it already had" — and it
    should not grow one for a single mechanic. So this file exists instead of a
-   new interpreter key, the same call `rules/lift.js` already made for the
-   staged lift.
+   new interpreter key. See
+   docs/DEVELOPER_GUIDE.md#when-a-machine-needs-its-own-rules-module
 
    THE MECHANISM IS `rules/lift.js#carry()` TURNED NINETY DEGREES. Machines are
    not solid — `model/tiles.js#solidAt` is the only thing item collision
@@ -20,20 +19,17 @@
    does `it.y += dy` while a stage is charged, this does `it.x += dx` while a
    belt is: same shape, same idiom, rotated.
 
-   POWER IS THE SAME CHARGE A LIFT STAGE BANKS, NOT A NEW CONCEPT. A belt row
-   in `data/machines.js` runs a one-fuel-in, nothing-liftable-out recipe — the
-   lift's own honest-fuel row, verbatim in shape — so `rules/machines.js#produce`
-   banks `m.charges` for free, through code this file never touches. This file
-   only ever SPENDS a charge, exactly one per item it actually delivers off the
-   belt's end; it cannot tell a charge bought with timber from one bought with
+   POWER IS THE SAME CHARGE A LIFT STAGE BANKS, NOT A NEW CONCEPT
+   (docs/DEVELOPER_GUIDE.md#charges-and-honest-fuel). This file only ever
+   SPENDS a charge, exactly one per item it actually delivers off the belt's
+   end; it cannot tell a charge bought with timber from one bought with
    anything else, for the same reason the lift cannot.
 
    DELIBERATELY RARE. `docs/DESIGN.md`'s genre statement names flat, cheap
    horizontal logistics as the thing this project is not — so a belt is priced
-   in `data/machines.js`'s `cost` (plate, not raw ore) and gated on running
-   fuel besides. Nothing here softens that; this file only ever moves what a
-   lit, fed belt is entitled to move.
-   ============================================================================ */
+   in plate, not raw ore, and gated on running fuel besides. Nothing here
+   softens that; this file only ever moves what a lit, fed belt is entitled to
+   move. */
 
 import { defOf, machines, write as mw } from '../model/machines.js';
 import { itemsIn, write as iw } from '../model/items.js';

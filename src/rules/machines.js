@@ -2,30 +2,14 @@
    ticks a machine. Imports `core`, `data`, `model`. Imports no other `rules`
    module.
 
-   ============================================================================
    IT CONTAINS NO MACHINE NAME, NO SUBSTANCE NAME AND NO MAGIC NUMBER.
-   Every one of those is a literal in `data/machines.js`, `data/recipes.js` or
-   `data/substances.js`.
 
    If you are reading this because you want to ADD a machine, you are in the
    wrong file. Go to `data/machines.js`, copy the row nearest to what you want,
-   and change the literals. You are in the right file only if you want a machine
-   to do something no row can express — and then the honest question is whether
-   the key you are about to add belongs on rows, or whether that machine wants a
-   `rules` module of its own the way the lift has one.
+   and change the literals. See docs/DEVELOPER_GUIDE.md#adding-a-machine
 
    Read in this order: `step` (what happens per machine per frame), `choose`
-   (which recipe runs), `produce` (spending and ejecting), `emit`.
-   ============================================================================
-
-   THE HONEST COMPLAINT, stated here rather than in prose somewhere: this file
-   plus an anaemic row IS "the logic separated from the thing it describes". A
-   reader who wants to know what the furnace does reads a row and then reads
-   this. The three defences are that the row is the shorter half, that the row is
-   EXHAUSTIVE (there is no second place furnace behaviour can hide), and that the
-   escape hatch for behaviour a key genuinely cannot carry exists and is priced —
-   see `data/sources.js`. If this project ends up wanting forty such hatches
-   rather than three, the architecture chose wrong. */
+   (which recipe runs), `produce` (spending and ejecting), `emit`. */
 
 import { rand } from '../core/rng.js';
 import { overlaps } from '../core/math.js';
@@ -50,11 +34,9 @@ import { tileX, tileY, worldX, worldY } from '../model/world.js';
    every entry has a caller today.
 
    `buffered` and `pocketed` count the LARGEST SINGLE MATCHING PAIR rather than
-   the sum across pairs, and that is deliberate: a recipe input is satisfied by
-   one pair, because a derived output takes its substance from the pair that
-   satisfied it. Two copper ore and one tin ore do not smelt into one ingot of
-   anything. Buffer FULLNESS — what the servo and the HUD pips read — is the sum,
-   and that is `model/machines.js#count`. Two different questions, two answers. */
+   the sum across pairs. Buffer FULLNESS — what the servo and the HUD pips read
+   — is the sum, and that is `model/machines.js#count`. Two different questions,
+   two answers; see docs/DEVELOPER_GUIDE.md#non-item-inputs */
 const api = {
   buffered: (m, sel) => best(m.buf, sel),
   pocketed: (sel) => best(run.inv, sel),
@@ -62,7 +44,7 @@ const api = {
   /* Both spends return the concrete `{sub, form}` pair actually taken, so the
      interpreter learns which substance satisfied a selector without ever asking
      where it came from. That return value is the whole of how one `smelt` row
-     covers every ore that will ever exist. */
+     covers every ore -- docs/DEVELOPER_GUIDE.md#adding-a-recipe */
   takeBuffered: (m, sel, n) => {
     const pair = firstMatching(m, sel, n);
     if (!pair) return null;
@@ -126,7 +108,8 @@ export function step(dt) {
 /* ---------- catch box ----------
    Anything falling through the mouth is swallowed for free. This one key is the
    thesis of the game: placing a machine under a vein beats placing it on the
-   surface, and nothing has to say so. */
+   surface, and nothing has to say so.
+   See docs/DEVELOPER_GUIDE.md#adding-a-machine */
 function catchFalling(m, def) {
   const mouth = m.mouth[def.catchBox.mouth];
   const s = def.catchBox.slack;
@@ -195,7 +178,8 @@ function produce(m, def, dt) {
 
   /* No liftable output at all — `out:[]`. The run banked a CHARGE instead: one
      turn of a lift drum. `rules/lift.js` is the consumer, and it cannot tell a
-     charge bought with timber from one bought with a heart. */
+     charge bought with timber from one bought with a heart.
+     See docs/DEVELOPER_GUIDE.md#charges-and-honest-fuel */
   if (!made) mw.charge(m, 1);
 
   push('produce', { x: m.box.x, y: m.box.y }, { def: m.def, made });
@@ -274,26 +258,24 @@ function acceptedBy(def, sub, form) {
   return null;
 }
 
-/* ---------- mine (Phase 2c) ----------
+/* ---------- mine ----------
    A PLACED miner. GATES on top of `rules/mining.js`'s hardness, not a second
-   one -- see the `mine` key's own documentation in `data/machines.js`.
+   one -- see the `mine` key's own documentation in `data/machines.js`, and
+   docs/DEVELOPER_GUIDE.md#placed-miners
 
-   "Hands compete with machines on throughput; they lose on headcount"
-   (docs/DESIGN.md) is enforced HERE, not asserted in a comment: every placed
-   miner chews at `eff('pickPower') x bestHandToolPower()`, the exact same
-   formula and the exact same NUMBER `rules/mining.js#step` uses when a player
-   swings the best tool they hold. `bestHandToolPower` is generic over every
-   substance's `item.tool` block -- it never names the auger -- so this is one
-   formula agreeing with itself off shared data, not two authors copying a
-   literal into two files. Only the GATE (`def.mine.tier`, what the miner may
-   even bite) and the WIDTH (`def.mine.tiles`, how tall a face it can reach)
-   vary between tiers; the per-tile rate never does. */
+   "Hands compete with machines on throughput; they lose on headcount" is
+   enforced HERE, not asserted in a comment: every placed miner chews at
+   `eff('pickPower') x bestHandToolPower()`, the exact same formula and the
+   exact same NUMBER `rules/mining.js#step` uses when a player swings the best
+   tool they hold. Only the GATE (`def.mine.tier`, what the miner may even
+   bite) and the WIDTH (`def.mine.tiles`, how tall a face it can reach) vary
+   between tiers; the per-tile rate never does. */
 
 /* The best HAND tool's power, scanned off every substance's `item.tool`
    block rather than naming one. A future hand tool raises every placed
    miner's rate the same day it raises a swinging player's, with no edit
-   here. Defaults to 1 -- the same "no tool held" fallback `rules/mining.js`
-   uses -- though a miner can only ever run once some tool exists to read. */
+   here (docs/DEVELOPER_GUIDE.md#tools-are-relic-substances). Defaults to 1 --
+   the same "no tool held" fallback `rules/mining.js` uses. */
 function bestHandToolPower() {
   let p = 1;
   for (const s of SUB) if (s.item?.tool && s.item.tool.power > p) p = s.item.tool.power;
@@ -329,11 +311,10 @@ function tierRefusalDue(m) {
 }
 
 /* Seconds of active chewing one buffered fuel unit lasts, per machine. A
-   local WeakMap accumulator, not a machine-record field: `model/machines.js`
-   is not this phase's to extend for a number only this branch reads, and
-   `m.prog` already belongs to `produce()` above (which zeroes it every frame
-   this row has no matching `recipes`, since it has none). Same shape as
-   `recipeCache`, above, in this same file. */
+   local WeakMap accumulator, not a machine-record field: only this branch reads
+   the number, and `m.prog` already belongs to `produce()` above (which zeroes
+   it every frame this row has no matching `recipes`, since it has none). Same
+   shape as `recipeCache`, above, in this same file. */
 const fuelClock = new WeakMap();
 
 function mine(m, def, dt) {

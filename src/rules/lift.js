@@ -1,16 +1,13 @@
 /* LAYER rules — THE STAGED LIFT. One stage per machine row carrying a `lift`
    block. Imports `core`, `data`, `model`. Imports no other `rules` module.
 
-   ============================================================================
    INVARIANT 4: THE LIFT IS INDEPENDENT STAGES, ONE PER LEVEL PAIR, EACH WITH
    ITS OWN DRUM, DECK AND COUNTERWEIGHT. NEVER ONE CONTINUOUS CAGE.
    Five stages would be five machine records placed at five level pairs, and
    modelling a stage AS A MACHINE is what keeps it that way — there is no object
-   in this file that could grow into a world-spanning elevator.
-
-   One stage exists in this pass, pointed surface -> astral, because that is
-   what the scope allows. The mechanism is complete; the count is content.
-   ============================================================================
+   in this file that could grow into a world-spanning elevator. One stage
+   exists today, pointed surface -> astral: the mechanism is complete, the
+   count is content.
 
    INVARIANT 5 / DESIGN THESIS: DOWN IS FREE, UP IS EXPENSIVE. The deck descends
    under gravity for nothing at `liftDown`, and ascends only while the machine
@@ -20,7 +17,8 @@
 
    The charge indirection is why the blood winch needs no code of its own: the
    winch's second recipe pays a heart for a charge, and this file cannot tell a
-   charge bought with timber from one bought with a heart. */
+   charge bought with timber from one bought with a heart.
+   See docs/DEVELOPER_GUIDE.md#charges-and-honest-fuel */
 
 import { overlaps } from '../core/math.js';
 import { push } from '../model/journal.js';

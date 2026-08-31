@@ -2,17 +2,11 @@
    tiers (CLAUDE.md "Resolved decisions" D1). Imports `data`, `model`.
    Imports no other `rules` module.
 
-   ============================================================================
-   `step()` IS A SYNC, NOT AN EVENT -- the same idiom `rules/trinkets.js#step`
-   already uses for the identical reason: an expiry must not depend on
-   remembering to call an `unequip()`-shaped function. Every fixed 1/120 s
-   step this: (1) ticks every active boon down and expires anything at zero,
-   then (2) rebuilds `model/mods.js`'s `'boon:'`-keyed rows FROM SCRATCH off
-   the current active list, resolving every `conflictsWith` fresh each frame.
-   Recomputing from scratch (rather than diffing) is what lets an expiring
-   NEWER boon hand an older, suppressed/inverted one its true effect back with
-   no code anywhere needing to have remembered it was ever overridden.
-   ============================================================================
+   `step()` IS A SYNC, NOT AN EVENT: every fixed 1/120 s step it (1) ticks
+   every active boon down and expires anything at zero, then (2) rebuilds
+   `model/mods.js`'s `'boon:'`-keyed rows FROM SCRATCH off the current active
+   list, resolving every `conflictsWith` fresh each frame. See
+   docs/DEVELOPER_GUIDE.md#the-four-gift-tiers
 
    Registered in `shell/schedule.js` immediately before `machines`, for the
    identical reason `trinkets before machines` is already stated there: a
@@ -32,11 +26,8 @@ export function grant(id) {
   return true;
 }
 
-/* Boons not currently active. Same shape as `rules/trinkets.js#draftable`
-   and `rules/grants.js#draftable`, so a draft panel can offer all tiers from
-   one list without knowing which is which -- and so a debug key that grants
-   `draftable()[0]` on repeated presses walks the WHOLE table rather than
-   handing out the same boon forever. */
+/* Boons not currently active. Same shape as every other tier's `draftable`
+   -- see docs/DEVELOPER_GUIDE.md#the-four-gift-tiers */
 export const draftable = () => BOONS.filter(b => !boons.active.some(a => a.id === b.id));
 
 /* mul -> 1/mul, add -> -add. What "invert" means for a row: flip whichever
@@ -49,10 +40,7 @@ const invert = mods => mods.map(m => ({
 
 export function step(dt) {
   /* ---- 1. tick, then expire. A journal row either way: grant and expiry
-     both announce themselves (docs/BUILD_PLAN.md Phase 4 Step 2). 'lost' is
-     an existing, previously-unused journal kind -- `shell/notify.js#TEXT`
-     already renders it as "THE GIFT IS WITHDRAWN", built for exactly this
-     and never before exercised. ---- */
+     both announce themselves. ---- */
   bw.tick(dt);
   /* Collect first, THEN expire: `write.expire` splices `boons.active`, so
      mutating it while still iterating it would skip an entry -- filtering
@@ -66,10 +54,9 @@ export function step(dt) {
 
   /* ---- 2. sync model/mods.js from the active list, honouring
      conflictsWith. Full rebuild every frame, over the CONTENT table (not
-     just what happens to be active) -- the exact pattern
-     `rules/trinkets.js#step` already uses to loop `TRINKETS` rather than
-     `run.inv`, so a boon that just expired loses its row THIS frame with no
-     separate "was this active a moment ago" bookkeeping. ---- */
+     just what happens to be active), so a boon that just expired loses its
+     row THIS frame with no separate "was this active a moment ago"
+     bookkeeping. See docs/DEVELOPER_GUIDE.md#the-four-gift-tiers ---- */
   for (const b of BOONS) modw.removeBySource('boon:' + b.id);
 
   const ids = boons.active.map(a => a.id);

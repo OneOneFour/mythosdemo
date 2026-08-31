@@ -18,7 +18,8 @@
 
    HARDNESS IS BASE PLUS A MODIFIER, ALWAYS. `baseHardAt` deliberately returns
    the base, and the `hard` tunable is applied HERE, in exactly one place, so a
-   trinket that softens one material cannot be read around.
+   trinket that softens one material cannot be read around. See
+   docs/DEVELOPER_GUIDE.md#the-tunable-pipeline
 
    TOOL TIER IS A GATE ON TOP OF HARDNESS, NOT A SECOND HARDNESS (Phase 2c).
    `hard` decides how long a legal swing takes; `tile.tier` (absent means 1,
@@ -185,16 +186,7 @@ export function step(dt, cmd) {
                       drop.sub, drop.form, (rand() - 0.5) * 24, -30 - rand() * 20);
   if (it) push('drop', at, { sub: drop.sub, form: drop.form });
 
-  /* ---- RARE TRINKET DROP, Phase 4 (docs/BUILD_PLAN.md) STEP 4 source (b).
-     THE ONE EXPLICIT EXCEPTION TO THIS PHASE'S FILE OWNERSHIP -- named as
-     such by the plan itself ("rules/mining.js is NOT in your FILE
-     OWNERSHIP... this is the one exception"), added here because it is the
-     one place a live, reachable trinket source can be wired THIS phase:
-     tribute completion (`data/drops.js`'s other trigger) has no real event
-     to hook into yet (`run.tribute` is unwritten scaffolding, see
-     docs/FINDINGS.md), so this is what makes "THEY MUST BE EARNED" true
-     today rather than only on paper.
-
+  /* ---- RARE TRINKET DROP, the one live trinket source.
      Reads the ODDS from `data/drops.js` so they live in one table a
      designer can tune without opening this file. Rolled through `rand()`
      and NOTHING ELSE (invariant 7: a run is bit-reproducible from its

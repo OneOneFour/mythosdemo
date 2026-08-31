@@ -53,7 +53,8 @@ function applyEffect(m, band, tx, ty) {
      Reads `data/boons.js` directly and calls `model/boons.js#write.grant`
      rather than `rules/boons.js#grant` -- `rules` siblings may not import
      one another, so this is the same primitive that file's own `grant()`
-     wraps, called here instead of through it. */
+     wraps, called here instead of through it. See
+     docs/DEVELOPER_GUIDE.md#duplication-across-a-layer-boundary */
   if (e.boon) {
     const b = BOON[e.boon];
     if (b) {

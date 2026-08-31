@@ -2,15 +2,11 @@
    light source. Imports `core`, `data`, `model`. Imports no other `rules`
    module.
 
-   ============================================================================
-   TWO SEPARATE FACTS, AND THIS FILE OWNS ONLY THE SECOND. `model/world.js#
-   b.seen` is memory: has the player ever stood here, permanent, one-way,
-   never cleared. `model/world.js#b.light` is a CURRENT CONDITION: how lit is
-   this tile right now, recomputed, and it goes down as well as up. This file
-   decides the second fact and never touches the first -- `rules/reveal.js`
-   owns `seen`, and the only thing it reads FROM here is `lightAt()`, to keep
-   its own flood from mapping a pitch-black cavern by standing in it.
-   ============================================================================
+   TWO SEPARATE FACTS, AND THIS FILE OWNS ONLY THE SECOND -- `b.seen` is
+   memory, `b.light` is a current condition. See
+   docs/DEVELOPER_GUIDE.md#pass-order-and-darkness. `rules/reveal.js` owns
+   `seen`, and the only thing it reads FROM here is `lightAt()`, to keep its
+   own flood from mapping a pitch-black cavern by standing in it.
 
    PROPAGATION is a multi-source flood from every emitter -- every sky-exposed
    tile at `eff('lightMax')`, every lit machine, and the player's own tile
@@ -64,12 +60,9 @@ export function step(dt) {
    `run.brandLeft` is a SCALAR, not per-item state, for the same reason
    `run.craftProgress` is: a player has one pair of hands and there is only
    ever one lit brand. It resets with the run for free (invariant 8) because
-   it lives on `RUN_SCHEMA` alongside `craftProgress` -- see the deviation
-   note in `docs/FINDINGS.md` for why that one field and its one writer were
-   added to `model/run.js` despite this phase's file ownership not listing
-   that file; the alternative was module-scoped state here that `newRun()`
-   has no way to reset, which is exactly the class of bug invariant 8 exists
-   to prevent.
+   it lives on `RUN_SCHEMA` alongside `craftProgress`; the alternative was
+   module-scoped state here that `newRun()` has no way to reset, which is
+   exactly the class of bug invariant 8 exists to prevent.
 
    Auto-relights: the moment the current brand burns out (or at the start of
    the run, when it is already at zero), the next `timber/brand` in the
@@ -91,7 +84,8 @@ function tickBrand(dt) {
    one sentinel, for a fixture (the hearth) whose brightness must track
    `eff('lightMax')` itself rather than a fixed number -- data cannot call
    `eff()` (only `model/mods.js` may import `data/tuning.js`), so the row
-   says the WORD and this, the interpreter, resolves it. */
+   says the WORD and this, the interpreter, resolves it.
+   See docs/DEVELOPER_GUIDE.md#light-emitters */
 function emittersFor(b) {
   const out = [];
   for (const m of machines) {

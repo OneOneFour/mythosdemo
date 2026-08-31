@@ -49,7 +49,8 @@ export function step(dt, cmd) {
   if (b !== b0) pw.band(b);
 
   /* Presentation timers. In `model` because `view` reads them; decayed here
-     because `view` may not write. This is the sibling rule doing its job. */
+     because `view` may not write.
+     See docs/DEVELOPER_GUIDE.md#where-does-state-go */
   pw.set('landFlash', Math.max(0, player.landFlash - dt * 4));
   pw.set('hurtFlash', Math.max(0, player.hurtFlash - dt * 3));
 
@@ -182,8 +183,8 @@ function land(b, term, grav) {
 }
 
 /* Damage is a `rules` decision with a `model` consequence, and the notification
-   is a journal row — never a `play()` call. `shell/notify.js` is what makes
-   noise, and a call from here to `shell` would be an upward edge. */
+   is a journal row — never a `play()` call.
+   See docs/DEVELOPER_GUIDE.md#notification-and-the-journal */
 export function hurt(n, cause) {
   if (run.dead) return;
   pw.set('hurtFlash', 1);

@@ -49,16 +49,12 @@ const BOUNCE = 0.3;
 const MASS_EPS = 1e-6;
 
 /* A refused pickup must not re-test -- and re-push the journal -- every
-   single frame it sits in the pickup radius. The same idiom
-   `rules/mining.js`'s 'pick' row already leans on (pushed every frame,
-   rate-limited downstream by `data/sfx.js`'s MIN_GAP) is applied here
-   directly rather than through that table: `data/sfx.js` belongs to a later
-   phase this cycle, and 'refused' already carries no sound to throttle --
-   only the toast text, which this local, transient side-table gates
-   instead. Keyed by object identity rather than a field on the item record
-   (`model/items.js`'s own header insists the shape stay monomorphic, and
-   this is not that file's phase to edit): a removed item is simply never
-   queried again and needs no explicit cleanup. */
+   single frame it sits in the pickup radius. Rate-limited here rather than
+   through `data/sfx.js`'s MIN_GAP because 'refused' carries no sound to
+   throttle -- only the toast text. Keyed by object identity rather than a
+   field on the item record (`model/items.js`'s own header insists the shape
+   stay monomorphic): a removed item is simply never queried again and needs
+   no explicit cleanup. */
 const REFUSAL_GAP = 1.0;
 const refusedAt = new WeakMap();
 function refusalDue(it) {
@@ -76,9 +72,8 @@ function refusalDue(it) {
    it back to gravity at the player's feet, the same "material becomes a
    falling item" idiom (invariant 5) `rules/crafting.js` and
    `rules/trinkets.js#grant` already use, with a small toss read through
-   `eff('tossUp')`/`eff('tossSpread')` (Phase 1 rows) rather than a fifth
-   independently-chosen toss magnitude (docs/FINDINGS.md's toss-velocity
-   finding). */
+   `eff('tossUp')`/`eff('tossSpread')` rather than a fifth
+   independently-chosen toss magnitude. */
 export function dropHeaviest() {
   if (run.dead || !player.band) return;
 
@@ -96,11 +91,9 @@ export function dropHeaviest() {
   const up = eff('tossUp'), spread = eff('tossSpread');
   iw.spawn(player.band, at.x, at.y, best.sub, best.form,
            (rand() - 0.5) * 2 * spread, -up);
-  /* Reuses the 'place' journal kind -- see docs/FINDINGS.md: `shell/notify.js`
-     and `data/sfx.js` (the only files that could name a dedicated 'dropped'
-     kind and its text) are outside this phase's FILE OWNERSHIP, and 'place'
-     already renders exactly this shape of row ({sub, form}) as
-     "<PAIR> PLACED", which is the closest true statement already wired. */
+  /* Reuses the 'place' journal kind: it already renders exactly this shape of
+     row ({sub, form}) as "<PAIR> PLACED", the closest true statement already
+     wired. */
   push('place', at, { sub: best.sub, form: best.form });
 }
 

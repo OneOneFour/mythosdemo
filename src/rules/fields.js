@@ -1,17 +1,11 @@
 /* LAYER rules — THE FIELD STEP. Decay and deactivation, over the active set
    only. Imports `data`, `model`. Imports no other `rules` module.
 
-   ============================================================================
    DIFFUSION IS DELIBERATELY NOT IMPLEMENTED. This is a seam, not a solver.
    What is real: the storage, the active set, the emission path from
    `rules/machines.js`, the recipe gate that reads a value, and the overlay that
-   draws one. What is absent is transport.
-
-   The day a solver is wanted, it goes inside the one loop below — a share of
-   each cell moved to `i - b.tw` is buoyant heat, a share moved to `i + b.tw` is
-   water finding the floor — and nothing else in the project changes shape. That
-   is the point of building the seam and not the solver.
-   ============================================================================
+   draws one. What is absent is transport, and a solver would go inside the one
+   loop below.
 
    It does not touch `b.ver`. Field writes must never invalidate chunk paint:
    those canvases cache static rock, and a heat front would re-cache them every
