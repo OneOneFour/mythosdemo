@@ -14,7 +14,13 @@
    these arrays simply stay empty; the throwaway harness that verifies this
    phase calls it directly. */
 
-export const drawn = { panels: [], tabs: [], grids: [], bars: [], tooltip: null };
+export const drawn = { panels: [], tabs: [], grids: [], bars: [], tooltip: null,
+  /* Phase 5b addition: `gridId -> [recipeId, ...]`, one entry per crafting
+     grid drawn this frame -- `view/ui/mainPanel.js`'s own header explains why
+     a grid slot's `{sub,form,n,mass}` shape (Phase 5a's contract, unchanged)
+     is not enough on its own to name a recipe with a `subFrom` output. Reset
+     alongside everything else below, never relied on across frames. */
+  recipeIndex: {} };
 
 export function resetDrawn() {
   drawn.panels.length = 0;
@@ -22,4 +28,5 @@ export function resetDrawn() {
   drawn.grids.length = 0;
   drawn.bars.length = 0;
   drawn.tooltip = null;
+  for (const k in drawn.recipeIndex) delete drawn.recipeIndex[k];
 }

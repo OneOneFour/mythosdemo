@@ -32,7 +32,40 @@ export const ui = {
   focus: null,                  // { panel, index } | null — the focused slot
   drag: null,                   // { sub, form, n, from } | null — held payload
   search: '',
-  scroll: Object.create(null)   // `${panel}:${grid}` -> row offset (integer)
+  searchFocus: false,           // is the CRAFTING tab's search field capturing keys
+  scroll: Object.create(null),  // `${panel}:${grid}` -> row offset (integer)
+
+  /* ---- Phase 5b additions, both UI STATE and both deliberately NOT model ----
+
+     `craftQueue`: an ARRAY of recipe ids, FIFO, head = in progress. THE REAL
+     CONSTRAINT (docs/BUILD_PLAN.md Phase 5b, restated because it decided this
+     file's shape): `rules/crafting.js` is a SCALAR on `run`
+     (`craftProgress`/`craftRecipe`) because a player has one pair of hands,
+     and it forgets the bar the instant the craft intent goes false. A queue
+     that ACTUALLY ran more than one craft in flight would be a mechanic
+     change, not a UI feature, and this file's owner may not make that change
+     (`rules/crafting.js` is out of Phase 5b's FILE OWNERSHIP). So the queue
+     re-asserts the SAME one intent every frame it is non-empty
+     (`shell/main.js#step`), and drains one entry per completed hand-craft
+     (`shell/main.js#tickCraftQueue`, which reads `model/journal.js#peek()`'s
+     'produce' rows rather than touching `rules/crafting.js` at all). See
+     `docs/FINDINGS.md` for the design question this leaves on record.
+     Cancelling costs nothing to refund: `rules/crafting.js` never spends a
+     single input until the recipe's `secs` is reached, so removing a queued
+     entry before then has nothing to give back.
+
+     `quickbar`: a fixed-length array of `{ sub, form } | null`, ASSIGNMENT
+     ONLY — which pocket pair sits in which numbered slot is a fact about the
+     SESSION, same as everything else in this file, and changing it does not
+     touch `run.inv` at all (`docs/BUILD_PLAN.md`: "nothing about which slot
+     an item sits in changes the world"). Ten slots, two rows of five, the
+     reference's own layout. */
+  craftQueue: [],
+  quickbar: Array.from({ length: 10 }, () => null),
+  /* One toggleable line of key hints (the QUICKBAR section of Phase 5b),
+     collapsed by default so the permanent bottom bar stays as dense as the
+     rest of this layer. */
+  hintsOpen: false
 };
 
 export function isOpen(id) { return ui.stack.includes(id); }
@@ -109,3 +142,48 @@ export function scrollBy(panel, grid, delta, maxRow = Infinity) {
 export function scrollSet(panel, grid, row, maxRow = Infinity) {
   ui.scroll[scrollKey(panel, grid)] = Math.max(0, Math.min(maxRow, row));
 }
+
+/* ---------- search field ---------- */
+export function setSearchFocus(v) { ui.searchFocus = v; }
+
+/* ---------- the craft queue (Phase 5b) ----------
+   See the header on `ui.craftQueue` above for why this is UI state and not a
+   `rules/crafting.js` change. A hard ceiling (99) keeps ctrl-click's "max
+   affordable" from ever building a queue long enough to be its own kind of
+   footgun. */
+const CRAFT_QUEUE_MAX = 99;
+
+export function queueCraft(recipeId, n = 1) {
+  for (let i = 0; i < n && ui.craftQueue.length < CRAFT_QUEUE_MAX; i++)
+    ui.craftQueue.push(recipeId);
+}
+
+/* Remove one entry at `index` -- a click on the queue strip cancels exactly
+   the slot clicked, not the whole queue. Nothing is refunded because nothing
+   was ever spent (see the header comment); this simply stops re-asserting
+   the craft intent for that slot. */
+export function cancelQueued(index) {
+  if (index >= 0 && index < ui.craftQueue.length) ui.craftQueue.splice(index, 1);
+}
+
+/* The head is what is (or is about to be) in progress -- `cancelQueued(0)`
+   IS "dequeue", used both by a click cancelling the in-progress slot and by
+   `shell/main.js#tickCraftQueue` on a detected completion. No separate
+   function: one splice, two callers, nothing to keep in sync. */
+
+export function clearCraftQueue() { ui.craftQueue.length = 0; }
+
+/* ---------- the quickbar (Phase 5b) ----------
+   Assignment only, per the header comment: `payload` is `{ sub, form } |
+   null`, never a count -- the count a slot shows is read fresh from
+   `model/run.js#pocketRows()` every frame, the same "derived, not cached"
+   discipline the rest of this codebase already applies to hover and to the
+   widget layer's own `drawn` scratch space. */
+export function assignQuickbar(slot, payload) {
+  if (slot < 0 || slot >= ui.quickbar.length) return;
+  ui.quickbar[slot] = payload;
+}
+
+export function clearQuickbar(slot) { assignQuickbar(slot, null); }
+
+export function toggleHints() { ui.hintsOpen = !ui.hintsOpen; }

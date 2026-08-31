@@ -22,7 +22,7 @@
 import { VIEW, stage } from '../core/canvas.js';
 import { buildableMachines } from '../model/run.js';
 import { audio, unlockAudio } from './audio.js';
-import { closeTop, isOpen, top, toggle } from './ui.js';
+import { closeTop, isOpen, setSearch, setSearchFocus, top, toggle, ui } from './ui.js';
 
 /* The command set the rules read. One object, mutated by property, per the
    project convention for cross-module mutable state. `craft` is a HOLD, like
@@ -50,8 +50,20 @@ export const cmd = {
      drag FIELD here: `shell/ui.js#setDrag`/`clearDrag` already hold that
      payload, and computing it needs to hit-test the click against whatever
      a panel actually drew -- Phase 5b's dispatcher, once a panel exists to
-     click on. */
-  uiClick: false, uiRight: false, uiCtrl: false, uiShift: false, uiWheel: 0
+     click on.
+
+     `uiDown` is Phase 5b's own addition, alongside `uiClick`/`uiRight`
+     above: those two are EDGE, cleared every real frame by `clearEdges()`
+     regardless of button state (see the comment above), which is exactly
+     right for "was this clicked" but cannot answer "is the button still
+     down" -- and a DRAG needs the second question, to tell a press-and-hold
+     apart from a press-and-release one frame later. `uiDown` mirrors
+     `cmd.mouse`'s own shape instead: set true on pointerdown, false on
+     pointerup, untouched by `clearEdges()`. `shell/main.js`'s dispatcher
+     watches its RISING edge to pick a drag payload off whatever was under
+     the cursor and its FALLING edge to resolve the drop, the same
+     down-then-up-elsewhere shape every drag-and-drop gesture is. */
+  uiClick: false, uiRight: false, uiCtrl: false, uiShift: false, uiWheel: 0, uiDown: false
 };
 
 /* One-shot intents, consumed and cleared by `shell/main.js`. Separate from
@@ -116,6 +128,28 @@ export function installInput() {
 
   addEventListener('keydown', e => {
     unlockAudio();
+
+    /* THE CRAFTING TAB'S SEARCH FIELD (Phase 5b), captured HERE rather than
+       inside `set()` below, because it must pre-empt EVERY other binding in
+       this file -- 'wasd' are movement, 'e' places, 'p' equips, and a typed
+       search string must not also walk the player into a wall or place a
+       tile. `ui.searchFocus` is set by a click on the field itself
+       (`shell/main.js`'s UI dispatcher) and cleared by Enter, Escape or a
+       click elsewhere -- the same "only one thing owns the keyboard" rule a
+       real text input enforces, done by hand because this project has no
+       DOM input element to delegate to (invariant 11: no `fillText`, and no
+       markup at all under `stage.cv`). Every other key this branch does not
+       recognise is swallowed, not passed through -- a stray 'g'/'h' toggling
+       a debug overlay while the player is mid-sentence would be worse than
+       one dropped keystroke. */
+    if (ui.searchFocus) {
+      if (e.key === 'Escape' || e.key === 'Enter') { setSearchFocus(false); e.preventDefault(); return; }
+      if (e.key === 'Backspace') { setSearch(ui.search.slice(0, -1)); e.preventDefault(); return; }
+      if (e.key.length === 1) { setSearch((ui.search + e.key).slice(0, 20)); e.preventDefault(); return; }
+      e.preventDefault();
+      return;
+    }
+
     set(e.key, true);
     const k = e.key.toLowerCase();
     if (k === 'g') flags.showGrid   = !flags.showGrid;
@@ -214,7 +248,7 @@ export function installInput() {
      changed stays down forever otherwise, and the player returns to a character
      walking into a wall. */
   addEventListener('blur', () => {
-    for (const k of ['left', 'right', 'up', 'down', 'dig', 'place', 'craft', 'mouse', 'uiClick', 'uiRight'])
+    for (const k of ['left', 'right', 'up', 'down', 'dig', 'place', 'craft', 'mouse', 'uiClick', 'uiRight', 'uiDown'])
       cmd[k] = false;
     cmd.uiCtrl = false; cmd.uiShift = false; cmd.uiWheel = 0;
     hopHeld = false; placeHeld = false; dropHeld = false; deconHeld = false;
@@ -244,7 +278,7 @@ export function installInput() {
        click meant for a slot can never also dig, mine or place through to
        the world underneath it. */
     if (isOpen(top())) {
-      if (e.button === 2) cmd.uiRight = true; else cmd.uiClick = true;
+      if (e.button === 2) cmd.uiRight = true; else { cmd.uiClick = true; cmd.uiDown = true; }
       cmd.uiCtrl = e.ctrlKey || e.metaKey;
       cmd.uiShift = e.shiftKey;
     } else if (e.button === 2) cmd.place = true; else cmd.mouse = true;
@@ -253,7 +287,7 @@ export function installInput() {
   });
   cv.addEventListener('pointerup', e => {
     if (isOpen(top())) {
-      if (e.button === 2) cmd.uiRight = false; else cmd.uiClick = false;
+      if (e.button === 2) cmd.uiRight = false; else { cmd.uiClick = false; cmd.uiDown = false; }
     } else if (e.button === 2) cmd.place = false; else cmd.mouse = false;
   });
   cv.addEventListener('contextmenu', e => e.preventDefault());

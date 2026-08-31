@@ -51,6 +51,9 @@ import { bandOf, worldY } from '../model/world.js';
 import { banner, toasts } from './fx.js';
 import { resolveHover } from './hover.js';
 import { stats as paintStats } from './paint.js';
+import { drawMainPanel } from './ui/mainPanel.js';
+import { drawQuickbar } from './ui/quickbar.js';
+import { drawn as uiDrawn, resetDrawn as resetUiDrawn } from './ui/state.js';
 
 const UI = {
   ink:    colour('ui'),
@@ -95,6 +98,11 @@ export function drawHUD(g, f) {
   const { W, H } = f;
   const narrow = W < 300;
 
+  /* Phase 5b: the widget layer's own scratch space is rebuilt once per HUD
+     frame, the same place `pocketHits.length = 0` below already resets this
+     file's own equivalent -- see `view/ui/state.js`'s header. */
+  resetUiDrawn();
+
   hearts(g, 6, 6);
   burden(g, 6, 14);
   const stripHits = pockets(g, 6, narrow ? 28 : 26, W);
@@ -104,7 +112,18 @@ export function drawHUD(g, f) {
      the strip wraps onto a second row once enough distinct pairs are held, and
      a fixed offset would let the panel overlap it exactly the way CLAUDE.md's
      own "narrow panel" mistake describes. */
-  if (f.flags.showInv) {
+  /* Phase 5b: `'i'` toggles `flags.showInv` AND `shell/ui.js#toggle('main')`
+     TOGETHER (Phase 5a's own wiring, see `shell/input.js`'s comment at the
+     `'i'` handler) -- so with the new tabbed window shipped, this OLD panel
+     would otherwise draw directly on top of it every time either opens,
+     which is exactly what it looked like before this guard was added. Its
+     POCKETS and CRAFT sections are superseded by the new CHARACTER and
+     CRAFTING tabs; its BUILD section (the only thing with no equivalent
+     yet) moved into the new LOGISTICS tab instead (`view/ui/mainPanel.js`),
+     which is why 1-9 still places the same machine either way -- that gate
+     is `flags.showInv` in `shell/input.js`, unchanged and still true
+     whenever this text panel WOULD have drawn. See docs/FINDINGS.md. */
+  if (f.flags.showInv && !f.ui.stack.includes('main')) {
     const top = stripHits.reduce((m, h) => Math.max(m, h.y + h.h + 4), narrow ? 38 : 36);
     pocketHits.push(...invPanel(g, f, top));
   } else {
@@ -117,6 +136,13 @@ export function drawHUD(g, f) {
   const boonBottom = boonStack(g, f, W, 19);
   reticle(g, f);
   buildGhost(g, f);
+  drawQuickbar(g, f);
+  /* THE MAIN PANEL DRAWS LAST, ON TOP OF EVERYTHING ELSE THIS FUNCTION
+     PAINTS -- it is a window sitting over the permanent HUD, not a member of
+     it, and it PAUSES NOTHING: the world above it keeps stepping every frame
+     it is open. `view/ui/mainPanel.js` no-ops when `main` is not on the
+     panel stack. */
+  drawMainPanel(g, f);
   hint(g, W, H);
   if (f.flags.showDebug) debug(g, f, W, boonBottom);
   if (run.dead) deathScreen(g, W, H);
@@ -333,6 +359,13 @@ function invPanel(g, f, top) {
    lookup, entirely from the pointer and the model; this just lays out
    whatever it returns and remembers it in `hoverInfo` for the test hook. */
 function tooltip(g, f) {
+  /* The Phase 5b panel may already have drawn its own tooltip this frame
+     (`view/ui/tooltip.js`'s `drawn.tooltip` is a SINGLE slot, per that
+     file's own header: only one tooltip can be under the cursor at once).
+     When it has, this older pocket-strip tooltip must yield rather than
+     overwrite it -- both read the same pointer position, and the panel's
+     own grids sit visually on top of the strip when the panel is open. */
+  if (uiDrawn.tooltip) return;
   const info = resolveHover(f, pocketHits);
   hoverInfo.active = !!info;
   hoverInfo.x = info ? info.x : 0;

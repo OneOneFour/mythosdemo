@@ -1,0 +1,60 @@
+/* LAYER view — THE QUICKBAR (docs/BUILD_PLAN.md Phase 5b). Two rows of five,
+   numbered 1-9-then-0, ALWAYS drawn (not gated on the main panel being open --
+   a quickbar is part of the permanent HUD, the same way the pocket strip and
+   the hearts are). Assignment is UI STATE (`shell/ui.js#ui.quickbar`, a plain
+   `{sub,form}|null` per slot) — nothing here changes what the world holds;
+   the COUNT shown in each slot is read fresh from `model/run.js#invCount`
+   every frame, the same "derived, not cached" rule the rest of this
+   directory already follows for hover and for `drawn`. Drag-and-drop
+   ASSIGNS a slot; `shell/main.js`'s UI dispatcher does the assigning, this
+   file only draws and reports rectangles, per this directory's own rule.
+
+   Imports `core`, `data`, READ-ONLY `model`, and the primitives in this same
+   directory. No `rules`, no `shell`. */
+
+import { drawText, textWidth } from '../../core/font.js';
+import { mix } from '../../core/palette.js';
+import { colour } from '../../data/palette.js';
+import { SUB } from '../../data/substances.js';
+import { massOfPair } from '../../model/items.js';
+import { invCount } from '../../model/run.js';
+import { drawGrid } from './grid.js';
+import { drawPanel } from './panel.js';
+
+const INK = colour('ui'), DIM = colour('uiDim'), BACK = colour('uiBack');
+const SIZE = 14, COLS = 5;
+
+const digitOf = i => String((i + 1) % 10);
+
+/* One line of key bindings, collapsed by default (`ui.hintsOpen`). Named
+   here rather than pulled from `shell/input.js` (`view` may not import
+   `shell`) -- a legend is presentation text describing bindings that file
+   already owns, not a second source of truth for what a key DOES. */
+const LEGEND = 'I MENU  X DIG  E PLACE  U CRAFT  Q DROP  V USE  P EQUIP';
+
+export function drawQuickbar(g, f) {
+  const { W, H, ui } = f;
+  const w = COLS * (SIZE + 1) - 1;
+  const x = Math.max(2, W - w - 6);
+  const rows = Math.ceil(ui.quickbar.length / COLS);
+  const y = H - rows * (SIZE + 1) - 1 - 11;
+
+  const items = ui.quickbar.map((slot, i) => {
+    if (!slot) return { sub: null, form: null, n: 0, mass: 0, colour: mix(BACK, DIM, 0.15), glyph: digitOf(i) };
+    const l = SUB[slot.sub].look;
+    const n = invCount(slot.sub, slot.form);
+    return { sub: slot.sub, form: slot.form, n, mass: massOfPair(slot.sub, slot.form) * n,
+             colour: l?.item ? colour(l.item[0]) : DIM, glyph: digitOf(i) };
+  });
+
+  drawGrid(g, { id: 'quickbar', x, y, h: rows * (SIZE + 1) - 1, vw: W, vh: H, cols: COLS, items, cell: SIZE });
+
+  /* One toggleable hint line, bottom-left, out of the quickbar's way. Its own
+     `drawPanel` id (unused visually beyond a faint backing rect) so the UI
+     dispatcher can hit-test a click on it apart from every other rect drawn
+     this frame. */
+  const label = ui.hintsOpen ? LEGEND : 'KEYS';
+  const hw = Math.min(textWidth(label) + 6, W - 12);
+  drawPanel(g, { id: 'hints-toggle', x: 4, y: H - 11, w: hw, h: 9, vw: W, vh: H, alpha: 0.6 });
+  drawText(g, label, 6, H - 9, INK, 1, 1);
+}

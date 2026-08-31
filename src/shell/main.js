@@ -19,6 +19,7 @@ import { clamp } from '../core/math.js';
 import { M, MACH } from '../data/machines.js';
 import { aim } from '../model/aim.js';
 import { items } from '../model/items.js';
+import { peek as journalPeek } from '../model/journal.js';
 import { machines } from '../model/machines.js';
 import { PH, PW, player, write as playerw } from '../model/player.js';
 import { pocketRows, run } from '../model/run.js';
@@ -31,7 +32,10 @@ import { boot, newRun } from './boot.js';
 import { clearEdges, cmd, flags, pointer, wants } from './input.js';
 import { drainJournal } from './notify.js';
 import { boons, grants, miracles, stepAll, trinkets } from './schedule.js';
-import { ui } from './ui.js';
+import {
+  assignQuickbar, cancelQueued, clearDrag, close as closePanel, isOpen,
+  queueCraft, scrollBy, setDrag, setSearchFocus, setTab, toggleHints, ui
+} from './ui.js';
 import { hoverInfo, pocketHits } from '../view/hud.js';
 import { drawn as uiDrawn } from '../view/ui/state.js';
 
@@ -40,6 +44,11 @@ export const MAX_CATCHUP = 0.25;             // s of real time simulated per fra
 
 export const clock = { t: 0, dt: 0, frame: 0, acc: 0 };
 export const cam = { x: 0, y: 0 };
+
+/* The cam position as of the LAST `draw()` call -- see that function's own
+   comment on why the UI dispatcher must use this snapshot rather than the
+   live, continuously-easing `cam` above. */
+const drawCam = { x: 0, y: 0 };
 
 /* The frame context handed to `view`. One object, reused, because `view` may not
    import `shell` and allocating a fresh one sixty times a second is waste.
@@ -68,6 +77,15 @@ export function step(dt) {
      `clock.acc` even though it does nothing, so no backlog of catch-up frames
      is waiting the instant the map closes. */
   if (flags.showMap) return;
+
+  /* THE CRAFT QUEUE RE-ASSERTS THE SAME ONE INTENT (Phase 5b,
+     docs/BUILD_PLAN.md), every substep it is non-empty -- see
+     `shell/ui.js#ui.craftQueue`'s own header for why this is a convenience
+     over `rules/crafting.js`'s one-pair-of-hands scalar rather than a change
+     to it. `rules/crafting.js` cannot tell this apart from the 'u' key
+     being held, which is the point: there is exactly one hand-craft intent
+     in this game, and the queue is a second way to hold it down. */
+  if (ui.craftQueue.length) cmd.craft = true;
 
   clock.dt = dt;
   clock.t += dt;
@@ -186,6 +204,154 @@ function applyIntents() {
     if (m) miracles.grant(m.id);
     wants.draft = null;
   }
+
+  applyUiIntents();
+}
+
+/* ---------- the widget layer's own dispatcher (Phase 5b) ----------
+   A CLICK THAT DOES SOMETHING IS SHELL CALLING RULES (Phase 5a's own rule):
+   `view/ui/mainPanel.js` and `view/ui/quickbar.js` only draw and RECORD the
+   rectangles they drew, into `view/ui/state.js#drawn` -- the exact
+   `pocketHits`/`buildHits` idiom `view/hud.js` already uses. This hit-tests
+   the pointer (converted from world px to the SAME screen space those
+   rectangles are drawn in, `cam` standing in for the conversion exactly the
+   way `view/hud.js#buildGhost` already does it) against LAST FRAME's `drawn`
+   and turns a hit into a `shell/ui.js` state change or a `rules` call --
+   never the reverse, and `view` never sees any of this. One frame of lag
+   between draw and hit-test is accepted here for the identical reason
+   `buildGhost` already accepts it against `buildHits`: invisible at any real
+   frame rate, and the alternative is `view` calling back into `shell`. */
+
+let prevUiDown = false;
+
+function uiHitPanelClose(sx, sy) {
+  for (const p of uiDrawn.panels) {
+    const c = p.closeHit;
+    if (c && sx >= c.x && sx < c.x + c.w && sy >= c.y && sy < c.y + c.h) return p.id;
+  }
+  return null;
+}
+
+function uiHitPanel(sx, sy) {
+  for (let i = uiDrawn.panels.length - 1; i >= 0; i--) {
+    const p = uiDrawn.panels[i];
+    if (sx >= p.x && sx < p.x + p.w && sy >= p.y && sy < p.y + p.h) return p;
+  }
+  return null;
+}
+
+function uiHitTab(sx, sy) {
+  for (const t of uiDrawn.tabs)
+    for (const h of t.hits)
+      if (sx >= h.x && sx < h.x + h.w && sy >= h.y && sy < h.y + h.h) return { row: t.id, tab: h.id };
+  return null;
+}
+
+function uiHitGrid(sx, sy) {
+  for (const g of uiDrawn.grids)
+    if (sx >= g.x && sx < g.x + g.w && sy >= g.y && sy < g.y + g.h) return g;
+  return null;
+}
+
+function uiHitSlot(sx, sy) {
+  const g = uiHitGrid(sx, sy);
+  if (!g) return null;
+  for (const s of g.slots)
+    if (sx >= s.x && sx < s.x + s.w && sy >= s.y && sy < s.y + s.h) return { gridId: g.id, slot: s };
+  return null;
+}
+
+function applyUiIntents() {
+  /* The panel closing mid-drag (Escape, say) leaves `cmd.uiDown` with no
+     panel-side pointerup left to clear it -- `shell/input.js` only routes a
+     real pointerup into `uiDown` while `isOpen(top())` is STILL true at that
+     moment, so a close in between strands it. Reset both halves of the drag
+     state here rather than let a phantom drag survive into the next time the
+     panel opens. */
+  if (!isOpen('main')) { prevUiDown = false; if (ui.drag) clearDrag(); return; }
+  if (!cmd.hasMouse) { prevUiDown = cmd.uiDown; return; }
+
+  const sx = cmd.mx - drawCam.x, sy = cmd.my - drawCam.y;
+
+  if (cmd.uiClick) {
+    const closeId = uiHitPanelClose(sx, sy);
+    if (closeId) { closePanel(closeId); cmd.uiClick = false; }
+    else {
+      const tabHit = uiHitTab(sx, sy);
+      const slotHit = !tabHit && uiHitSlot(sx, sy);
+      const panelHit = uiHitPanel(sx, sy);
+      const onSearch = panelHit?.id === 'main-craft-search';
+      const onHints = panelHit?.id === 'hints-toggle';
+
+      if (tabHit) setTab(tabHit.row, tabHit.tab);
+      else if (onSearch) setSearchFocus(true);
+      else if (onHints) toggleHints();
+      else if (slotHit?.gridId === 'recipes' || slotHit?.gridId === 'craft-queue') {
+        const ids = uiDrawn.recipeIndex[slotHit.gridId];
+        const id = ids && ids[slotHit.slot.index];
+        if (id) {
+          if (slotHit.gridId === 'craft-queue') cancelQueued(slotHit.slot.index);
+          else queueCraft(id, cmd.uiCtrl ? 99 : cmd.uiShift ? 5 : 1);
+        }
+      }
+
+      /* Any other click closes the search field the same way clicking
+         outside a real text input blurs it -- typing is otherwise the only
+         way out, per `shell/input.js`'s own keydown branch. */
+      if (ui.searchFocus && !onSearch) setSearchFocus(false);
+    }
+  }
+
+  if (cmd.uiWheel) {
+    const g = uiHitGrid(sx, sy);
+    if (g) scrollBy('main', g.id, Math.sign(cmd.uiWheel));
+  }
+
+  /* Drag: `cmd.uiDown` is a HOLD (see `shell/input.js`'s own header on why
+     `uiClick` alone cannot answer "is the button still down"). The rising
+     edge picks a payload off whatever slot is under the cursor; the falling
+     edge resolves it against whatever slot is under the cursor NOW, which
+     may be a different one. */
+  const downEdge = cmd.uiDown && !prevUiDown, upEdge = !cmd.uiDown && prevUiDown;
+  prevUiDown = cmd.uiDown;
+
+  if (downEdge) {
+    const hit = uiHitSlot(sx, sy);
+    if (hit && hit.slot.sub != null)
+      setDrag({ sub: hit.slot.sub, form: hit.slot.form, n: hit.slot.n, from: hit.gridId });
+  }
+  if (upEdge && ui.drag) {
+    const hit = uiHitSlot(sx, sy);
+    if (hit) {
+      if (hit.gridId === 'quickbar')
+        assignQuickbar(hit.slot.index, { sub: ui.drag.sub, form: ui.drag.form });
+      else if (hit.gridId === 'equip' && ui.drag.from === 'inv')
+        /* THE SAME UNDERLYING ACTION the 'p' key already dispatches
+           (docs/BUILD_PLAN.md Phase 5b's own instruction): with one trinket
+           in the game, "equip whatever was dragged" and "equip the first
+           held-but-unequipped trinket" are the same trinket, and adding a
+           slot-specific rules call is not this task's to write --
+           `rules/trinkets.js` is out of Phase 5b's FILE OWNERSHIP. */
+        trinkets.equipFirst();
+    }
+    clearDrag();
+  }
+}
+
+/* THE CRAFT QUEUE'S COMPLETION SIGNAL (Phase 5b), read rather than invented:
+   `rules/crafting.js#step` already pushes a `'produce'` journal row on every
+   finished hand-craft, shaped `{ sub, form, made }` -- no `def` key, which is
+   exactly what tells it apart from `rules/machines.js#produce`'s OWN
+   `'produce'` row (`{ def, made }`, no `sub`). `model/journal.js#peek()` is
+   the NON-DESTRUCTIVE read that exists for precisely this: `shell/notify.js`
+   still drains the same rows for sound and text afterward, undisturbed. */
+function tickCraftQueue() {
+  if (!ui.craftQueue.length) return;
+  for (const row of journalPeek()) {
+    if (row.kind === 'produce' && row.data && row.data.sub !== undefined && row.data.def === undefined)
+      cancelQueued(0);
+    if (!ui.craftQueue.length) break;
+  }
 }
 
 /* ---------- camera ----------
@@ -248,6 +414,19 @@ export function draw() {
   frameCtx.mouse.y = cmd.my;
   frameCtx.mouse.has = cmd.hasMouse;
   render(g, frameCtx);
+  /* `render()` rounds `cam.x`/`cam.y` to integers IN PLACE (its own header:
+     "cam.x = Math.round(cam.x)") before drawing anything -- which is also
+     the exact cam position every rectangle `view/ui/state.js#drawn` now
+     holds was laid out against. `updateCamera()` (in `step()`, which runs
+     BEFORE this on every subsequent frame) eases `cam` again immediately
+     afterward, continuously, even at rest while it converges toward the
+     player -- so the LIVE `cam` by the time `applyUiIntents()` runs can
+     already differ from the value that produced `drawn` by more than a
+     pixel. Snapshotting it HERE, once, right after the rounding that
+     matters, is what lets the UI dispatcher recover the original screen
+     coordinate a click landed on instead of round-tripping through a `cam`
+     that moved in between. */
+  drawCam.x = cam.x; drawCam.y = cam.y;
 }
 
 /* ---------- the loop ---------- */
@@ -269,6 +448,7 @@ export function frame(now) {
   while (clock.acc >= STEP) { step(STEP); clock.acc -= STEP; n++; }
   if (!n) { clock.dt = real; }               // keep the FPS readout honest
 
+  tickCraftQueue();
   applyIntents();
 
   /* `cmd.hop` is read inside a fixed substep (`rules/player.js`), so it must
@@ -324,6 +504,14 @@ function installTestHook() {
         focus: ui.focus ? { ...ui.focus } : null,
         drag: ui.drag ? { ...ui.drag } : null,
         search: ui.search,
+        searchFocus: ui.searchFocus,
+        /* Phase 5b additions: the craft queue (recipe ids, FIFO) and the
+           quickbar assignment (`{sub,form}|null` per slot) -- both plain
+           `shell/ui.js` state already, exposed for the identical "read what
+           is actually true" reason every other field on this handle is. */
+        craftQueue: ui.craftQueue.slice(),
+        quickbar: ui.quickbar.map(s => s ? { ...s } : null),
+        hintsOpen: ui.hintsOpen,
         panels: uiDrawn.panels.map(p => ({ ...p, closeHit: p.closeHit ? { ...p.closeHit } : null })),
         tabs: uiDrawn.tabs.map(t => ({ ...t, hits: t.hits.map(h => ({ ...h })) })),
         grids: uiDrawn.grids.map(gr => ({ ...gr, slots: gr.slots.map(s => ({ ...s })) })),
@@ -354,6 +542,7 @@ function installTestHook() {
        have to guess which substep the real frame boundary would have been. */
     frames(n, dt = STEP) {
       for (let i = 0; i < n; i++) { step(dt); applyIntents(); clearEdges(); }
+      tickCraftQueue();
       stepFx(n * dt);
       drainJournal(clock.t);
       draw();
@@ -370,6 +559,7 @@ function installTestHook() {
         if (keys.hop) cmd.hop = false;
         if (keys.place) cmd.place = false;
       }
+      tickCraftQueue();
       stepFx(n * dt);
       drainJournal(clock.t);
       draw();

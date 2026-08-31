@@ -28,6 +28,7 @@
 import { AIR, F, FORM, byHudOrder, matches } from '../data/forms.js';
 import { SUB } from '../data/substances.js';
 import { STARTING_MACHINES } from '../data/grants.js';
+import { HAND_RECIPES } from '../data/recipes.js';
 import { M, MACH } from '../data/machines.js';
 import { SPAWN_BAND } from '../data/world.js';
 import { bump } from './epoch.js';
@@ -68,6 +69,25 @@ export const RUN_SCHEMA = Object.freeze({
      `rules/crafting.js`. */
   craftProgress: 0, craftRecipe: null,
 
+  /* OUT-OF-OWNERSHIP TOUCH, DONE LOUDLY (Phase 5b, docs/BUILD_PLAN.md): the
+     CRAFTING tab needs to draw an unlearned recipe as a locked silhouette --
+     "you are a thief, recipes are stolen" -- and that needs a field on `run`,
+     which is not `view`'s (or `shell`'s) layer to add to by default. The
+     plan's own text names this as the one case flagged for approval before
+     writing, and approves it: add it. Shaped as a plain ARRAY of recipe id
+     strings, matching `run.granted`'s own convention (also a bare array of
+     ids) rather than a `Set` -- `run.equipped`/`run.granted` are both
+     plain-serialisable already, and a save string (`docs/DESIGN.md`'s "not
+     yet, but the shape should not fight it later") wants the same shape
+     everywhere. SEEDED WITH EVERY `HAND_RECIPES` ID in `write.reset()` below:
+     nothing is actually lockable yet -- Phase 4's "recipes are stolen"
+     framing is about a FUTURE drop/tribute/draft source revealing a recipe
+     the player does not yet have, and no such source exists in this build.
+     Shipping "everything currently craftable is known" is therefore the
+     honest starting state, not a cop-out -- see docs/FINDINGS.md for the
+     locking-source gap this leaves open. */
+  known: null,
+
   /* Seconds left on the one lit `timber/brand`. Same shape as `craftProgress`
      immediately above and for the identical reason: a player has one pair of
      hands, there is only ever one lit brand, and a scalar on `run` resets
@@ -100,6 +120,11 @@ export const write = {
       inv: {},
       granted: [...STARTING_MACHINES],
       tribute: null,
+      /* Every hand recipe, known from run start -- see `RUN_SCHEMA.known`'s
+         own comment above for why this is the honest seed rather than a
+         placeholder. A FRESH array every run, same reason `granted` above
+         is spread rather than referenced. */
+      known: HAND_RECIPES.map(r => r.id),
       /* A FRESH array every run -- `eff('trinketSlots')` at reset time reads
          the base value (`model/mods.js#write.clear()` has already run by
          the time `shell/boot.js` calls this, per its own load-bearing boot
@@ -311,6 +336,13 @@ export function pocketsHave(sel, n) {
    decision with a consequence. */
 export const canCraft = recipeIn =>
   Object.keys(recipeIn).every(sel => pocketsHave(sel, recipeIn[sel]));
+
+/* Has this recipe been stolen yet? See `RUN_SCHEMA.known`'s header comment --
+   every `HAND_RECIPES` id is known from run start today, so this is always
+   true until a real locking source exists. Exported now, rather than left
+   inline in the CRAFTING tab, for the same reason `canCraft` above is: a
+   query on `run` is `model`'s to own, not `view`'s. */
+export const isKnown = id => run.known.includes(id);
 
 /* Every machine this run may place, in GRANTED order -- the same order the
    build menu (`view/hud.js`) lists them and a number key

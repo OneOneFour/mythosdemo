@@ -500,3 +500,159 @@ rewrite history here.
   regression outside "infrastructure only." Phase 5b, once its tabbed window
   reads `isOpen('main')`, should decide whether the build menu migrates onto
   the new panel too or `flags.showInv` stays a second, permanent system.
+
+## Phase 5b (the panels)
+
+- **RESOLVED, the question the last bullet above left open.** `'i'` toggles
+  `flags.showInv` and `shell/ui.js#toggle('main')` TOGETHER (unchanged), so
+  the old text panel (`view/hud.js#invPanel`) and the new tabbed one always
+  opened at once and drew directly on top of each other — confirmed by
+  screenshot, not assumed. `view/hud.js#drawHUD` now gates the OLD panel on
+  `!f.ui.stack.includes('main')`, so it only ever draws if the new one is
+  somehow closed while `flags.showInv` stays true (Escape closes `'main'`
+  via `closeTop()` without touching `flags.showInv` — a real, if minor,
+  desync; pressing `'i'` twice resyncs both). The OLD panel's POCKETS and
+  CRAFT sections are superseded by the new CHARACTER and CRAFTING tabs; its
+  BUILD section (the only thing with no new equivalent) was ported into the
+  new LOGISTICS tab (`view/ui/mainPanel.js#drawLogisticsTab`), reading the
+  SAME `model/run.js#buildableMachines()` list `shell/input.js`'s 1-9 digit
+  handler already keys off, so the digits keep working and keep a visible
+  menu. `flags.showInv` itself is untouched — it is still the digit gate —
+  only its own TEXT PANEL stopped drawing.
+
+- **The `run.known` seeding decision, restated plainly for the commit that
+  reads this file and not the code comment.** `model/run.js#RUN_SCHEMA.known`
+  is a plain array of recipe ids (matching `run.granted`'s own shape, not a
+  `Set`), seeded in `write.reset()` with every `HAND_RECIPES` id. Nothing is
+  locked at game start because no drop/tribute/draft source that would ever
+  reveal a NEW recipe exists in this build — Phase 4's "recipes are stolen"
+  framing is about a future source, not this one. The CRAFTING tab's
+  silhouette rendering path (`view/ui/mainPanel.js`'s `!known` branch in its
+  recipe-grid item builder) is real, wired, and untestable by demonstration
+  today: there is nothing to lock. The next phase that adds a real locking
+  source (a rare mining drop, a tribute reward, a god's draft) should push
+  new ids OUT of `run.known` at `newRun()` time (currently everything ships
+  in) rather than adding a second, parallel "locked" list.
+
+- **The craft queue is UI state over the SAME one-pair-of-hands scalar,
+  not a new mechanic — the design question this leaves on record.**
+  `rules/crafting.js#step` reads exactly one thing, `cmd.craft`, and forgets
+  `run.craftProgress` the instant it goes false; it has no notion of "next in
+  line." `shell/ui.js#ui.craftQueue` is a FIFO of recipe ids with no rules
+  awareness at all. `shell/main.js#step` re-asserts `cmd.craft = true` every
+  substep the queue is non-empty (a second source doing exactly what the
+  `'u'` key already does — the two cannot conflict, only agree), and
+  `shell/main.js#tickCraftQueue` drains one entry per real hand-craft
+  completion, detected by peeking `model/journal.js` for a `'produce'` row
+  shaped `{sub,form,made}` with no `def` key — the exact, pre-existing shape
+  `rules/crafting.js` already pushes and `rules/machines.js`'s OWN
+  `'produce'` row (`{def,made}`, no `sub`) does not, so the two kinds can
+  never be confused without any new journal kind or any `rules` edit.
+  CONSEQUENCE, stated as the open design question: because `choose()` in
+  `rules/crafting.js` always runs the first HAND_RECIPES row it can afford in
+  TABLE ORDER — not "whichever recipe the queue asked for" — a queued recipe
+  only actually runs if it is *also* the first one the player's current
+  pockets satisfy. Queuing `daedalan` while holding enough `timber/log` and
+  `copper/plate` to *also* satisfy `smelt` (they do not share inputs today,
+  so this cannot happen with current content, but a future recipe could
+  make it possible) would silently drain the queue on `smelt` completions
+  instead. `tickCraftQueue` cannot tell the difference — it dequeues on ANY
+  hand-craft completion, not the one it asked for — because doing better
+  would mean either duplicating `choose()`'s own selection logic in `shell`
+  (a second implementation of "which recipe runs" to keep in sync with the
+  first) or changing `rules/crafting.js` to accept a preferred id (a rules
+  change this phase's FILE OWNERSHIP does not include). Whichever future
+  phase touches `rules/crafting.js` next should decide whether the interpreter
+  should accept a hint at all, or whether the honest fix is a UI warning when
+  a queued recipe is not what would actually run next.
+
+- **Drag hit-testing needed a `cam` snapshot that did not exist before this
+  phase — a real bug, found and fixed, not a design question.**
+  `view/scene.js#render()` rounds `cam.x`/`cam.y` to integers IN PLACE before
+  drawing anything, and `updateCamera()` (inside `step()`, which runs BEFORE
+  `draw()` every frame) eases `cam` again immediately afterward, continuously,
+  even while the player stands still and the camera is still converging from
+  wherever it started. A UI click's world-space `cmd.mx/my` (encoded against
+  whatever `cam` was live at click time) therefore could not be decoded back
+  to the SAME screen coordinate the panel was drawn at by subtracting the
+  LIVE `cam` a `shell/main.js#applyIntents` call later — the two `cam` reads
+  could legitimately differ by several pixels, and did, reproducibly, in
+  manual verification (a drag confidently missed its own source slot).
+  Fixed by snapshotting `cam` into a private `drawCam` right after each
+  `draw()` call (the exact position everything in `view/ui/state.js#drawn`
+  was laid out against) and hit-testing against THAT instead of the live,
+  still-easing `cam`. `view/hud.js#buildGhost` and `view/hover.js` never hit
+  this because they run INSIDE the same `render()` call that just rounded
+  `cam`, with no `updateCamera()` in between; `shell/main.js`'s own dispatcher
+  is the first thing in this codebase to hit-test a click ACROSS a frame
+  boundary against screen-space geometry, which is why the bug did not exist
+  before Phase 5b needed exactly that.
+
+- **The bottom-of-screen "key hints" bar the task brief named
+  (`view/hud.js#hint`) turned out not to be that bar.** `view/hud.js#hint`
+  is, and always was, the transient TOAST line (`view/fx.js#toasts`), not a
+  static legend. The actual permanent key-hints strip is `#keys` in
+  `index.html` — plain HTML/CSS, `position:fixed`, entirely outside the
+  canvas and outside this phase's FILE OWNERSHIP (`index.html` is not listed
+  in Phase 5b's ownership block, and CLAUDE.md's D2 doctrine treats a DOM
+  overlay as the wrong technology for game UI in the first place — this one
+  predates that doctrine and was left alone rather than extended). It could
+  not be "converted" or "collapsed" without editing a file this phase may
+  not touch. The QUICKBAR's own one-toggleable-line hint
+  (`view/ui/quickbar.js`, `ui.hintsOpen`) is a canvas-drawn, in-ownership
+  parallel realisation of the same idea — collapsed to `'KEYS'` by default,
+  click to expand — and the two now coexist (the HTML one always visible,
+  centred; the canvas one bottom-left, collapsed). A future phase with
+  `index.html` in its ownership should retire the HTML one in this canvas
+  one's favour rather than maintaining both.
+
+- **Logistics machine STATE is a heuristic over `model/machines.js`, not a
+  duplicate of `rules/machines.js`'s own decisions.** `view` may not import
+  `rules`, and this tab is explicitly a stub. RUNNING is `m.running ||
+  m.charges > 0` (a lift/belt holding a banked charge reads as doing its job
+  even the instant it is not ticking). UNFUELLED fires only when the
+  machine's own `ports` declare a fuel-accepting selector and none is
+  buffered. Anything else with SOME buffer contents reads STALLED — a full
+  output port, a cold `needs` field gate, and a servo throttle all collapse
+  into this one bucket, because telling them apart needs `rules` knowledge
+  this tab does not have. An entirely empty buffer reads BLOCKED. A future
+  phase that wants the real distinction should either expose a `why not
+  running` reason off the machine record itself (a `model` addition, the
+  same shape `rules/placement.js`'s `why` strings already use for a refused
+  placement) or accept the stub is a stub.
+
+- **Manual drag/drop only produces a signal while the panel is open, by a
+  Phase 5a decision this phase did not need to revisit.**
+  `shell/input.js`'s pointer handlers route a click into `uiClick`/`uiDown`
+  ONLY while `isOpen(top())` is true at the moment of the DOM event;
+  otherwise the same click is a world action (`place`/`mouse`). This means
+  dragging an item onto the quickbar, or clicking the hints toggle, is only
+  possible while the main window is open — consistent with how every other
+  UI intent already behaves, and not a new restriction, but worth recording
+  since the quickbar itself is drawn (read-only) at all times.
+
+- **Manual unequip has no rule to dispatch, so it is not wired.**
+  `rules/trinkets.js` exposes `grant`/`equipFirst`/`step` and nothing that
+  clears a specific occupied slot on request — only losing the item (a drop,
+  a future hazard) clears one, via `step()`'s own reconciliation pass. Drag-
+  OUT-of an equipment slot is therefore a no-op in `shell/main.js`'s
+  dispatcher rather than a silently-wrong action. Adding a real unequip verb
+  is a `rules/trinkets.js` change, outside this phase's FILE OWNERSHIP.
+
+- **Drag-to-equip dispatches the SAME `equipFirst()` the `'p'` key already
+  calls, not a slot-specific equip.** This was the task brief's own explicit
+  instruction ("a NEW, additional path to the same underlying action"), and
+  with exactly one trinket in the game the two are indistinguishable in
+  practice: whatever is dragged onto an equip slot, `equipFirst()` equips
+  the first held-but-unequipped trinket, which is necessarily the one that
+  was dragged. A second trinket would expose the gap; adding a slot-aware
+  equip is a `rules/trinkets.js` change this phase may not make.
+
+- **The craft-search field's keyboard capture swallows every other key
+  while focused, including panel-closing Escape's usual meaning.**
+  `shell/input.js`'s keydown handler branches to search-text handling FIRST,
+  before any other binding, whenever `ui.searchFocus` is true — Escape and
+  Enter both unfocus the field (not close the panel; a second Escape does
+  that). This is the intended "only one thing owns the keyboard at a time"
+  behaviour a real text input gives for free and this project has to hand-
+  roll (no DOM `<input>` under `stage.cv`, per invariant 11).
