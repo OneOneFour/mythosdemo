@@ -25,7 +25,7 @@
 
 import { drawText, textWidth } from '../../core/font.js';
 import { mix } from '../../core/palette.js';
-import { expand, F, FORM, matches, shortLabelOf } from '../../data/forms.js';
+import { expand, F, FORM, matches } from '../../data/forms.js';
 import { MACH } from '../../data/machines.js';
 import { colour } from '../../data/palette.js';
 import { HAND_RECIPES, RECIPES } from '../../data/recipes.js';
@@ -38,7 +38,7 @@ import { count, defOf, machines } from '../../model/machines.js';
 import { eff, explain } from '../../model/mods.js';
 import { bandOf, worldY } from '../../model/world.js';
 import {
-  buildableMachines, burdenFrac, burdenOf, canCraft, isKnown, pocketRows, pocketsHave, run
+  burdenFrac, burdenOf, canCraft, isKnown, pocketRows, pocketsHave, run
 } from '../../model/run.js';
 import { drawBar } from './bar.js';
 import { drawGrid } from './grid.js';
@@ -548,63 +548,40 @@ function drawLogisticsTab(g, f, body) {
   const { x, y, w, bottom } = body;
   let ry = y + 2;
 
+  /* The old BUILD list that used to live below this status list -- ported
+     here (Bug 1 audit) from the OLD text `invPanel` (`view/hud.js`), keyed
+     off `model/run.js#buildableMachines()` and the matching digit key
+     (`shell/input.js`) -- is gone: that function read a `def.cost` no
+     machine row has carried since machines became craftable HELD ITEMS, so
+     its own "can you afford this" display had been permanently wrong since
+     that change landed, and it was fully redundant besides (holding, arming
+     and placing an item is the one real mechanism for every placeable now).
+     Retired, not fixed -- see `docs/FINDINGS.md`. This tab is left with just
+     the genuinely useful part: what is actually placed, and whether it is
+     doing its job. */
   if (!machines.length) {
     drawText(g, 'NOTHING PLACED', x, ry, DIM, 1, 1);
-    ry += 9;
-  } else {
-    drawText(g, 'MACHINE', x, ry, DIM, 1, 1);
-    drawText(g, 'STATE', x + Math.max(60, w - 90), ry, DIM, 1, 1);
-    drawText(g, 'DEPTH', x + w - 28, ry, DIM, 1, 1);
-    ry += 9;
-
-    const buildRows = 2 + Math.min(buildableMachines().length, 9);   // reserved below
-    const rowMax = Math.max(0, Math.floor((bottom - ry - buildRows * 9) / 9));
-    const shown = machines.slice(0, rowMax);
-    for (const m of shown) {
-      const def = defOf(m);
-      const st = machineState(m);
-      const nameW = Math.max(60, w - 90);
-      drawText(g, def.name.slice(0, Math.floor(nameW / 6)), x, ry, INK, 1, 1);
-      drawText(g, st, x + nameW, ry, STATE_COLOUR[st] || DIM, 1, 1);
-      const d = depthOf(m.band, m.ty);
-      const ds = (d >= 0 ? d : '+' + -d) + 'M';
-      drawText(g, ds, x + w - textWidth(ds), ry, DIM, 1, 1);
-      ry += 9;
-    }
-    if (machines.length > shown.length) {
-      drawText(g, `+${machines.length - shown.length} MORE`, x, ry, DIM, 1, 1);
-      ry += 9;
-    }
+    return;
   }
 
-  /* BUILD, moved here from the OLD text `invPanel` (`view/hud.js`) so the
-     digit keys keep a visible menu once that panel stops drawing alongside
-     this one -- see `view/hud.js`'s own comment at its `showInv` guard and
-     docs/FINDINGS.md. Same list, same order, same digit numbering
-     `shell/input.js` already reads (`buildableMachines()`), so "press 3"
-     and "the third row here" cannot disagree about which machine that is. */
-  ry += 2;
-  drawText(g, 'BUILD', x, ry, INK, 1, 1);
+  drawText(g, 'MACHINE', x, ry, DIM, 1, 1);
+  drawText(g, 'STATE', x + Math.max(60, w - 90), ry, DIM, 1, 1);
+  drawText(g, 'DEPTH', x + w - 28, ry, DIM, 1, 1);
   ry += 9;
-  const list = buildableMachines();
-  if (!list.length) { drawText(g, 'NOTHING GRANTED', x, ry, DIM, 1, 1); return; }
-  for (let i = 0; i < list.length && ry <= bottom - 8; i++) {
-    const m = list[i];
-    const bill = m.cost
-      ? Object.keys(m.cost).map(k => { const p = parseKey(k); return `${m.cost[k]} ${shortLabelOf(p.sub, p.form)}`; }).join('+')
-      : 'FREE';
-    const line = `${i + 1} ${m.name} ${bill}`;
-    drawText(g, line, x, ry, m.afford ? GOOD : DIM, 1, 1);
-    /* BUG FIX (Bug 1 audit): this row used to be a bare `drawText` call with
-       no rectangle recorded anywhere -- it LOOKS exactly like the CRAFTING
-       tab's numbered, colour-coded rows next door, but nothing hit-tested a
-       click against it, so only the matching digit key (1-9,
-       `shell/input.js`) ever placed anything. Registering the rect into
-       `./state.js#drawn.buttons` gives `shell/main.js`'s dispatcher
-       something real to click -- same `wants.machine` field the digit
-       handler already sets, so a click on row 3 and pressing '3' place the
-       identical machine. */
-    drawn.buttons.push({ id: 'build:' + m.id, x, y: ry - 1, w, h: 9 });
+
+  const rowMax = Math.max(0, Math.floor((bottom - ry) / 9));
+  const shown = machines.slice(0, rowMax);
+  for (const m of shown) {
+    const def = defOf(m);
+    const st = machineState(m);
+    const nameW = Math.max(60, w - 90);
+    drawText(g, def.name.slice(0, Math.floor(nameW / 6)), x, ry, INK, 1, 1);
+    drawText(g, st, x + nameW, ry, STATE_COLOUR[st] || DIM, 1, 1);
+    const d = depthOf(m.band, m.ty);
+    const ds = (d >= 0 ? d : '+' + -d) + 'M';
+    drawText(g, ds, x + w - textWidth(ds), ry, DIM, 1, 1);
     ry += 9;
   }
+  if (machines.length > shown.length)
+    drawText(g, `+${machines.length - shown.length} MORE`, x, ry, DIM, 1, 1);
 }

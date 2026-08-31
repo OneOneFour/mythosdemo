@@ -38,7 +38,7 @@
 import { drawText, textWidth } from '../core/font.js';
 import { R } from '../core/pixels.js';
 import { mix } from '../core/palette.js';
-import { AIR, F, FORM, labelOf, shortLabelOf } from '../data/forms.js';
+import { AIR, F, FORM, labelOf } from '../data/forms.js';
 import { M, MACH } from '../data/machines.js';
 import { colour } from '../data/palette.js';
 import { HAND_RECIPES } from '../data/recipes.js';
@@ -47,11 +47,11 @@ import { TRINKET } from '../data/trinkets.js';
 import { BOON } from '../data/boons.js';
 import { aim } from '../model/aim.js';
 import { boons } from '../model/boons.js';
-import { massOfPair, parseKey } from '../model/items.js';
+import { massOfPair } from '../model/items.js';
 import { eff, mods } from '../model/mods.js';
 import { player } from '../model/player.js';
 import {
-  buildableMachines, burdenFrac, burdenOf, canCraft, hasPick, machineIdFor, placementCheck, pocketRows, run
+  burdenFrac, burdenOf, canCraft, hasPick, machineIdFor, placementCheck, pocketRows, run
 } from '../model/run.js';
 import { tileAt } from '../model/tiles.js';
 import { bandOf, worldY } from '../model/world.js';
@@ -92,14 +92,6 @@ const UI = {
    test hook. */
 export const pocketHits = [];
 
-/* The BUILD list's own rectangles, in the SAME screen space `pocketHits`
-   uses -- kept SEPARATE from that array rather than merged into it, because
-   `view/hover.js#resolveHover` treats every entry of `hudHits` as a
-   `{sub, form}` pair to describe, and a build row names a MACHINE, not a
-   substance x form. Read by `buildGhost` below, in this same file, so
-   nothing outside `view` ever needs to know this exists. */
-const buildHits = [];
-
 /* What a tooltip is showing right now, or `active:false`. The one thing this
    module exposes for introspection outside a draw call — see the header
    comment on why this is safe and `stats` in `view/paint.js` for the
@@ -128,16 +120,16 @@ export function drawHUD(g, f) {
      would otherwise draw directly on top of it every time either opens,
      which is exactly what it looked like before this guard was added. Its
      POCKETS and CRAFT sections are superseded by the new CHARACTER and
-     CRAFTING tabs; its BUILD section (the only thing with no equivalent
-     yet) moved into the new LOGISTICS tab instead (`view/ui/mainPanel.js`),
-     which is why 1-9 still places the same machine either way -- that gate
-     is `flags.showInv` in `shell/input.js`, unchanged and still true
-     whenever this text panel WOULD have drawn. See docs/FINDINGS.md. */
-  if (f.flags.showInv && !f.ui.stack.includes('main')) {
+     CRAFTING tabs; its BUILD section is gone outright, not ported anywhere
+     -- it read `model/run.js#buildableMachines()`, deleted along with the
+     digit-driven BUILD menu it fed (`shell/input.js`'s own comment,
+     `docs/FINDINGS.md`): holding, arming (click OR digit key, against the
+     quickbar) and placing an item is the one real mechanism for every
+     placeable now, tiles and machines alike. This panel only still draws at
+     all in the rare desync this comment already described before this
+     change (Escape closing 'main' without touching `flags.showInv`). */
+  if (f.flags.showInv && !f.ui.stack.includes('main'))
     pocketHits.push(...invPanel(g, f, burdenBottom + 4));
-  } else {
-    buildHits.length = 0;                 // panel closed: nothing to hover
-  }
   depth(g, W, 6);
   /* The timed-boon stack (Phase 4 STEP 5): BELOW the depth gauge just drawn
      (y 6), and its own bottom edge is handed to `debug()` so a debug panel
@@ -212,30 +204,20 @@ function burden(g, x, y, W) {
    mass or a count for. `massOfPair` is a `model/items.js` query, not a render
    decision: the mass of a copper ingot is a fact about the world, not about
    how it is drawn. */
-/* A build cost or a hand-recipe's inputs, as one readable line. `exact`
-   clauses (a machine's `cost`) are literal `sub/form` keys, so `labelOf`
-   builds a real name out of them; a recipe's `in` clauses are SELECTORS
+/* A hand-recipe's inputs, as one readable line. `in` clauses are SELECTORS
    (star-slash-hash-ore, see the grammar comment in `data/forms.js`), which
-   name no single substance until one is chosen, so those fall back to the
-   selector's own form/tag word instead. Either way this is
-   presentation text, not a second selector-matching implementation --
-   `model/run.js#canAfford`/`canCraft` already decided the yes/no this only
-   labels. */
-function billOf(clauses, exact) {
+   name no single substance until one is chosen, so a line falls back to the
+   selector's own form/tag word rather than a real name. Presentation text,
+   not a second selector-matching implementation -- `model/run.js#canCraft`
+   already decided the yes/no this only labels. `exact`/the machine-`cost`
+   branch this once also served is gone along with `buildableMachines()`
+   (`docs/FINDINGS.md`); nothing else ever passed `exact:true`. */
+function billOf(clauses) {
   const parts = [];
   for (const k in clauses) {
     const n = clauses[k];
-    if (exact) {
-      const { sub, form } = parseKey(k);
-      /* POLISH: SHORT names here -- this is exactly the "narrow crafting
-         grid" style bill-of-materials line the abbreviation was made for,
-         a fixed-width panel row that a full name ("12 COPPER ORE+6 TIMBER
-         LOG") can run past. */
-      parts.push(`${n} ${shortLabelOf(sub, form)}`);
-    } else {
-      const raw = k.includes('/') ? k.slice(k.indexOf('/') + 1) : k;
-      parts.push(`${n} ${(raw[0] === '#' ? raw.slice(1) : raw).toUpperCase()}`);
-    }
+    const raw = k.includes('/') ? k.slice(k.indexOf('/') + 1) : k;
+    parts.push(`${n} ${(raw[0] === '#' ? raw.slice(1) : raw).toUpperCase()}`);
   }
   return parts.length ? parts.join('+') : 'FREE';
 }
@@ -244,16 +226,13 @@ function invPanel(g, f, top) {
   const { W, H } = f;
   const rows = pocketRows().filter(r => r.n > 0);
 
-  /* BUILD lists every machine this run may place, `model/run.js#canPlace`'s
-     own set, in GRANTED order -- see `buildableMachines`. CRAFT lists every
-     `hand:true` recipe (`data/recipes.js#HAND_RECIPES`). Numbering BUILD's
-     rows is what `shell/input.js`'s 1-9 keys read against; CRAFT has no
-     number because `rules/crafting.js#choose` always picks the first one the
-     player can afford, not a menu selection. */
-  const machines = buildableMachines();
+  /* CRAFT lists every `hand:true` recipe (`data/recipes.js#HAND_RECIPES`),
+     unnumbered because `rules/crafting.js#choose` always picks the first one
+     the player can afford, not a menu selection. The BUILD section this
+     panel used to draw below CRAFT is gone outright -- see this function's
+     caller in `drawHUD` for why. */
   const recipes = HAND_RECIPES;
-  const machLines = machines.map((m, i) => `${i + 1} ${m.name} ${billOf(m.cost, true)}`);
-  const craftLines = recipes.map(r => `${r.name} ${billOf(r.in, false)}`);
+  const craftLines = recipes.map(r => `${r.name} ${billOf(r.in)}`);
   const lineH = 9;
 
   /* Width fits the longest NAME alone, clamped to the viewport -- a relic's
@@ -263,19 +242,18 @@ function invPanel(g, f, top) {
      line below the name instead of a right-aligned column. Two lines per
      pocket entry, always, rather than only when a name is long: a fixed row
      shape is one thing to get right instead of a per-row branch that is only
-     exercised by whichever item happens to have the longest name. BUILD and
-     CRAFT rows get one line each -- a name plus a short bill of materials
-     does not run as long as a relic's full name does. */
+     exercised by whichever item happens to have the longest name. CRAFT rows
+     get one line each -- a name plus a short bill of materials does not run
+     as long as a relic's full name does. */
   const w = Math.min(
     Math.max(
-      textWidth('POCKETS'), textWidth('BUILD'), textWidth('CRAFT'), 60,
+      textWidth('POCKETS'), textWidth('CRAFT'), 60,
       ...rows.map(r => textWidth(labelOf(r.sub, r.form))),
-      ...machLines.map(l => textWidth(l)), ...craftLines.map(l => textWidth(l))
+      ...craftLines.map(l => textWidth(l))
     ) + 8,
     W - 12
   );
   const lines = 1 + (rows.length ? rows.length * 2 : 1)             // POCKETS
-              + 1 + (machLines.length ? machLines.length : 1)       // BUILD
               + 1 + (craftLines.length ? craftLines.length : 1);    // CRAFT
   const h = lines * lineH + 8;
   const x = (W - w) >> 1, y = Math.min(top, H - h - 4);
@@ -303,22 +281,6 @@ function invPanel(g, f, top) {
 
     hits.push({ x, y: hitTop, w, h: lineH * 2, sub: row.sub, form: row.form });
   }
-
-  /* BUILD. Greyed by `afford` rather than hidden -- a machine the player
-     cannot yet pay for is still something worth planning a haul toward.
-     Each row's own rectangle is captured into `buildHits`, the SAME idiom
-     `pocketHits` above already uses for the pockets, so `buildGhost` can
-     hit-test the pointer against exactly what got drawn rather than a
-     second copy of this layout math. */
-  drawText(g, 'BUILD', x + 4, ry, UI.ink, 1, 1);
-  ry += lineH;
-  buildHits.length = 0;
-  if (!machLines.length) { drawText(g, 'NOTHING GRANTED', x + 4, ry, UI.dim, 1, 1); ry += lineH; }
-  else machines.forEach((m, i) => {
-    drawText(g, machLines[i], x + 4, ry, m.afford ? UI.ink : UI.dim, 1, 1);
-    buildHits.push({ x, y: ry - 1, w, h: lineH, id: m.id });
-    ry += lineH;
-  });
 
   /* CRAFT. Marked `UI.good` when craftable right now, so the panel answers
      "what can I make" at a glance -- the same colour the reticle uses for a
@@ -462,21 +424,22 @@ function reticle(g, f) {
 }
 
 /* ---------- the build ghost (Phase 3, `docs/BUILD_PLAN.md`) ----------
-   Hover a row of the open BUILD panel with the pointer and its footprint
-   previews at the aim reticle -- snapped to the grid, tinted by whether
-   `model/run.js#placementCheck` (the SAME query `rules/placement.js#
-   placeMachine` calls before ever touching the world) says the exact spot
-   the digit would place it is legal, with the ONE-WORD reason drawn beside
-   it when it is not. VIEW MAY NOT IMPORT RULES, so this reads a MODEL query
-   and nothing else -- the identical move `canAfford`'s own greyed-out BUILD
-   row already made. The footprint is anchored EXACTLY the way
-   `shell/main.js#applyIntents` anchors a real placement (bottom row at the
-   aimed tile), so the preview can never show a spot the real placement would
-   not also choose. */
-/* The tinted footprint itself, factored out so the OLD BUILD-menu-hover ghost
-   and the NEW armed-pair ghost below (Part 1, click-to-arm placement) share
-   one implementation of "paint this footprint, ok-green or refused-red, with
-   the one-word reason beside it" rather than two copies of the same loop. */
+   Preview the ARMED pair's footprint at the aim reticle -- snapped to the
+   grid, tinted by whether `model/run.js#placementCheck` (the SAME query
+   `rules/placement.js#placeMachine` calls before ever touching the world)
+   says the exact spot placing it now would land is legal, with the ONE-WORD
+   reason drawn beside it when it is not. VIEW MAY NOT IMPORT RULES, so this
+   reads a MODEL query and nothing else. The footprint is anchored EXACTLY the
+   way `shell/main.js#applyIntents` anchors a real placement (bottom row at
+   the aimed tile), so the preview can never show a spot the real placement
+   would not also choose.
+
+   This used to also preview whichever row of the old digit-driven BUILD
+   panel the pointer was hovering, before any pair was armed at all -- gone
+   along with that panel (`docs/FINDINGS.md`): click-to-arm (mouse or the
+   quickbar's own digit keys) is the one path to a placement now, so there is
+   always an armed pair to preview once the player means to place anything,
+   never a hover-only intermediate state to show a ghost for. */
 function drawFootprintGhost(g, f, band, tx, ty, tw, th, ok, why) {
   const t = band.tile;
   const col = ok ? UI.good : UI.heart;
@@ -499,18 +462,6 @@ function drawFootprintGhost(g, f, band, tx, ty, tw, th, ok, why) {
 
 function buildGhost(g, f) {
   if (!aim.valid || !aim.band) return;
-
-  if (f.flags.showInv && f.mouse?.has) {
-    const sx = f.mouse.x - f.cam.x, sy = f.mouse.y - f.cam.y;
-    const hover = buildHits.find(h => sx >= h.x && sx < h.x + h.w && sy >= h.y && sy < h.y + h.h);
-    const def = hover && MACH[M[hover.id]];
-    if (def) {
-      const tx = aim.tx, ty = aim.ty - def.th + 1;
-      const check = placementCheck(aim.band, hover.id, tx, ty);
-      drawFootprintGhost(g, f, aim.band, tx, ty, def.tw, def.th, check.ok, check.why);
-      return;
-    }
-  }
 
   /* Part 1 (click-to-arm placement): preview the ARMED pair, if any, at the
      aim reticle -- the same footprint-tint idiom above, generalised to a

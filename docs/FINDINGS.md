@@ -1143,3 +1143,87 @@ fixed, not a regression — re-baselined via `npm run test:visual:update`.
 the fall-damage table, determinism, all Phase 6 probes), `npm run
 check:content`, `npm run lint`, and the full `npm run test` (build + all 49
 Playwright specs) all pass unchanged after the fix.
+
+## The old digit-driven BUILD menu retired; number keys now arm the quickbar
+
+A playtester asked what the bottom-right "1 2 3 4 5 / 6 7 8 9 0" strip did —
+it is the quickbar (`view/ui/quickbar.js`), assignable by drag and,
+separately, armable for placement by CLICKING a slot directly (an earlier
+task's click-to-arm work). The number KEYS did nothing with it: the only
+digit handling that existed was `'123456789'.indexOf(k)` in
+`shell/input.js`, gated on `flags.showInv`, driving the OLD BUILD menu
+(`wants.machine = buildableMachines()[slot].id`) left over from before
+machines became craftable, holdable items.
+
+That old menu was more than merely redundant — its own display had been
+silently wrong since the item-ification: `model/run.js#buildableMachines()`
+read `def.cost`/`canAfford(def.cost)`, but `cost` was deleted from every
+`data/machines.js` row when machines became items, so `canAfford(undefined)`
+was always `true` and the list's "can you afford this" colouring had shown
+every granted machine as affordable regardless of whether one was actually
+held. Real placement still refused correctly (`rules/placement.js`/
+`model/run.js#placementCheck` check the held `rig` item independently), so
+this was a display bug, not a spend bypass — but it was a real, permanent
+one, and it was drawn in TWO places: the old text `invPanel`
+(`view/hud.js`, gated on `flags.showInv` with the new panel NOT open — a
+rare desync case) and the LOGISTICS tab's own ported BUILD rows
+(`view/ui/mainPanel.js#drawLogisticsTab`, real click target added in an
+earlier "Bug 1" audit).
+
+Retired outright, the same way the free `f`/`l` spawn keys were retired
+earlier: holding, arming (click OR digit key) and placing an item is the one
+real mechanism for every placeable now, tiles and machines alike, so a
+second, stale-costed menu duplicating part of it serves no purpose. Removed:
+`model/run.js#buildableMachines()` and `canAfford()` (the latter had no
+other caller once the former was gone — it is the "stale-cost logic" the
+finding above already flagged); the LOGISTICS tab's BUILD rows and the
+`buildRows` height reservation around them; the old `invPanel`'s BUILD
+section (POCKETS and CRAFT, already superseded by the CHARACTER/CRAFTING
+tabs per that panel's own header, are untouched — they still draw in the
+same rare desync case as before); `shell/main.js`'s `uiHitButton`/`btnHit`/
+`'build:'` click branch and the now-fully-dead `drawn.buttons` generic
+primitive (`view/ui/state.js`) it was the only producer and consumer of;
+`wants.machine` (no setter left anywhere) and its `applyIntents()` branch;
+and `view/hud.js#buildGhost`'s old BUILD-panel hover-preview branch
+(`buildHits`, also deleted — the armed-pair ghost preview below it already
+covers every placement path that remains).
+
+Number keys now arm the matching QUICKBAR slot — exactly what a click on
+that slot already does (`shell/main.js#applyUiIntents`'s click-to-arm
+branch) — via a new `view/ui/quickbar.js#slotForDigit`, the deliberate
+inverse of that file's own `digitOf` (both index one shared `DIGITS =
+'1234567890'` string), so "press 3" and "the slot showing 3" cannot
+disagree about which slot that is. Unconditional, no panel/`flags.showInv`
+gate at all, matching the quickbar's own "permanent HUD" header comment and
+the earlier fix that made its KEYS/legend toggle clickable with no panel
+open. An empty slot, a slot whose item is no longer held, or a slot holding
+a pair that could never be placed (dragged in without ever being armed by a
+click — the same tile-or-`rig` form check the click branch already applies)
+does nothing at all: no arm, no journal row, confirmed both by a Playwright
+assertion (journal length unchanged, `armedPlace` stays `null`) and by
+inspection of `shell/main.js`'s own gate the digit handler mirrors.
+
+Verified with a rewritten test, `'a digit key arms the matching quickbar
+slot, not just any held item'` (`tests/visual.spec.js`), replacing `'the
+build menu places the machine at the pressed number...'`: two different
+machine items in two different quickbar slots, pressing the digit for ONE
+of them arms exactly that pair (not the other's) and 'E' places exactly
+that machine, leaving the other item's count untouched — plus the
+empty-slot no-op case up front. `'REAL CLICK: a LOGISTICS BUILD row places
+the machine...'` (Bug 1) is removed outright rather than rewritten, since
+the row it clicked no longer exists; click-to-arm's own pre-existing tests
+already cover a real click arming and placing a machine through the
+mechanism that remains. The two flows that used to place a furnace through
+`flags.showInv` + a digit press (`'a placed furnace'`, `'cold start -> ...
+-> it smelts'`) now assign the held item to a quickbar slot
+(`shell/ui.js#assignQuickbar`, called directly rather than via a real drag —
+the drag gesture itself is exercised elsewhere) and press its digit, then
+'E'; the furnace screenshot baseline is unchanged (same look, same
+mechanism's end state), confirming this is a wiring change, not a rendering
+one.
+
+`npm run check` (all probes), `npm run check:content` (157 checks), `npm run
+lint` (oxlint, clean — confirms no dead import survived any of the above),
+and the full `npm run test` (build + all 48 Playwright specs, one fewer
+than before now that a retired mechanism's own test is gone rather than
+rewritten) all pass.

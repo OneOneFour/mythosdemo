@@ -20,12 +20,14 @@
    ours to fake. */
 
 import { VIEW, stage } from '../core/canvas.js';
+import { F, FORM } from '../data/forms.js';
 import { aim } from '../model/aim.js';
 import { machineAt } from '../model/machines.js';
-import { buildableMachines } from '../model/run.js';
+import { invCount } from '../model/run.js';
 import { drawn as uiDrawn } from '../view/ui/state.js';
+import { slotForDigit } from '../view/ui/quickbar.js';
 import { audio, unlockAudio } from './audio.js';
-import { clearArmedPlace, closeTop, isOpen, setSearch, setSearchFocus, top, toggle, ui } from './ui.js';
+import { armPlace, clearArmedPlace, closeTop, isOpen, setSearch, setSearchFocus, top, toggle, ui } from './ui.js';
 
 /* The command set the rules read. One object, mutated by property, per the
    project convention for cross-module mutable state. `craft` is a HOLD, like
@@ -70,8 +72,12 @@ export const cmd = {
 };
 
 /* One-shot intents, consumed and cleared by `shell/main.js`. Separate from
-   `cmd` because these are requests to the shell, not movement. */
-export const wants = { restart: false, machine: null, draft: null };
+   `cmd` because these are requests to the shell, not movement. `machine`
+   (the old digit-driven BUILD menu's own field) is gone along with the menu
+   that set it -- placement now has exactly one path, `cmd.place`, whether
+   the pair placed is a tile or a machine; see `shell/input.js`'s own digit-
+   key comment and `docs/FINDINGS.md`. */
+export const wants = { restart: false, draft: null };
 
 /* Presentation toggles. Read by `view` through the frame context — `view` may
    not import `shell`, so they are passed in rather than imported. `showMap` is
@@ -244,19 +250,42 @@ export function installInput() {
       if (k === 'y') wants.draft = 'miracle';
     }
 
-    /* Digits only mean anything while the inventory panel is open: they pick
-       the Nth row of `model/run.js#buildableMachines()`, the SAME list and
-       SAME order `view/hud.js`'s BUILD section draws, so "press 3" and "the
-       panel's third row" can never disagree about which machine that is.
-       Unbound with the panel closed rather than always-on, so a digit typed
-       during ordinary play (there is nothing else digits do yet) is not a
-       silent machine-placement trap. */
-    if (flags.showInv) {
-      const slot = '123456789'.indexOf(k);
-      if (slot >= 0) {
-        const list = buildableMachines();
-        if (list[slot]) wants.machine = list[slot].id;
-      }
+    /* DIGIT KEYS ARM THE MATCHING QUICKBAR SLOT (retires the old digit-driven
+       BUILD menu -- `model/run.js#buildableMachines()`, deleted along with
+       this block; see `docs/FINDINGS.md`). That menu read a machine's
+       `def.cost`, which has been `undefined` on every `data/machines.js` row
+       since machines became craftable HELD ITEMS, so `canAfford(undefined)`
+       was always true and the list's own "can you afford this" display had
+       been permanently wrong since that change landed -- and it was fully
+       redundant besides: holding, arming and placing an item is now the one
+       real mechanism for every placeable, tiles and machines alike, the same
+       way the free `f`/`l` spawn keys were superseded earlier. This is a
+       deliberate supersession, not a bug fix.
+
+       A digit key now does exactly what a click on that quickbar slot
+       already does (`shell/main.js#applyUiIntents`'s click-to-arm branch):
+       arm the slot's assigned pair for the next placement. Reached through
+       `view/ui/quickbar.js#slotForDigit`, the SAME digit-to-slot mapping
+       that file's own `digitOf` draws each cell's glyph from, so "press 3"
+       and "the slot showing 3" cannot disagree about which slot that is.
+       Unconditional -- no `flags.showInv`/panel gate at all -- because the
+       quickbar is part of the PERMANENT HUD (`view/ui/quickbar.js`'s own
+       header), the same reasoning that already made its KEYS/legend toggle
+       clickable with no panel open.
+
+       An empty slot, a slot whose item is no longer held (spent by a craft,
+       dropped, picked clean since it was assigned), or a slot holding a pair
+       that could never be placed at all (dragged in, not armed by a click)
+       does nothing at all -- no arm, no journal row, no error -- mirroring
+       exactly what a click on that same slot would do in each of those
+       cases (`shell/main.js`'s own "clicked" branch gates arming on the
+       identical tile-form-or-rig check). */
+    const qslot = slotForDigit(k);
+    if (qslot >= 0) {
+      const pair = ui.quickbar[qslot];
+      if (pair && invCount(pair.sub, pair.form) > 0 &&
+          (FORM[pair.form]?.tile || pair.form === F.rig))
+        armPlace(pair.sub, pair.form);
     }
 
     if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k))
@@ -374,6 +403,5 @@ export function clearEdges() {
   cmd.uiRight = false;
   cmd.uiWheel = 0;
   wants.restart = false;
-  wants.machine = null;
   wants.draft = null;
 }

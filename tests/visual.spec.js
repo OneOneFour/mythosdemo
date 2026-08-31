@@ -341,64 +341,115 @@ test('a placed furnace', async ({ page }) => {
      `data/recipes.js#furnace` and spent at placement, not a bill charged
      when a machine is set down. `f` no longer exists at all -- see
      `shell/input.js`'s own comment. Given directly here (this test's own
-     point is the furnace's LOOK, not the crafting grind to earn one) and
-     placed through the build menu -- `furnace` is index 0 of
-     `data/grants.js#STARTING_MACHINES`, so "1" is `furnace`, the same list
-     and order `view/hud.js`'s BUILD section itself reads; `wants.machine`'s
-     digit-driven path still calls `placeMachine`, which now checks/spends
-     the held `rig` pair instead of a cost bill. */
+     point is the furnace's LOOK, not the crafting grind to earn one), and
+     placed through the quickbar's own digit keys (`docs/FINDINGS.md`: the
+     old digit-driven BUILD menu is retired -- click-to-arm, mouse or digit,
+     against the quickbar is the one placement path now) -- assign the held
+     `furnace/rig` pair to slot 0 directly through `shell/ui.js#assignQuickbar`
+     rather than a real drag (this test's own point is the furnace's look,
+     not the quickbar's own drag-assignment, which the click-to-arm tests
+     already cover), then press '1' (`view/ui/quickbar.js#slotForDigit`: '1'
+     is slot 0) to arm it, then 'e' to place it. */
   await page.evaluate(async () => {
     const { write } = await import('/src/model/run.js');
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
+    const { assignQuickbar } = await import('/src/shell/ui.js');
     write.collect(S.furnace, F.rig, 1);
+    assignQuickbar(0, { sub: S.furnace, form: F.rig });
   });
-  await page.evaluate(() => { __mf.flags.showInv = true; });
   await page.keyboard.press('1');
+  await page.keyboard.press('e');
   await page.evaluate(() => __mf.frames(240));
   expect(await page.evaluate(() => __mf.machines.length)).toBe(1);
-  /* `draw()` again after closing the panel: setting the flag alone does not
-     repaint the canvas, and the last frame `frames(240)` drew was WITH the
-     panel open -- this test's own point is the furnace's look, not the
-     build menu, so the baseline expects the panel gone. */
-  await page.evaluate(() => { __mf.flags.showInv = false; __mf.draw(); });
   await shot(page, 'furnace.png');
 });
 
-/* `press` (added in an earlier phase) had no key of its own at all, and `f`/
-   `l` (once hardcoded to `furnace`/`lift`, now removed entirely -- see
-   `shell/input.js`'s own comment) never bound a third literal key for a
-   third machine anyway. The build menu is the real path:
-   `model/run.js#buildableMachines()` lists `run.granted` in order, and a
-   number key while the panel is open arms `wants.machine` for that list
-   position (`data/boons.js#STARTING_MACHINES` is `['furnace','lift','press']`,
-   so "3" is `press`). This proves the SPECIFIC machine at that position gets
-   placed, not merely that some machine does -- the failure mode a looser
-   assertion (`machines.length === 1`) would hide, per CLAUDE.md's own warning
-   about a test that measures the wrong thing. */
-test('the build menu places the machine at the pressed number, not just any machine', async ({ page }) => {
+/* Retires `the build menu places the machine at the pressed number...`'s own
+   test that used to sit here (`docs/FINDINGS.md`: the old digit-driven BUILD
+   menu -- `model/run.js#buildableMachines()`, gone -- is superseded outright
+   by click-to-arm placement, mouse or keyboard, against the quickbar). Its
+   point survives in the new mechanism's own terms: a digit key must arm
+   EXACTLY the quickbar slot it names (`view/ui/quickbar.js#slotForDigit`),
+   not merely "whatever placeable happens to be held" -- proved here by
+   putting two DIFFERENT machines in two different slots and checking the
+   digit for ONE of them arms exactly that one's pair (not the other's), then
+   places exactly that one machine -- the failure mode a looser assertion
+   (`machines.length === 1`) would hide, per CLAUDE.md's own warning about a
+   test that measures the wrong thing. Also covers the "empty slot" and
+   "pressed digit but the panel was never opened" cases along the way, since
+   this mechanism (unlike the old menu) works with no panel gate at all. */
+test('a digit key arms the matching quickbar slot, not just any held item', async ({ page }) => {
   await boot(page);
   await settle(page);
-  /* Design reversal (`docs/FINDINGS.md`): `press` is now a held `press/rig`
-     item (`data/recipes.js#press_machine`), given directly here -- this
-     test's own point is WHICH machine a digit places, not the crafting grind
-     to earn one. */
+  await page.evaluate(async () => {
+    const { bandOf } = await import('/src/model/world.js');
+    __mf.revealAll(bandOf('surface'));
+    __mf.cmd.hasMouse = false;
+  });
+
+  /* Nothing assigned yet at all -- pressing a digit for an empty slot (or any
+     slot) must do nothing: no arm, no journal row, no crash. */
+  const beforeAnything = await page.evaluate(async () => {
+    const { peek } = await import('/src/model/journal.js');
+    return { armedPlace: __mf.ui.armedPlace, journalLen: peek().length };
+  });
+  await page.keyboard.press('5');
+  const afterEmptyDigit = await page.evaluate(async () => {
+    const { peek } = await import('/src/model/journal.js');
+    return { armedPlace: __mf.ui.armedPlace, journalLen: peek().length };
+  });
+  expect(afterEmptyDigit.armedPlace).toBeNull();
+  expect(afterEmptyDigit.journalLen).toBe(beforeAnything.journalLen);
+
+  /* Two held machine items, in DIFFERENT quickbar slots -- furnace in slot 0
+     (digit '1'), press in slot 2 (digit '3'), per
+     `view/ui/quickbar.js#slotForDigit`'s own digit-to-slot mapping. Design
+     reversal (`docs/FINDINGS.md`): both are held `<id>/rig` items
+     (`data/recipes.js#furnace`/`press_machine`), given directly here -- this
+     test's own point is WHICH machine a digit arms and places, not the
+     crafting grind to earn either. Assigned through
+     `shell/ui.js#assignQuickbar` directly rather than a real drag -- the
+     drag-to-assign gesture itself is exercised elsewhere; this test's point
+     is the digit key. */
   await page.evaluate(async () => {
     const { write } = await import('/src/model/run.js');
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
+    const { assignQuickbar } = await import('/src/shell/ui.js');
+    write.collect(S.furnace, F.rig, 1);
     write.collect(S.press, F.rig, 1);
+    assignQuickbar(0, { sub: S.furnace, form: F.rig });
+    assignQuickbar(2, { sub: S.press, form: F.rig });
   });
-  await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.flags.showInv = true; });
+
   await page.keyboard.press('3');
+  const armed = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    return { armedPlace: __mf.ui.armedPlace, press: S.press, furnace: S.furnace, rig: F.rig };
+  });
+  expect(armed.armedPlace).toEqual({ sub: armed.press, form: armed.rig });
+  expect(armed.armedPlace.sub).not.toBe(armed.furnace);
+
+  await page.keyboard.press('e');
   await page.evaluate(() => __mf.frames(240));
   const info = await page.evaluate(async () => {
     const { M } = await import('/src/data/machines.js');
-    return { count: __mf.machines.length, def: __mf.machines[0]?.def, press: M.press, furnace: M.furnace };
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    return {
+      count: __mf.machines.length, def: __mf.machines[0]?.def, press: M.press, furnace: M.furnace,
+      armedAfter: __mf.ui.armedPlace, pressRig: invCount(S.press, F.rig), furnaceRig: invCount(S.furnace, F.rig)
+    };
   });
   expect(info.count).toBe(1);
   expect(info.def).toBe(info.press);
   expect(info.def).not.toBe(info.furnace);
+  expect(info.armedAfter).toBeNull();       // cleared on a successful placement
+  expect(info.pressRig).toBe(0);            // the held item was spent...
+  expect(info.furnaceRig).toBe(1);          // ...and the OTHER one was untouched
 });
 
 /* Hand-crafting has no persisted screenshot-visible state worth asserting on
@@ -1289,20 +1340,31 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
     __mf.hold({ craft: 1 }, 1000);      // > 8.0s, the furnace recipe's own secs
     __mf.cmd.craft = false;             // release the key -- `hold` only auto-releases hop/place
     __mf.frames(150);                   // let the crafted item fall and clear the pickup-magnet delay
-    __mf.flags.showInv = true;
     return { rig: invCount(S.furnace, F.rig), oreLeft: invCount(S.copper, F.ore), logLeft: invCount(S.timber, F.log) };
   });
   expect(crafted.rig).toBe(1);          // the recipe fired exactly once and spent its bill
   expect(crafted.oreLeft).toBe(8);
   expect(crafted.logLeft).toBe(2);
 
-  await page.keyboard.press('1');        // furnace is index 0 of STARTING_MACHINES
+  /* Place through the quickbar's own digit keys, per `docs/FINDINGS.md`: the
+     old digit-driven BUILD menu is retired, and click-to-arm (mouse or
+     digit) against the quickbar is the one placement path now. Assigned
+     directly through `shell/ui.js#assignQuickbar` -- the drag-to-assign
+     gesture itself is exercised elsewhere; this flow's point is the smelt
+     chain, not a second proof of drag-and-drop. */
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { assignQuickbar } = await import('/src/shell/ui.js');
+    assignQuickbar(0, { sub: S.furnace, form: F.rig });
+  });
+  await page.keyboard.press('1');        // arms slot 0's furnace (`view/ui/quickbar.js#slotForDigit`)
+  await page.keyboard.press('e');        // places it
   const result = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { invCount } = await import('/src/model/run.js');
     const { write: pw, PW } = await import('/src/model/player.js');
-    __mf.flags.showInv = false;
 
     /* The finished ingot ejects from the furnace's TOP mouth and falls back
        to rest roughly under the machine's own centre -- past
@@ -1820,72 +1882,15 @@ test('REAL CLICK: clicking an unaffordable recipe refuses instead of queuing for
   expect(after.toast).toContain('CANNOT AFFORD');
 });
 
-test('REAL CLICK: a LOGISTICS BUILD row places the machine, the same as its digit key (Bug 1)', async ({ page }) => {
-  await boot(page);
-  await settle(page);
-  await page.evaluate(async () => {
-    const { S } = await import('/src/data/substances.js');
-    const { F } = await import('/src/data/forms.js');
-    const { bandOf } = await import('/src/model/world.js');
-    const { open, setTab } = await import('/src/shell/ui.js');
-    __mf.revealAll(bandOf('surface'));
-    /* Design reversal, superseding Phase 3's cost-at-placement deviation
-       (`docs/FINDINGS.md`): `furnace` is now a held `furnace/rig` item
-       (`data/forms.js#rig`), given directly here -- this test's own point is
-       that the LOGISTICS row's click reaches the SAME `placeMachine` the
-       digit key does (Bug 1), not the crafting grind to earn a furnace.
-       `placeMachine` now checks/spends the held `rig` pair instead of a raw
-       ore/timber bill, so the click still places it exactly as before. */
-    __mf.give(S.furnace, F.rig, 1);
-    __mf.cmd.hasMouse = false;
-    open('main');
-    setTab('main', 'log');
-    __mf.frames(1);
-  });
-
-  const before = await page.evaluate(() => __mf.machines.length);
-  const btn = await page.evaluate(() => __mf.ui.buttons.find(b => b.id === 'build:furnace'));
-  expect(btn).toBeTruthy();       // the row is now a real, registered click target
-
-  /* `cmd.hasMouse` becomes true the instant ANY real DOM pointer event fires
-     (`shell/input.js`'s own `toWorld`), which flips `shell/schedule.js`'s aim
-     resolution from keys to the literal WORLD point under the cursor
-     (`mining.aimAtWorld`) -- true of the pre-existing digit-key BUILD path
-     too, the moment a mouse has ever been touched, not something this fix
-     introduced. So a real click's aim lands wherever the panel HAPPENS to
-     sit over the world on screen, not wherever the player was previously
-     facing. Rather than guess that spot, move the mouse first, let one real
-     frame resolve `__mf.aim` from it, and THEN carve a guaranteed-valid
-     build site exactly there -- the same "read what is actually true"
-     discipline this file's other tests already use for hit rects. */
-  const client = await toClient(page, btn.x + btn.w / 2, btn.y + btn.h / 2);
-  await page.mouse.move(client.x, client.y);
-  await page.evaluate(() => __mf.frames(1));
-
-  await page.evaluate(async () => {
-    const { S } = await import('/src/data/substances.js');
-    const { write: tw } = await import('/src/model/tiles.js');
-    const band = __mf.aim.band, tx = __mf.aim.tx, ty = __mf.aim.ty;
-    for (let dy = -4; dy <= 0; dy++)
-      for (let dx = -2; dx <= 3; dx++)
-        tw.clear(band, tx + dx, ty + dy);
-    for (let dx = -2; dx <= 3; dx++)
-      tw.set(band, tx + dx, ty + 1, S.stone);   // an explicit floor, not a bet on natural terrain
-  });
-
-  await page.mouse.down();
-  await page.evaluate(() => __mf.frames(1));      // the real animation frame a physical click always has
-  await page.mouse.up();
-  await page.evaluate(() => __mf.frames(3));      // let the dispatcher's own effects settle
-
-  const after = await page.evaluate(() => __mf.machines.length);
-  expect(after).toBe(before + 1);
-
-  /* Polish 6, exercised for free by the same click: placing from an open
-     panel closes it. */
-  const open = await page.evaluate(() => __mf.ui.open.includes('main'));
-  expect(open).toBe(false);
-});
+/* `REAL CLICK: a LOGISTICS BUILD row places the machine...` (Bug 1) used to
+   live here. Removed, not rewritten: the LOGISTICS tab's BUILD row list
+   (`view/ui/mainPanel.js#drawLogisticsTab`) it clicked is retired along with
+   the digit-driven BUILD menu it fed (`model/run.js#buildableMachines()`,
+   also gone) -- see `docs/FINDINGS.md`. Click-to-arm placement's own tests
+   ("click-to-arm: placing a furnace..." above) already cover a real click
+   arming and placing a machine through the ONE mechanism that remains; the
+   quickbar's digit-key equivalent is covered by "a digit key arms the
+   matching quickbar slot..." above. */
 
 test('REAL DRAG: dragging a trinket onto an equip slot equips it, dragging it out unequips it (Bug 1)', async ({ page }) => {
   await boot(page);
@@ -2050,8 +2055,9 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
 
   /* SUCCESSFUL: grant the furnace recipe's exact bill, hand-craft the
      `furnace/rig` item, then arm it by clicking its Character-tab slot --
-     not the digit-key BUILD menu `the build menu places...`'s own test
-     already covers -- and place it with 'E'. */
+     the mouse-driven half of click-to-arm; the quickbar's own digit-key
+     half is `a digit key arms the matching quickbar slot...`'s own test --
+     and place it with 'E'. */
   const crafted = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');

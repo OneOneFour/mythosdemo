@@ -214,24 +214,6 @@ export const invCount = (sub, form) => run.inv[keyOf(sub, form)] || 0;
 export const hearts   = () => run.hearts;
 export const canPlace = machineId => run.granted.includes(machineId);
 
-/* Whether every clause of a machine's build `cost` (`data/machines.js`) is
-   currently held. `cost` keys are EXACT sub/form pairs, not selectors -- a
-   build bill is a specific list of materials, not "any ore" -- so this is a
-   straight `invCount` loop and not a selector match. `null`/absent `cost`
-   means free, which is why every machine granted at run start can still be
-   placed once this exists. Exported as a query (not left as a private check
-   inside `rules/placement.js`) because `view/hud.js`'s build menu needs the
-   same yes/no answer to grey out what the player cannot yet afford, and
-   `view` may not import `rules`. */
-export function canAfford(cost) {
-  if (!cost) return true;
-  for (const k in cost) {
-    const { sub, form } = parseKey(k);
-    if (invCount(sub, form) < cost[k]) return false;
-  }
-  return true;
-}
-
 /* ---- machine items (design reversal superseding Phase 3's cost-at-placement
    deviation -- see `data/forms.js#rig` / `data/substances.js`'s machine-
    substance block for the full argument). A machine is now a held
@@ -286,8 +268,11 @@ export function machineIdFor(sub) {
    refusal `rules/placement.js#placeMachine` can produce, as a query instead of
    a side effect. Phase 3 (`docs/BUILD_PLAN.md`): the ghost preview in `view/`
    needs the same yes/no the placement rule enforces, and `view` may not
-   import `rules` -- the same reason `canAfford` above already had to become a
-   model query rather than staying private to `rules/placement.js`. ONE
+   import `rules` -- the same reason a build-affordability check once had to
+   become a model query rather than staying private to `rules/placement.js`
+   (that particular query, `canAfford`, is gone now: it read a `def.cost` no
+   machine row has carried since machines became craftable items -- see
+   `docs/FINDINGS.md`). ONE
    implementation, TWO readers: this function decides, `rules/placement.js`
    calls it and turns a `false` into a journal row, `view` calls it and turns
    a `false` into a tinted ghost with `why` drawn beside it. Neither reader
@@ -352,8 +337,8 @@ export function placementCheck(band, machineId, tx, ty) {
 /* Does the pocket ledger hold at least `n` of a SINGLE pair matching `sel`?
    Mirrors `rules/machines.js`'s private `best`, specialised to `run.inv` --
    exposed here rather than left inside a `rules` module for the same reason
-   as `canAfford` above: the CRAFT panel needs to grey out an unaffordable
-   hand-recipe with no `rules` import available to it. */
+   the CRAFT panel needs any of this file's other queries: it must grey out
+   an unaffordable hand-recipe with no `rules` import available to it. */
 /* Total carried mass, in TALENTS -- CLAUDE.md D3. A query on numbers, so it
    is `model`, not `rules`: the DECISION about what a burdened player may
    still do -- `rules/player.js`'s climb falloff and ladder/hop lockout,
@@ -420,17 +405,6 @@ export function isKnown(id) {
   if (!run.known.includes(id)) return false;
   const machineId = machineOutputOf(RECIPES[id]);
   return machineId === null || canPlace(machineId);
-}
-
-/* Every machine this run may place, in GRANTED order -- the same order the
-   build menu (`view/hud.js`) lists them and a number key
-   (`shell/input.js`) selects by, so "press 3" and "the third row of the
-   panel" cannot silently disagree about which machine that is. */
-export function buildableMachines() {
-  return run.granted.map(id => {
-    const def = MACH[M[id]];
-    return { id, name: def.name, cost: def.cost || null, afford: canAfford(def.cost) };
-  });
 }
 
 /* The highest-tier `item.tool` relic currently held (Phase 2c), or null with

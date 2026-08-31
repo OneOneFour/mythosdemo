@@ -115,20 +115,26 @@ export function step(dt) {
    runs exactly once per real ANIMATION FRAME rather than once per fixed
    substep. It used to run from inside `step()`: at a refresh rate below 120 Hz
    a single frame runs several substeps and re-read the same still-true
-   `wants.machine`, attempting the same placement several times (one success
-   plus refusal-toast spam); above 120 Hz a frame can run ZERO substeps, and
-   `clearEdges()` still wiped the intent at the end of it, silently dropping a
-   press. Each branch self-clears the flag it consumed, immediately, rather
-   than waiting for `clearEdges()` -- so a flag this function never reaches
-   (the game is paused, `aim` isn't valid yet) survives to the next frame
-   instead of being erased on a schedule it knows nothing about. */
+   drafting intent, attempting the same grant several times; above 120 Hz a
+   frame can run ZERO substeps, and `clearEdges()` still wiped the intent at
+   the end of it, silently dropping a press. Each branch self-clears the flag
+   it consumed, immediately, rather than waiting for `clearEdges()` -- so a
+   flag this function never reaches (the game is paused, `aim` isn't valid
+   yet) survives to the next frame instead of being erased on a schedule it
+   knows nothing about.
+
+   `wants.machine` (the old digit-driven BUILD menu's own one-shot field) is
+   gone along with the menu that set it -- see `shell/input.js`'s own comment
+   at its digit-key handler and `docs/FINDINGS.md`. Placement now has exactly
+   one path, `cmd.place` below, whether the pair placed is a tile or a
+   machine. */
 function applyIntents() {
   /* Same freeze as `step()`, and the same reason: placing a machine or
      drafting a boon resolves against `aim`, which is a reading of the world
      the player cannot currently see -- the map covers it. A press that lands
      while the map is open is simply dropped, not queued: `clearEdges()` still
-     wipes `wants.machine`/`wants.draft`/`cmd.place` on its own schedule
-     whether or not this function consumed them. */
+     wipes `wants.draft`/`cmd.place` on its own schedule whether or not this
+     function consumed them. */
   if (flags.showMap) return;
 
   /* THE ARMED PAIR TRACKS THE POCKETS (Part 1, click-to-arm placement): the
@@ -146,22 +152,13 @@ function applyIntents() {
      aiming at the world from BEHIND their own window -- the panel draws over
      everything (`view/hud.js#drawHUD`'s own ordering) and does not pause
      anything, so the world underneath was live but unseeable. Closing the
-     top panel HERE, before any of the three placement-shaped intents below
-     are consumed, lets the SAME key press both close the menu and (this very
+     top panel HERE, before either of the two placement-shaped intents below
+     is consumed, lets the SAME key press both close the menu and (this very
      call, since the checks below run immediately after) carry out the
      placement -- not two separate presses. Gated on the intent actually
      being present this frame, not on `isOpen('main')` alone, so merely
      having the menu open does not close it on some unrelated frame. */
-  if (isOpen('main') && (wants.machine || cmd.place || cmd.deconstruct)) closeTop();
-
-  if (wants.machine && aim.valid && aim.band) {
-    /* Anchor the footprint so its BOTTOM row is the aimed tile: you point at the
-       space a machine should stand in, not at its top-left corner. `th` comes
-       off the row, so this line does not know how tall a furnace is. */
-    const def = MACH[M[wants.machine]];
-    if (def) placeMachine(aim.band, wants.machine, aim.tx, aim.ty - def.th + 1);
-    wants.machine = null;
-  }
+  if (isOpen('main') && (cmd.place || cmd.deconstruct)) closeTop();
 
   if (cmd.place && aim.valid && aim.band) {
     /* ARMED FIRST (Part 1, click-to-arm placement): a player who clicked a
@@ -181,8 +178,8 @@ function applyIntents() {
     if (p && p.form === F.rig) {
       /* `machineIdFor` resolves a mirrored pair (belt/talos_head/cyclops_maw)
          off the player's own facing -- see `model/run.js`'s own header on
-         that block. Anchored the SAME way the old `wants.machine` branch
-         above anchors a footprint: bottom row at the aimed tile. */
+         that block. Anchored bottom row at the aimed tile: you point at the
+         space a machine should stand in, not at its top-left corner. */
       const id = machineIdFor(p.sub);
       const def = id && MACH[M[id]];
       if (def) placed = !!placeMachine(aim.band, id, aim.tx, aim.ty - def.th + 1);
@@ -194,14 +191,14 @@ function applyIntents() {
   }
 
   /* The drop verb (CLAUDE.md D4's prerequisite): no aim needed, it always
-     acts at the player's own feet, so unlike `place`/`wants.machine` above
-     it has no validity gate to wait on. */
+     acts at the player's own feet, so unlike `place` above it has no
+     validity gate to wait on. */
   if (cmd.drop) {
     dropHeaviest();
     cmd.drop = false;
   }
 
-  /* Deconstruct (Phase 3, `docs/BUILD_PLAN.md`): the inverse of `wants.machine`
+  /* Deconstruct (Phase 3, `docs/BUILD_PLAN.md`): the inverse of `place`
      above, gated on the same `aim.valid && aim.band` a placement needs -- you
      point at the machine you mean to remove, exactly the way you point at
      where a new one should stand. */
@@ -321,18 +318,6 @@ function uiHitSlot(sx, sy) {
   return null;
 }
 
-/* BUG FIX (Bug 1 audit): the LOGISTICS tab's ported BUILD rows
-   (`view/ui/mainPanel.js#drawLogisticsTab`) are plain `drawText` lines that
-   now also register a rectangle into `./state.js#drawn.buttons` -- the
-   generic "clickable text row that is not a grid slot" idiom this project
-   otherwise has no primitive for. Same hit-test shape as every other
-   `uiHit*` helper here. */
-function uiHitButton(sx, sy) {
-  for (const b of uiDrawn.buttons)
-    if (sx >= b.x && sx < b.x + b.w && sy >= b.y && sy < b.y + b.h) return b;
-  return null;
-}
-
 function applyUiIntents() {
   /* The panel closing mid-drag (Escape, say) leaves `cmd.uiDown` with no
      panel-side pointerup left to clear it -- `shell/input.js` only routes a
@@ -365,7 +350,6 @@ function applyUiIntents() {
     else {
       const tabHit = uiHitTab(sx, sy);
       const slotHit = !tabHit && uiHitSlot(sx, sy);
-      const btnHit = !tabHit && !slotHit && uiHitButton(sx, sy);
       const panelHit = uiHitPanel(sx, sy);
       const onSearch = panelHit?.id === 'main-craft-search';
       const onHints = panelHit?.id === 'hints-toggle';
@@ -394,31 +378,6 @@ function applyUiIntents() {
             if (known && canCraft(r.in)) queueCraft(id, cmd.uiCtrl ? 99 : cmd.uiShift ? 5 : 1);
             else journalPush('refused', null, { why: known ? 'CANNOT AFFORD' : 'UNKNOWN RECIPE' });
           }
-        }
-      }
-      else if (btnHit && btnHit.id.startsWith('build:')) {
-        /* BUG FIX (Bug 1 audit): these rows used to be bare `drawText` calls
-           with no rectangle recorded anywhere -- they look exactly like the
-           CRAFTING tab's numbered, colour-coded rows next door, but nothing
-           hit-tested a click against them, so only the matching digit key
-           (1-9, `shell/input.js`) ever placed anything.
-
-           Calls `placeMachine` DIRECTLY, mirroring the `wants.machine` block
-           above's own footprint arithmetic, rather than setting
-           `wants.machine` itself and letting a later frame's block consume
-           it: `wants.machine` is read at the TOP of `applyIntents()`, before
-           `applyUiIntents()` (which runs at the very end) can ever set it,
-           and `clearEdges()` -- called once every real frame regardless --
-           wipes it again before the NEXT frame's block gets a turn. A
-           click-set `wants.machine` would therefore be silently erased
-           without ever placing anything; this is a REAL bug this audit
-           found, not a hypothetical, and is why this branch calls
-           `placeMachine` in the SAME frame the click lands instead. */
-        const id = btnHit.id.slice(6);
-        const def = MACH[M[id]];
-        if (def && aim.valid && aim.band) {
-          placeMachine(aim.band, id, aim.tx, aim.ty - def.th + 1);
-          closeTop();   // Polish 6: placing from the panel closes it too
         }
       }
 
@@ -700,11 +659,6 @@ function installTestHook() {
         tabs: uiDrawn.tabs.map(t => ({ ...t, hits: t.hits.map(h => ({ ...h })) })),
         grids: uiDrawn.grids.map(gr => ({ ...gr, slots: gr.slots.map(s => ({ ...s })) })),
         bars: uiDrawn.bars.map(b => ({ ...b })),
-        /* Bug-fix addition (Bug 1 audit): the LOGISTICS tab's BUILD row
-           rectangles (`./view/ui/state.js#drawn.buttons`), so a test can find
-           a real click target for them the same way `grids`/`tabs`/`panels`
-           already let it, instead of a hardcoded pixel coordinate. */
-        buttons: uiDrawn.buttons.map(b => ({ ...b })),
         tooltip: uiDrawn.tooltip ? { ...uiDrawn.tooltip, lines: uiDrawn.tooltip.lines.slice() } : null
       };
     },
@@ -725,7 +679,7 @@ function installTestHook() {
     /* Advance n substeps at a fixed dt, then draw once. `applyIntents()` runs
        once per substep here rather than once per call -- as it would inside a
        real `frame()` -- because it now self-clears whatever it consumes, so a
-       `wants.machine`/`wants.draft`/`cmd.place` set once by a real key event
+       `wants.draft`/`cmd.place` set once by a real key event
        still fires exactly once across the whole call, same as it would in one
        real frame; calling it every iteration just means the test hook does not
        have to guess which substep the real frame boundary would have been. */

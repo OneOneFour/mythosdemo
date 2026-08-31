@@ -26,7 +26,21 @@ const INK = colour('ui'), DIM = colour('uiDim'), BACK = colour('uiBack');
 const ARMED = colour('uiGood');
 const SIZE = 14, COLS = 5;
 
-const digitOf = i => String((i + 1) % 10);
+/* ONE mapping, TWO readers: this string is the whole rule for "which digit
+   key names which slot" -- slot 0 is '1', slot 8 is '9', slot 9 (the second
+   row's last cell) is '0', matching a physical numpad/keyboard row left to
+   right. `digitOf` (drawing the glyph in each cell) and `slotForDigit`
+   (`shell/input.js`'s digit-key handler, arming the SAME slot a click on it
+   already would) both index this one array, so "press 3" and "the slot
+   showing 3" cannot silently disagree about which slot that is. */
+const DIGITS = '1234567890';
+const digitOf = i => DIGITS[i];
+
+/* The inverse of `digitOf` above -- a lowercased `KeyboardEvent.key` to a
+   quickbar slot index, or -1 for any key that names no slot. Exported so
+   `shell/input.js` (which may import `view`, read-only, per its own header)
+   never has to re-derive or hand-copy this mapping. */
+export const slotForDigit = k => DIGITS.indexOf(k);
 
 /* One line of key bindings, collapsed by default (`ui.hintsOpen`). Named
    here rather than pulled from `shell/input.js` (`view` may not import
