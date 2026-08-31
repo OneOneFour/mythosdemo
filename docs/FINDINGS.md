@@ -6,6 +6,31 @@ rewrite history here.
 
 ---
 
+## Orchestrator process note — concurrent agents in a shared checkout
+
+Ran the machine-items agent and the HUD-simplification agent concurrently,
+reasoning that their FILE OWNERSHIP blocks were disjoint (`data/`,
+`model/run.js`, `rules/placement.js`, `shell/*` vs. `view/hud.js` only). That
+reasoning was insufficient: the machine-items agent detected mid-task that
+`view/hud.js` (owned by the other agent) had uncommitted changes, and used
+`git stash`/`stash pop` to isolate its own diff before committing. Both
+agents run in the SAME working directory with no isolation (no `worktree`),
+so a stash operation snapshots and restores the ENTIRE tree, not just the
+files one agent intends to touch — the HUD agent's report confirms its own
+files were "repeatedly reset to HEAD" mid-session as a result, recovered only
+because it happened to notice via its own `git status` checks and re-applied
+its edits from context before committing. This worked out, but by vigilance,
+not by design.
+
+**Lesson for future orchestration in this repo**: disjoint FILE OWNERSHIP is
+not sufficient justification for running agents concurrently in a shared,
+non-worktree checkout — any `git stash`/`checkout`/`reset` one agent runs to
+manage its own working state affects every other agent's uncommitted files
+too. Either serialize agents that might touch git state at all (the default,
+safe choice — this is what every other phase in this session did), or launch
+concurrent agents with `isolation: "worktree"` so each gets its own working
+tree and git-level operations can't cross-contaminate.
+
 ## Phase 5a review (orchestrator)
 
 - **`oxlint` is not a declared `devDependency`.** `package.json#scripts.lint`
