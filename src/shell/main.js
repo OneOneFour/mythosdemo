@@ -24,7 +24,7 @@ import { PH, PW, player, write as playerw } from '../model/player.js';
 import { pocketRows, run } from '../model/run.js';
 import { bands, heightPx, widthPx, write as worldw } from '../model/world.js';
 import { dropHeaviest } from '../rules/items.js';
-import { placeMachine, placeTile, placeableFromPockets } from '../rules/placement.js';
+import { deconstruct, placeMachine, placeTile, placeableFromPockets } from '../rules/placement.js';
 import { step as stepFx } from '../view/fx.js';
 import { render } from '../view/scene.js';
 import { boot, newRun } from './boot.js';
@@ -126,6 +126,15 @@ function applyIntents() {
   if (cmd.drop) {
     dropHeaviest();
     cmd.drop = false;
+  }
+
+  /* Deconstruct (Phase 3, `docs/BUILD_PLAN.md`): the inverse of `wants.machine`
+     above, gated on the same `aim.valid && aim.band` a placement needs -- you
+     point at the machine you mean to remove, exactly the way you point at
+     where a new one should stand. */
+  if (cmd.deconstruct && aim.valid && aim.band) {
+    deconstruct(aim.band, aim.tx, aim.ty);
+    cmd.deconstruct = false;
   }
 
   /* Drafting, bound to a key so both boon tiers are exercisable by hand. The

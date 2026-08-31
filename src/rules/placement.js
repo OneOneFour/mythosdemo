@@ -21,59 +21,44 @@
    `cost` key is an optional bill of exact `sub/form` pairs, checked with
    `model/run.js#canAfford` after every other refusal and spent with `rw.spend`
    only once every other check -- including affordability -- has already
-   passed, so a refused placement never touches the pockets. */
+   passed, so a refused placement never touches the pockets.
 
+   ============================================================================
+   PHASE 3: THE VALIDITY DECISION ITSELF LIVES IN `model/run.js#placementCheck`
+   NOW, NOT HERE. `view`'s ghost preview needs the identical yes/no this
+   function enforces and `view` may not import `rules` -- the same reason
+   `canAfford`/`canPlace` were already model queries rather than private to
+   this file. This function's own job shrank to "call the query, and turn a
+   `false` into a journal row plus the actual mutation" -- ONE implementation
+   of the checks, TWO readers of the answer.
+   ============================================================================ */
+
+import { rand } from '../core/rng.js';
 import { AIR, FORM, NATIVE } from '../data/forms.js';
 import { M, MACH } from '../data/machines.js';
-import { SPAWN_BAND } from '../data/world.js';
 import { push } from '../model/journal.js';
+import { parseKey, write as iw } from '../model/items.js';
 import { machineAt, write as mw } from '../model/machines.js';
-import { parseKey } from '../model/items.js';
-import { canAfford, canPlace, invCount, write as rw } from '../model/run.js';
+import { eff } from '../model/mods.js';
+import { invCount, placementCheck, write as rw } from '../model/run.js';
 import { climbAt, solidAt, tileAt, write as tw } from '../model/tiles.js';
-import { bandOf, inBounds, worldX, worldY } from '../model/world.js';
+import { inBounds, worldX, worldY } from '../model/world.js';
 
 /* ---------- machines ---------- */
 
 /* `tx`/`ty` is the top-left tile of the footprint. Returns the machine record,
    or null with a reason on the journal. */
 export function placeMachine(band, machineId, tx, ty) {
-  const defIdx = M[machineId];
-  const def = MACH[defIdx];
   const at = { x: worldX(band, tx), y: worldY(band, ty) };
   const no = why => { push('refused', at, { machine: machineId, why }); return null; };
 
-  if (def === undefined) return no('NO SUCH MACHINE');
-  if (!canPlace(machineId)) return no('THE GODS HAVE NOT GRANTED IT');
+  const check = placementCheck(band, machineId, tx, ty);
+  if (!check.ok) return no(check.why);
 
-  for (let j = 0; j < def.th; j++)
-    for (let i = 0; i < def.tw; i++) {
-      if (!inBounds(band, tx + i, ty + j)) return no('NOT THERE');
-      if (tileAt(band, tx + i, ty + j) !== AIR) return no('NEEDS CLEAR SPACE');
-      if (machineAt(band, tx + i, ty + j)) return no('SOMETHING IS ALREADY THERE');
-    }
-
-  let footing = 0;
-  for (let i = 0; i < def.tw; i++) if (solidAt(band, tx + i, ty + def.th)) footing++;
-  if (footing < def.footing) return no('NEEDS A FLOOR');
-
-  /* DEPTH GATE (Phase 2c, `minDepth`): tiles below the SPAWN band's own floor
-     line -- `view/hud.js`'s depth gauge reads the identical datum, so "the
-     HUD says you are 40m down" and "this machine will place here" can never
-     disagree about what depth means. Measured against WHERE IT IS BEING
-     PLACED, not the player's own depth, so a machine hauled to the surface
-     cannot borrow legality from a shaft the player is merely standing in. */
-  if (def.minDepth) {
-    const ref = bandOf(SPAWN_BAND);
-    const datum = worldY(ref, ref.cfg.floorTy ?? 0);
-    const depth = (at.y - datum) / ref.tile;
-    if (depth < def.minDepth) return no('TOO SHALLOW');
-  }
-
-  if (def.cost && !canAfford(def.cost)) return no('CANNOT AFFORD IT');
-
+  const defIdx = M[machineId];
+  const def = MACH[defIdx];
   const m = mw.place(band, defIdx, tx, ty);
-  /* Spent AFTER `mw.place`, not before: every check above -- including
+  /* Spent AFTER `mw.place`, not before: `placementCheck` -- including
      affordability -- has already passed by this line, so this can only ever
      run once the placement itself is guaranteed to succeed. */
   if (def.cost) for (const k in def.cost) {
@@ -82,6 +67,57 @@ export function placeMachine(band, machineId, tx, ty) {
   }
   push('place', { x: m.box.x, y: m.box.y }, { machine: machineId, def: defIdx });
   return m;
+}
+
+/* ---------- deconstruct ----------
+   The inverse of `placeMachine`, and the reason a cost is a real commitment
+   rather than a one-way tax: a machine proven EMPTY -- no buffered material,
+   no banked fuel charge -- gives its full build bill back, exactly, the
+   moment it is removed. A machine still holding anything refuses, with a
+   reason, so nobody discovers ore has quietly vanished into the abyss along
+   with the machine that was holding it.
+
+   "Empty" is `m.buf` having no keys and `m.charges === 0` -- the same two
+   fields `rules/machines.js#produce`/`choose` already treat as "this machine
+   is holding something": a buffered ore/fuel unit not yet spent, and a
+   banked lift/belt/brazier charge bought but not yet used. `m.made` (a
+   lifetime counter) and `m.prog` (recipe progress, which cannot be nonzero
+   with an empty buffer -- `choose` re-proves availability every frame) are
+   deliberately not part of this test. */
+export function deconstruct(band, tx, ty) {
+  const at = { x: worldX(band, tx), y: worldY(band, ty) };
+  const no = (why, machineId) => { push('refused', at, { machine: machineId, why }); return false; };
+
+  const m = machineAt(band, tx, ty);
+  if (!m) return no('NOTHING TO DECONSTRUCT');
+
+  const def = MACH[m.def];
+  if (Object.keys(m.buf).length > 0 || m.charges > 0)
+    return no('EMPTY IT FIRST', def.id);
+
+  /* The bill returns as FALLING ITEMS, never a direct pocket credit --
+     invariant 5's idiom, the same one `rules/crafting.js`'s output and
+     `rules/machines.js#produce`'s ejected units already use, one item per
+     unit rather than one stacked item. Tossed from the machine's own centre
+     with the SAME `tossUp`/`tossSpread` tunables the drop verb reads
+     (Phase 1/2a), not a sixth independently-chosen toss magnitude. */
+  const cx = m.box.x + m.box.w / 2, cy = m.box.y + m.box.h / 2;
+  const up = eff('tossUp'), spread = eff('tossSpread');
+  if (def.cost) for (const k in def.cost) {
+    const { sub, form } = parseKey(k);
+    for (let i = 0; i < def.cost[k]; i++)
+      iw.spawn(band, cx, cy, sub, form, (rand() - 0.5) * 2 * spread, -up);
+  }
+
+  mw.remove(m);
+  /* Reuses the 'place' journal kind: `shell/notify.js`'s TEXT handler already
+     renders `{machine}` as "<NAME> PLACED", the wrong verb for a removal but
+     the closest shape already wired -- `shell/notify.js`/`data/sfx.js` (the
+     only files that could add a dedicated 'deconstruct' kind and its text)
+     are outside this phase's FILE OWNERSHIP, the identical constraint
+     Phase 2a's drop verb hit for the same reason. See `docs/FINDINGS.md`. */
+  push('place', { x: m.box.x, y: m.box.y }, { machine: def.id });
+  return true;
 }
 
 /* ---------- tiles ----------

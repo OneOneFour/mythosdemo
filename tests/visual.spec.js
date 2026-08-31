@@ -132,9 +132,31 @@ test('a placed furnace', async ({ page }) => {
     const { bandOf } = await import('/src/model/world.js');
     __mf.revealAll(bandOf('surface'));
   });
-  await page.keyboard.press('f');
+  /* Phase 3 (`docs/BUILD_PLAN.md`): `furnace` now costs 12 copper/ore + 6
+     timber/log (`docs/SPEC.md` section 13), and `f` no longer places one
+     unconditionally -- it moved behind `flags.showDebug`, off by default, the
+     same gate `docs/AUDIT.md` section 3 recommended once the build menu could
+     reach the identical machine. Granted directly here (this test's own point
+     is the furnace's LOOK, not the mining grind to afford one) and placed
+     through the build menu -- `furnace` is index 0 of
+     `data/boons.js#STARTING_MACHINES`, so "1" is `furnace`, the same list and
+     order `view/hud.js`'s BUILD section itself reads. */
+  await page.evaluate(async () => {
+    const { write } = await import('/src/model/run.js');
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    write.collect(S.copper, F.ore, 12);
+    write.collect(S.timber, F.log, 6);
+  });
+  await page.evaluate(() => { __mf.flags.showInv = true; });
+  await page.keyboard.press('1');
   await page.evaluate(() => __mf.frames(240));
   expect(await page.evaluate(() => __mf.machines.length)).toBe(1);
+  /* `draw()` again after closing the panel: setting the flag alone does not
+     repaint the canvas, and the last frame `frames(240)` drew was WITH the
+     panel open -- this test's own point is the furnace's look, not the
+     build menu, so the baseline expects the panel gone. */
+  await page.evaluate(() => { __mf.flags.showInv = false; __mf.draw(); });
   await shot(page, 'furnace.png');
 });
 
@@ -151,6 +173,17 @@ test('a placed furnace', async ({ page }) => {
 test('the build menu places the machine at the pressed number, not just any machine', async ({ page }) => {
   await boot(page);
   await settle(page);
+  /* Phase 3 (`docs/BUILD_PLAN.md`): `press` now costs 4 copper/plate + 2
+     copper/ingot (`docs/SPEC.md` section 13), granted directly here -- this
+     test's own point is WHICH machine a digit places, not the refinement
+     grind to afford one. */
+  await page.evaluate(async () => {
+    const { write } = await import('/src/model/run.js');
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    write.collect(S.copper, F.plate, 4);
+    write.collect(S.copper, F.ingot, 2);
+  });
   await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.flags.showInv = true; });
   await page.keyboard.press('3');
   await page.evaluate(() => __mf.frames(240));

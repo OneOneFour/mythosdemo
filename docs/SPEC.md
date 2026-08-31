@@ -322,3 +322,72 @@ appears in `src/view/`.
 Tile-byte headroom: adding the `auger` relic substance is the 10th
 substance row, dropping headroom from 14 to 13 substances still allowed
 before the tile-id byte overflows (`src/data/forms.js`'s guard).
+
+## 13. Buildable machine costs (Phase 3)
+
+Locked with `docs/BUILD_PLAN.md` Phase 3: `furnace` and `lift` were free and
+`F`/`L` spawned either from nothing. Both are now priced in talents against
+the 40 T `burden` cap (section 9), so the haul itself is the decision the
+design wants, and neither key places anything unconditionally any more.
+
+**The deviation from the original plan, restated in one place.** The plan
+asked for a `furnace` ITEM the player carries and places. In this codebase a
+held thing is substance x form (`ARCHITECTURE.md` section 2, rule 2) and a
+furnace has no element of its own — making it one would cost a substance row
+per machine, exactly what `data/substances.js`'s own header forbids. **Cost
+at placement** is the substitute: the bill IS the commitment, and because
+Phase 2a made mass a hard cap, a 20-talent haul is a trip a player has to plan
+a route for, which is the same weight the item-carry design wanted without a
+machine-item form.
+
+| machine | footprint | cost | mass | notes |
+|---|---|---|---|---|
+| `furnace` | 3x2 | 12 `copper/ore` + 6 `timber/log` | 16.8 T | raw, unrefined material — exactly what the first two minutes (section 5) already teach a player to dig |
+| `lift` (winch stage) | 2x3 | 6 `copper/plate` + 4 `timber/log` + 2 `copper/ingot` | 20.8 T | refined, not raw — the game's own bottleneck (invariant 4) priced like the investment it is |
+| `press` | 2x2 | 4 `copper/plate` + 2 `copper/ingot` | 12.8 T | no longer the one free-provisional row `data/boons.js#STARTING_MACHINES`'s own comment named; a player may still hand-press (`data/recipes.js#press`, `hand:true`) toward this bill without owning one |
+| `belt_r` / `belt_l` | 4x1 | 2 `copper/plate` + 4 `stone/gravel` | unchanged (priced since the belts commit) | — |
+
+Mass is `Σ substance.item.mass x form.massK x n` — the identical arithmetic
+`model/items.js#massOfPair` already uses for the pockets and the burden gauge,
+so "the HUD says 16.8 T" and "this is what the furnace bill weighs" can never
+disagree.
+
+**`placementCheck(band, machineId, tx, ty)`** (`src/model/run.js`) is the
+single decision every reader of a placement's legality now calls: footprint
+clear, footing satisfied, granted, depth allowed (`minDepth`), a lift's own
+`lift.span` actually reaching `lift.toBand` from the exact footprint proposed
+(new this phase — see below), and affordability LAST, in that order — the
+same order `rules/placement.js#placeMachine` always checked in, now read from
+one place instead of copied into it. `rules/placement.js#placeMachine` calls
+it and turns a refusal into a journal row; `view/hud.js`'s new build-menu
+ghost (hover a BUILD row with the panel open) calls the identical query to
+tint a footprint preview at the aim reticle and print the same one-word
+reason beside it — `view` may not import `rules`, so this is the same move
+`canAfford`'s own greyed-out BUILD row already made, generalised.
+
+**The winch shaft check.** A stage whose `lift.span` does not reach
+`lift.toBand` from where it is about to stand would place, run, and never
+once deliver a haul — `placementCheck` refuses it with `'NO SHAFT TO SERVE'`
+before it ever costs a talent, using the identical arithmetic
+`rules/lift.js#reaches` already applies to an already-placed stage
+(`box.x + box.w/2`, `box.y - lift.span`, tested against `bandAt(...)`),
+computed here from the proposed footprint instead. `rules/lift.js` is a
+`rules` sibling `model/run.js` may not import (rules do not import rules, and
+a model query may not import `rules` at all), so this one fact is duplicated
+across the layer boundary rather than shared past it — the same trade
+`rules/machines.js`'s own `HARD_BREAK` mirror already accepted for the
+identical reason.
+
+**Deconstruct** (`rules/placement.js#deconstruct`, new intent on `Backspace`,
+`shell/input.js`/`shell/main.js`) returns a machine's FULL cost, as falling
+items (invariant 5 — never a direct pocket credit), the moment it is proven
+to hold nothing: `m.buf` has no keys and `m.charges` is 0. A machine still
+holding buffered material or a banked fuel charge refuses, with a reason, so
+the bill can never quietly outlive the ore that was sitting inside it.
+
+**`F`/`L`.** Removed as unconditional spawns; `docs/AUDIT.md` section 3 had
+already confirmed neither was the SOLE way to place its machine (the build
+menu's digit `1`/`2` already reached the identical `buildableMachines()`
+list). Kept as a development shortcut behind `flags.showDebug` (`H`), a
+no-op with the gate off — the same pattern the `1`-`9` digits already use
+against `flags.showInv`.

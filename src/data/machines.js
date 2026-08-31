@@ -47,11 +47,20 @@
                  the moment the machine is PLACED -- see `rules/placement.js`.
                  EXACT sub/form pairs, not selectors: `buffer.cap`'s grammar
                  answers "any ore", and a build bill is a specific list of
-                 materials, not "any". Absent (the default) means free, which
-                 is why `furnace`, `lift` and `press` -- granted, not earned,
-                 and `press` provisional besides -- carry none: this key is for
-                 content that costs something to BUILD, not for retrofitting a
-                 price onto starting gear.
+                 materials, not "any". Absent (the default) means free.
+
+                 Phase 3 (`docs/BUILD_PLAN.md`) prices `furnace` and `lift` for
+                 real: a `furnace`/`lift` ITEM you carry and place was the
+                 original plan, but a held thing here is substance x form, and
+                 a furnace is not an element -- one machine, one substance row
+                 is exactly what `data/substances.js`'s header forbids. COST AT
+                 PLACEMENT is the substitute: the bill IS the commitment, and
+                 because Phase 2a made mass a hard cap, a 20-talent haul is a
+                 trip you plan around, the same "hauling a machine down a
+                 shaft" weight the item-carry design wanted, without a
+                 machine-item form. `press` is priced too, no longer the one
+                 free-provisional row below furnace and lift -- see
+                 `docs/SPEC.md` section 13 for all three numbers.
 
      look        appearance only. `view/` is the only reader, and no machine or
                  substance name appears anywhere in `view/`.
@@ -123,6 +132,14 @@ export const MACHINES = [
 
     recipes:['smelt'],
 
+    /* PHASE 3 COST: 12 copper/ore + 6 timber/log, ~16.8 T against the 40 T
+       cap (`docs/SPEC.md` section 13) -- raw, unrefined material, on purpose:
+       `furnace` is GRANTED from run start (`data/boons.js#STARTING_MACHINES`),
+       but grant only answers "may this run ever place one", not "for free".
+       Every furnace still costs exactly the ore and timber the first two
+       minutes already teach a player to dig (`docs/SPEC.md` section 5). */
+    cost:{ 'copper/ore':12, 'timber/log':6 },
+
     look:{ body:'irC', trim:'irB', base:'irD', fire:true,
            pips:[ { sel:'*/#ore', row:0 }, { sel:'*/#fuel', row:1 } ],
            sfx:{ accept:'ignite', produce:'ingot' } } },
@@ -173,6 +190,16 @@ export const MACHINES = [
       { in:{ heart:1 }, from:'vital', out:[], secs:6.0 }          // the terms
     ],
 
+    /* PHASE 3 COST: 6 copper/plate + 4 timber/log + 2 copper/ingot, ~20.8 T
+       against the 40 T cap (`docs/SPEC.md` section 13) -- refined material,
+       not raw ore, because a stage of the game's own bottleneck (invariant 4:
+       five independent stages, never one continuous cage) is priced like the
+       investment it is, not like a wall you happen to dig through. Checked
+       AGAINST `rules/placement.js`'s shaft-reach gate below (`lift.span` must
+       actually land in `lift.toBand`), not instead of it: a player can afford
+       a stage and still be refused for aiming it at solid rock. */
+    cost:{ 'copper/plate':6, 'timber/log':4, 'copper/ingot':2 },
+
     look:{ body:'woodC', trim:'irB', base:'irD', fire:true,
            pips:[ { sel:'*/#fuel', row:0 } ],
            sfx:{ accept:'ignite', produce:'winch' } } },
@@ -212,6 +239,17 @@ export const MACHINES = [
 
     recipes:['press'],
 
+    /* PHASE 3 COST: 4 copper/plate + 2 copper/ingot, 12.8 T -- no longer the
+       one free-provisional row this file's own header used to name. Priced
+       in REFINED goods, not raw ore: a press turns ingot into plate, so
+       building one costs the tier it produces, the same "pay in the tier
+       above" shape `lift`'s cost already uses. A player who wants a press
+       before affording one can still hand-press (`data/recipes.js#press`,
+       `hand:true`) their way to the 4 plate this bill needs -- the point of
+       a placed press was never "the only way to make a plate", only "more
+       than one pair of hands' worth at once" (`docs/DESIGN.md`). */
+    cost:{ 'copper/plate':4, 'copper/ingot':2 },
+
     /* Iron-toned like the furnace's trim, not its body -- reads as the same
        forge-metal family without being mistaken for a furnace at a glance.
        Reuses `ignite`/`ingot` for accept/produce: there is no dedicated
@@ -223,12 +261,12 @@ export const MACHINES = [
 
   /* ---- BELT: horizontal relocation, and the one machine explicitly priced to
      be RARE. `docs/DESIGN.md`'s genre statement names flat, cheap horizontal
-     logistics as the thing this project refuses to become, so this is the
-     first row to carry a nonzero `cost` for real (`press`, above, is free
-     provisionally, for a reason its own comment states) -- 2 plate and 4
-     gravel, priced in the game's own SECOND compression tier rather than raw
-     ore, so a lane of these is a plate-shipping decision and not a doorstep
-     mat laid beside every machine.
+     logistics as the thing this project refuses to become, so this was the
+     first row to carry a nonzero `cost` for real, BEFORE `furnace`/`lift`/
+     `press` above earned their own bills in Phase 3 (`docs/BUILD_PLAN.md`) --
+     2 plate and 4 gravel, priced in the game's own SECOND compression tier
+     rather than raw ore, so a lane of these is a plate-shipping decision and
+     not a doorstep mat laid beside every machine.
 
      IT RUNS NO TRANSFORM. `rules/machines.js`'s generic interpreter turns
      inputs into outputs; a belt turns a POSITION into a later position with

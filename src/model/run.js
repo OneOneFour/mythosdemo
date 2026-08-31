@@ -25,13 +25,17 @@
    shape of `run` in four places -- three fields that other modules each invented
    -- and that class of bug is what a schema is for. */
 
-import { F, FORM, byHudOrder, matches } from '../data/forms.js';
+import { AIR, F, FORM, byHudOrder, matches } from '../data/forms.js';
 import { SUB } from '../data/substances.js';
 import { STARTING_MACHINES } from '../data/boons.js';
 import { M, MACH } from '../data/machines.js';
+import { SPAWN_BAND } from '../data/world.js';
 import { bump } from './epoch.js';
 import { keyOf, massOfPair, parseKey } from './items.js';
+import { machineAt } from './machines.js';
 import { eff } from './mods.js';
+import { solidAt, tileAt } from './tiles.js';
+import { bandAt, bandOf, inBounds, worldX, worldY } from './world.js';
 
 export const RUN_SCHEMA = Object.freeze({
   seed: 1337, t: 0,
@@ -170,6 +174,69 @@ export function canAfford(cost) {
     if (invCount(sub, form) < cost[k]) return false;
   }
   return true;
+}
+
+/* Whether a machine may be placed at this exact footprint, RIGHT NOW -- every
+   refusal `rules/placement.js#placeMachine` can produce, as a query instead of
+   a side effect. Phase 3 (`docs/BUILD_PLAN.md`): the ghost preview in `view/`
+   needs the same yes/no the placement rule enforces, and `view` may not
+   import `rules` -- the same reason `canAfford` above already had to become a
+   model query rather than staying private to `rules/placement.js`. ONE
+   implementation, TWO readers: this function decides, `rules/placement.js`
+   calls it and turns a `false` into a journal row, `view` calls it and turns
+   a `false` into a tinted ghost with `why` drawn beside it. Neither reader
+   keeps a second copy of the checks.
+
+   Checked in the SAME order `rules/placement.js` always has: footprint, then
+   footing, then depth, then (for a lift stage) the shaft it would need to
+   reach, then affordability LAST -- so a placement that cannot happen for a
+   structural reason never has to answer "and could you even pay for it". */
+export function placementCheck(band, machineId, tx, ty) {
+  const defIdx = M[machineId];
+  const def = MACH[defIdx];
+  if (def === undefined) return { ok:false, why:'NO SUCH MACHINE' };
+  if (!canPlace(machineId)) return { ok:false, why:'THE GODS HAVE NOT GRANTED IT' };
+
+  for (let j = 0; j < def.th; j++)
+    for (let i = 0; i < def.tw; i++) {
+      if (!inBounds(band, tx + i, ty + j)) return { ok:false, why:'NOT THERE' };
+      if (tileAt(band, tx + i, ty + j) !== AIR) return { ok:false, why:'NEEDS CLEAR SPACE' };
+      if (machineAt(band, tx + i, ty + j)) return { ok:false, why:'SOMETHING IS ALREADY THERE' };
+    }
+
+  let footing = 0;
+  for (let i = 0; i < def.tw; i++) if (solidAt(band, tx + i, ty + def.th)) footing++;
+  if (footing < def.footing) return { ok:false, why:'NEEDS A FLOOR' };
+
+  /* DEPTH GATE, identical datum the HUD's depth gauge reads -- see
+     `rules/placement.js`'s own copy of this comment, which this replaces. */
+  if (def.minDepth) {
+    const ref = bandOf(SPAWN_BAND);
+    const datum = worldY(ref, ref.cfg.floorTy ?? 0);
+    const depth = (worldY(band, ty) - datum) / ref.tile;
+    if (depth < def.minDepth) return { ok:false, why:'TOO SHALLOW' };
+  }
+
+  /* THE WINCH IS THE STAGED LIFT AND THE GAME'S BOTTLENECK (invariant 4: five
+     independent stages, never one continuous cage). A stage whose `lift.span`
+     does not actually reach `lift.toBand` from where it is about to stand
+     would place, run, and never once deliver anything -- a machine that
+     silently cannot do its one job is worse than a refusal that says so up
+     front. Same arithmetic `rules/lift.js#reaches` uses on an already-placed
+     record (`m.box.x + m.box.w/2`, `m.box.y - def.lift.span`), computed here
+     from the footprint being proposed instead -- `rules/lift.js` is a `rules`
+     sibling and this file may not import it (rules do not import rules, and a
+     model query may not import rules at all), so the ONE arithmetic fact is
+     duplicated across a layer boundary rather than shared past it. */
+  if (def.lift) {
+    const cx = worldX(band, tx) + def.tw * band.tile / 2;
+    const topY = worldY(band, ty) - def.lift.span;
+    if (bandAt(cx, topY) !== bandOf(def.lift.toBand)) return { ok:false, why:'NO SHAFT TO SERVE' };
+  }
+
+  if (def.cost && !canAfford(def.cost)) return { ok:false, why:'CANNOT AFFORD IT' };
+
+  return { ok:true, why:null };
 }
 
 /* Does the pocket ledger hold at least `n` of a SINGLE pair matching `sel`?

@@ -313,3 +313,85 @@ rewrite history here.
   light-gated Pass B breaks. The fix moves `reveal` to sit after the new
   `light` step, which itself sits after `mining`, and updates the header
   comment's reasoning for both pairs.
+
+## Phase 3 (buildables cost real material)
+
+- **`tests/visual.spec.js` touched, outside this phase's own FILE OWNERSHIP
+  list, because two existing tests asserted behaviour this phase deliberately
+  changed.** `'a placed furnace'` pressed `f` and expected an immediate,
+  free placement; `'the build menu places the machine at the pressed
+  number...'` pressed `3` (press) with no materials granted. Both were true
+  of the OLD, free `furnace`/`press`, and both are now false: `f` is gated
+  behind `flags.showDebug` (off by default) and `furnace`/`press` cost real
+  material (`docs/SPEC.md` section 13). `tests/` is not in this phase's
+  FILE OWNERSHIP, but leaving either test red would fail
+  `npm run test:visual` for a reason that has nothing to do with a pixel
+  regression — the same class of forced, minimal, documented touch Phase 2a
+  and Phase 2b's own FINDINGS entries already made for `rules/crafting.js`
+  and `model/run.js`/`data/boons.js` respectively. Fixed by granting the
+  exact bill each test needs via `model/run.js#write.collect` before the
+  keypress, and switching the furnace test from `f` to the build menu's `1`
+  (furnace is index 0 of `STARTING_MACHINES`) — the SAME surviving mechanic
+  the phase spec itself designates as the sole real entry point. Neither
+  test's own POINT (the furnace's look; which machine a digit places) changed.
+
+- **Deconstruct's success event reuses the `'place'` journal kind, not a new
+  `'deconstruct'` kind, the identical constraint and the identical fix shape
+  Phase 2a's drop verb already hit.** `shell/notify.js`'s `TEXT.place`
+  handler already renders `{machine}` as `"<NAME> PLACED"` — wrong verb for a
+  removal, but the closest true-shaped statement already wired.
+  `shell/notify.js`/`data/sfx.js` (the only files that could add a dedicated
+  kind and its text/sound) are outside this phase's FILE OWNERSHIP. Whichever
+  phase next owns those files should add a `'deconstruct'` kind (silent or a
+  soft thud, `"<NAME> DECONSTRUCTED"` text) and repoint
+  `rules/placement.js#deconstruct`'s `push()` call at it.
+
+- **The ghost preview (`view/hud.js#buildGhost`) is driven by mouse hover
+  over the open BUILD panel, not by a two-step "arm, then confirm" input
+  redesign.** The phase text describes select -> ghost -> confirm as
+  distinct steps, which would need the `1`-`9` digits to stop placing
+  immediately and instead arm a pending selection for a later confirm key.
+  That is a real input-model change with no small blast radius: the digits'
+  immediate-placement behaviour is explicitly protected elsewhere in this
+  same phase's text ("press 3 places the third row... cannot disagree") and
+  is exercised by an existing screenshot/behavioural test
+  (`tests/visual.spec.js`'s `'the build menu places the machine at the
+  pressed number...'`). Hovering a BUILD row with the pointer previews that
+  machine's footprint at the current aim reticle, tinted by the SAME
+  `model/run.js#placementCheck` query `rules/placement.js#placeMachine`
+  calls, with the one-word reason drawn beside it when invalid — satisfying
+  "ghost preview, one model query, two readers" without touching how the
+  keyboard flow places a machine. A keyboard-only player still gets the
+  refusal reason as a toast after pressing a digit (`shell/notify.js`'s
+  `'refused'` handler, unchanged); a mouse-and-keyboard player additionally
+  sees it before committing. Picking one buildable's footprint to preview
+  (machines, via the BUILD list) rather than every buildable named in the
+  phase text (rungs, stairs, braziers, miners are all rows of the SAME list,
+  so they preview identically; belts and other multi-tile machines too) is a
+  consequence of `placementCheck`'s own signature, which is machine-shaped
+  (`band, machineId, tx, ty`) — tile placement (`rules/placement.js#
+  placeTile`, rungs/stairs from the pockets) has a different validity shape
+  (a "backed" check, no `cost`/`footing`/`minDepth`/`granted`) that the phase
+  text's own function signature does not cover, and adding a second model
+  query for it was judged out of scope for this pass.
+
+- **`press`'s cost (4 `copper/plate` + 2 `copper/ingot`) is this phase's own
+  number, not named by `docs/BUILD_PLAN.md`.** The plan says only "priced"
+  for `press`, unlike `furnace`/`lift`, which it gives exact bills for.
+  Priced in the SAME tier the machine itself produces (plate), the same
+  "pay in the tier above" shape `lift`'s own cost already uses, and cheap
+  enough that a player who hand-presses (`data/recipes.js#press`,
+  `hand:true`, still free of any machine) can reach it without first owning
+  one. See `docs/SPEC.md` section 13.
+
+- **`placementCheck`'s winch-shaft arithmetic duplicates
+  `rules/lift.js#reaches` rather than importing it.** `model/run.js` is
+  `model`, `rules/lift.js` is `rules`, and a model query may not import
+  `rules` at all (nor may `rules` modules import one another) — so the one
+  fact ("does this stage's span reach its destination band from here") is
+  computed twice, once against an already-placed machine record
+  (`rules/lift.js#reaches`) and once against a proposed footprint
+  (`model/run.js#placementCheck`). Both read the identical `def.lift.span`/
+  `toBand` off the same frozen row and call the same `bandAt`/`bandOf`
+  queries, so the two cannot disagree about what the row means even though
+  the arithmetic itself is not shared code.

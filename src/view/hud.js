@@ -34,6 +34,7 @@ import { drawText, textWidth } from '../core/font.js';
 import { R } from '../core/pixels.js';
 import { mix } from '../core/palette.js';
 import { FORM, labelOf } from '../data/forms.js';
+import { M, MACH } from '../data/machines.js';
 import { colour } from '../data/palette.js';
 import { HAND_RECIPES } from '../data/recipes.js';
 import { SUB } from '../data/substances.js';
@@ -43,7 +44,7 @@ import { aim } from '../model/aim.js';
 import { massOfPair, parseKey } from '../model/items.js';
 import { eff, mods } from '../model/mods.js';
 import { player } from '../model/player.js';
-import { buildableMachines, burdenFrac, burdenOf, canCraft, hasPick, pocketRows, run } from '../model/run.js';
+import { buildableMachines, burdenFrac, burdenOf, canCraft, hasPick, placementCheck, pocketRows, run } from '../model/run.js';
 import { bandOf, worldY } from '../model/world.js';
 import { banner, toasts } from './fx.js';
 import { resolveHover } from './hover.js';
@@ -74,6 +75,14 @@ const UI = {
    on for anything but the next line's hover test and the test hook. */
 export const pocketHits = [];
 
+/* The BUILD list's own rectangles, in the SAME screen space `pocketHits`
+   uses -- kept SEPARATE from that array rather than merged into it, because
+   `view/hover.js#resolveHover` treats every entry of `hudHits` as a
+   `{sub, form}` pair to describe, and a build row names a MACHINE, not a
+   substance x form. Read by `buildGhost` below, in this same file, so
+   nothing outside `view` ever needs to know this exists. */
+const buildHits = [];
+
 /* What a tooltip is showing right now, or `active:false`. The one thing this
    module exposes for introspection outside a draw call — see the header
    comment on why this is safe and `stats` in `view/paint.js` for the
@@ -96,9 +105,12 @@ export function drawHUD(g, f) {
   if (f.flags.showInv) {
     const top = stripHits.reduce((m, h) => Math.max(m, h.y + h.h + 4), narrow ? 38 : 36);
     pocketHits.push(...invPanel(g, f, top));
+  } else {
+    buildHits.length = 0;                 // panel closed: nothing to hover
   }
   depth(g, W, 6);
   reticle(g, f);
+  buildGhost(g, f);
   hint(g, W, H);
   if (f.flags.showDebug) debug(g, f, W);
   if (run.dead) deathScreen(g, W, H);
@@ -282,12 +294,18 @@ function invPanel(g, f, top) {
   }
 
   /* BUILD. Greyed by `afford` rather than hidden -- a machine the player
-     cannot yet pay for is still something worth planning a haul toward. */
+     cannot yet pay for is still something worth planning a haul toward.
+     Each row's own rectangle is captured into `buildHits`, the SAME idiom
+     `stripHits`/`pocketHits` already use for the pockets, so `buildGhost`
+     can hit-test the pointer against exactly what got drawn rather than a
+     second copy of this layout math. */
   drawText(g, 'BUILD', x + 4, ry, UI.ink, 1, 1);
   ry += lineH;
+  buildHits.length = 0;
   if (!machLines.length) { drawText(g, 'NOTHING GRANTED', x + 4, ry, UI.dim, 1, 1); ry += lineH; }
   else machines.forEach((m, i) => {
     drawText(g, machLines[i], x + 4, ry, m.afford ? UI.ink : UI.dim, 1, 1);
+    buildHits.push({ x, y: ry - 1, w, h: lineH, id: m.id });
     ry += lineH;
   });
 
@@ -361,6 +379,49 @@ function reticle(g, f) {
   R(g, x + t - 2, y + t - 1, 2, 1, col);
   R(g, x + t - 1, y + t - 2, 1, 2, col);
   g.globalAlpha = 1;
+}
+
+/* ---------- the build ghost (Phase 3, `docs/BUILD_PLAN.md`) ----------
+   Hover a row of the open BUILD panel with the pointer and its footprint
+   previews at the aim reticle -- snapped to the grid, tinted by whether
+   `model/run.js#placementCheck` (the SAME query `rules/placement.js#
+   placeMachine` calls before ever touching the world) says the exact spot
+   the digit would place it is legal, with the ONE-WORD reason drawn beside
+   it when it is not. VIEW MAY NOT IMPORT RULES, so this reads a MODEL query
+   and nothing else -- the identical move `canAfford`'s own greyed-out BUILD
+   row already made. The footprint is anchored EXACTLY the way
+   `shell/main.js#applyIntents` anchors a real placement (bottom row at the
+   aimed tile), so the preview can never show a spot the real placement would
+   not also choose. */
+function buildGhost(g, f) {
+  if (!f.flags.showInv || !f.mouse?.has || !aim.valid || !aim.band) return;
+
+  const sx = f.mouse.x - f.cam.x, sy = f.mouse.y - f.cam.y;
+  const hover = buildHits.find(h => sx >= h.x && sx < h.x + h.w && sy >= h.y && sy < h.y + h.h);
+  if (!hover) return;
+
+  const def = MACH[M[hover.id]];
+  if (!def) return;
+
+  const b = aim.band, t = b.tile;
+  const tx = aim.tx, ty = aim.ty - def.th + 1;
+  const check = placementCheck(b, hover.id, tx, ty);
+  const col = check.ok ? UI.good : UI.heart;
+
+  g.globalAlpha = 0.35;
+  for (let j = 0; j < def.th; j++)
+    for (let i = 0; i < def.tw; i++) {
+      const x = (b.origin.x + (tx + i) * t - f.cam.x) | 0;
+      const y = (b.origin.y + (ty + j) * t - f.cam.y) | 0;
+      R(g, x, y, t, t, col);
+    }
+  g.globalAlpha = 1;
+
+  if (!check.ok) {
+    const x = (b.origin.x + tx * t - f.cam.x) | 0;
+    const y = (b.origin.y + ty * t - f.cam.y) | 0;
+    drawText(g, check.why, x, y - 8, UI.heart, 1, 1);
+  }
 }
 
 /* Transient text, drained out of the journal by `shell/notify.js`. */

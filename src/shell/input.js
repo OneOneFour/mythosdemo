@@ -30,6 +30,7 @@ import { audio, unlockAudio } from './audio.js';
 export const cmd = {
   left: false, right: false, up: false, down: false,
   hop: false, dig: false, place: false, craft: false, drop: false,
+  deconstruct: false,
   mouse: false, mx: 0, my: 0, hasMouse: false
 };
 
@@ -51,7 +52,7 @@ const KEYS = {
   s: 'down',  arrowdown: 'down'
 };
 
-let hopHeld = false, placeHeld = false, dropHeld = false;
+let hopHeld = false, placeHeld = false, dropHeld = false, deconHeld = false;
 
 function set(k, down) {
   const key = k.toLowerCase();
@@ -66,6 +67,12 @@ function set(k, down) {
      half a second is a bug, and a held drop would empty the pockets one
      pair at a time just as fast. */
   if (key === 'q')                  { if (down && !dropHeld) cmd.drop = true; dropHeld = down; }
+  /* 'backspace' for deconstruct (Phase 3, `docs/BUILD_PLAN.md`) -- the
+     inverse of `e`'s place, EDGE-TRIGGERED for the identical reason: a held
+     key that tore down every machine the aim reticle crossed in half a
+     second would be the same bug this file's header already warns about for
+     `place`, just running backwards. */
+  if (key === 'backspace')          { if (down && !deconHeld) cmd.deconstruct = true; deconHeld = down; }
 }
 
 export function installInput() {
@@ -87,11 +94,26 @@ export function installInput() {
        since the map is a mode you sit in, not an action you repeat. */
     if (k === 'o') flags.showMap    = !flags.showMap;
     if (k === 'm') audio.muted = !audio.muted;
-    if (k === 'f') wants.machine = 'furnace';
     if (k === 't') wants.draft = 'trinket';
     if (k === 'b') wants.draft = 'boon';
-    if (k === 'l') wants.machine = 'lift';
     if (k === 'r') wants.restart = true;
+
+    /* `f`/`l` USED to spawn a furnace/lift from nothing, unconditionally --
+       `docs/AUDIT.md` section 3's own finding on this pair. The build menu
+       (the `1`-`9` block below) already reaches the identical
+       `buildableMachines()` list through the identical `wants.machine`
+       assignment, and now that `furnace`/`lift` carry a real `cost`
+       (`docs/BUILD_PLAN.md` Phase 3), that is the only sanctioned way to
+       place either: `docs/AUDIT.md` confirmed `f`/`l` were never the SOLE
+       entry point for either machine (digit `1`/`2` with the inventory panel
+       open already placed the same id off the same list). Kept here ONLY
+       behind `flags.showDebug` (`h`), as a development shortcut, and a
+       NO-OP with the gate off -- the same pattern the `1`-`9` digits already
+       use against `flags.showInv`. */
+    if (flags.showDebug) {
+      if (k === 'f') wants.machine = 'furnace';
+      if (k === 'l') wants.machine = 'lift';
+    }
 
     /* Digits only mean anything while the inventory panel is open: they pick
        the Nth row of `model/run.js#buildableMachines()`, the SAME list and
@@ -119,7 +141,7 @@ export function installInput() {
      walking into a wall. */
   addEventListener('blur', () => {
     for (const k of ['left', 'right', 'up', 'down', 'dig', 'place', 'craft', 'mouse']) cmd[k] = false;
-    hopHeld = false; placeHeld = false; dropHeld = false;
+    hopHeld = false; placeHeld = false; dropHeld = false; deconHeld = false;
   });
 
   const cv = stage.cv;
@@ -161,6 +183,7 @@ export function clearEdges() {
   cmd.hop = false;
   cmd.place = false;
   cmd.drop = false;
+  cmd.deconstruct = false;
   wants.restart = false;
   wants.machine = null;
   wants.draft = null;
