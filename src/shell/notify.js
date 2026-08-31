@@ -1,23 +1,14 @@
 /* LAYER shell — THE JOURNAL DRAIN. Turns facts into sound, chips and text.
    Imports `core`, `data`, `model` (read + the journal drain), and `view/fx.js`.
 
-   ============================================================================
-   THIS FILE IS WHERE NOTIFICATION FLOWING DOWNWARD CLOSES THE LOOP.
-   `rules` pushed rows. Nothing called upward. This drains the queue once per
-   frame and is the only thing that may touch a device or a text queue. That is
-   what makes the dependency direction a RULE rather than a hope.
+   THIS FILE IS WHERE NOTIFICATION FLOWING DOWNWARD CLOSES THE LOOP -- see
+   docs/DEVELOPER_GUIDE.md#notification-and-the-journal. It drains the queue
+   once per frame and is the only thing that may touch a device or a text queue.
 
    A JOURNAL ROW IS A FACT, NOT AN INSTRUCTION. `kind` is a bare string; what to
    do about it is decided HERE. The kind -> sound mapping is `KIND_SFX` in
    `data/sfx.js`, so adding an audible event is a row and not a branch, and a
    kind with no entry there is SILENT ON PURPOSE — not every fact is audible.
-
-   COST, paid where it is stated: an event is consumed one frame after it
-   happened, ordering between two consumers is implicit rather than a call stack,
-   and a `shell` that forgets to call `drain()` loses feedback silently instead
-   of throwing. `model/journal.js#drain` warns past 512 rows, which is the
-   cheapest available smoke alarm.
-   ============================================================================
 
    A MACHINE ROW MAY OVERRIDE ITS OWN SOUND. `look.sfx` on a `data/machines.js`
    row names a sound for the `accept` and `produce` slots, which is how the

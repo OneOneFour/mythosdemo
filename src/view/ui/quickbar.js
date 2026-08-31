@@ -1,13 +1,12 @@
-/* LAYER view — THE QUICKBAR (docs/BUILD_PLAN.md Phase 5b). Two rows of five,
-   numbered 1-9-then-0, ALWAYS drawn (not gated on the main panel being open --
-   a quickbar is part of the permanent HUD, the same way the pocket strip and
-   the hearts are). Assignment is UI STATE (`shell/ui.js#ui.quickbar`, a plain
-   `{sub,form}|null` per slot) — nothing here changes what the world holds;
-   the COUNT shown in each slot is read fresh from `model/run.js#invCount`
-   every frame, the same "derived, not cached" rule the rest of this
-   directory already follows for hover and for `drawn`. Drag-and-drop
-   ASSIGNS a slot; `shell/main.js`'s UI dispatcher does the assigning, this
-   file only draws and reports rectangles, per this directory's own rule.
+/* LAYER view — THE QUICKBAR. Two rows of five, numbered 1-9-then-0, ALWAYS
+   drawn (not gated on the main panel being open -- a quickbar is part of the
+   permanent HUD, the same way the hearts are). Assignment is UI STATE
+   (`shell/ui.js#ui.quickbar`, a plain `{sub,form}|null` per slot) — nothing
+   here changes what the world holds; the COUNT shown in each slot is read
+   fresh from `model/run.js#invCount` every frame. Drag-and-drop ASSIGNS a
+   slot; `shell/main.js`'s UI dispatcher does the assigning, this file only
+   draws and reports rectangles.
+   See docs/DEVELOPER_GUIDE.md#widget-primitives
 
    Imports `core`, `data`, READ-ONLY `model`, and the primitives in this same
    directory. No `rules`, no `shell`. */
@@ -32,7 +31,8 @@ const SIZE = 14, COLS = 5;
    right. `digitOf` (drawing the glyph in each cell) and `slotForDigit`
    (`shell/input.js`'s digit-key handler, arming the SAME slot a click on it
    already would) both index this one array, so "press 3" and "the slot
-   showing 3" cannot silently disagree about which slot that is. */
+   showing 3" cannot silently disagree about which slot that is.
+   See docs/DEVELOPER_GUIDE.md#one-decision-two-readers */
 const DIGITS = '1234567890';
 const digitOf = i => DIGITS[i];
 

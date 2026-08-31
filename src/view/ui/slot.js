@@ -8,7 +8,8 @@
    Every caller so far (`grid.js`) is already a container that records the
    slot's content alongside its own geometry — one record per slot, not two.
    A future standalone use (an equipment slot outside any grid) is exactly a
-   1xN `grid.js` call, not a reason to duplicate this file's bookkeeping. */
+   1xN `grid.js` call, not a reason to duplicate this file's bookkeeping.
+   See docs/DEVELOPER_GUIDE.md#widget-primitives */
 import { drawText, textWidth } from '../../core/font.js';
 import { R } from '../../core/pixels.js';
 import { mix } from '../../core/palette.js';
@@ -25,8 +26,8 @@ export const SLOT_SIZE = 16;
    would be a `data/substances.js` import, forbidden by ARCHITECTURE §3's "no
    substance name in view/" the same way `hud.js#pockets` already respects
    it: the CALLER resolves `SUB[sub].look.item` and hands over the colour).
-   Returns `{ sub, form, n, mass }`, the exact shape docs/BUILD_PLAN.md's
-   Phase 5a testability section asks the `__mf.ui` projection to carry. */
+   Returns `{ sub, form, n, mass }`, the exact shape the `__mf.ui` projection
+   carries. */
 export function drawSlot(g, opts) {
   const { item, focused = false, frameColour = null } = opts;
   let { x, y, size = SLOT_SIZE } = opts;
@@ -64,7 +65,8 @@ export function drawSlot(g, opts) {
    with the IDENTICAL visual language instead of a second one-off border
    routine. `s` is one entry of `drawGrid`'s own returned `slots` array
    (`{x,y,w,h,...}`), not a fresh rectangle -- callers never recompute
-   geometry `drawGrid` already settled. */
+   geometry `drawGrid` already settled.
+   See docs/DEVELOPER_GUIDE.md#record-what-you-drew */
 export function frameSlot(g, s, col) {
   R(g, s.x, s.y, s.w, 1, col);
   R(g, s.x, s.y, 1, s.h, col);

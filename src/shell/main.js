@@ -1,15 +1,12 @@
 /* LAYER shell — THE LOOP. Fixed timestep, camera, and the wiring of input to
    rules. Imports every layer; this is the entry point `index.html` loads.
 
-   ============================================================================
-   A FIXED 1/120 s STEP, AND NOT FOR PERFORMANCE.
-   No `rules` module ever sees a variable dt. That is what lets fall damage,
-   mining time and machine throughput be functions of the WORLD rather than of
-   the display: a tile takes exactly its stated seconds at 30 fps and at 144 fps,
-   and a 5-tile drop measures 40 px either way. The accumulator is capped, so a
-   tab that was backgrounded for a minute does not simulate a minute in one
-   frame and teleport the player through the floor.
-   ============================================================================
+   A FIXED 1/120 s STEP, AND NOT FOR PERFORMANCE. No `rules` module ever sees a
+   variable dt, which is what lets fall damage, mining time and machine
+   throughput be functions of the WORLD rather than of the display. The
+   accumulator is capped, so a tab that was backgrounded for a minute does not
+   simulate a minute in one frame and teleport the player through the floor.
+   See docs/DEVELOPER_GUIDE.md#the-frame-loop-and-determinism
 
    The journal is drained once per FRAME and not once per substep. Sound is a
    frame-rate phenomenon; the simulation is not. */
@@ -58,11 +55,10 @@ const drawCam = { x: 0, y: 0 };
    px, same as `cam`, so `view/hover.js` can test world content directly and
    subtract `cam` itself for anything drawn in screen space (the HUD).
    `ui` is `shell/ui.js`'s live state object, passed through exactly as
-   `flags` already is (D2 in CLAUDE.md §"Resolved decisions") — `view` may
-   read which panel is open, its active tab, the focused slot, the drag
-   payload, the search string and scroll offsets, but may never write any of
-   it. No panel reads it yet (Phase 5a ships none); Phase 5b's is the first
-   consumer. */
+   `flags` already is — `view` may read which panel is open, its active tab,
+   the focused slot, the drag payload, the search string and scroll offsets,
+   but may never write any of it.
+   See docs/DEVELOPER_GUIDE.md#the-frame-context */
 const frameCtx = { cam, t: 0, dt: 0, frame: 0, W: 0, H: 0, flags, ui, mouse: { x: 0, y: 0, has: false } };
 
 /* ---------- one frame of simulation ---------- */
@@ -80,13 +76,13 @@ export function step(dt) {
      is waiting the instant the map closes. */
   if (flags.showMap) return;
 
-  /* THE CRAFT QUEUE RE-ASSERTS THE SAME ONE INTENT (Phase 5b,
-     docs/BUILD_PLAN.md), every substep it is non-empty -- see
-     `shell/ui.js#ui.craftQueue`'s own header for why this is a convenience
-     over `rules/crafting.js`'s one-pair-of-hands scalar rather than a change
-     to it. `rules/crafting.js` cannot tell this apart from the 'u' key
-     being held, which is the point: there is exactly one hand-craft intent
-     in this game, and the queue is a second way to hold it down. */
+  /* THE CRAFT QUEUE RE-ASSERTS THE SAME ONE INTENT, every substep it is
+     non-empty -- see `shell/ui.js#ui.craftQueue`'s own header for why this is
+     a convenience over `rules/crafting.js`'s one-pair-of-hands scalar rather
+     than a change to it. `rules/crafting.js` cannot tell this apart from the
+     'u' key being held, which is the point: there is exactly one hand-craft
+     intent in this game, and the queue is a second way to hold it down.
+     See docs/DEVELOPER_GUIDE.md#adding-a-recipe */
   if (ui.craftQueue.length) cmd.craft = true;
 
   clock.dt = dt;
@@ -161,7 +157,7 @@ function applyIntents() {
   if (isOpen('main') && (cmd.place || cmd.deconstruct)) closeTop();
 
   if (cmd.place && aim.valid && aim.band) {
-    /* ARMED FIRST (Part 1, click-to-arm placement): a player who clicked a
+    /* ARMED FIRST: a player who clicked a
        specific slot in the Character tab or the quickbar
        (`shell/ui.js#ui.armedPlace`) means THAT pair, not whichever
        placeable happens to sort first in HUD order. Re-checked as still
@@ -177,9 +173,10 @@ function applyIntents() {
     let placed = false;
     if (p && p.form === F.rig) {
       /* `machineIdFor` resolves a mirrored pair (belt/talos_head/cyclops_maw)
-         off the player's own facing -- see `model/run.js`'s own header on
-         that block. Anchored bottom row at the aimed tile: you point at the
-         space a machine should stand in, not at its top-left corner. */
+         off the player's own facing --
+         docs/DEVELOPER_GUIDE.md#mirrored-machine-pairs. Anchored bottom row at
+         the aimed tile: you point at the space a machine should stand in, not
+         at its top-left corner. */
       const id = machineIdFor(p.sub);
       const def = id && MACH[M[id]];
       if (def) placed = !!placeMachine(aim.band, id, aim.tx, aim.ty - def.th + 1);
@@ -225,9 +222,7 @@ function applyIntents() {
     cmd.equip = false;
   }
 
-  /* Drafting, bound to a key so all four tiers are exercisable by hand. The
-     director that decides WHEN a god offers something is not built; these
-     are the calls it would make. */
+  /* Drafting, bound to a key so all four tiers are exercisable by hand. */
   if (wants.draft === 'trinket') {
     const t = trinkets.draftable()[0];
     if (t) trinkets.grant(t.id);
@@ -252,19 +247,15 @@ function applyIntents() {
   applyUiIntents();
 }
 
-/* ---------- the widget layer's own dispatcher (Phase 5b) ----------
-   A CLICK THAT DOES SOMETHING IS SHELL CALLING RULES (Phase 5a's own rule):
-   `view/ui/mainPanel.js` and `view/ui/quickbar.js` only draw and RECORD the
-   rectangles they drew, into `view/ui/state.js#drawn` -- the exact
-   `pocketHits`/`buildHits` idiom `view/hud.js` already uses. This hit-tests
-   the pointer (converted from world px to the SAME screen space those
-   rectangles are drawn in, `cam` standing in for the conversion exactly the
-   way `view/hud.js#buildGhost` already does it) against LAST FRAME's `drawn`
-   and turns a hit into a `shell/ui.js` state change or a `rules` call --
-   never the reverse, and `view` never sees any of this. One frame of lag
-   between draw and hit-test is accepted here for the identical reason
-   `buildGhost` already accepts it against `buildHits`: invisible at any real
-   frame rate, and the alternative is `view` calling back into `shell`. */
+/* ---------- the widget layer's own dispatcher ----------
+   A CLICK THAT DOES SOMETHING IS SHELL CALLING RULES: `view` only draws and
+   RECORDS the rectangles it drew, into `view/ui/state.js#drawn`. This
+   hit-tests the pointer (converted from world px to the SAME screen space
+   those rectangles are drawn in) against LAST FRAME's `drawn` and turns a hit
+   into a `shell/ui.js` state change or a `rules` call -- never the reverse,
+   and `view` never sees any of this. One frame of lag between draw and
+   hit-test is accepted, for the identical reason `buildGhost` already accepts
+   it. See docs/DEVELOPER_GUIDE.md#record-what-you-drew */
 
 let prevUiDown = false;
 
@@ -477,13 +468,14 @@ function applyUiIntents() {
   }
 }
 
-/* THE CRAFT QUEUE'S COMPLETION SIGNAL (Phase 5b), read rather than invented:
+/* THE CRAFT QUEUE'S COMPLETION SIGNAL, read rather than invented:
    `rules/crafting.js#step` already pushes a `'produce'` journal row on every
    finished hand-craft, shaped `{ sub, form, made }` -- no `def` key, which is
    exactly what tells it apart from `rules/machines.js#produce`'s OWN
    `'produce'` row (`{ def, made }`, no `sub`). `model/journal.js#peek()` is
    the NON-DESTRUCTIVE read that exists for precisely this: `shell/notify.js`
-   still drains the same rows for sound and text afterward, undisturbed. */
+   still drains the same rows for sound and text afterward, undisturbed.
+   See docs/DEVELOPER_GUIDE.md#notification-and-the-journal */
 function tickCraftQueue() {
   if (!ui.craftQueue.length) return;
   for (const row of journalPeek()) {
@@ -607,8 +599,8 @@ export function frame(now) {
 /* ---------- the test hook ----------
    With `?test=1` the RAF loop does not start. The page exposes a handle that
    advances an exact number of substeps at an exact dt and then renders once, so
-   a screenshot is bit-reproducible. Nothing here runs in a normal session, and
-   a later phase writes screenshot tests against it. */
+   a screenshot is bit-reproducible. Nothing here runs in a normal session.
+   See docs/DEVELOPER_GUIDE.md#the-test-hook */
 function installTestHook() {
   globalThis.__mf = {
     ready: true,
@@ -622,20 +614,15 @@ function installTestHook() {
        trap CLAUDE.md's "hardcoded click coordinates" mistake describes. */
     hover: hoverInfo, hits: pocketHits,
 
-    /* THE WIDGET-LAYER PROJECTION (D2 in CLAUDE.md §"Resolved decisions";
-       docs/BUILD_PLAN.md Phase 5a). One handle, not a second `window.__ui`
+    /* THE WIDGET-LAYER PROJECTION. One handle, not a second `window.__ui`
        global — composed HERE, in `shell`, rather than in `view`, because it
        merges two things that live in different layers and neither may
        import the other: `shell/ui.js#ui` (which panel is open, the active
        tab, focus, drag, search) and `view/ui/state.js#drawn` (the geometry
-       and content the widget primitives actually painted last call — the
-       exact `pocketHits`/`hoverInfo` idiom above, one layer over). A GETTER,
-       not a field snapshotted once at install time, so every read reflects
-       whatever was true as of the last `draw()` — the "rebuilt each draw,
-       never a copy" requirement, satisfied by reading the two live objects
-       fresh rather than caching a merged one. Phase 5a registers no panel,
-       so today every array here is empty and `open`/`focus`/`drag` are
-       empty/null; the shape exists for Phase 5b's panels to fill. */
+       and content the widget primitives actually painted last call). A
+       GETTER, not a field snapshotted once at install time, so every read
+       reflects whatever was true as of the last `draw()`.
+       See docs/DEVELOPER_GUIDE.md#the-test-hook */
     get ui() {
       return {
         open: ui.stack.slice(),
@@ -644,14 +631,10 @@ function installTestHook() {
         drag: ui.drag ? { ...ui.drag } : null,
         search: ui.search,
         searchFocus: ui.searchFocus,
-        /* Part 1, click-to-arm placement: the pair, if any, a slot click has
-           armed for the next `cmd.place` -- same "read what is actually
-           true" reason every other field on this handle is exposed. */
+        /* The pair, if any, a slot click has armed for the next `cmd.place`. */
         armedPlace: ui.armedPlace ? { ...ui.armedPlace } : null,
-        /* Phase 5b additions: the craft queue (recipe ids, FIFO) and the
-           quickbar assignment (`{sub,form}|null` per slot) -- both plain
-           `shell/ui.js` state already, exposed for the identical "read what
-           is actually true" reason every other field on this handle is. */
+        /* The craft queue (recipe ids, FIFO) and the quickbar assignment
+           (`{sub,form}|null` per slot). */
         craftQueue: ui.craftQueue.slice(),
         quickbar: ui.quickbar.map(s => s ? { ...s } : null),
         hintsOpen: ui.hintsOpen,
@@ -708,19 +691,17 @@ function installTestHook() {
       draw();
     },
 
-    /* Phase 6 (docs/BUILD_PLAN.md) TIER 3: the widget layer's own intents,
-       driven through whatever `__mf.ui()` already says was actually drawn --
-       NEVER a hardcoded pixel coordinate (CLAUDE.md: a click at (400, 300)
-       fails on the phone project, whose base buffer is a different size).
-       Every case locates its target rect from THIS handle's own live `ui`
-       getter (the exact `pocketHits`/`hoverInfo` idiom every other read-back
-       on this object already uses), converts it to a WORLD position the same
-       way `mouseAt` does, arms the matching `cmd.uiClick`/`uiShift`/`uiCtrl`/
-       `uiWheel`/`uiDown` flags, and runs exactly one substep so
+    /* The widget layer's own intents, driven through whatever `__mf.ui()`
+       already says was actually drawn -- NEVER a hardcoded pixel coordinate
+       (CLAUDE.md: a click at (400, 300) fails on the phone project, whose base
+       buffer is a different size). Every case locates its target rect from
+       THIS handle's own live `ui` getter, converts it to a WORLD position the
+       same way `mouseAt` does, arms the matching `cmd.uiClick`/`uiShift`/
+       `uiCtrl`/`uiWheel`/`uiDown` flags, and runs exactly one substep so
        `applyIntents()`'s dispatcher (which self-clears every edge flag it
-       reads) actually processes it -- a caller never has to know that detail
-       to use this. Returns false, doing nothing, if the named target was not
-       actually drawn this frame (a closed panel, an out-of-range slot). */
+       reads) actually processes it. Returns false, doing nothing, if the named
+       target was not actually drawn this frame (a closed panel, an
+       out-of-range slot). See docs/DEVELOPER_GUIDE.md#the-test-hook */
     intent(name, args = {}) {
       const proj = this.ui;
       const at = (sx, sy, { shift = false, ctrl = false, down = false } = {}) => {
@@ -773,15 +754,11 @@ function installTestHook() {
       return false;
     },
 
-    /* TEST ONLY, and inert outside `?test=1`: this whole function --
-       `installTestHook` -- is only ever called from the bottom of this file
-       behind the SAME `testMode` guard as everything else on `__mf`
-       (`new URLSearchParams(location.search).has('test')`), so there is no
-       second gate to add here. Credits directly into the pockets, bypassing
-       every mining/pickup rule -- the point is to arrange a SCENARIO (e.g.
-       "the pockets are over the hard cap") without spending a test's frame
-       budget re-proving mining or pickup, which other tests already cover
-       end to end. */
+    /* TEST ONLY, and inert outside `?test=1`. Credits directly into the
+       pockets, bypassing every mining/pickup rule -- the point is to arrange a
+       SCENARIO (e.g. "the pockets are over the hard cap") without spending a
+       test's frame budget re-proving mining or pickup, which other tests
+       already cover end to end. See docs/DEVELOPER_GUIDE.md#the-test-hook */
     give(sub, form, n) { runw.collect(sub, form, n); }
   };
 }

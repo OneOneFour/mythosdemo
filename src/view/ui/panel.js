@@ -1,7 +1,6 @@
-/* LAYER view — the PANEL primitive (docs/BUILD_PLAN.md Phase 5a, D2 in
-   CLAUDE.md). A titled window: 2px bevelled chrome, dark fill, an optional
-   close box. Imports `core` and `data/palette.js` only — no model, no
-   gameplay content; a panel does not know what it contains.
+/* LAYER view — the PANEL primitive. A titled window: 2px bevelled chrome, dark
+   fill, an optional close box. Imports `core` and `data/palette.js` only — no
+   model, no gameplay content; a panel does not know what it contains.
 
    Registers what it drew into `./state.js#drawn.panels`, the same idiom
    `view/hud.js#pocketHits` uses, so a caller's hit-testing (and the test

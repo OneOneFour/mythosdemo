@@ -18,7 +18,7 @@
    against. So a grid that cannot fit `cols` columns at `cell` px each
    REDUCES its effective column count instead, the same "shrink to fit"
    contract `panel.js` applies to width and `tabs.js` applies to how many
-   tabs it draws. */
+   tabs it draws. See docs/DEVELOPER_GUIDE.md#widget-primitives */
 import { R } from '../../core/pixels.js';
 import { mix } from '../../core/palette.js';
 import { colour } from '../../data/palette.js';

@@ -1,10 +1,8 @@
-/* LAYER view — THE MAIN PANEL: the one tabbed window docs/BUILD_PLAN.md
-   Phase 5b asks for, built on the Phase 5a primitives in this directory.
-   Imports `core`, `data` and READ-ONLY `model` queries, plus the primitives
-   in this same directory (same-layer imports are legal, per that phase's own
-   header). No `rules`, no `shell`.
+/* LAYER view — THE MAIN PANEL: the one tabbed window, built on the primitives
+   in this directory. Imports `core`, `data` and READ-ONLY `model` queries,
+   plus those primitives (same-layer imports are legal). No `rules`, no
+   `shell`.
 
-   ============================================================================
    IT PAUSES NOTHING. Unlike `flags.showMap` (guarded inside
    `shell/main.js#step`), opening this panel does not freeze the simulation --
    this is an automation game and the factory keeps running while you read
@@ -12,16 +10,13 @@
    from `view/hud.js#drawHUD` exactly like every other HUD element, over
    whatever the world is doing this frame.
 
-   A CLICK THAT DOES SOMETHING IS SHELL CALLING RULES (Phase 5a's own rule,
-   restated because this file is the reason it exists): every function below
+   A CLICK THAT DOES SOMETHING IS SHELL CALLING RULES: every function below
    only DRAWS and RECORDS the rectangles it drew, via the `./state.js#drawn`
    idiom the primitives already use. `shell/main.js`'s UI dispatcher hit-tests
    those rectangles against the pointer and calls into `rules`/`shell/ui.js`
    itself; nothing in this file ever does that. This also means the panel is
-   read ONE FRAME STALE by the dispatcher (the same lag `view/hud.js`'s own
-   `buildGhost` already accepts against `buildHits`), which is invisible at
-   any real frame rate.
-   ============================================================================ */
+   read ONE FRAME STALE by the dispatcher, which is invisible at any real
+   frame rate. See docs/DEVELOPER_GUIDE.md#record-what-you-drew */
 
 import { drawText, textWidth } from '../../core/font.js';
 import { mix } from '../../core/palette.js';
@@ -74,18 +69,10 @@ function swatchOf(sub) {
   return l?.item ? colour(l.item[0]) : DIM;
 }
 
-/* POLISH: a PLACEHOLDER ICON, not real art. `slot.js#drawSlot`'s contract
-   already draws a swatch, an optional glyph and a count -- exactly Phase 5a's
-   own "swatch-plus-count" convention -- but most slots left `glyph` unset, so
-   a plain colour square was the only identity a recipe or an inventory slot
-   ever carried, easy to confuse against another substance of a similar hue
-   until real iconography exists. A 1-2 letter code off the substance's own
-   `short`/`name` fills that gap with no new icon system: still one rect, one
-   swatch colour, one small glyph, drawn by the same `R()`/`drawText()` this
-   file already uses everywhere else. Callers that already have a MORE useful
-   glyph (a locked recipe's '?', a missing ingredient's own letter, the
-   quickbar's slot digit) keep that instead -- this is only ever the
-   fallback. */
+/* A PLACEHOLDER ICON, not real art: a 1-2 letter code off the substance's own
+   `short`/`name`. Callers that already have a MORE useful glyph (a locked
+   recipe's '?', a missing ingredient's own letter, the quickbar's slot digit)
+   keep that instead -- this is only ever the fallback. */
 function glyphOf(sub) {
   const s = SUB[sub];
   return (s.short || s.name || '').slice(0, 2).toUpperCase();
@@ -157,7 +144,8 @@ export function drawMainPanel(g, f) {
 /* The one place this project deliberately diverges from every other factory
    game's inventory: slots are stack-based, but the BINDING constraint is
    mass, so the burden bar is the most legible thing this tab draws --
-   amber past the soft cap, red (and spelled out in words) at the hard one. */
+   amber past the soft cap, red (and spelled out in words) at the hard one.
+   See docs/DEVELOPER_GUIDE.md#buffers-and-pockets */
 function drawCharacterTab(g, f, body) {
   const { x, y, w, vw, vh } = body;
   const cap = eff('burden'), frac = burdenFrac();
@@ -243,7 +231,7 @@ function drawCharacterTab(g, f, body) {
    to: the stat readout only ever names a handful of ids, so their units are
    spelled out here as presentation text, the same way `view/hud.js#billOf`
    already turns a content key into a word without importing the table it
-   came from. */
+   came from. See docs/DEVELOPER_GUIDE.md#the-tunable-pipeline */
 const UNITS = { walk: ' PX/S', climb: ' PX/S', pickPower: 'X', rate: 'X' };
 const unitOf = id => UNITS[id] || '';
 
@@ -283,8 +271,8 @@ function formatModRow(row) {
 }
 
 /* A pair's tooltip: name, mass each/total, tier, what it is for -- and, for a
-   unique drop, its god and flavour line, reserved space per Phase 5b's own
-   instruction. Driven off TAGS, not a hand-written per-substance switch. */
+   unique drop, its god and flavour line. Driven off TAGS, not a hand-written
+   per-substance switch. See docs/DEVELOPER_GUIDE.md#colour-and-appearance */
 function pairTooltip(sub, form, n) {
   const label = FORM[form] ? `${SUB[sub].name} ${FORM[form].label}`.trim() : SUB[sub].name;
   const each = massOfPair(sub, form);
@@ -488,7 +476,8 @@ function recipeTooltip(r) {
    reader of `run.inv` in this project already uses (`model/run.js`'s own
    `pocketsHave`, `rules/crafting.js`'s `bestPocketed`), re-derived here
    rather than shared because it is eight lines and this is `view`, which may
-   not import `rules`. */
+   not import `rules`.
+   See docs/DEVELOPER_GUIDE.md#duplication-across-a-layer-boundary */
 function countTowards(sel) {
   let best = 0;
   for (const k in run.inv) {
@@ -523,8 +512,7 @@ function drawCraftingTooltip(g, f, grid, recipes) {
    port and none buffered. Anything else with SOME buffer contents reads as
    STALLED (present but not moving -- a full output port, a cold `needs`
    gate, a servo throttle: this file cannot tell those apart without
-   importing `rules`); an entirely empty buffer reads as BLOCKED. See
-   docs/FINDINGS.md for the cases this collapses together. */
+   importing `rules`); an entirely empty buffer reads as BLOCKED. */
 function machineState(m) {
   const def = defOf(m);
   if (m.running || m.charges > 0) return 'RUNNING';
@@ -548,17 +536,6 @@ function drawLogisticsTab(g, f, body) {
   const { x, y, w, bottom } = body;
   let ry = y + 2;
 
-  /* The old BUILD list that used to live below this status list -- ported
-     here (Bug 1 audit) from the OLD text `invPanel` (`view/hud.js`), keyed
-     off `model/run.js#buildableMachines()` and the matching digit key
-     (`shell/input.js`) -- is gone: that function read a `def.cost` no
-     machine row has carried since machines became craftable HELD ITEMS, so
-     its own "can you afford this" display had been permanently wrong since
-     that change landed, and it was fully redundant besides (holding, arming
-     and placing an item is the one real mechanism for every placeable now).
-     Retired, not fixed -- see `docs/FINDINGS.md`. This tab is left with just
-     the genuinely useful part: what is actually placed, and whether it is
-     doing its job. */
   if (!machines.length) {
     drawText(g, 'NOTHING PLACED', x, ry, DIM, 1, 1);
     return;

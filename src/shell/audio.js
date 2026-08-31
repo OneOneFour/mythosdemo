@@ -1,15 +1,10 @@
 /* LAYER shell — THE SOUND DEVICE. The only file in the project that calls into
    the synth. Imports `core`, `data` and `vendor/`.
 
-   ============================================================================
-   WHY THIS IS IN `shell` AND NOTHING ABOVE IT MAY CALL IT.
-   Audio is a device. Devices live in the outermost layer, and a call from
-   `rules` to here would be an upward edge — which is precisely the edge
-   `tools/layers.mjs` refuses. So `rules` pushes a journal row, `shell/notify.js`
-   drains it, and this file is the last stop. The cost is one frame of latency,
-   and it is paid knowingly: `play('pick')` inline is worse architecture and
-   better debugging.
-   ============================================================================
+   WHY THIS IS IN `shell` AND NOTHING ABOVE IT MAY CALL IT: audio is a device,
+   devices live in the outermost layer, and a call from `rules` to here would be
+   an upward edge — precisely the edge `tools/layers.mjs` refuses. See
+   docs/DEVELOPER_GUIDE.md#notification-and-the-journal
 
    Every call is guarded three ways, because a missing AudioContext must never
    break a frame: Node has none at all, browsers refuse to start one before a

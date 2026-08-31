@@ -2,24 +2,18 @@
    the live item and machine passes. Imports `core`, `data` and READ-ONLY `model`
    queries. Imports no `write` namespace and no `rules` module.
 
-   ============================================================================
    NO SUBSTANCE NAME AND NO MACHINE NAME APPEARS ANYWHERE IN THIS LAYER.
    Everything drawn below comes from a `look` block: `base`/`hi`/`lo` for rock,
    `item` for a dropped unit, `body`/`trim`/`base`/`fire`/`pips` for a machine,
-   and `treatments` for anything a colour triple cannot say. The previous
-   renderer named `copper` and could only do it because it imported the gameplay
-   table; the sibling rule now makes that import illegal, and `look` makes it
-   unnecessary.
-   ============================================================================
+   and `treatments` for anything a colour triple cannot say. See
+   docs/DEVELOPER_GUIDE.md#colour-and-appearance
 
    A DIG REPAINTS ITS CHUNK, NOT THE WORLD (invariant 3). The mockup baked one
    1024x2520 strip; this paints 128x128 px, about 1/1500th of a full bake.
 
    INVALIDATION IS A VERSION COUNTER, NOT A DIRTY FLAG, and that is forced by
    the epoch assertion: `view` may not write to `model`, so it cannot clear a
-   flag. `model/world.js` bumps `b.ver[chunk]` on every tile write and this file
-   remembers the version it last painted. It is a better scheme than the flag it
-   replaced — two viewports could not share one flag. */
+   flag. See docs/DEVELOPER_GUIDE.md#view-cache-invalidation */
 
 import { offscreen } from '../core/canvas.js';
 import { drawText } from '../core/font.js';
@@ -188,7 +182,7 @@ function paintTile(g, b, tx, ty, dx, dy) {
   if (!solidAt(b, tx + 1, ty)) R(g, dx + t - 1, dy, 1, t, L.edgeR);
   if (!solidAt(b, tx, ty + 1)) R(g, dx, dy + t - 1, t, 1, L.lo);
 
-  /* THE LINE THAT USED TO SAY `if (M.id === 'copper')`. */
+  /* Appearance is data: docs/DEVELOPER_GUIDE.md#colour-and-appearance */
   treat(g, L.row.look, { px: dx, py: dy, tx, ty, tile: t });
 
   /* Cracks use the EFFECTIVE hardness, so a trinket that softens a material
@@ -283,8 +277,7 @@ export function paintItem(g, it, px, py, t) {
 }
 
 /* A machine, from its own `look`. No machine name, no per-machine draw
-   function — that was rejected precisely because it makes "add a machine"
-   always cost a render edit. */
+   function — see docs/DEVELOPER_GUIDE.md#colour-and-appearance */
 export function paintMachine(g, m, px, py, t) {
   const def = MACH[m.def];
   const l = def.look;

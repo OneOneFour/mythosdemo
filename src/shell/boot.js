@@ -87,8 +87,7 @@ export function newRun(seed = (Math.random() * 1e9) | 0) {
   runw.reset(seed);
 
   /* --- the world. Every band is resident at once, so descending from one into
-         another is a tile query rather than a world rebuild. A production build
-         would allocate the deep bands lazily; the seam is identical. --- */
+         another is a tile query rather than a world rebuild. --- */
   for (const cfg of BANDS) {
     const b = worldw.allocate(cfg);
     fieldw.allocate(b, cfg.fields);

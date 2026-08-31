@@ -1,20 +1,12 @@
 /* LAYER view — TRANSIENT PRESENTATION: chips, toasts and the title fade.
    Imports `core` and `data` only. Reads no model and writes none.
 
-   ============================================================================
-   DECLARED ADDITION to the file list in the brief, with the reason.
-   These three things are STATE, they are not the model, and they have to live
-   somewhere. The candidates were:
-
-     model/   wrong: a chip is not a world fact, and `newRun()` would owe it a
-              reset obligation for something a screenshot does not depend on.
-     shell/   wrong: `view` may not import `shell`, so nothing could draw them.
-     view/    correct: presentation state, owned by the layer that draws it.
-
-   So `shell/notify.js` EMITS into this file when it drains a journal row,
-   `shell/main.js` STEPS it, and `view/scene.js` DRAWS it. That is the same
-   ownership pattern as the chunk cache in `view/paint.js`.
-   ============================================================================
+   These three things are presentation STATE, owned by the layer that draws
+   them: a chip is not a world fact (so not `model`, which would owe it a
+   `newRun()` reset), and `view` may not import `shell`. So `shell/notify.js`
+   EMITS into this file when it drains a journal row, `shell/main.js` STEPS it,
+   and `view/scene.js` DRAWS it -- the same ownership pattern as the chunk cache
+   in `view/paint.js`. See docs/DEVELOPER_GUIDE.md#where-does-state-go
 
    RANDOMNESS. Chips must not consume `rand()`. The journal is drained once per
    FRAME, so the number of drains depends on the display refresh rate — a chip

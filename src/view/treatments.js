@@ -1,19 +1,14 @@
 /* LAYER view — TREATMENTS: named pure drawing functions a `look` row may request.
    Imports `core` and `data` only. Reads no model and mutates nothing.
 
-   ============================================================================
-   THIS TABLE PLUS A NAME IN A CONTENT ROW IS HOW APPEARANCE BECAME DATA.
-   The previous renderer contained the line `if (M.id === 'copper')` — a
-   renderer string-comparing a gameplay id, which was only possible because the
-   renderer imported the gameplay table. Here:
+   THIS TABLE PLUS A NAME IN A CONTENT ROW IS HOW APPEARANCE BECAME DATA:
 
      data/substances.js says   look:{ treatments:[{ fn:'glint', col:'veinA', n:2 }] }
      view/paint.js says        for (const t of look.treatments) TREAT[t.fn](g, cell, t)
 
-   and no substance name appears anywhere in `view/`. "This material glints" is
-   therefore a row edit, and a `fn` name that is not a key here fails
-   `tools/resolve.mjs` at build time rather than drawing nothing at depth 300.
-   ============================================================================
+   and no substance name appears anywhere in `view/`. A `fn` name that is not a
+   key here fails `tools/resolve.mjs` at build time rather than drawing nothing
+   at depth 300. See docs/DEVELOPER_GUIDE.md#colour-and-appearance
 
    CONTRACT. Every function takes `(g, cell, p)` where `cell` is
    `{ px, py, tx, ty, tile }` in destination pixels and band tiles, and `p` is

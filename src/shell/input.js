@@ -29,8 +29,8 @@ import { slotForDigit } from '../view/ui/quickbar.js';
 import { audio, unlockAudio } from './audio.js';
 import { armPlace, clearArmedPlace, closeTop, isOpen, setSearch, setSearchFocus, top, toggle, ui } from './ui.js';
 
-/* The command set the rules read. One object, mutated by property, per the
-   project convention for cross-module mutable state. `craft` is a HOLD, like
+/* The command set the rules read. One object, mutated by property, per
+   docs/DEVELOPER_GUIDE.md#cross-module-mutable-state. `craft` is a HOLD, like
    `dig`, not an edge -- `rules/crafting.js` accumulates while it is true and
    forgets the bar the instant it is not. */
 export const cmd = {
@@ -39,35 +39,25 @@ export const cmd = {
   deconstruct: false, miracle: false, equip: false,
   mouse: false, mx: 0, my: 0, hasMouse: false,
 
-  /* UI pointer intents (Phase 5a, docs/BUILD_PLAN.md; D2 in CLAUDE.md).
+  /* UI pointer intents -- see docs/DEVELOPER_GUIDE.md#input-intents.
      THE OPEN PANEL STACK CAPTURES INPUT: the pointer handlers below route to
      THESE fields instead of `mouse`/`place` whenever `shell/ui.js#top()` is
      open, so a click on a slot can never also place a tile in the world the
-     panel is sitting over. `uiClick`/`uiRight` mirror `mouse`/`place`'s own
-     held-while-the-button-is-down shape, and are cleared every frame in
-     `clearEdges()` regardless of button state -- the exact mechanism that
-     already makes `place` a one-shot per physical click despite never being
-     latched like `hop`, since a pointer held down fires no repeat event the
-     way a held key does. `uiCtrl`/`uiShift` are the modifier snapshot taken
-     at click time, for ctrl-click/shift-click (queue max / queue five, in
-     Phase 5b). `uiWheel` is a per-FRAME signed delta, not one-shot -- it
-     accumulates between clears so a fast scroll is not dropped. There is no
-     drag FIELD here: `shell/ui.js#setDrag`/`clearDrag` already hold that
-     payload, and computing it needs to hit-test the click against whatever
-     a panel actually drew -- Phase 5b's dispatcher, once a panel exists to
-     click on.
+     panel is sitting over.
 
-     `uiDown` is Phase 5b's own addition, alongside `uiClick`/`uiRight`
-     above: those two are EDGE, cleared every real frame by `clearEdges()`
-     regardless of button state (see the comment above), which is exactly
-     right for "was this clicked" but cannot answer "is the button still
-     down" -- and a DRAG needs the second question, to tell a press-and-hold
-     apart from a press-and-release one frame later. `uiDown` mirrors
-     `cmd.mouse`'s own shape instead: set true on pointerdown, false on
-     pointerup, untouched by `clearEdges()`. `shell/main.js`'s dispatcher
-     watches its RISING edge to pick a drag payload off whatever was under
-     the cursor and its FALLING edge to resolve the drop, the same
-     down-then-up-elsewhere shape every drag-and-drop gesture is. */
+     `uiClick`/`uiRight` are EDGE, cleared every real frame by `clearEdges()`
+     regardless of button state -- correct for "was this clicked", but it
+     cannot answer "is the button still down", and a DRAG needs the second
+     question to tell a press-and-hold apart from a press-and-release one
+     frame later. So `uiDown` mirrors `cmd.mouse`'s shape instead: true on
+     pointerdown, false on pointerup, untouched by `clearEdges()`.
+     `shell/main.js`'s dispatcher watches its RISING edge to pick a drag
+     payload and its FALLING edge to resolve the drop.
+
+     `uiCtrl`/`uiShift` are the modifier snapshot taken at click time.
+     `uiWheel` is a per-FRAME signed delta, not one-shot -- it accumulates
+     between clears so a fast scroll is not dropped. There is no drag FIELD
+     here: `shell/ui.js#setDrag`/`clearDrag` already hold that payload. */
   uiClick: false, uiRight: false, uiCtrl: false, uiShift: false, uiWheel: 0, uiDown: false
 };
 
@@ -103,32 +93,25 @@ function set(k, down) {
   if (key === 'x' || key === 'j')   cmd.dig = down;
   if (key === 'e')                  { if (down && !placeHeld) cmd.place = true; placeHeld = down; }
   if (key === 'u')                  cmd.craft = down;
-  /* 'q' for the drop verb (CLAUDE.md D4's prerequisite) -- EDGE-TRIGGERED,
-     same `*Held` latch idiom as `hop`/`place` above: this file's own header
-     already records that a held key emptying the pockets into a wall in
-     half a second is a bug, and a held drop would empty the pockets one
-     pair at a time just as fast. */
+  /* 'q' for the drop verb -- EDGE-TRIGGERED, same `*Held` latch idiom as
+     `hop`/`place` above: this file's own header already records that a held
+     key emptying the pockets into a wall in half a second is a bug, and a held
+     drop would empty the pockets one pair at a time just as fast. */
   if (key === 'q')                  { if (down && !dropHeld) cmd.drop = true; dropHeld = down; }
-  /* 'backspace' for deconstruct (Phase 3, `docs/BUILD_PLAN.md`) -- the
-     inverse of `e`'s place, EDGE-TRIGGERED for the identical reason: a held
-     key that tore down every machine the aim reticle crossed in half a
-     second would be the same bug this file's header already warns about for
-     `place`, just running backwards. */
+  /* 'backspace' for deconstruct -- the inverse of `e`'s place,
+     EDGE-TRIGGERED for the identical reason: a held key that tore down every
+     machine the aim reticle crossed in half a second would be the same bug
+     this file's header already warns about for `place`, running backwards. */
   if (key === 'backspace')          { if (down && !deconHeld) cmd.deconstruct = true; deconHeld = down; }
-  /* 'v' to USE a held miracle (Phase 4, docs/BUILD_PLAN.md STEP 3) --
-     EDGE-TRIGGERED, same idiom again: a held key that collapsed a whole
-     stack of miracles into the terrain in half a second would be the same
-     bug class. Mnemonic is thin ('v' ~ "vial"/"phial"), but every letter
-     nearer the word "use" or "miracle" was already claimed (checked KEYS
-     plus every `if (k === ...)` in this file, same as 'o' and the debug
-     grants below). This is a REAL action, not a debug spawn -- it consumes
-     something the player already holds -- so it is NOT gated on
+  /* 'v' to USE a held miracle -- EDGE-TRIGGERED, same idiom again: a held key
+     that collapsed a whole stack of miracles into the terrain in half a second
+     would be the same bug class. This is a REAL action, not a debug spawn --
+     it consumes something the player already holds -- so it is NOT gated on
      `flags.showDebug`. */
   if (key === 'v')                  { if (down && !miracleHeld) cmd.miracle = true; miracleHeld = down; }
   /* 'p' to EQUIP the first held-but-unequipped trinket into the first empty
-     slot (Phase 4 STEP 4) -- "put on". A real action like 'v' above, not a
-     debug spawn, so also ungated. The drag-to-equip UI is Phase 5b's job;
-     this is the model-driven path that phase's own text says is enough. */
+     slot -- "put on". A real action like 'v' above, not a debug spawn, so
+     also ungated. */
   if (key === 'p')                  { if (down && !equipHeld) cmd.equip = true; equipHeld = down; }
 }
 
@@ -182,18 +165,6 @@ export function installInput() {
     if (k === 'g') flags.showGrid   = !flags.showGrid;
     if (k === 'c') flags.showChunks = !flags.showChunks;
     if (k === 'h') flags.showDebug  = !flags.showDebug;
-    /* 'i' REUSED, not migrated (Phase 5a, docs/BUILD_PLAN.md; D2 in
-       CLAUDE.md): it keeps toggling the existing text `flags.showInv` panel
-       (`view/hud.js#invPanel`) UNCHANGED -- that panel is real, shipped
-       gameplay (it is how the build menu's 1-9 digits below even become
-       live), and this phase ships no replacement for it yet, so retiring
-       its only key binding here would be a functional regression, not
-       infrastructure. It ALSO now opens/closes the new panel stack
-       (`shell/ui.js#toggle('main')`), which today has nothing registered
-       to read `isOpen('main')`, so this second effect is inert -- it is
-       the hook Phase 5b's tabbed window binds to, so THAT phase does not
-       have to touch this file to pick a key. One physical key, one
-       mnemonic, two systems mid-migration. */
     if (k === 'i') { flags.showInv = !flags.showInv; toggle('main'); }
     /* Escape closes the TOP of the panel stack only -- a modal above the
        window (none exists yet) would close before the window under it.
@@ -204,45 +175,16 @@ export function installInput() {
        or not a panel happens to be open -- a player who armed a pair, then
        closed the panel to go aim, still has one visible "cancel" key. */
     if (k === 'escape') clearArmedPlace();
-    /* 'o' for "overview" -- 'm' was already mute, and every other mnemonic
-       letter (map, w/a/s/d, world) was claimed by movement or an earlier
-       phase; checked the full `KEYS` table and every `if (k === ...)` above
-       before picking it. Same edge-triggered boolean-flip idiom as `showGrid`/
-       `showChunks`/`showDebug`/`showInv` -- a held key does not matter here,
-       since the map is a mode you sit in, not an action you repeat. */
+    /* Same edge-triggered boolean-flip idiom as `showGrid`/`showChunks`/
+       `showDebug`/`showInv` -- a held key does not matter here, since the map
+       is a mode you sit in, not an action you repeat. */
     if (k === 'o') flags.showMap    = !flags.showMap;
     if (k === 'm') audio.muted = !audio.muted;
     if (k === 'r') wants.restart = true;
 
-    /* `f`/`l` REMOVED (design reversal, `docs/FINDINGS.md`): they used to
-       spawn a furnace/lift from nothing, unconditionally, kept behind
-       `flags.showDebug` as a development shortcut once both machines
-       carried a real `cost` (`docs/BUILD_PLAN.md` Phase 3). A machine is now
-       a HELD ITEM built by an ordinary hand-craft recipe and placed like any
-       other held pair (`data/forms.js#rig`) -- "spawn a furnace placement
-       for free" no longer means anything coherent once placement always
-       costs a held item, so the shortcut is gone rather than reworded. Use
-       the debug grant key (`k`, unaffected -- see its own comment below) plus
-       an ordinary hand-craft to get one instead.
-
-       `t`/`b`/`k`/`y` moved in HERE in Phase 4 STEP 6 (docs/BUILD_PLAN.md):
-       every "spawn a modifier tier from nothing" debug path now lives
-       behind `flags.showDebug` and nowhere else, since every tier finally
-       has a REAL source that does not need a debug key -- a trinket from a
-       rare mining drop or the drop table (`rules/mining.js`,
-       `data/drops.js`), a boon from a god grant or a miracle's own
-       side-effect, a miracle... still only from here or a future draft, but
-       "must be earned" (STEP 4) was specifically about TRINKETS, which now
-       are. `docs/AUDIT.md` section 3's own finding is that `t`/`b` were
-       ONCE the ONLY source of either tier; that finding no longer applies.
-
-       't' trinket, 'b' the TIMED boon tier (the word's new, narrower
-       meaning -- Phase 4 Step 1 moved the MACHINE-GRANT tier off this
-       letter entirely; see that commit's own note here), 'k' the machine
-       grant (the free key 'b' vacated), 'y' a miracle phial. Checked the
-       full KEYS table and every `if (k === ...)` in this file before
-       picking 'k'/'y' -- both unused, same diligence 'o' and 'q' already
-       state doing. */
+    /* Every "spawn a tier from nothing" path lives behind `flags.showDebug`
+       and nowhere else: 't' trinket, 'b' the timed boon tier, 'k' the machine
+       grant, 'y' a miracle phial. */
     if (flags.showDebug) {
       if (k === 't') wants.draft = 'trinket';
       if (k === 'b') wants.draft = 'boon';
@@ -250,19 +192,8 @@ export function installInput() {
       if (k === 'y') wants.draft = 'miracle';
     }
 
-    /* DIGIT KEYS ARM THE MATCHING QUICKBAR SLOT (retires the old digit-driven
-       BUILD menu -- `model/run.js#buildableMachines()`, deleted along with
-       this block; see `docs/FINDINGS.md`). That menu read a machine's
-       `def.cost`, which has been `undefined` on every `data/machines.js` row
-       since machines became craftable HELD ITEMS, so `canAfford(undefined)`
-       was always true and the list's own "can you afford this" display had
-       been permanently wrong since that change landed -- and it was fully
-       redundant besides: holding, arming and placing an item is now the one
-       real mechanism for every placeable, tiles and machines alike, the same
-       way the free `f`/`l` spawn keys were superseded earlier. This is a
-       deliberate supersession, not a bug fix.
-
-       A digit key now does exactly what a click on that quickbar slot
+    /* DIGIT KEYS ARM THE MATCHING QUICKBAR SLOT.
+       A digit key does exactly what a click on that quickbar slot
        already does (`shell/main.js#applyUiIntents`'s click-to-arm branch):
        arm the slot's assigned pair for the next placement. Reached through
        `view/ui/quickbar.js#slotForDigit`, the SAME digit-to-slot mapping
@@ -339,10 +270,10 @@ export function installInput() {
   cv.addEventListener('pointerdown', e => {
     unlockAudio();
     toWorld(e, pointer.cam);
-    /* THE OPEN PANEL STACK CAPTURES INPUT (Phase 5a): route to the UI
-       intents instead of the gameplay ones whenever a panel is open, so a
-       click meant for a slot can never also dig, mine or place through to
-       the world underneath it. */
+    /* THE OPEN PANEL STACK CAPTURES INPUT: route to the UI intents instead of
+       the gameplay ones whenever a panel is open, so a click meant for a slot
+       can never also dig, mine or place through to the world underneath it.
+       See docs/DEVELOPER_GUIDE.md#input-intents */
     if (isOpen(top()) || onAlwaysOnUi(e)) {
       if (e.button === 2) cmd.uiRight = true; else { cmd.uiClick = true; cmd.uiDown = true; }
       cmd.uiCtrl = e.ctrlKey || e.metaKey;

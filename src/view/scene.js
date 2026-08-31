@@ -1,14 +1,12 @@
 /* LAYER view — THE FRAME. Composes the passes and owns nothing but the order
    they happen in. Imports `core`, `data` and READ-ONLY `model` queries.
 
-   ============================================================================
    `render()` PERFORMS NO MODEL WRITES, AND THAT IS PROVABLE.
    The static half: `tools/layers.mjs` forbids `view -> rules`, and nothing here
    imports a `write` namespace. The dynamic half: `model/epoch.js` counts every
    mutation, and the check tool asserts the counter does not move across a call
    to this function. Two partial nets where a type system would give one
    guarantee — stated honestly rather than claimed as proof.
-   ============================================================================
 
    BANDS ARE LAID OUT IN ONE SHARED WORLD-PIXEL SPACE, so more than one can be
    on screen at once and this loop draws every band the viewport touches. There
@@ -17,10 +15,8 @@
 
    PASS ORDER: void, then per band (sky, then chunks), then machines, items,
    player, chips, field overlay, fog of war, atmosphere, debug, HUD. Anything
-   that reads as lighting comes after everything it lights -- which is also
-   why fog sits AFTER the field overlay rather than merely near it: fog hides
-   a tile "regardless of what's actually there" (the confirmed rule), and a
-   heat glow is one more thing that is actually there. */
+   that reads as lighting comes after everything it lights.
+   See docs/DEVELOPER_GUIDE.md#pass-order-and-darkness */
 
 import { drawText } from '../core/font.js';
 import { mix } from '../core/palette.js';
@@ -69,7 +65,8 @@ export const stats = { chunksDrawn: 0, bandsDrawn: 0 };
 /* `f` is the frame context assembled by `shell/main.js`:
      { cam:{x,y}, t, dt, frame, W, H, flags }
    Passed in rather than imported, because the clock and the camera are devices'
-   business and `view` may not import `shell`. */
+   business and `view` may not import `shell`.
+   See docs/DEVELOPER_GUIDE.md#the-frame-context */
 export function render(g, f) {
   const { cam, W, H } = f;
   cam.x = Math.round(cam.x); cam.y = Math.round(cam.y);
@@ -292,7 +289,8 @@ function drawPlayer(g, f) {
    and fog of war (below) is the same shape of pass for the same reason: a
    permanent bit per tile is still a LIVE read every frame, because the chunk
    canvas it would otherwise sit on caches the static rock underneath, not
-   whether the player has earned the right to see it. */
+   whether the player has earned the right to see it.
+   See docs/DEVELOPER_GUIDE.md#view-cache-invalidation */
 function drawFields(g, f) {
   const { cam, W, H } = f;
   for (const b of bands) {

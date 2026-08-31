@@ -9,25 +9,17 @@
    halves live apart). Rebuilt every draw, never relied on across frames.
 
    `resetDrawn()` is called once per frame by whatever assembles a frame of
-   panels — Phase 5b's job, the same place `view/hud.js#drawHUD` zeroes
-   `pocketHits.length` today. Phase 5a ships no caller, so in a normal run
-   these arrays simply stay empty; the throwaway harness that verifies this
-   phase calls it directly. */
+   panels, the same place `view/hud.js#drawHUD` zeroes `pocketHits.length`.
+   See docs/DEVELOPER_GUIDE.md#record-what-you-drew */
 
 export const drawn = { panels: [], tabs: [], grids: [], bars: [], tooltip: null,
-  /* Phase 5b addition: `gridId -> [recipeId, ...]`, one entry per crafting
-     grid drawn this frame -- `view/ui/mainPanel.js`'s own header explains why
-     a grid slot's `{sub,form,n,mass}` shape (Phase 5a's contract, unchanged)
-     is not enough on its own to name a recipe with a `subFrom` output. Reset
-     alongside everything else below, never relied on across frames. */
+  /* `gridId -> [recipeId, ...]`, one entry per crafting grid drawn this frame
+     -- `view/ui/mainPanel.js`'s own header explains why a grid slot's
+     `{sub,form,n,mass}` shape is not enough on its own to name a recipe with a
+     `subFrom` output. Reset alongside everything else below, never relied on
+     across frames. */
   recipeIndex: {} };
 
-/* `buttons` -- a generic `{id,x,y,w,h}` rectangle for a plain clickable TEXT
-   row that was neither a grid slot, a tab nor a panel -- was added for the
-   LOGISTICS tab's old digit-driven BUILD row list (Bug 1 audit) and removed
-   along with it: click-to-arm placement plus the quickbar's own digit keys
-   are the one real mechanism for every placeable now, so nothing left to
-   register a text-row hit target for. See `docs/FINDINGS.md`. */
 export function resetDrawn() {
   drawn.panels.length = 0;
   drawn.tabs.length = 0;

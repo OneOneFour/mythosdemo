@@ -3,18 +3,12 @@
    and rules are mutually forbidden) and no `shell` import (the pointer reaches
    this file as WORLD px on the frame context, exactly the way `cam` does).
 
-   ============================================================================
    NO STATE. `model/aim.js` exists because `rules/mining.js` WRITES the aim and
-   `view/hud.js` READS it -- a datum with a writer in one forbidden-to-import
-   layer and a reader in another has to live somewhere both can reach. Hover
-   has exactly one writer AND one reader, both this file's caller, so it is not
-   a field on anything: it is a return value, recomputed from the pointer
-   position and the current model on every call, the same way `paintTile`
-   recomputes a tile's cracks from `progressAt` instead of caching them on the
-   tile. Caching a hover result on a model record would be a `view` write to
-   `model`, which is exactly what the epoch assertion in `tools/check.mjs`
-   exists to catch -- see ARCHITECTURE invariant 9.
-   ============================================================================
+   `view/hud.js` READS it. Hover has exactly one writer AND one reader, both
+   this file's caller, so it is not a field on anything: it is a return value,
+   recomputed on every call. Caching a hover result on a model record would be
+   a `view` write to `model`, which the epoch assertion exists to catch (
+   invariant 9). See docs/DEVELOPER_GUIDE.md#where-does-state-go
 
    PRIORITY. The HUD is drawn on top of the world, so a HUD hitbox always wins.
    Within the world: a falling item beats a machine beats bare rock, because an
@@ -42,7 +36,8 @@ const STATUS_WORDS = { running: 'RUNNING', 'no-fuel': 'NO FUEL', idle: 'IDLE' };
    unit source (the lift's own hearts, `data/sources.js#vital`) has no
    buffered pair for a tooltip to name. `view` may not import `rules`, which
    is why this re-reads the buffer directly through `count` rather than
-   calling `choose` itself. */
+   calling `choose` itself.
+   See docs/DEVELOPER_GUIDE.md#one-decision-two-readers */
 function currentRecipe(m, def) {
   for (const r of recipesOf(def)) {
     if (r.from && r.from !== 'buffer') continue;

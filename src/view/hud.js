@@ -89,7 +89,7 @@ const UI = {
    hover target and `tests/visual.spec.js`'s hover test still reads this
    array through `__mf.hits`. Rebuilt from scratch every `drawHUD` call --
    read, never relied on for anything but the next line's hover test and the
-   test hook. */
+   test hook. See docs/DEVELOPER_GUIDE.md#record-what-you-drew */
 export const pocketHits = [];
 
 /* What a tooltip is showing right now, or `active:false`. The one thing this
@@ -101,33 +101,20 @@ export const hoverInfo = { active: false, x: 0, y: 0, lines: null };
 export function drawHUD(g, f) {
   const { W, H } = f;
 
-  /* Phase 5b: the widget layer's own scratch space is rebuilt once per HUD
-     frame, the same place `pocketHits.length = 0` below already resets this
-     file's own equivalent -- see `view/ui/state.js`'s header. */
+  /* The widget layer's own scratch space is rebuilt once per HUD frame, the
+     same place `pocketHits.length = 0` below already resets this file's own
+     equivalent -- see `view/ui/state.js`'s header. */
   resetUiDrawn();
 
   hearts(g, 6, 6);
   const burdenBottom = burden(g, 6, 14, W);
   pocketHits.length = 0;
-  /* The panel opens a fixed gap below the burden bar. It used to open below
-     wherever the pocket STRIP actually ended (the strip wrapped onto a
-     second row once enough distinct pairs were held) -- now that the strip
-     is gone, `burden()`'s own return value (which already accounts for the
-     lockout line growing it) is the only thing that needs measuring. */
-  /* Phase 5b: `'i'` toggles `flags.showInv` AND `shell/ui.js#toggle('main')`
-     TOGETHER (Phase 5a's own wiring, see `shell/input.js`'s comment at the
-     `'i'` handler) -- so with the new tabbed window shipped, this OLD panel
-     would otherwise draw directly on top of it every time either opens,
-     which is exactly what it looked like before this guard was added. Its
-     POCKETS and CRAFT sections are superseded by the new CHARACTER and
-     CRAFTING tabs; its BUILD section is gone outright, not ported anywhere
-     -- it read `model/run.js#buildableMachines()`, deleted along with the
-     digit-driven BUILD menu it fed (`shell/input.js`'s own comment,
-     `docs/FINDINGS.md`): holding, arming (click OR digit key, against the
-     quickbar) and placing an item is the one real mechanism for every
-     placeable now, tiles and machines alike. This panel only still draws at
-     all in the rare desync this comment already described before this
-     change (Escape closing 'main' without touching `flags.showInv`). */
+  /* The panel opens a fixed gap below the burden bar: `burden()`'s own return
+     value already accounts for the lockout line growing it.
+
+     `'i'` toggles `flags.showInv` AND `shell/ui.js#toggle('main')` TOGETHER,
+     so without this guard the OLD panel would draw directly on top of the new
+     tabbed window every time either opens. */
   if (f.flags.showInv && !f.ui.stack.includes('main'))
     pocketHits.push(...invPanel(g, f, burdenBottom + 4));
   depth(g, W, 6);
@@ -228,9 +215,7 @@ function invPanel(g, f, top) {
 
   /* CRAFT lists every `hand:true` recipe (`data/recipes.js#HAND_RECIPES`),
      unnumbered because `rules/crafting.js#choose` always picks the first one
-     the player can afford, not a menu selection. The BUILD section this
-     panel used to draw below CRAFT is gone outright -- see this function's
-     caller in `drawHUD` for why. */
+     the player can afford, not a menu selection. */
   const recipes = HAND_RECIPES;
   const craftLines = recipes.map(r => `${r.name} ${billOf(r.in)}`);
   const lineH = 9;
@@ -423,7 +408,7 @@ function reticle(g, f) {
   g.globalAlpha = 1;
 }
 
-/* ---------- the build ghost (Phase 3, `docs/BUILD_PLAN.md`) ----------
+/* ---------- the build ghost ----------
    Preview the ARMED pair's footprint at the aim reticle -- snapped to the
    grid, tinted by whether `model/run.js#placementCheck` (the SAME query
    `rules/placement.js#placeMachine` calls before ever touching the world)
@@ -432,14 +417,7 @@ function reticle(g, f) {
    reads a MODEL query and nothing else. The footprint is anchored EXACTLY the
    way `shell/main.js#applyIntents` anchors a real placement (bottom row at
    the aimed tile), so the preview can never show a spot the real placement
-   would not also choose.
-
-   This used to also preview whichever row of the old digit-driven BUILD
-   panel the pointer was hovering, before any pair was armed at all -- gone
-   along with that panel (`docs/FINDINGS.md`): click-to-arm (mouse or the
-   quickbar's own digit keys) is the one path to a placement now, so there is
-   always an armed pair to preview once the player means to place anything,
-   never a hover-only intermediate state to show a ghost for. */
+   would not also choose. See docs/DEVELOPER_GUIDE.md#one-decision-two-readers */
 function drawFootprintGhost(g, f, band, tx, ty, tw, th, ok, why) {
   const t = band.tile;
   const col = ok ? UI.good : UI.heart;
@@ -463,8 +441,8 @@ function drawFootprintGhost(g, f, band, tx, ty, tw, th, ok, why) {
 function buildGhost(g, f) {
   if (!aim.valid || !aim.band) return;
 
-  /* Part 1 (click-to-arm placement): preview the ARMED pair, if any, at the
-     aim reticle -- the same footprint-tint idiom above, generalised to a
+  /* Preview the ARMED pair, if any, at the aim reticle -- the same
+     footprint-tint idiom above, generalised to a
      single-tile footprint for a tile-capable form. `view` may not import
      `rules`, so a tile's own placement rule (`rules/placement.js#placeTile`'s
      "needs something to hang from") is not re-proven here; the one fact this

@@ -1,14 +1,9 @@
 /* LAYER shell — THE ORDER THE RULES RUN IN, STATED ONCE.
    Imports `model` (the run clock) and every `rules` module.
 
-   ============================================================================
-   `rules` MODULES MAY NOT IMPORT EACH OTHER. The cost of that ban is that
-   ordering has to be written down somewhere explicit, and this is the somewhere.
-   The benefit is that THIS LIST IS THE SIMULATION: there is no other place a
-   step can hide, and reordering the game is reordering this array. In the
-   previous codebase the order was an emergent property of the import graph, and
-   `sim/mining.js` imported the tutorial to get it.
-   ============================================================================
+   `rules` MODULES MAY NOT IMPORT EACH OTHER, so THIS LIST IS THE SIMULATION:
+   there is no other place a step can hide, and reordering the game is
+   reordering this array. See docs/DEVELOPER_GUIDE.md#the-rules-order
 
    ORDER MATTERS, AND HERE IS WHY FOR EACH ADJACENT PAIR:
 
@@ -149,7 +144,8 @@ export const STEPS = [
 
 /* Mouse aim when there is a mouse, keyboard fallback otherwise. Which of the two
    is a DEVICE question, which is why it is resolved in `shell` and `rules/mining`
-   exposes both entry points rather than guessing. */
+   exposes both entry points rather than guessing.
+   See docs/DEVELOPER_GUIDE.md#the-rules-order */
 function aim(cmd) {
   if (cmd.hasMouse) mining.aimAtWorld(cmd.mx, cmd.my);
   else mining.aimAtKeys(cmd);
@@ -162,7 +158,7 @@ export function stepAll(dt, cmd) {
 /* Re-exported so `shell/boot.js`/`shell/main.js` have one import for the
    rules they must call OUTSIDE the per-frame order — granting, drafting and
    using a miracle are events, not steps, and putting them in the array above
-   would be a lie about when they happen. `boons` is exported for its
-   `grant`/`draftable` pair even though it ALSO has a per-frame `step` in
-   `STEPS` above, the same dual role `trinkets` already has. */
+   would be a lie about when they happen (docs/DEVELOPER_GUIDE.md#the-rules-order).
+   `boons` is exported for its `grant`/`draftable` pair even though it ALSO has
+   a per-frame `step` in `STEPS` above, the same dual role `trinkets` has. */
 export { boons, grants, miracles, trinkets };

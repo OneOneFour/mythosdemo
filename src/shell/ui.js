@@ -4,27 +4,19 @@
 
    WHY THIS IS SHELL AND NOT VIEW: which panel is open, the active tab per
    panel, the focused slot, the drag payload, the search string and each
-   grid's scroll offset are all facts about the SESSION, not about the
-   WORLD — closing and reopening the inventory does not change `run`, so
-   none of it belongs in `model` (invariant 8: a field surviving a restart
-   would be a determinism bug, and none of THIS needs to survive one either,
-   since `rules` never reads it). And `view` may not import `shell`, so this
-   object is handed to `view` through `shell/main.js#frameCtx`, exactly as
-   `shell/input.js#flags` already is — see that file's own header for the
-   precedent this follows.
+   grid's scroll offset are all facts about the SESSION, not about the WORLD.
+   See docs/DEVELOPER_GUIDE.md#where-does-state-go. `view` may not import
+   `shell`, so this object is handed to `view` through
+   `shell/main.js#frameCtx`, exactly as `shell/input.js#flags` already is.
 
    `ui.stack` is a STACK, not a single id, so a future modal (a "really
    deconstruct this?" confirmation) can sit on top of the tabbed window
-   without the window losing its own open/tab state. Phase 5a ships nothing
-   that pushes a second entry; the stack exists so Phase 5b does not have to
-   touch this file's shape to add one. Escape pops exactly the top entry —
-   see `closeTop()` — never the whole stack, so a modal closes without also
-   closing the window underneath it.
+   without the window losing its own open/tab state. Escape pops exactly the
+   top entry — see `closeTop()` — never the whole stack, so a modal closes
+   without also closing the window underneath it.
 
-   Every export here is a plain function mutating properties on the one
-   `ui` object below, per this repo's convention: an ES module binding is
-   read-only to importers, so cross-module mutable state lives on an
-   object's properties (see `clock.t`, `cam.y`, `flags.showInv`). */
+   Every export here is a plain function mutating properties on the one `ui`
+   object below, per docs/DEVELOPER_GUIDE.md#cross-module-mutable-state. */
 
 export const ui = {
   stack: [],                    // panel ids; last = topmost = frontmost open
@@ -35,21 +27,17 @@ export const ui = {
   searchFocus: false,           // is the CRAFTING tab's search field capturing keys
   scroll: Object.create(null),  // `${panel}:${grid}` -> row offset (integer)
 
-  /* ---- Phase 5b additions, both UI STATE and both deliberately NOT model ----
+  /* ---- both UI STATE and both deliberately NOT model ----
 
-     `craftQueue`: an ARRAY of recipe ids, FIFO, head = in progress. THE REAL
-     CONSTRAINT (docs/BUILD_PLAN.md Phase 5b, restated because it decided this
-     file's shape): `rules/crafting.js` is a SCALAR on `run`
+     `craftQueue`: an ARRAY of recipe ids, FIFO, head = in progress. THE QUEUE
+     IS NOT A MECHANIC CHANGE. `rules/crafting.js` is a SCALAR on `run`
      (`craftProgress`/`craftRecipe`) because a player has one pair of hands,
-     and it forgets the bar the instant the craft intent goes false. A queue
-     that ACTUALLY ran more than one craft in flight would be a mechanic
-     change, not a UI feature, and this file's owner may not make that change
-     (`rules/crafting.js` is out of Phase 5b's FILE OWNERSHIP). So the queue
-     re-asserts the SAME one intent every frame it is non-empty
+     and it forgets the bar the instant the craft intent goes false. Actually
+     running more than one craft in flight would be a change to THAT. So the
+     queue re-asserts the SAME one intent every frame it is non-empty
      (`shell/main.js#step`), and drains one entry per completed hand-craft
      (`shell/main.js#tickCraftQueue`, which reads `model/journal.js#peek()`'s
-     'produce' rows rather than touching `rules/crafting.js` at all). See
-     `docs/FINDINGS.md` for the design question this leaves on record.
+     'produce' rows rather than touching `rules/crafting.js` at all).
      Cancelling costs nothing to refund: `rules/crafting.js` never spends a
      single input until the recipe's `secs` is reached, so removing a queued
      entry before then has nothing to give back.
@@ -57,9 +45,7 @@ export const ui = {
      `quickbar`: a fixed-length array of `{ sub, form } | null`, ASSIGNMENT
      ONLY — which pocket pair sits in which numbered slot is a fact about the
      SESSION, same as everything else in this file, and changing it does not
-     touch `run.inv` at all (`docs/BUILD_PLAN.md`: "nothing about which slot
-     an item sits in changes the world"). Ten slots, two rows of five, the
-     reference's own layout. */
+     touch `run.inv` at all. Ten slots, two rows of five. */
   craftQueue: [],
   quickbar: Array.from({ length: 10 }, () => null),
   /* One toggleable line of key hints (the QUICKBAR section of Phase 5b),
@@ -139,8 +125,8 @@ export function setSearch(s) { ui.search = s; }
    Keyed by `panel:grid` rather than nesting an object per panel, so a grid
    id is guaranteed unique across the whole session state with one string
    compare instead of a two-level lookup — the same flattening
-   `model/mods.js`'s scoped keys (`rate.furnace`) already uses for the same
-   reason: one map, one key shape, nothing to keep in sync. */
+   `model/mods.js`'s scoped keys (`rate.furnace`) already uses. See
+   docs/DEVELOPER_GUIDE.md#the-tunable-pipeline */
 const scrollKey = (panel, grid) => panel + ':' + grid;
 
 export function scrollOf(panel, grid) { return ui.scroll[scrollKey(panel, grid)] || 0; }
