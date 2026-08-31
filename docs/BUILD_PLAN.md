@@ -241,6 +241,17 @@ Behaviour must be IDENTICAL for existing content after this change.
    - lightFalloffRock value  3     levels    lost per tile through solid rock
    - brandSecs        value  90    s         one lit brand's burn time
    - toolTier         scale  1.0   scope 'substance'   bends tile.tier gating
+   - tossUp           value  50    px/s      upward toss on a newly spawned
+                                             falling item (drop verb only —
+                                             see docs/FINDINGS.md's toss-
+                                             velocity finding; the four
+                                             existing hardcoded call sites in
+                                             rules/mining.js, rules/trinkets.js,
+                                             rules/crafting.js and
+                                             rules/machines.js are NOT touched
+                                             this phase, only the new drop verb
+                                             reads this row)
+   - tossSpread       value  12    px/s      horizontal scatter on the same
    Every one of these gets a `note` explaining the number, in the style of the
    rows already there. Add them to docs/SPEC.md in the same commit — a new
    locked-numbers section for encumbrance, light and tool tiers.
@@ -325,7 +336,11 @@ debugging time, and you are editing the file they live in.
       function in src/rules/items.js
     - it spawns the pair as a falling item at the player's feet with a small
       toss, exactly the idiom rules/crafting.js and rules/trinkets.js#grant
-      already use, and spends exactly one unit from run.inv
+      already use, and spends exactly one unit from run.inv. Read the toss
+      velocity through eff('tossUp') / eff('tossSpread') (new Phase 1 rows) —
+      do not hardcode a fifth magic toss number; docs/FINDINGS.md records that
+      the four existing call sites already disagree with each other and this
+      verb should not add a fifth disagreement
     - which pair: the heaviest held pair, so the verb is useful under the cap
       you are trying to get under. Not the first in HUD order.
     - it pushes a journal row so shell/notify.js can say what was dropped
@@ -455,10 +470,22 @@ LIGHT FIELD
     to quadratic. rules/reveal.js#passA solved exactly this by walking DOWN
     from row 0 once per column and stopping after the first solid tile. Do the
     same. Do not call skyExposedAt in a loop over tiles.
-  - register the new step in src/shell/schedule.js with a comment explaining
-    its adjacent pairs, as every other entry has. It must run BEFORE reveal
-    (reveal now reads light) and AFTER mining (a tile broken this frame opens a
-    new light path this frame). Between them is the only correct slot; say so.
+  - FIXED AFTER PHASE 0: the live STEPS order is `player -> reveal -> mining ->
+    items -> ...`, NOT `player -> mining -> reveal -> ...`. There is no
+    existing mining-then-reveal adjacency to insert into. `reveal` currently
+    sits right after `player` on the stated rationale that it "reads nothing
+    mining touches and writes nothing anything else reads" — true today, and
+    exactly the invariant this phase breaks once Pass B gates its flood on
+    lightAt(). So: MOVE reveal. The new order is
+    `player -> mining -> light -> reveal -> items -> ...`. Register `light` as
+    a new step immediately after `mining` and move the existing `reveal` entry
+    to immediately after `light`. Rewrite BOTH header-comment entries in
+    src/shell/schedule.js: `player before reveal` no longer applies (delete
+    it), and its old reasoning is replaced by two new adjacent-pair entries —
+    `mining before light` (a tile broken this frame opens a new light path
+    this frame) and `light before reveal` (reveal's flood now reads this
+    frame's light, not stale). Do not leave the old `player before reveal`
+    prose in place describing an edge that no longer exists.
 
 RENDERING (src/view/scene.js only)
   - a darkness pass over tiles that ARE seen, drawn after the terrain and the
