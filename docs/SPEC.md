@@ -325,6 +325,13 @@ before the tile-id byte overflows (`src/data/forms.js`'s guard).
 
 ## 13. Buildable machine costs (Phase 3)
 
+**SUPERSEDED by section 15.** This section is kept as the historical record
+of Phase 3's own reasoning (the numbers below are unchanged, and still exactly
+what section 15's held items cost to build) — but "cost at placement" itself
+is gone, reversed on direct post-launch feedback. See section 15 for the
+current mechanic: a machine is now a held `<id>/rig` item, crafted like any
+other recipe and spent at placement, not a bill charged there.
+
 Locked with `docs/BUILD_PLAN.md` Phase 3: `furnace` and `lift` were free and
 `F`/`L` spawned either from nothing. Both are now priced in talents against
 the 40 T `burden` cap (section 9), so the haul itself is the decision the
@@ -445,3 +452,100 @@ adamant) named in `data/drops.js` and rolled in `rules/mining.js`'s rare-drop
 hook, through `rand()` only (invariant 7). A drop-table row for tribute
 completion is also in `data/drops.js` but not yet consumed — tribute
 completion is not a real event yet (see `docs/FINDINGS.md`).
+
+## 15. Machine items (design reversal, post-launch)
+
+**This section supersedes section 13's "cost at placement" mechanic**, on
+direct user feedback after playing the shipped game: crafting and
+machine-building are unified into ONE list, and a built machine is "a thing
+like wood or stone that lives in a pocket slot, but heavier." Section 13's
+own reasoning for rejecting a machine-item — "a furnace is not an element,
+one substance row per machine is exactly what `data/substances.js`'s header
+forbids" — proved too conservative: `data/substances.js#bellows` (a
+trinket) and `#chasm` (a miracle) are ALREADY one substance per thing,
+justified by the identical "this refines from nothing, it IS the element"
+argument, crossed with a shared form (`relic`, `phial`). A machine is
+fabricated, not compressed from ore, and unique in itself — the same
+category.
+
+**The mechanism.** `data/forms.js#rig` is the new shared form every machine
+substance takes (`subTags:['machine']`, `massK:1.0` so a machine substance's
+`item.mass` IS the held item's mass directly). One substance row per machine
+in `data/substances.js`, id reusing the machine's own id from
+`data/machines.js` — the same 1:1 naming precedent `bellows` already sets.
+One `hand:true` recipe per machine in `data/recipes.js`, spending EXACTLY
+the bill `data/machines.js` used to charge at placement (unchanged from
+section 13's own table) and producing one `<id>/rig`. `data/machines.js`'s
+`cost` key is deleted — the recipe is the single source of what a machine
+costs, not a second copy of the same numbers.
+
+| machine | held substance | recipe secs | item mass |
+|---|---|---|---|
+| `furnace` | `furnace` | 8.0 | 16.8 T |
+| `lift` | `lift` | 20.0 | 20.8 T |
+| `press` | `press` (recipe key `press_machine`, distinct from the ingot->plate `press` recipe) | 12.0 | 12.8 T |
+| `belt_r` / `belt_l` | `belt_r` (ONE shared substance — see below) | 10.0 | 6.0 T |
+| `brazier` | `brazier` | 5.0 | 3.8 T |
+| `hearth` | `hearth` | 4.0 | 4.8 T |
+| `talos_head` / `talos_head_l` | `talos_head` (ONE shared substance) | 16.0 | 22.4 T |
+| `cyclops_maw` / `cyclops_maw_l` | `cyclops_maw` (ONE shared substance) | 24.0 | 50.7 T |
+
+Mass is `Σ substance.item.mass x form.massK x n` over the FORMER cost bill
+— the identical `model/items.js#massOfPair` arithmetic, so a recipe can never
+manufacture more mass than it consumes (the content lint's own conservation
+check). `kiln_divine` has NO substance or recipe: its cost bill is
+BIT-IDENTICAL to `furnace`'s, and two hand-recipes with an identical trigger
+would starve one of them forever under `rules/crafting.js#choose`'s
+first-match rule — the exact tie class `daedalan`/`auger`'s differing log
+counts exist specifically to avoid, with no quantity left to differentiate
+here since retuning would invent a number Phase 3 never set. It remains
+grantable (`data/grants.js#gift-kiln`) but not currently placeable; see
+`docs/FINDINGS.md`.
+
+**Mirrored pairs share one substance.** `belt_r`/`belt_l`,
+`talos_head`/`talos_head_l` and `cyclops_maw`/`cyclops_maw_l` are each one
+`variantOf` row differing only in a `belt.dir`/`mine.facing` flip — giving
+each its own substance would need a SECOND hand-recipe with a bit-identical
+bill (the same unbreakable tie `kiln_divine` hits) AND would have overflowed
+the tile-byte budget (see below). Instead, `model/run.js#machineIdFor`
+resolves ONE held substance to a concrete machine id off `player.face`
+(+-1) at the moment of placement — the SAME direction convention
+`belt.dir`/`mine.facing` already carry, reused rather than reinvented. A
+held belt places facing wherever the player is currently walking/facing.
+
+**Placement.** `model/run.js#placementCheck`'s cost gate is now
+`invCount(machineHeldSub(machineId), F.rig) >= 1` instead of `canAfford(def.
+cost)` — same position in the check order (last), same refusal shape, new
+reason string (`'NOTHING BUILT YET'`). `rules/placement.js#placeMachine`
+spends exactly 1 unit of that pair after every other check passes (same
+"spent after placement is guaranteed" ordering); `#deconstruct` refunds
+exactly 1 unit of the SAME pair instead of the old material bill — picking
+up and relocating a machine is now "mine it back out as the same item you
+built," not "get raw materials back."
+
+**Placing from the pockets.** `rules/placement.js#placeableFromPockets`
+recognizes a held `rig`-form pair as placeable, alongside the tile-capable
+forms it already did; `shell/main.js#applyIntents`'s `cmd.place` branch
+(`E`) dispatches to `placeMachine` (via `machineIdFor`) or `placeTile`
+depending on which kind the first placeable pocket pair is. The `f`/`l`
+debug keys and `wants.machine`'s digit-driven direct-placement path
+(`shell/input.js`'s 1-9 block, the LOGISTICS tab's BUILD-row clicks) are
+superseded by this — placing is placing, one verb, whatever is held — but
+were left mechanically in place rather than ripped out: since cost
+enforcement moved entirely into `placementCheck`, EVERY caller of
+`placeMachine` (old or new) already requires holding the item, so the old
+paths are harmless, not free. Wiring a "place from pockets" click-to-arm UI
+and locking the Crafting tab's silhouettes on the grant tier are a follow-up
+task's job, not this reversal's.
+
+**Placeable rubble.** `data/forms.js#gravel` gained a `tile` block
+(`solid:true, climb:false, hardK:0.5`) so mined rubble (`stone/gravel`,
+`soil/gravel`, `granite/gravel`, `adamant/gravel`) can be shovelled back into
+a dug-out hole through the same `placeTile` path `log`/`rung`/`stair` use —
+loose backfill, easier to dig back out than any native rock it came from.
+
+**Tile-byte headroom.** Adding one form (`rig`, `data/forms.js`'s 11th) and
+eight machine substances (19 total) leaves 2 more substances before the tile
+id byte overflows — down from the pre-reversal headroom, since a new FORM
+costs disproportionately (every substance's stride grows by one). Verified
+by `npm run check`'s own guard at import time.

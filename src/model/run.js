@@ -26,15 +26,16 @@
    -- and that class of bug is what a schema is for. */
 
 import { AIR, F, FORM, byHudOrder, matches } from '../data/forms.js';
-import { SUB } from '../data/substances.js';
+import { S, SUB } from '../data/substances.js';
 import { STARTING_MACHINES } from '../data/grants.js';
 import { HAND_RECIPES } from '../data/recipes.js';
-import { M, MACH } from '../data/machines.js';
+import { M, MACH, MACHINES } from '../data/machines.js';
 import { SPAWN_BAND } from '../data/world.js';
 import { bump } from './epoch.js';
 import { keyOf, massOfPair, parseKey } from './items.js';
 import { machineAt } from './machines.js';
 import { eff } from './mods.js';
+import { player } from './player.js';
 import { solidAt, tileAt } from './tiles.js';
 import { bandAt, bandOf, inBounds, worldX, worldY } from './world.js';
 
@@ -231,6 +232,56 @@ export function canAfford(cost) {
   return true;
 }
 
+/* ---- machine items (design reversal superseding Phase 3's cost-at-placement
+   deviation -- see `data/forms.js#rig` / `data/substances.js`'s machine-
+   substance block for the full argument). A machine is now a held
+   `<id>/rig` pair, so "may this be placed" is "is one currently held", the
+   same `invCount` question a tile-capable form already answers.
+
+   THE MIRRORED PAIRS SHARE ONE SUBSTANCE. `belt_r`/`belt_l`,
+   `talos_head`/`talos_head_l` and `cyclops_maw`/`cyclops_maw_l` are each one
+   `variantOf` row overriding only `belt`/`mine`'s own facing key -- derived
+   here from that SHAPE (variantOf + belt-or-mine override) rather than
+   hand-listed, so a future mirrored pair added the same way needs no edit
+   here. A held pair therefore resolves to a CONCRETE machine id off the
+   player's own `face` (+-1) at the moment of placement, the identical
+   direction convention `belt.dir`/`mine.facing` already carry -- "aim
+   decides", the same rule mining already lives by. */
+const MIRROR_TO_BASE = Object.freeze(Object.fromEntries(
+  MACHINES.filter(m => m.variantOf && (m.belt || m.mine)).map(m => [m.id, m.variantOf])));
+const BASE_TO_MIRROR = Object.freeze(Object.fromEntries(
+  Object.entries(MIRROR_TO_BASE).map(([mirror, base]) => [base, mirror])));
+
+/* The substance a machine id's held item lives under -- itself, unless it is
+   a mirrored "_l" row, which shares its base's substance. A row with no
+   substance at all (`kiln_divine` -- see `data/substances.js`'s own comment
+   on why one was not shippable) simply will not resolve through `S[...]`
+   below, which is exactly "never placeable" without a special case. */
+const heldSubIdOf = machineId => MIRROR_TO_BASE[machineId] || machineId;
+
+/* Does the player currently hold this machine's own built item? The
+   placement gate `placementCheck` uses below, and the query
+   `rules/placement.js#deconstruct`'s refund and `placeMachine`'s spend both
+   need answered the identical way -- one substance ordinal, or `undefined`
+   if this machine id has no held form at all. */
+export function machineHeldSub(machineId) {
+  return S[heldSubIdOf(machineId)];
+}
+
+/* Which concrete machine id a held machine substance places as. Identity for
+   every non-mirrored machine; for a mirrored pair, resolves off
+   `player.face` exactly as this block's own header explains. Exported for
+   `rules/placement.js#placeableFromPockets`'s extension and
+   `shell/main.js#applyIntents`'s `cmd.place` dispatch, both of which start
+   from a held SUBSTANCE ordinal (from the pockets) and need the concrete
+   machine id `placeMachine` takes. */
+export function machineIdFor(sub) {
+  const id = SUB[sub]?.id;
+  if (id === undefined) return null;
+  const mirror = BASE_TO_MIRROR[id];
+  return mirror && player.face < 0 ? mirror : id;
+}
+
 /* Whether a machine may be placed at this exact footprint, RIGHT NOW -- every
    refusal `rules/placement.js#placeMachine` can produce, as a query instead of
    a side effect. Phase 3 (`docs/BUILD_PLAN.md`): the ghost preview in `view/`
@@ -289,7 +340,11 @@ export function placementCheck(band, machineId, tx, ty) {
     if (bandAt(cx, topY) !== bandOf(def.lift.toBand)) return { ok:false, why:'NO SHAFT TO SERVE' };
   }
 
-  if (def.cost && !canAfford(def.cost)) return { ok:false, why:'CANNOT AFFORD IT' };
+  /* A machine is a held item now, not a bill spent at this moment -- see
+     `machineHeldSub`'s own header. `undefined` (a machine id with no
+     substance at all) never passes. */
+  const heldSub = machineHeldSub(machineId);
+  if (heldSub === undefined || invCount(heldSub, F.rig) < 1) return { ok:false, why:'NOTHING BUILT YET' };
 
   return { ok:true, why:null };
 }

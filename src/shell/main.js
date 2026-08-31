@@ -24,7 +24,7 @@ import { items } from '../model/items.js';
 import { peek as journalPeek, push as journalPush } from '../model/journal.js';
 import { machines } from '../model/machines.js';
 import { PH, PW, player, write as playerw } from '../model/player.js';
-import { canCraft, invCount, isKnown, pocketRows, run, write as runw } from '../model/run.js';
+import { canCraft, invCount, isKnown, machineIdFor, pocketRows, run, write as runw } from '../model/run.js';
 import { bands, heightPx, widthPx, write as worldw } from '../model/world.js';
 import { dropHeaviest } from '../rules/items.js';
 import { deconstruct, placeMachine, placeTile, placeableFromPockets } from '../rules/placement.js';
@@ -154,10 +154,23 @@ function applyIntents() {
   }
 
   if (cmd.place && aim.valid && aim.band) {
-    /* The first tile-capable pair in the pockets, in HUD order. A build menu
-       would let the player choose; the rule is the same either way. */
+    /* The first placeable pair in the pockets, in HUD order -- a tile-capable
+       form OR a machine's own `rig` pair (design reversal superseding Phase
+       3's cost-at-placement deviation: a machine is now held and placed the
+       SAME way a log or a stair already is). A build menu would let the
+       player choose; the rule is the same either way. */
     const p = placeableFromPockets(pocketRows())[0];
-    if (p) placeTile(aim.band, aim.tx, aim.ty, p.sub, p.form);
+    if (p && p.form === F.rig) {
+      /* `machineIdFor` resolves a mirrored pair (belt/talos_head/cyclops_maw)
+         off the player's own facing -- see `model/run.js`'s own header on
+         that block. Anchored the SAME way the old `wants.machine` branch
+         above anchors a footprint: bottom row at the aimed tile. */
+      const id = machineIdFor(p.sub);
+      const def = id && MACH[M[id]];
+      if (def) placeMachine(aim.band, id, aim.tx, aim.ty - def.th + 1);
+    } else if (p) {
+      placeTile(aim.band, aim.tx, aim.ty, p.sub, p.form);
+    }
     cmd.place = false;
   }
 

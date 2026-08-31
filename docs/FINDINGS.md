@@ -893,3 +893,99 @@ would have caught the original failure mode and now passes — the digit-key
 path's own pre-existing test ("cold start -> mine 12 copper ore -> ... place
 a furnace") still passes too, confirming the fix is additive, not a
 regression on the path that already worked.
+
+## Machine items: reversing Phase 3's "cost at placement" deviation (post-launch)
+
+A DELIBERATE, user-requested DESIGN CHANGE, not a bugfix: crafting recipes
+and machine-building are unified into one list, and a built machine is now
+"a thing like wood or stone that lives in a pocket slot, but heavier."
+`docs/SPEC.md` section 15 is the full mechanism writeup; this entry records
+the gaps and judgment calls the reversal forced.
+
+- **`kiln_divine` has no substance or recipe, and is a real, if narrow,
+  regression against Phase 3.** Its `cost` bill was always inherited from
+  `furnace` via `variantOf`, bit-identical, never independently tuned. Giving
+  it its own hand-recipe with that identical bill would create the exact
+  unbreakable tie `data/recipes.js#daedalan`/`#auger`'s differing log counts
+  were written specifically to avoid: `rules/crafting.js#choose()`'s
+  first-match rule would deterministically always produce `furnace` instead,
+  forever, no matter which of the two is declared first (whichever loses is
+  permanently unreachable, with no float-management workaround the way
+  `daedalan`/`auger` has one, since the two bills are not merely similar but
+  identical). Retuning `kiln_divine` to break the tie would invent a number
+  Phase 3 never set, and the machine was already "content deliberately
+  thin" — a variant-mechanism proof, not a load-bearing player goal. It
+  remains grantable (`data/grants.js#gift-kiln`, the `k` debug key,
+  untouched) but is not currently placeable by any means. Flagging loudly
+  rather than silently shipping it broken or silently dropping the row.
+
+- **`belt_r`/`belt_l`, `talos_head`/`talos_head_l` and
+  `cyclops_maw`/`cyclops_maw_l` share ONE substance each, not two.** The
+  same identical-bill tie above applies to every mirrored pair (each `_l`
+  row is a `variantOf` differing only in a `belt.dir`/`mine.facing` flip, so
+  its bill is always bit-identical to its base). Two separate substances
+  would have hit the tie for real gameplay-relevant content this time —
+  `belt_l` is a `STARTING_MACHINES` row, reachable from run start, unlike
+  `kiln_divine`. The fix reuses a mechanism that was ALREADY sitting in
+  `model/player.js`: `player.face` (+-1) is exactly the direction convention
+  `belt.dir`/`mine.facing` already carry. `model/run.js#machineIdFor`
+  resolves one held substance to a concrete machine id off the player's
+  current facing at the moment of placement — no new state, no click-to-arm
+  UI, "aim decides" the same way mining already does. This also happens to
+  be why the tile-byte budget (see below) did not run out: three fewer
+  substances than one-per-machine-id would have needed.
+
+- **The tile-byte budget was the tightest constraint of this whole change,
+  and very nearly did not fit.** Adding `data/forms.js#rig` (the 11th form)
+  raises `STRIDE` from 11 to 12, and — per `data/forms.js`'s own guard — that
+  alone drops the maximum substance count from 23 to 21, regardless of how
+  many machine substances are added. The task's own enumerated "at least"
+  list of 11 machines (one substance each) would have overflowed the budget
+  by exactly 1 BEFORE even considering `kiln_divine`. Sharing one substance
+  per mirrored pair (see above) brought the total to 19 (11 pre-existing +
+  8 new), leaving exactly 2 substances of headroom — down from 12 before
+  this change, and MUCH tighter than any previous phase's headroom
+  reduction, entirely because a new FORM's stride cost is paid by every
+  substance, existing and future, not just the ones added alongside it. A
+  future content pass adding more than 2 substances (of ANY kind — ore,
+  relic, machine or otherwise) needs this flagged before it starts.
+
+- **`data/machines.js`'s `cost` key is gone from every row, not merely
+  unused.** `tools/content.mjs`'s own machine-cost checks (assertions 3, 4,
+  14) iterate `Object.keys(m.cost || {})`, which is already an empty-object
+  fallback — removing `cost` entirely makes those three assertions run zero
+  checks per machine rather than erroring, confirmed by the content lint's
+  own check count. `model/run.js#buildableMachines()` and
+  `view/hud.js`'s LOGISTICS/old-inventory BUILD rows still read `def.cost`
+  (now always `undefined`) and `canAfford(undefined)` (now always `true`) —
+  left alone deliberately, since a follow-up task owns re-wiring that
+  display to grey out on the grant tier instead, and `view/`/`shell/ui.js`
+  were explicitly out of this change's file ownership.
+
+- **Existing tests updated, not rewritten wholesale.** Every test that
+  exercised the old mechanism now gives the player the held `<id>/rig`
+  pair directly (`__mf.give`/`write.collect`) instead of the old raw
+  material bill, and the one flow test that used to read "craft nothing ->
+  place a furnace" now actually holds the craft key first (`data/recipes.js
+  #furnace`, 8.0s) and asserts the recipe fired and spent its bill before
+  placing. The three belt-behaviour tests, the digit-menu "which machine"
+  test, the furnace-look screenshot, the LOGISTICS-click regression test
+  and the brazier dark-room test all needed this same one-line-shape
+  substitution. The NO-SPAWN GUARD test's `f`/`l` assertions needed no
+  change at all: those keys already did nothing with `flags.showDebug` off,
+  and now they do nothing unconditionally (removed, not just gated), which
+  is a strict subset of what the test already asserted.
+
+- **A GIT-CONCURRENCY NOTE, since it happened during this exact change:**
+  another task was independently, concurrently editing `src/view/hud.js`
+  (removing the always-on pocket strip in favour of a burden bar, part of
+  the follow-up click-to-arm/lock-gating work this change's own task
+  description names as explicitly out of scope) while this change was in
+  progress. `src/view/hud.js` and its one dependent test assertion
+  ("hovering an inventory pair resolves a tooltip naming it") were left
+  completely untouched — reverted back to their in-flight state after a
+  scratch verification pass, never committed by this change — precisely
+  because that file was explicitly not this task's to touch. Worth
+  recording so a future reader is not confused by a hud.js diff that
+  appears alongside this commit in history but belongs to a different
+  change.

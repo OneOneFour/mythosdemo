@@ -132,21 +132,23 @@ test('a placed furnace', async ({ page }) => {
     const { bandOf } = await import('/src/model/world.js');
     __mf.revealAll(bandOf('surface'));
   });
-  /* Phase 3 (`docs/BUILD_PLAN.md`): `furnace` now costs 12 copper/ore + 6
-     timber/log (`docs/SPEC.md` section 13), and `f` no longer places one
-     unconditionally -- it moved behind `flags.showDebug`, off by default, the
-     same gate `docs/AUDIT.md` section 3 recommended once the build menu could
-     reach the identical machine. Granted directly here (this test's own point
-     is the furnace's LOOK, not the mining grind to afford one) and placed
-     through the build menu -- `furnace` is index 0 of
-     `data/boons.js#STARTING_MACHINES`, so "1" is `furnace`, the same list and
-     order `view/hud.js`'s BUILD section itself reads. */
+  /* Design reversal, superseding Phase 3's cost-at-placement deviation
+     (`docs/FINDINGS.md`): `furnace` is now a HELD ITEM
+     (`furnace/rig`, `data/forms.js#rig`), built by
+     `data/recipes.js#furnace` and spent at placement, not a bill charged
+     when a machine is set down. `f` no longer exists at all -- see
+     `shell/input.js`'s own comment. Given directly here (this test's own
+     point is the furnace's LOOK, not the crafting grind to earn one) and
+     placed through the build menu -- `furnace` is index 0 of
+     `data/grants.js#STARTING_MACHINES`, so "1" is `furnace`, the same list
+     and order `view/hud.js`'s BUILD section itself reads; `wants.machine`'s
+     digit-driven path still calls `placeMachine`, which now checks/spends
+     the held `rig` pair instead of a cost bill. */
   await page.evaluate(async () => {
     const { write } = await import('/src/model/run.js');
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
-    write.collect(S.copper, F.ore, 12);
-    write.collect(S.timber, F.log, 6);
+    write.collect(S.furnace, F.rig, 1);
   });
   await page.evaluate(() => { __mf.flags.showInv = true; });
   await page.keyboard.press('1');
@@ -160,9 +162,10 @@ test('a placed furnace', async ({ page }) => {
   await shot(page, 'furnace.png');
 });
 
-/* `press` (added in an earlier phase) had no key of its own at all -- `f` and
-   `l` are hardcoded to `furnace`/`lift` in `shell/input.js`, and nothing
-   bound a third literal key for a third machine. The fix is the build menu:
+/* `press` (added in an earlier phase) had no key of its own at all, and `f`/
+   `l` (once hardcoded to `furnace`/`lift`, now removed entirely -- see
+   `shell/input.js`'s own comment) never bound a third literal key for a
+   third machine anyway. The build menu is the real path:
    `model/run.js#buildableMachines()` lists `run.granted` in order, and a
    number key while the panel is open arms `wants.machine` for that list
    position (`data/boons.js#STARTING_MACHINES` is `['furnace','lift','press']`,
@@ -173,16 +176,15 @@ test('a placed furnace', async ({ page }) => {
 test('the build menu places the machine at the pressed number, not just any machine', async ({ page }) => {
   await boot(page);
   await settle(page);
-  /* Phase 3 (`docs/BUILD_PLAN.md`): `press` now costs 4 copper/plate + 2
-     copper/ingot (`docs/SPEC.md` section 13), granted directly here -- this
-     test's own point is WHICH machine a digit places, not the refinement
-     grind to afford one. */
+  /* Design reversal (`docs/FINDINGS.md`): `press` is now a held `press/rig`
+     item (`data/recipes.js#press_machine`), given directly here -- this
+     test's own point is WHICH machine a digit places, not the crafting grind
+     to earn one. */
   await page.evaluate(async () => {
     const { write } = await import('/src/model/run.js');
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
-    write.collect(S.copper, F.plate, 4);
-    write.collect(S.copper, F.ingot, 2);
+    write.collect(S.press, F.rig, 1);
   });
   await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.flags.showInv = true; });
   await page.keyboard.press('3');
@@ -288,11 +290,12 @@ test('a fuelled belt drags a resting item across its footprint and releases it o
     const band = bandOf('surface');
     const tx0 = 10, ty0 = 15;
 
-    /* The build bill this row carries (`data/machines.js`'s `belt_r`): 2
-       copper plate, 4 stone gravel. Collected, not granted, so this also
-       proves the cost is real and not merely declared. */
-    rw.collect(S.copper, F.plate, 2);
-    rw.collect(S.stone, F.gravel, 4);
+    /* `belt_r` is now a held `belt_r/rig` item (design reversal,
+       `docs/FINDINGS.md`) spent by `placeMachine` at placement, not a
+       material bill charged there -- given directly, so this also proves
+       the placement really does spend the held item and not merely declare
+       one. */
+    rw.collect(S.belt_r, F.rig, 1);
     const belt = placeMachine(band, 'belt_r', tx0, ty0);
 
     /* Land the item FIRST, on an unfuelled belt, and confirm it is inert
@@ -353,8 +356,7 @@ test('a belt with no fuel charge does not drag a resting item', async ({ page })
     const band = bandOf('surface');
     const tx0 = 10, ty0 = 15;
 
-    rw.collect(S.copper, F.plate, 2);
-    rw.collect(S.stone, F.gravel, 4);
+    rw.collect(S.belt_r, F.rig, 1);
     const belt = placeMachine(band, 'belt_r', tx0, ty0);
     /* No fuel goes in this time. `belt.charges` starts, and stays, 0. */
 
@@ -400,8 +402,7 @@ test('a belt dragging far more items than the cap allows stays finite and within
     const band = bandOf('surface');
     const tx0 = 10, ty0 = 15;
 
-    rw.collect(S.copper, F.plate, 2);
-    rw.collect(S.stone, F.gravel, 4);
+    rw.collect(S.belt_r, F.rig, 1);
     const belt = placeMachine(band, 'belt_r', tx0, ty0);
     mw.charge(belt, 1e6);                // never runs dry for the length of this probe
 
@@ -1058,26 +1059,39 @@ test('the boon stack with active boons', async ({ page }) => {
   await shot(page, 'ui-boon-stack.png');
 });
 
-test('cold start -> mine 12 copper ore -> craft nothing -> place a furnace -> it smelts', async ({ page }) => {
+test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smelts', async ({ page }) => {
   await boot(page);
   await settle(page);
-  await page.evaluate(async () => {
+  const crafted = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
     const { bandOf } = await import('/src/model/world.js');
     __mf.revealAll(bandOf('surface'));
     /* "mine 12 copper ore" is stood in for by `give` -- the flow's own point
-       is the chain (afford -> place -> feed -> smelt), not the mining grind,
+       is the chain (craft -> place -> feed -> smelt), not the mining grind,
        exactly the substitution `docs/BUILD_PLAN.md` Phase 3's own tests
-       already make for the identical reason. The furnace's OWN build cost
-       (docs/SPEC.md section 13) is exactly 12 copper/ore + 6 timber/log --
-       spent whole at placement -- so a bit more of each is given on top,
-       or there is nothing left to actually smelt once the bill is paid. */
+       already made for the identical reason. Design reversal, superseding
+       Phase 3's cost-at-placement deviation (`docs/FINDINGS.md`): a furnace
+       is now CRAFTED (`data/recipes.js#furnace`: 12 copper/ore + 6
+       timber/log, 8.0s) into a held `furnace/rig` item, THEN placed --
+       "craft nothing" is no longer true of this flow, which is the whole
+       point of the reversal, so a bit more of each material is given on top
+       of the bill, or there is nothing left to actually smelt once the
+       furnace itself has been built. */
     __mf.give(S.copper, F.ore, 12 + 8);
     __mf.give(S.timber, F.log, 6 + 2);
     __mf.cmd.hasMouse = false;
+    __mf.hold({ craft: 1 }, 1000);      // > 8.0s, the furnace recipe's own secs
+    __mf.cmd.craft = false;             // release the key -- `hold` only auto-releases hop/place
+    __mf.frames(150);                   // let the crafted item fall and clear the pickup-magnet delay
     __mf.flags.showInv = true;
+    return { rig: invCount(S.furnace, F.rig), oreLeft: invCount(S.copper, F.ore), logLeft: invCount(S.timber, F.log) };
   });
+  expect(crafted.rig).toBe(1);          // the recipe fired exactly once and spent its bill
+  expect(crafted.oreLeft).toBe(8);
+  expect(crafted.logLeft).toBe(2);
+
   await page.keyboard.press('1');        // furnace is index 0 of STARTING_MACHINES
   const result = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
@@ -1101,11 +1115,16 @@ test('cold start -> mine 12 copper ore -> craft nothing -> place a furnace -> it
     pw.move(m.box.x + m.box.w / 2 - PW / 2, __mf.player.y);
 
     __mf.frames(1500);                   // several 4.0s smelt cycles, plus fall + pickup
-    return { machines: __mf.machines.length, ingot: invCount(S.copper, F.ingot) };
+    return {
+      machines: __mf.machines.length,
+      ingot: invCount(S.copper, F.ingot),
+      rigLeft: invCount(S.furnace, F.rig)
+    };
   });
 
   expect(result.machines).toBe(1);
   expect(result.ingot).toBeGreaterThan(0);
+  expect(result.rigLeft).toBe(0);        // the held item was spent, not merely declared
 });
 
 test('craft peg rungs by hand, place a brazier in a dark room, and the strata become visible where they were not', async ({ page }) => {
@@ -1123,6 +1142,7 @@ test('craft peg rungs by hand, place a brazier in a dark room, and the strata be
     /* Peg rungs BY HAND -- the real hand-craft key, not a grant. */
     __mf.give(S.timber, F.log, 2);
     __mf.hold({ craft: 1 }, 300);
+    __mf.cmd.craft = false;             // release the key -- `hold` only auto-releases hop/place
     __mf.frames(60);
     const rungsHeld = invCount(S.timber, F.rung);
 
@@ -1149,8 +1169,16 @@ test('craft peg rungs by hand, place a brazier in a dark room, and the strata be
     const litBefore = lightAt(band, darkTile.tx, darkTile.ty);
     const seenBefore = seenAt(band, darkTile.tx, darkTile.ty);
 
-    __mf.give(S.timber, F.log, 8);
-    __mf.give(S.stone, F.gravel, 2);
+    /* Design reversal, superseding Phase 3's cost-at-placement deviation
+       (`docs/FINDINGS.md`): `brazier` is now a held `brazier/rig` item
+       (given directly -- this test's own point is the light, not the
+       crafting grind), spent by `placeMachine` at placement. The timber
+       given here is pure FUEL for the machine's own buffer (`handFeed`
+       pulls it from the pockets within reach), no longer also a build
+       cost -- `stone/gravel` is dropped entirely, since it was only ever
+       part of the old cost bill and the brazier's buffer never accepted it. */
+    __mf.give(S.brazier, F.rig, 1);
+    __mf.give(S.timber, F.log, 4);
     const brazier = placeMachine(band, 'brazier', tx0 + 2, ty0 + h - 1);   // adjacent, in hand-feed reach
     __mf.frames(900);                                              // > 6s honest-fuel, several times over
 
@@ -1597,8 +1625,14 @@ test('REAL CLICK: a LOGISTICS BUILD row places the machine, the same as its digi
     const { bandOf } = await import('/src/model/world.js');
     const { open, setTab } = await import('/src/shell/ui.js');
     __mf.revealAll(bandOf('surface'));
-    __mf.give(S.copper, F.ore, 20);
-    __mf.give(S.timber, F.log, 8);
+    /* Design reversal, superseding Phase 3's cost-at-placement deviation
+       (`docs/FINDINGS.md`): `furnace` is now a held `furnace/rig` item
+       (`data/forms.js#rig`), given directly here -- this test's own point is
+       that the LOGISTICS row's click reaches the SAME `placeMachine` the
+       digit key does (Bug 1), not the crafting grind to earn a furnace.
+       `placeMachine` now checks/spends the held `rig` pair instead of a raw
+       ore/timber bill, so the click still places it exactly as before. */
+    __mf.give(S.furnace, F.rig, 1);
     __mf.cmd.hasMouse = false;
     open('main');
     setTab('main', 'log');

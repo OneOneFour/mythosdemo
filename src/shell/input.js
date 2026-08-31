@@ -201,18 +201,16 @@ export function installInput() {
     if (k === 'm') audio.muted = !audio.muted;
     if (k === 'r') wants.restart = true;
 
-    /* `f`/`l` USED to spawn a furnace/lift from nothing, unconditionally --
-       `docs/AUDIT.md` section 3's own finding on this pair. The build menu
-       (the `1`-`9` block below) already reaches the identical
-       `buildableMachines()` list through the identical `wants.machine`
-       assignment, and now that `furnace`/`lift` carry a real `cost`
-       (`docs/BUILD_PLAN.md` Phase 3), that is the only sanctioned way to
-       place either: `docs/AUDIT.md` confirmed `f`/`l` were never the SOLE
-       entry point for either machine (digit `1`/`2` with the inventory panel
-       open already placed the same id off the same list). Kept here ONLY
-       behind `flags.showDebug` (`h`), as a development shortcut, and a
-       NO-OP with the gate off -- the same pattern the `1`-`9` digits already
-       use against `flags.showInv`.
+    /* `f`/`l` REMOVED (design reversal, `docs/FINDINGS.md`): they used to
+       spawn a furnace/lift from nothing, unconditionally, kept behind
+       `flags.showDebug` as a development shortcut once both machines
+       carried a real `cost` (`docs/BUILD_PLAN.md` Phase 3). A machine is now
+       a HELD ITEM built by an ordinary hand-craft recipe and placed like any
+       other held pair (`data/forms.js#rig`) -- "spawn a furnace placement
+       for free" no longer means anything coherent once placement always
+       costs a held item, so the shortcut is gone rather than reworded. Use
+       the debug grant key (`k`, unaffected -- see its own comment below) plus
+       an ordinary hand-craft to get one instead.
 
        `t`/`b`/`k`/`y` moved in HERE in Phase 4 STEP 6 (docs/BUILD_PLAN.md):
        every "spawn a modifier tier from nothing" debug path now lives
@@ -233,8 +231,6 @@ export function installInput() {
        picking 'k'/'y' -- both unused, same diligence 'o' and 'q' already
        state doing. */
     if (flags.showDebug) {
-      if (k === 'f') wants.machine = 'furnace';
-      if (k === 'l') wants.machine = 'lift';
       if (k === 't') wants.draft = 'trinket';
       if (k === 'b') wants.draft = 'boon';
       if (k === 'k') wants.draft = 'grant';

@@ -17,11 +17,14 @@
    Every refusal pushes a journal row carrying its reason. `shell/notify.js`
    turns that into text; nothing here knows what a toast is.
 
-   A GRANTED MACHINE MAY STILL COST SOMETHING TO BUILD. `data/machines.js`'s
-   `cost` key is an optional bill of exact `sub/form` pairs, checked with
-   `model/run.js#canAfford` after every other refusal and spent with `rw.spend`
-   only once every other check -- including affordability -- has already
-   passed, so a refused placement never touches the pockets.
+   A GRANTED MACHINE IS A HELD ITEM (design reversal superseding Phase 3's
+   cost-at-placement deviation -- see `data/forms.js#rig` and the
+   machine-substance block in `data/substances.js` for the full argument).
+   `model/run.js#machineHeldSub` names which substance's `rig` pair a machine
+   id places from; `placementCheck` checks `invCount(that, F.rig) > 0` after
+   every other refusal, and exactly ONE unit is spent with `rw.spend` only
+   once every other check has already passed, so a refused placement never
+   touches the pockets.
 
    ============================================================================
    PHASE 3: THE VALIDITY DECISION ITSELF LIVES IN `model/run.js#placementCheck`
@@ -34,13 +37,13 @@
    ============================================================================ */
 
 import { rand } from '../core/rng.js';
-import { AIR, FORM, NATIVE } from '../data/forms.js';
+import { AIR, F, FORM, NATIVE } from '../data/forms.js';
 import { M, MACH } from '../data/machines.js';
 import { push } from '../model/journal.js';
-import { parseKey, write as iw } from '../model/items.js';
+import { write as iw } from '../model/items.js';
 import { machineAt, write as mw } from '../model/machines.js';
 import { eff } from '../model/mods.js';
-import { invCount, placementCheck, write as rw } from '../model/run.js';
+import { invCount, machineHeldSub, placementCheck, write as rw } from '../model/run.js';
 import { climbAt, solidAt, tileAt, write as tw } from '../model/tiles.js';
 import { inBounds, worldX, worldY } from '../model/world.js';
 
@@ -56,26 +59,26 @@ export function placeMachine(band, machineId, tx, ty) {
   if (!check.ok) return no(check.why);
 
   const defIdx = M[machineId];
-  const def = MACH[defIdx];
   const m = mw.place(band, defIdx, tx, ty);
-  /* Spent AFTER `mw.place`, not before: `placementCheck` -- including
-     affordability -- has already passed by this line, so this can only ever
-     run once the placement itself is guaranteed to succeed. */
-  if (def.cost) for (const k in def.cost) {
-    const { sub, form } = parseKey(k);
-    rw.spend(sub, form, def.cost[k]);
-  }
+  /* Spent AFTER `mw.place`, not before: `placementCheck` -- including holding
+     the item -- has already passed by this line, so this can only ever run
+     once the placement itself is guaranteed to succeed. Exactly ONE unit of
+     the machine's OWN substance x `rig` pair, never a material bill -- see
+     `data/forms.js#rig`. */
+  rw.spend(machineHeldSub(machineId), F.rig, 1);
   push('place', { x: m.box.x, y: m.box.y }, { machine: machineId, def: defIdx });
   return m;
 }
 
 /* ---------- deconstruct ----------
-   The inverse of `placeMachine`, and the reason a cost is a real commitment
-   rather than a one-way tax: a machine proven EMPTY -- no buffered material,
-   no banked fuel charge -- gives its full build bill back, exactly, the
-   moment it is removed. A machine still holding anything refuses, with a
-   reason, so nobody discovers ore has quietly vanished into the abyss along
-   with the machine that was holding it.
+   The inverse of `placeMachine`, and the reason a held item is a real
+   commitment rather than a one-way tax: a machine proven EMPTY -- no
+   buffered material, no banked fuel charge -- gives its OWN `<id>/rig` pair
+   back, exactly one unit, the moment it is removed -- picking up and
+   relocating a machine is "mine it back out as the same item you built,"
+   not "get raw materials back." A machine still holding anything refuses,
+   with a reason, so nobody discovers ore has quietly vanished into the
+   abyss along with the machine that was holding it.
 
    "Empty" is `m.buf` having no keys and `m.charges === 0` -- the same two
    fields `rules/machines.js#produce`/`choose` already treat as "this machine
@@ -95,19 +98,18 @@ export function deconstruct(band, tx, ty) {
   if (Object.keys(m.buf).length > 0 || m.charges > 0)
     return no('EMPTY IT FIRST', def.id);
 
-  /* The bill returns as FALLING ITEMS, never a direct pocket credit --
+  /* The refund returns as a FALLING ITEM, never a direct pocket credit --
      invariant 5's idiom, the same one `rules/crafting.js`'s output and
-     `rules/machines.js#produce`'s ejected units already use, one item per
-     unit rather than one stacked item. Tossed from the machine's own centre
-     with the SAME `tossUp`/`tossSpread` tunables the drop verb reads
-     (Phase 1/2a), not a sixth independently-chosen toss magnitude. */
+     `rules/machines.js#produce`'s ejected units already use. Tossed from the
+     machine's own centre with the SAME `tossUp`/`tossSpread` tunables the
+     drop verb reads (Phase 1/2a), not a sixth independently-chosen toss
+     magnitude. Exactly one unit of the machine's OWN substance x `rig` pair
+     -- see `placeMachine`'s own spend, this is its exact inverse. */
   const cx = m.box.x + m.box.w / 2, cy = m.box.y + m.box.h / 2;
   const up = eff('tossUp'), spread = eff('tossSpread');
-  if (def.cost) for (const k in def.cost) {
-    const { sub, form } = parseKey(k);
-    for (let i = 0; i < def.cost[k]; i++)
-      iw.spawn(band, cx, cy, sub, form, (rand() - 0.5) * 2 * spread, -up);
-  }
+  const heldSub = machineHeldSub(def.id);
+  if (heldSub !== undefined)
+    iw.spawn(band, cx, cy, heldSub, F.rig, (rand() - 0.5) * 2 * spread, -up);
 
   mw.remove(m);
   /* Reuses the 'place' journal kind: `shell/notify.js`'s TEXT handler already
@@ -121,16 +123,19 @@ export function deconstruct(band, tx, ty) {
 }
 
 /* ---------- tiles ----------
-   Only a form carrying a `tile` block may be placed, which today is exactly
-   `log` — so building a ladder and felling a tree are the same two nouns in
-   different places. There is no ladder id, no ladder recipe and no ladder code.
-   See `data/forms.js`. */
+   Only a form carrying a `tile` block may be placed as terrain -- `log`,
+   `rung`, `stair` and now `gravel` -- so building a ladder and felling a
+   tree are the same two nouns in different places. There is no ladder id,
+   no ladder recipe and no ladder code. See `data/forms.js`. */
 
-/* Every `{sub, form}` pair in the pockets that could become a tile, in HUD
-   order. `shell/input.js` places the first of these; a build menu would offer
-   the list. */
+/* Every `{sub, form}` pair in the pockets that could be PLACED -- a
+   tile-capable form (terrain: `log`, `rung`, `stair`, `gravel`) OR a
+   machine's own `rig` pair (a structure: `rules/placement.js#placeMachine`)
+   -- in HUD order. `shell/main.js#applyIntents`'s `cmd.place` branch places
+   the first of these, dispatching to `placeTile` or `placeMachine`
+   depending on which kind it is; a real build menu would offer the list. */
 export function placeableFromPockets(rows) {
-  return rows.filter(r => r.n > 0 && FORM[r.form]?.tile);
+  return rows.filter(r => r.n > 0 && (FORM[r.form]?.tile || r.form === F.rig));
 }
 
 export function placeTile(band, tx, ty, sub, form) {
