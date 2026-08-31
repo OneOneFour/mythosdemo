@@ -83,7 +83,18 @@ export const write = {
      prove TERRAIN rendering is correct -- a question fog of war must not be
      allowed to swallow. Nothing in real play ever calls this; a run that used
      it would not be reproducible from a walk, only from a cheat. */
-  revealAll(b) { b.seen.fill(1); bump(); }
+  revealAll(b) { b.seen.fill(1); bump(); },
+
+  /* Real gameplay, unlike `revealAll` above: `shell/boot.js` uses this once,
+     at spawn, to show the whole starting skyline -- sky, grass, trees --
+     before the player has taken a single step, rather than making the first
+     frame of a new run a screen of fog `rules/reveal.js`'s Pass A would
+     mostly-but-not-quite clear on its own (a tree trunk is solid, so Pass A's
+     per-column walk stops at its FIRST solid tile and never reaches the
+     ground a tree is standing on). Rows are contiguous in `b.seen` (`idx` is
+     `ty * b.tw + tx`), so revealing every row below `toTy` is one `fill` call
+     over a slice, not a nested loop. */
+  revealRows(b, toTy) { b.seen.fill(1, 0, Math.min(toTy, b.th) * b.tw); bump(); }
 };
 
 /* Has the player ever stood in or beside this tile? False out of bounds, same

@@ -99,6 +99,18 @@ export function newRun(seed = (Math.random() * 1e9) | 0) {
   const spawnTx = home.cfg.spawnTx ?? (home.tw >> 1), floorTy = home.cfg.floorTy ?? 0;
   playerw.spawn(home, spawnTx, floorTy - 2);
 
+  /* --- the starting skyline. AT BOOT ONLY -- this is not how fog of war works
+         from here on, which is real line of sight (`rules/reveal.js`). The sky
+         and the soil cap down to where `data/world.js`'s stone begins are
+         shown unconditionally, trees included, so the first frame of a run is
+         the waking-up view of the surface rather than a screen of fog the
+         player would have to walk around to burn off one tree trunk at a
+         time. `floorTy + 8` reaches a couple of rows past the soil layer's
+         own `toTy` (7 rows deep) with margin to spare; it does not need to be
+         exact, only past the soil/stone seam, since nothing below that seam
+         is "the surface". --- */
+  worldw.revealRows(home, floorTy + 8);
+
   /* --- the first gift. Planted a few tiles off centre, inside the flat spawn
          shelf (`SHELF` in `rules/generate.js`) so it never lands on a ragged
          lip or a tree. An ordinary item, not a special case: it falls the last

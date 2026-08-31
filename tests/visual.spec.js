@@ -534,9 +534,16 @@ test('standing anywhere with open sky reveals the whole exposed surface, not a r
     const { step: revealStep } = await import('/src/rules/reveal.js');
     const { S } = await import('/src/data/substances.js');
 
-    __mf.newRun(1337);                        // a pristine band -- nothing seen yet
+    __mf.newRun(1337);
     const band = bandOf('surface');
     const floorTy = band.cfg.floorTy;
+    /* `shell/boot.js` now reveals rows 0..floorTy+8 of the surface band
+       unconditionally at spawn (the "starting skyline" — see its comment),
+       so a ground row has to sit BELOW that to still start out unrevealed and
+       isolate what PASS A ITSELF does from what boot already did. groundTy is
+       therefore floorTy+10, not floorTy: a shaft carved from the sky down to
+       it is still entirely sky-exposed, just deeper than the boot freebie. */
+    const groundTy = floorTy + 10;
     const standTx = 20, farTx = 100;          // 80 tiles apart: far past both the
                                                // old radius-1 rule AND Pass B's
                                                // graph-distance cap, so a reveal
@@ -549,25 +556,25 @@ test('standing anywhere with open sky reveals the whole exposed surface, not a r
        control that proves this is "the sky-exposed silhouette", not "the
        whole band". */
     for (const tx of [standTx, farTx]) {
-      for (let ty = 0; ty < floorTy; ty++) tw.clear(band, tx, ty);
-      tw.set(band, tx, floorTy, S.stone);
-      tw.set(band, tx, floorTy + 1, S.stone);
+      for (let ty = 0; ty < groundTy; ty++) tw.clear(band, tx, ty);
+      tw.set(band, tx, groundTy, S.stone);
+      tw.set(band, tx, groundTy + 1, S.stone);
     }
 
-    const beforeFar = seenAt(band, farTx, floorTy);
+    const beforeFar = seenAt(band, farTx, groundTy);
 
     pw.band(band);
     /* Standing in the open air just above the carved ground -- PH (16 px) is
        two tile rows, and both are cleared above, so the box does not clip a
        column we did not mean to touch. */
-    pw.move(worldX(band, standTx), worldY(band, floorTy - 2));
+    pw.move(worldX(band, standTx), worldY(band, groundTy - 2));
     revealStep();
 
     return {
       beforeFar,                                        // nothing revealed yet
-      farGround: seenAt(band, farTx, floorTy),          // the far column's own surface
-      farBuried: seenAt(band, farTx, floorTy + 1),      // one tile beneath it
-      standGround: seenAt(band, standTx, floorTy)       // sanity: the player's own ground
+      farGround: seenAt(band, farTx, groundTy),         // the far column's own surface
+      farBuried: seenAt(band, farTx, groundTy + 1),     // one tile beneath it
+      standGround: seenAt(band, standTx, groundTy)      // sanity: the player's own ground
     };
   });
 
