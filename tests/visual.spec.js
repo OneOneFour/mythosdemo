@@ -879,12 +879,14 @@ test('hovering an inventory pair resolves a tooltip naming it', async ({ page })
        run, only a render. */
     __mf.draw();
 
-    /* `__mf.hits` is the SAME rectangle list `view/hud.js` just drew -- the
-       strip AND the open panel both list copper ore once collect() has run,
-       so this is two hits; the panel's is pushed second. Finding it this way,
-       rather than a hardcoded screen coordinate, is what keeps the assertion
-       honest at both the desktop and phone viewports (CLAUDE.md: a hardcoded
-       click position breaks at the other one). */
+    /* `__mf.hits` is the SAME rectangle list `view/hud.js` just drew. The
+       always-on pocket strip that used to double this list up (one hit for
+       the strip entry, one for the open panel row) was removed -- decluttered
+       down to just the burden bar -- so the open inventory panel's own row is
+       now the only hit `pocketRows()` produces once `collect()` has run.
+       Finding it this way, rather than a hardcoded screen coordinate, is what
+       keeps the assertion honest at both the desktop and phone viewports
+       (CLAUDE.md: a hardcoded click position breaks at the other one). */
     const hits = __mf.hits.filter(h => h.sub === S.copper && h.form === F.ore);
     const panelHit = hits[hits.length - 1];
     __mf.mouseAt(panelHit.x + 2, panelHit.y + 2);
@@ -893,7 +895,7 @@ test('hovering an inventory pair resolves a tooltip naming it', async ({ page })
     return { hitCount: hits.length, hover: { ...__mf.hover } };
   });
 
-  expect(info.hitCount).toBe(2);              // strip entry + panel row
+  expect(info.hitCount).toBe(1);               // panel row only, strip removed
   expect(info.hover.active).toBe(true);
   expect(info.hover.lines[0]).toBe('COPPER ORE');
   expect(info.hover.lines.some(l => l.startsWith('MASS'))).toBe(true);
