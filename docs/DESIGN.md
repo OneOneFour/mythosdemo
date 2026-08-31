@@ -130,14 +130,31 @@ which. And some gifts are traps — a lifter that runs on blood instead of fuel,
 offered on cycle 3 when you are desperate. Prometheus's whole story is that
 divine gifts come with terms.
 
-*Partially implemented.* The machine-grant tier is real and works end to end —
-today it still sits in the misnamed `data/boons.js` / `rules/boons.js` and
-becomes `data/grants.js` / `rules/grants.js` in Phase 4 — writing `run.granted`,
-which `rules/placement.js` refuses anything absent from. The trinket tier is
-real and reaches numbers through `model/mods.js`, though a trinket is currently
-active merely by being *held* rather than equipped to a slot. Timed boons,
-miracles, `conflictsWith`, equip slots and the draft itself are not built. The
-HUD shows three static cards, one of them the cursed blood winch.
+*All four tiers exist and reach numbers/the world through the one stat
+pipeline and the tile grid, per `docs/BUILD_PLAN.md` Phase 4.* The
+machine-grant tier is real and works end to end — `data/grants.js` /
+`rules/grants.js` (renamed from the old, misnamed `boons.js` in Phase 4 step
+1) — writing `run.granted`, which `rules/placement.js` refuses anything
+absent from. The trinket tier is real and requires BOTH holding and
+equipping: `run.equipped` is a fixed-length selection over `run.inv`
+(`eff('trinketSlots')` slots), and `rules/trinkets.js#step` clears a slot the
+pockets no longer back in the same pass it syncs `model/mods.js`, so the two
+can never disagree. Timed boons are real: `data/boons.js` ships four (plus
+one miracle side-effect), decremented in the fixed step and synced into
+`model/mods.js` keyed `'boon:'+id` so the tiers can never remove each other's
+rows; `conflictsWith` resolves both ways content can name — SUPPRESS (the
+Poseidon/Hephaestus pair `docs/DESIGN.md` names above) and INVERT (a second,
+shipped pair doubling as the one trap: Ares' frenzy reads as a flat buff but
+inverts Athena's focus if both run at once, netting WORSE than no boon at
+all). Miracles are real: `data/miracles.js` ships one, a held phial that
+collapses a radius of terrain to air and grants a side-effect boon. The HUD's
+top-right timer stack (`view/hud.js`) shows active boons only, newest first,
+draining and flashing in the last five seconds, derived from `clock.t` and
+never `rand()`. *Still not built:* the 1-of-3 draft itself (a director that
+decides WHEN a god offers something), the Character tab's equip UI (drag to
+equip is Phase 5b; equipping today is a model-driven `p` key), and tribute
+completion as a real event (so `data/drops.js`'s tribute-triggered row is
+data-ready but unconsumed — its mining-triggered sibling is live today).
 
 ## Monsters
 
@@ -216,16 +233,16 @@ says *planned*, `docs/BUILD_PLAN.md` names the phase.
 | staged lift as the bottleneck | yes | yes (`lift` machine, one stage) |
 | belts, priced to be rare | no | yes (`belt_r` / `belt_l`) |
 | fog of war, permanent, plus a map overview | no | yes (`rules/reveal.js`) |
-| mining rigs, breakout, haulage | yes | no — planned, Phase 2c |
-| tiered picks gating hard strata | no | no — planned, Phase 2c |
-| real darkness and carried/placed light | no | no — planned, Phase 2b |
-| encumbrance in talents gating ascent | no | no — planned, Phase 2a |
-| ladders as a crafted, tiered item | no | partial: any timber log places as a rung; no peg-rung recipe, no fast tier — Phase 2a |
-| machines built from a real material bill | no | partial: `cost` exists and belts carry one; furnace and winch are still free — Phase 3 |
-| machine-grant tier of god gifts | cosmetic | yes (`run.granted`) |
-| trinket tier, reaching numbers through one pipeline | cosmetic | yes (`model/mods.js`); equip slots planned, Phase 4 |
-| timed boons with a countdown | no | no — planned, Phase 4 |
-| miracles, `conflictsWith` hostile gods | cosmetic | no — planned, Phase 4 |
+| mining rigs, breakout, haulage | yes | yes (`talos_head` / `cyclops_maw`, `rules/machines.js`'s `mine` recipes — Phase 2c) |
+| tiered picks gating hard strata | no | yes (`item.tool:{tier,power}`, `tile.tier`, `model/run.js#bestTool()` — Phase 2c) |
+| real darkness and carried/placed light | no | yes (`rules/light.js`, carried `timber/brand`, placed brazier/hearth — Phase 2b) |
+| encumbrance in talents gating ascent | no | yes (`model/run.js#burdenOf`/`burdenFrac`, climb falloff and lockout in `rules/player.js` — Phase 2a) |
+| ladders as a crafted, tiered item | no | yes (`timber/rung` cheap tier 1, `copper/stair` fast tier 2 with `climbK` — Phase 2a) |
+| machines built from a real material bill | no | yes (every `STARTING_MACHINES` row has a real `cost`; `docs/SPEC.md` section 13 — Phase 3) |
+| machine-grant tier of god gifts | cosmetic | yes (`run.granted`; `data/grants.js`/`rules/grants.js`, renamed from the misnamed `boons.js` — Phase 4) |
+| trinket tier, reaching numbers through one pipeline | cosmetic | yes (`model/mods.js`); equip slots real (`run.equipped`, `eff('trinketSlots')` — Phase 4); drag-to-equip UI still Phase 5b |
+| timed boons with a countdown | no | yes (`data/boons.js`, `model/boons.js`, `rules/boons.js`, the HUD's top-right timer stack — Phase 4) |
+| miracles, `conflictsWith` hostile gods | cosmetic | yes (`data/miracles.js`, one row; `conflictsWith` both `suppress` and `invert` shipped and proven — Phase 4) |
 | dense in-canvas inventory / crafting GUI | no | partial: a one-panel HUD list; no grid, queue or tabs — Phase 5 |
 | spoil dumped to lava for free | yes | no |
 | suspicion meter, Hades gated by depth | cosmetic | no |

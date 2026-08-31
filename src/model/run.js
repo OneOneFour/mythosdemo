@@ -48,6 +48,16 @@ export const RUN_SCHEMA = Object.freeze({
   cycle: 1, tribute: null,
   deepest: 0,           // world px, for the depth gauge and for `meta`
 
+  /* Phase 4 (docs/BUILD_PLAN.md) STEP 4, CLAUDE.md D1: a fixed-length
+     SELECTION over `run.inv`, not a second inventory -- see
+     `rules/trinkets.js`'s own header on why `run.trinkets` was deleted.
+     Holds substance ORDINALS (or `null` for an empty slot), length capped
+     by `eff('trinketSlots')`. Built fresh in `write.reset()` below, not
+     here: this frozen template holds `null` as a placeholder the same way
+     `inv`/`granted` do immediately above, because an ARRAY on a shared
+     frozen object would be the one mutable reference every run shared. */
+  equipped: null,
+
   /* The hand-craft bar. A scalar, not a Map like `model/mining.js#dig.work` --
      a player has one pair of hands, so there is only ever one craft in
      flight, and it belongs on `run` rather than in a dedicated module so it
@@ -89,7 +99,13 @@ export const write = {
       seed,
       inv: {},
       granted: [...STARTING_MACHINES],
-      tribute: null
+      tribute: null,
+      /* A FRESH array every run -- `eff('trinketSlots')` at reset time reads
+         the base value (`model/mods.js#write.clear()` has already run by
+         the time `shell/boot.js` calls this, per its own load-bearing boot
+         order), rounded because a slot count must be an integer even if a
+         future boon ever bent this tunable fractionally. */
+      equipped: Array.from({ length: Math.max(0, Math.round(eff('trinketSlots'))) }, () => null)
     });
     bump();
   },
@@ -143,6 +159,20 @@ export const write = {
 
   grant(machineId)  { if (!run.granted.includes(machineId)) run.granted.push(machineId); bump(); },
   tribute(t)        { run.tribute = t; bump(); },
+
+  /* One trinket slot, Phase 4 STEP 4. `sub` is a substance ordinal or
+     `null` (empties the slot). `rules/trinkets.js#step` is the only caller
+     that ever passes a real `sub` -- it is the one place that decides an
+     equip is legal (a real slot, a currently-held id) -- and the same
+     function clears a slot whose id the pockets no longer hold, so the two
+     can never disagree. Out-of-range is a silent no-op, not a throw: a
+     shrinking `trinketSlots` (a hostile boon could someday do that) must
+     not crash a frame that still iterates the old length. */
+  equip(slot, sub) {
+    if (slot < 0 || slot >= run.equipped.length) return;
+    run.equipped[slot] = sub;
+    bump();
+  },
 
   /* The hand-craft bar, written as one pair so a recipe change and its reset
      progress can never be observed half-applied. */

@@ -100,6 +100,9 @@ const D_mach = await import('../src/data/machines.js');
 const D_tune = await import('../src/data/tuning.js');
 const D_trk  = await import('../src/data/trinkets.js');
 const D_grant = await import('../src/data/grants.js');
+const D_boon = await import('../src/data/boons.js');
+const D_miracle = await import('../src/data/miracles.js');
+const D_drop = await import('../src/data/drops.js');
 const D_src  = await import('../src/data/sources.js');
 const D_world = await import('../src/data/world.js');
 const world  = await import('../src/model/world.js');
@@ -158,20 +161,50 @@ console.log('\n1. content resolves');
         { fail(`machine ${m.id}: buffer cap "${sel}" expands to no legal pair`); bad++; }
   }
 
-  /* A trinket key is dotted: `rate.furnace` is the tunable `rate` scoped to
-     `furnace`. Splitting on the FIRST dot is the rule mods.js applies. */
-  for (const t of D_trk.TRINKETS || []) {
-    for (const mod of t.mods || []) {
+  /* A trinket/boon key is dotted: `rate.furnace` is the tunable `rate`
+     scoped to `furnace`. Splitting on the FIRST dot is the rule mods.js
+     applies. `tools/content.mjs`'s assertion 8 does the deep version of this
+     (scope resolution too); this is the same quick sanity check that table
+     already ran for trinkets, now covering the timed-boon tier too. */
+  for (const row of [...(D_trk.TRINKETS || []), ...(D_boon.BOONS || [])]) {
+    for (const mod of row.mods || []) {
       const raw = mod.tunable || mod.key || '';
       const base = raw.split('.')[0];
       if (base && !(base in D_tune.TUNE))
-        { fail(`trinket ${t.id}: tunable "${base}" is not in data/tuning.js`); bad++; }
+        { fail(`${row.id}: tunable "${base}" is not in data/tuning.js`); bad++; }
     }
   }
   const machIds = new Set(D_mach.MACHINES.map(m => m.id));
   for (const [id, g] of Object.entries(D_grant.GRANT || {}))
     if (g.grants && !machIds.has(g.grants))
       { fail(`grant ${id}: grants unknown machine "${g.grants}"`); bad++; }
+
+  /* Every boon a `conflictsWith` entry names must itself be a real boon --
+     `tools/content.mjs`'s assertion 10 is the same check; kept here too so a
+     typo fails at this quicker layer first. */
+  for (const b of D_boon.BOONS || []) {
+    for (const c of b.conflictsWith || []) {
+      if (!D_boon.BOON[c.id])
+        { fail(`boon ${b.id}: conflictsWith names unknown boon "${c.id}"`); bad++; }
+      if (c.mode !== 'suppress' && c.mode !== 'invert')
+        { fail(`boon ${b.id}: conflictsWith "${c.id}" has unknown mode "${c.mode}"`); bad++; }
+    }
+  }
+
+  /* Every miracle's `id` must name a real substance, and its optional
+     side-effect boon must resolve. */
+  for (const m of D_miracle.MIRACLES || []) {
+    if (D_sub.S[m.id] === undefined)
+      { fail(`miracle ${m.id}: no substance row of this id`); bad++; }
+    if (m.effect?.boon && !D_boon.BOON[m.effect.boon])
+      { fail(`miracle ${m.id}: effect.boon names unknown boon "${m.effect.boon}"`); bad++; }
+  }
+
+  /* Every drop row's `give` must name a real trinket. */
+  const trinketIds = new Set((D_trk.TRINKETS || []).map(t => t.id));
+  for (const d of D_drop.DROPS || [])
+    if (!trinketIds.has(d.give))
+      { fail(`drop ${d.id}: give "${d.give}" is not a real trinket`); bad++; }
 
   if (!bad) ok(`${D_sub.SUBSTANCES.length} substances, ${formIds.size} forms, ` +
                `${D_mach.MACHINES.length} machines, all names resolve`);
@@ -310,8 +343,11 @@ console.log('\n3. behaviour');
 }
 
 /* --- a trinket is an item now: drafting it drops a relic, picking it up
-   changes an effective value, and spending it out of the inventory restores
-   the base -- all through `run.inv`, none of it through a dedicated list. --- */
+   and EQUIPPING it changes an effective value, and spending it out of the
+   inventory restores the base -- all through `run.inv`/`run.equipped`, none
+   of it through a dedicated list (Phase 4, docs/BUILD_PLAN.md: an equip slot
+   is a SELECTION over `run.inv`, not a second inventory, so holding alone is
+   no longer enough -- it must also be equipped). --- */
 {
   boot.newRun(1337);
   const t = (D_trk.TRINKETS || [])[0];
@@ -323,18 +359,27 @@ console.log('\n3. behaviour');
     const scope = dot < 0 ? t.mods[0].scope : raw.slice(dot + 1);
     const base = mods.eff(key, scope);
     sched.trinkets.grant(t.id);
-    /* The draft spawns a falling item; let it land in the pickup radius and
-       `trinkets.step()` sync `model/mods.js` from `run.inv`. */
+    /* The draft spawns a falling item; let it land in the pickup radius. */
     for (let i = 0; i < 180 && run.invCount(D_sub.S[t.id], D_form.F.relic) === 0; i++)
       sched.stepAll(1 / 120, { hasMouse: false });
+    if (mods.eff(key, scope) !== base)
+      fail(`trinket ${t.id}: eff("${key}") changed BEFORE equipping -- holding alone must not be enough`);
+
+    /* Equip it -- the model-driven path Phase 5b's real drag-to-equip UI
+       will replace -- then `trinkets.step()` syncs `model/mods.js` from the
+       intersection `run.equipped ∩ run.inv`. */
+    if (!sched.trinkets.equipFirst()) fail(`trinket ${t.id}: equipFirst() found no empty slot`);
+    sched.trinkets.step();
     const withT = mods.eff(key, scope);
-    if (withT === base) fail(`trinket ${t.id} did not change eff("${key}") after pickup`);
-    else ok(`trinket ${t.id}: ${key} ${base} -> ${withT}`);
+    if (withT === base) fail(`trinket ${t.id} did not change eff("${key}") after equipping`);
+    else ok(`trinket ${t.id}: ${key} ${base} -> ${withT} once equipped`);
 
     run.write.spend(D_sub.S[t.id], D_form.F.relic, 1);
     sched.trinkets.step();
     if (mods.eff(key, scope) !== base) fail('spending the relic did not restore the base');
-    else ok('spending the relic restores the base value');
+    else if (run.run.equipped.includes(D_sub.S[t.id]))
+      fail('spending the relic left it in run.equipped -- the slot must clear itself');
+    else ok('spending the relic restores the base value and clears the slot');
   }
 }
 

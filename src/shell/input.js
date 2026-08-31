@@ -30,7 +30,7 @@ import { audio, unlockAudio } from './audio.js';
 export const cmd = {
   left: false, right: false, up: false, down: false,
   hop: false, dig: false, place: false, craft: false, drop: false,
-  deconstruct: false,
+  deconstruct: false, miracle: false, equip: false,
   mouse: false, mx: 0, my: 0, hasMouse: false
 };
 
@@ -52,7 +52,8 @@ const KEYS = {
   s: 'down',  arrowdown: 'down'
 };
 
-let hopHeld = false, placeHeld = false, dropHeld = false, deconHeld = false;
+let hopHeld = false, placeHeld = false, dropHeld = false, deconHeld = false,
+    miracleHeld = false, equipHeld = false;
 
 function set(k, down) {
   const key = k.toLowerCase();
@@ -73,6 +74,21 @@ function set(k, down) {
      second would be the same bug this file's header already warns about for
      `place`, just running backwards. */
   if (key === 'backspace')          { if (down && !deconHeld) cmd.deconstruct = true; deconHeld = down; }
+  /* 'v' to USE a held miracle (Phase 4, docs/BUILD_PLAN.md STEP 3) --
+     EDGE-TRIGGERED, same idiom again: a held key that collapsed a whole
+     stack of miracles into the terrain in half a second would be the same
+     bug class. Mnemonic is thin ('v' ~ "vial"/"phial"), but every letter
+     nearer the word "use" or "miracle" was already claimed (checked KEYS
+     plus every `if (k === ...)` in this file, same as 'o' and the debug
+     grants below). This is a REAL action, not a debug spawn -- it consumes
+     something the player already holds -- so it is NOT gated on
+     `flags.showDebug`. */
+  if (key === 'v')                  { if (down && !miracleHeld) cmd.miracle = true; miracleHeld = down; }
+  /* 'p' to EQUIP the first held-but-unequipped trinket into the first empty
+     slot (Phase 4 STEP 4) -- "put on". A real action like 'v' above, not a
+     debug spawn, so also ungated. The drag-to-equip UI is Phase 5b's job;
+     this is the model-driven path that phase's own text says is enough. */
+  if (key === 'p')                  { if (down && !equipHeld) cmd.equip = true; equipHeld = down; }
 }
 
 export function installInput() {
@@ -94,16 +110,6 @@ export function installInput() {
        since the map is a mode you sit in, not an action you repeat. */
     if (k === 'o') flags.showMap    = !flags.showMap;
     if (k === 'm') audio.muted = !audio.muted;
-    if (k === 't') wants.draft = 'trinket';
-    /* 'b' drafted the MACHINE-GRANT tier when that was still (mis)named
-       "boon" -- `docs/BUILD_PLAN.md` Phase 4 Step 1's rename to
-       `data/grants.js`/`rules/grants.js`. Renamed the intent string to
-       'grant' in the SAME commit as that rename, for zero behaviour change:
-       'b' still does exactly what it did. Phase 4 Step 2 gives 'b' back to
-       the new TIMED tier (its mnemonic is a better fit for "boon" than
-       "grant" ever was) and moves this draft to a new key -- see that
-       step's own edit to this file for the full KEYS-table check. */
-    if (k === 'b') wants.draft = 'grant';
     if (k === 'r') wants.restart = true;
 
     /* `f`/`l` USED to spawn a furnace/lift from nothing, unconditionally --
@@ -117,10 +123,33 @@ export function installInput() {
        open already placed the same id off the same list). Kept here ONLY
        behind `flags.showDebug` (`h`), as a development shortcut, and a
        NO-OP with the gate off -- the same pattern the `1`-`9` digits already
-       use against `flags.showInv`. */
+       use against `flags.showInv`.
+
+       `t`/`b`/`k`/`y` moved in HERE in Phase 4 STEP 6 (docs/BUILD_PLAN.md):
+       every "spawn a modifier tier from nothing" debug path now lives
+       behind `flags.showDebug` and nowhere else, since every tier finally
+       has a REAL source that does not need a debug key -- a trinket from a
+       rare mining drop or the drop table (`rules/mining.js`,
+       `data/drops.js`), a boon from a god grant or a miracle's own
+       side-effect, a miracle... still only from here or a future draft, but
+       "must be earned" (STEP 4) was specifically about TRINKETS, which now
+       are. `docs/AUDIT.md` section 3's own finding is that `t`/`b` were
+       ONCE the ONLY source of either tier; that finding no longer applies.
+
+       't' trinket, 'b' the TIMED boon tier (the word's new, narrower
+       meaning -- Phase 4 Step 1 moved the MACHINE-GRANT tier off this
+       letter entirely; see that commit's own note here), 'k' the machine
+       grant (the free key 'b' vacated), 'y' a miracle phial. Checked the
+       full KEYS table and every `if (k === ...)` in this file before
+       picking 'k'/'y' -- both unused, same diligence 'o' and 'q' already
+       state doing. */
     if (flags.showDebug) {
       if (k === 'f') wants.machine = 'furnace';
       if (k === 'l') wants.machine = 'lift';
+      if (k === 't') wants.draft = 'trinket';
+      if (k === 'b') wants.draft = 'boon';
+      if (k === 'k') wants.draft = 'grant';
+      if (k === 'y') wants.draft = 'miracle';
     }
 
     /* Digits only mean anything while the inventory panel is open: they pick
@@ -150,6 +179,7 @@ export function installInput() {
   addEventListener('blur', () => {
     for (const k of ['left', 'right', 'up', 'down', 'dig', 'place', 'craft', 'mouse']) cmd[k] = false;
     hopHeld = false; placeHeld = false; dropHeld = false; deconHeld = false;
+    miracleHeld = false; equipHeld = false;
   });
 
   const cv = stage.cv;
@@ -192,6 +222,8 @@ export function clearEdges() {
   cmd.place = false;
   cmd.drop = false;
   cmd.deconstruct = false;
+  cmd.miracle = false;
+  cmd.equip = false;
   wants.restart = false;
   wants.machine = null;
   wants.draft = null;

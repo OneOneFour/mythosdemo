@@ -395,3 +395,58 @@ rewrite history here.
   `toBand` off the same frozen row and call the same `bandAt`/`bandOf`
   queries, so the two cannot disagree about what the row means even though
   the arithmetic itself is not shared code.
+
+## Phase 4 (the four modifier tiers)
+
+- **`src/data/substances.js` touched, outside this phase's own FILE
+  OWNERSHIP list, because a miracle CANNOT exist without one.** Unlike
+  `data/tuning.js`/`rules/mining.js`, the plan does not name
+  `data/substances.js` as an explicit exception. But `data/miracles.js`'s own
+  header states the rule this phase was told to follow verbatim: "a miracle
+  is a HELD PAIR... `id` is a substance id... needs an element of its own for
+  the identical reason a trinket does." There is no alternative shape that
+  keeps a miracle inside `data/miracles.js` alone -- the same structural
+  necessity Phase 2b's own FINDINGS entry already made for `run.brandLeft`
+  and Phase 2c's for `cyclops_maw`'s numbers. Added one row, `chasm` (tags
+  `['miracle']`, crossing only into `forms.js#phial`, per that form's own
+  `subTags` restriction), matching the tier's "content is deliberately
+  thin" convention -- exactly one miracle shipped, exactly one substance row
+  needed.
+
+- **`data/drops.js`'s `trigger:'tribute'` row is NOT YET CONSUMED.** Phase 4
+  STEP 4 names "a drop table on tribute completion" as trinket source (a),
+  ahead of "a rare drop from deep strata tiles" (b). Audited
+  `src/model/run.js`/`src/rules/`: `run.tribute` is written
+  (`write.tribute(t)`) but nothing anywhere ever COMPLETES a tribute -- there
+  is no cycle system, no clock, no consumer. Wiring source (a) to an event
+  that does not exist would mean inventing the event, which is explicitly
+  Phase 5+/"cycle draft, once cycles are real" territory per this same
+  phase's own text for source (c). Shipped source (b) instead --
+  `rules/mining.js`'s rare-drop hook, the plan's own explicit, narrow
+  exception to this phase's FILE OWNERSHIP -- as the ONE live, reachable
+  trinket source this phase, and left the tribute row in `data/drops.js` as
+  data-ready-but-unconsumed, exactly the shape `docs/BUILD_PLAN.md` already
+  accepts for source (c). Verified live via a headless script mining a
+  granite tile (tier 2) 300 times with a tier-2 tool: multiple
+  `bellows/relic` items were spawned by the hook (visible in
+  `model/items.js#items`), through `rand()` and nowhere else.
+
+- **`shell/input.js`'s key reshuffle happened across TWO commits, not one,
+  by design.** Step 1 (the pure rename) kept `'b'` bound to exactly what it
+  already did (the machine-grant draft, string renamed `'boon'` ->
+  `'grant'`) so that commit's own "zero behaviour change" claim is literally
+  true. Step 2 (this commit) is where `'b'` actually moves to the new timed
+  tier and the grant draft moves to `'k'` -- the rebind could not happen
+  correctly in Step 1 because the timed tier's rules/model files did not
+  exist yet to bind it to. Final bindings, all behind `flags.showDebug`
+  except the two real actions: `t` trinket draft, `b` boon draft, `k` grant
+  draft, `y` miracle draft (all debug-only spawns); `v` use a held miracle,
+  `p` equip the first held-but-unequipped trinket (both real actions, always
+  live).
+
+- **The debug-grant draft for miracles reuses `wants.draft = 'miracle'`,
+  the SAME string `cmd.miracle` (a boolean, unrelated) happens to share in
+  English.** Two different namespaces (`wants.draft` is a string enum,
+  `cmd.miracle` is an edge-triggered flag) so there is no actual collision,
+  but flagged here in case a future reader assumes there is one from the
+  name alone.

@@ -21,6 +21,9 @@ import { MACH } from '../src/data/machines.js';
 import { TUNE } from '../src/data/tuning.js';
 import { TRINKETS } from '../src/data/trinkets.js';
 import { GRANTS } from '../src/data/grants.js';
+import { BOONS, BOON } from '../src/data/boons.js';
+import { MIRACLES } from '../src/data/miracles.js';
+import { DROPS } from '../src/data/drops.js';
 import { holdable, massOfPair } from '../src/model/items.js';
 
 const EPS = 1e-6;
@@ -268,9 +271,10 @@ export function checkContent({ quiet = false } = {}) {
 
   /* ---- 8. every tunable key named by any data/ modifier row resolves,
      scope included. Written generically over "any data row with a `mods`
-     array" so a future table (boons, once Phase 4 gives them mods) needs no
-     edit here. ---- */
-  for (const row of [...TRINKETS, ...GRANTS]) {
+     array" -- Phase 4 gave `data/boons.js` real `mods` rows and this needed
+     NO edit for that, exactly as the comment predicted; `GRANTS` costs
+     nothing extra to include since its rows carry no `mods` at all. ---- */
+  for (const row of [...TRINKETS, ...GRANTS, ...BOONS]) {
     for (const mod of row.mods || []) {
       checks++;
       const raw = mod.tunable || mod.key || '';
@@ -305,6 +309,51 @@ export function checkContent({ quiet = false } = {}) {
         fail(`tile tiers: "${SUB[i].id}" (tier ${tierA}, hard ${a.hard}) is HARDER than ` +
              `"${SUB[j].id}" (tier ${tierB}, hard ${b.hard}) -- a higher tier must never be softer`);
     }
+  }
+
+  /* ---- 10. every BOONS#conflictsWith entry names a real boon id and a
+     real mode. Phase 4 (docs/BUILD_PLAN.md): "two hostile gifts must not
+     silently co-exist" only means something if the id it points at
+     resolves. ---- */
+  for (const b of BOONS) {
+    for (const c of b.conflictsWith || []) {
+      checks++;
+      if (!BOON[c.id])
+        fail(`boon "${b.id}": conflictsWith names unknown boon "${c.id}"`);
+      checks++;
+      if (c.mode !== 'suppress' && c.mode !== 'invert')
+        fail(`boon "${b.id}": conflictsWith "${c.id}" has mode "${c.mode}", expected "suppress" or "invert"`);
+    }
+  }
+
+  /* ---- 11. every miracle is a real, HOLDABLE substance x phial pair (the
+     substance named by `id`, per data/miracles.js's own header), and its
+     optional side-effect boon names a real boon. ---- */
+  for (const m of MIRACLES) {
+    checks++;
+    const sub = S[m.id];
+    if (sub === undefined || !holdable(sub, F.phial))
+      fail(`miracle "${m.id}": no holdable substance x phial pair -- add a data/substances.js row tagged 'miracle'`);
+    if (m.effect?.boon) {
+      checks++;
+      if (!BOON[m.effect.boon])
+        fail(`miracle "${m.id}": effect.boon names unknown boon "${m.effect.boon}"`);
+    }
+  }
+
+  /* ---- 12. every drop row names a real, holdable trinket, a real
+     trigger, and an in-range chance. ---- */
+  for (const d of DROPS) {
+    checks++;
+    if (d.trigger !== 'mine' && d.trigger !== 'tribute')
+      fail(`drop "${d.id}": trigger "${d.trigger}" is neither "mine" nor "tribute"`);
+    checks++;
+    const sub = S[d.give];
+    if (sub === undefined || !TRINKETS.some(t => t.id === d.give) || !holdable(sub, F.relic))
+      fail(`drop "${d.id}": give "${d.give}" is not a real, holdable trinket`);
+    checks++;
+    if (!(d.chance > 0 && d.chance <= 1))
+      fail(`drop "${d.id}": chance ${d.chance} is not in (0, 1]`);
   }
 
   if (!quiet) {

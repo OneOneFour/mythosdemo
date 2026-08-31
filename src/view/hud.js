@@ -40,7 +40,9 @@ import { HAND_RECIPES } from '../data/recipes.js';
 import { SUB } from '../data/substances.js';
 import { SPAWN_BAND } from '../data/world.js';
 import { TRINKET } from '../data/trinkets.js';
+import { BOON } from '../data/boons.js';
 import { aim } from '../model/aim.js';
+import { boons } from '../model/boons.js';
 import { massOfPair, parseKey } from '../model/items.js';
 import { eff, mods } from '../model/mods.js';
 import { player } from '../model/player.js';
@@ -109,10 +111,14 @@ export function drawHUD(g, f) {
     buildHits.length = 0;                 // panel closed: nothing to hover
   }
   depth(g, W, 6);
+  /* The timed-boon stack (Phase 4 STEP 5): BELOW the depth gauge just drawn
+     (y 6), and its own bottom edge is handed to `debug()` so a debug panel
+     (y 22 by default) never draws under it when both are on screen at once. */
+  const boonBottom = boonStack(g, f, W, 19);
   reticle(g, f);
   buildGhost(g, f);
   hint(g, W, H);
-  if (f.flags.showDebug) debug(g, f, W);
+  if (f.flags.showDebug) debug(g, f, W, boonBottom);
   if (run.dead) deathScreen(g, W, H);
   else if (banner.fade > 0) title(g, W, H);
   else tooltip(g, f);
@@ -363,6 +369,63 @@ function depth(g, W, y) {
   drawText(g, s, W - w - 2, y, d > 0 ? UI.ink : UI.dim, 1, 1);
 }
 
+/* ---------- the timed-boon stack, Phase 4 STEP 5 ----------
+   Top-right, newest at top -- `boons.active` is append-order (grant order,
+   never reordered on refresh, `model/boons.js`'s own header), so walking it
+   backwards puts the most recently granted boon on top. Capped at 5 visible
+   rows with a '+N' overflow line, because a HUD that grows without bound off
+   a draft system that does not exist yet is a bug waiting for content.
+
+   Nothing here is clickable (docs/DESIGN.md: "a boon is not a resource you
+   spend; it is weather"). The bar's fill and the last-5-seconds flash derive
+   ONLY from `f.t` (== `clock.t`) and the boon's own `left` -- never `rand()`,
+   per CLAUDE.md's own record of the furnace flame bug this would otherwise
+   repeat. Returns the y just past whatever it drew, so `drawHUD` can keep a
+   debug panel clear of it. */
+const BOON_ROWS_MAX = 5;
+const BOON_ROW_H = 9;
+
+function boonStack(g, f, W, startY) {
+  const rows = boons.active;
+  if (!rows.length) return startY;
+
+  const shown = rows.slice(-BOON_ROWS_MAX).reverse();
+  const overflow = rows.length - shown.length;
+  let y = startY;
+
+  for (const a of shown) {
+    const b = BOON[a.id];
+    if (!b) continue;
+    const frac = Math.max(0, Math.min(1, a.left / b.secs));
+    const flashing = a.left > 0 && a.left <= 5;
+    const flash = flashing && ((f.t * 6) | 0) % 2 === 0;
+
+    const label = b.name;
+    const secs = Math.max(0, Math.ceil(a.left));
+    const timeStr = ((secs / 60) | 0) + ':' + String(secs % 60).padStart(2, '0');
+    const barW = 24;
+    const w = 6 + textWidth(label) + 4 + barW + 4 + textWidth(timeStr) + 4;
+    const x = Math.max(2, W - w - 6);
+
+    R(g, x, y, 4, 4, UI.relic);                              // a god's gift, same accent a trinket's border uses
+    drawText(g, label, x + 6, y - 1, flash ? UI.heart : UI.ink, 1, 1);
+    const barX = x + 6 + textWidth(label) + 4;
+    R(g, barX, y, barW, 3, UI.hollow);
+    R(g, barX, y, Math.round(barW * frac), 3, flash ? UI.heart : UI.good);
+    drawText(g, timeStr, barX + barW + 4, y - 1, UI.dim, 1, 1);
+
+    y += BOON_ROW_H;
+  }
+
+  if (overflow > 0) {
+    const s = '+' + overflow;
+    drawText(g, s, Math.max(2, W - textWidth(s) - 6), y - 1, UI.dim, 1, 1);
+    y += BOON_ROW_H;
+  }
+
+  return y;
+}
+
 /* The aim reticle, in world space but drawn with the HUD because it is a
    statement about the pick and not about the rock. */
 function reticle(g, f) {
@@ -435,7 +498,8 @@ function hint(g, W, H) {
   drawText(g, t.text, x + 6, y + 3, UI.ink, 1, 1);
 }
 
-function debug(g, f, W) {
+function debug(g, f, W, top = 22) {
+  const panelY = Math.max(22, top);
   const rows = [
     'FPS ' + (f.dt > 0 ? Math.round(1 / f.dt) : 0),
     'BAND ' + (player.band ? player.band.id.toUpperCase() : '-'),
@@ -449,8 +513,8 @@ function debug(g, f, W) {
   ];
   let w = 0;
   for (const r of rows) w = Math.max(w, textWidth(r));
-  panel(g, W - w - 12, 22, w + 10, rows.length * 9 + 6, 0.8);
-  rows.forEach((r, i) => drawText(g, r, W - w - 7, 26 + i * 9, UI.debug, 1, 1));
+  panel(g, W - w - 12, panelY, w + 10, rows.length * 9 + 6, 0.8);
+  rows.forEach((r, i) => drawText(g, r, W - w - 7, panelY + 4 + i * 9, UI.debug, 1, 1));
 }
 
 function deathScreen(g, W, H) {

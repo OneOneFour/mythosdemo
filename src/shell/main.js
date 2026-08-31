@@ -30,7 +30,7 @@ import { render } from '../view/scene.js';
 import { boot, newRun } from './boot.js';
 import { clearEdges, cmd, flags, pointer, wants } from './input.js';
 import { drainJournal } from './notify.js';
-import { grants, stepAll, trinkets } from './schedule.js';
+import { boons, grants, miracles, stepAll, trinkets } from './schedule.js';
 import { hoverInfo, pocketHits } from '../view/hud.js';
 
 export const STEP = 1 / 120;
@@ -137,9 +137,27 @@ function applyIntents() {
     cmd.deconstruct = false;
   }
 
-  /* Drafting, bound to a key so both boon tiers are exercisable by hand. The
-     director that decides WHEN a god offers something is not built; these are
-     the two calls it would make. */
+  /* USE a held miracle (Phase 4 STEP 3, docs/BUILD_PLAN.md): the ONE-SHOT
+     tier's own real verb, aimed exactly like a placement or a deconstruct --
+     you point at the tile the terrain edit centres on. Not gated on
+     `flags.showDebug`: this consumes something already held, it does not
+     spawn anything from nothing. */
+  if (cmd.miracle && aim.valid && aim.band) {
+    miracles.use(aim.band, aim.tx, aim.ty);
+    cmd.miracle = false;
+  }
+
+  /* EQUIP the first held-but-unequipped trinket (Phase 4 STEP 4): no aim
+     needed, same reasoning `cmd.drop` above already states for the drop
+     verb. The model-driven path Phase 5b's drag-to-equip UI replaces. */
+  if (cmd.equip) {
+    trinkets.equipFirst();
+    cmd.equip = false;
+  }
+
+  /* Drafting, bound to a key so all four tiers are exercisable by hand. The
+     director that decides WHEN a god offers something is not built; these
+     are the calls it would make. */
   if (wants.draft === 'trinket') {
     const t = trinkets.draftable()[0];
     if (t) trinkets.grant(t.id);
@@ -148,6 +166,16 @@ function applyIntents() {
   if (wants.draft === 'grant') {
     const g = grants.draftable()[0];
     if (g) grants.grant(g.id);
+    wants.draft = null;
+  }
+  if (wants.draft === 'boon') {
+    const b = boons.draftable()[0];
+    if (b) boons.grant(b.id);
+    wants.draft = null;
+  }
+  if (wants.draft === 'miracle') {
+    const m = miracles.draftable()[0];
+    if (m) miracles.grant(m.id);
     wants.draft = null;
   }
 }

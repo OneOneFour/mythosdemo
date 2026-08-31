@@ -391,3 +391,57 @@ menu's digit `1`/`2` already reached the identical `buildableMachines()`
 list). Kept as a development shortcut behind `flags.showDebug` (`H`), a
 no-op with the gate off — the same pattern the `1`-`9` digits already use
 against `flags.showInv`.
+
+## 14. God gifts: the four modifier tiers (Phase 4)
+
+Locked with `docs/BUILD_PLAN.md` Phase 4 and `CLAUDE.md` "Resolved
+decisions" D1. `data/boons.js#BOONS` (renamed from the machine-grant tier,
+which moved to `data/grants.js#GRANTS`) is the TIMED tier; every number below
+is content on that table, read through `model/mods.js#eff()` like everything
+else that bends a number — no new tunable was needed this phase.
+
+| boon | god | secs | mods | conflictsWith |
+|---|---|---|---|---|
+| `hephaestus-forge` | hephaestus | 60 | `rate.furnace` x1.5 | — |
+| `poseidon-flood` | poseidon | 60 | `hard` (unscoped, every substance) x0.85 | suppresses `hephaestus-forge` |
+| `athena-focus` | athena | 50 | `pickPower` x1.25 | — |
+| `ares-frenzy` (`trap:true`) | ares | 40 | `pickPower` +0.2 | inverts `athena-focus` |
+| `hades-passage` | hades | 20 | `climb` x1.3 | — (miracle side-effect only) |
+
+**The canonical hostile pair, `docs/DESIGN.md`'s own example.** Poseidon's
+flood softens every rock (helps mining) but douses a forge already lit:
+granting `poseidon-flood` while `hephaestus-forge` is active SUPPRESSES the
+older gift entirely (`eff('rate','furnace')` reads exactly base, 1.0) for as
+long as both would be active, while the flood's own `hard` reduction still
+applies. Letting the flood expire hands the forge boost back with no code
+anywhere remembering it was ever overridden — `rules/boons.js#step`
+recomputes the whole active list from scratch every fixed 1/120 s step.
+
+**The INVERT pair, and the one shipped trap.** `ares-frenzy` reads as a flat
+`pickPower` +0.2 buff. If `athena-focus` (x1.25) is already running, the
+frenzy inverts her multiplier to x0.8 for as long as it lasts. Per the fixed
+order of application (`model/mods.js`: `(base + Σadd) x Πmul`), holding both
+at once gives `(1 + 0.2) x 0.8 = 0.96` — WORSE than the unmodified base of
+1.0. A gift offered on a bad cycle can cost you more than refusing it would
+have; `docs/DESIGN.md`: "some gifts are traps."
+
+**Miracles.** `data/miracles.js` ships one row, `chasm` ("RIFT OF HADES"): a
+held `chasm/phial` pair (substance tagged `miracle`, crossed with Phase 1's
+`phial` form) that, on use, clears every tile in a 1-tile radius square
+around the aim reticle to AIR (`model/tiles.js#write.clear`) and grants
+`hades-passage` (above) as its side-effect boon — one of the timed tier's
+three stated sources (god grant, altar use, miracle side-effect).
+
+**Trinket equip slots.** `run.equipped`, length `eff('trinketSlots')` (3,
+Phase 1), a fixed-length array of substance ordinals or `null`. A trinket's
+modifier is active only while its id is BOTH equipped AND held —
+`rules/trinkets.js#step` clears a slot whose id the pockets no longer hold in
+the same pass it syncs `model/mods.js`, so the two can never disagree.
+
+**Trinket sources.** The unconditional `T` debug spawn is gone (behind
+`flags.showDebug` only, alongside the other three tiers' debug grants). Real
+sources this phase: a 3% chance per broken tile at `tile.tier >= 2` (granite,
+adamant) named in `data/drops.js` and rolled in `rules/mining.js`'s rare-drop
+hook, through `rand()` only (invariant 7). A drop-table row for tribute
+completion is also in `data/drops.js` but not yet consumed — tribute
+completion is not a real event yet (see `docs/FINDINGS.md`).

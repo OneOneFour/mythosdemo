@@ -30,15 +30,16 @@
    place `hard` is applied above, for the same reason. */
 
 import { rand } from '../core/rng.js';
-import { AIR } from '../data/forms.js';
-import { SUB } from '../data/substances.js';
+import { AIR, F } from '../data/forms.js';
+import { S, SUB } from '../data/substances.js';
+import { DROPS } from '../data/drops.js';
 import { aim, write as aw } from '../model/aim.js';
 import { push } from '../model/journal.js';
 import { write as digw, workAt } from '../model/mining.js';
 import { write as iw } from '../model/items.js';
 import { eff } from '../model/mods.js';
 import { player, playerCentre } from '../model/player.js';
-import { bestTool, hasPick, run } from '../model/run.js';
+import { bestTool, hasPick, invCount, run } from '../model/run.js';
 import { baseHardAt, dropAt, subAt, tileAt, write as tw } from '../model/tiles.js';
 import { bandAt, inBounds, tileX, tileY, worldX, worldY } from '../model/world.js';
 
@@ -144,4 +145,32 @@ export function step(dt, cmd) {
   const it = iw.spawn(b, at.x + b.tile / 2, at.y + b.tile / 2,
                       drop.sub, drop.form, (rand() - 0.5) * 24, -30 - rand() * 20);
   if (it) push('drop', at, { sub: drop.sub, form: drop.form });
+
+  /* ---- RARE TRINKET DROP, Phase 4 (docs/BUILD_PLAN.md) STEP 4 source (b).
+     THE ONE EXPLICIT EXCEPTION TO THIS PHASE'S FILE OWNERSHIP -- named as
+     such by the plan itself ("rules/mining.js is NOT in your FILE
+     OWNERSHIP... this is the one exception"), added here because it is the
+     one place a live, reachable trinket source can be wired THIS phase:
+     tribute completion (`data/drops.js`'s other trigger) has no real event
+     to hook into yet (`run.tribute` is unwritten scaffolding, see
+     docs/FINDINGS.md), so this is what makes "THEY MUST BE EARNED" true
+     today rather than only on paper.
+
+     Reads the ODDS from `data/drops.js` so they live in one table a
+     designer can tune without opening this file. Rolled through `rand()`
+     and NOTHING ELSE (invariant 7: a run is bit-reproducible from its
+     seed), immediately after the ordinary material drop above so both draw
+     from the same fixed position in the same run's rand() stream every
+     time. Skips a trinket already held -- one is enough, and a second copy
+     would just be visual noise in the pockets. ---- */
+  for (const d of DROPS) {
+    if (d.trigger !== 'mine') continue;
+    const tileTier = sub >= 0 ? (SUB[sub].tile?.tier ?? 1) : 1;
+    if (tileTier < d.minTier) continue;
+    const giveSub = S[d.give];
+    if (giveSub === undefined || invCount(giveSub, F.relic) > 0) continue;
+    if (rand() < d.chance)
+      iw.spawn(b, at.x + b.tile / 2, at.y + b.tile / 2, giveSub, F.relic,
+               (rand() - 0.5) * 24, -30 - rand() * 20);
+  }
 }

@@ -214,7 +214,33 @@ export const SUBSTANCES = [
           + 1 timber/log. */
   { id:'auger', name:'ADAMANT AUGER', tags:['relic'],
     item:{ mass:0.9, hud:{ order:10 }, tool:{ tier:2, power:1.8 } },
-    look:{ item:['adamantA', 'irB'] } }
+    look:{ item:['adamantA', 'irB'] } },
+
+  /* ---- chasm: the one miracle this phase ships (Phase 4,
+          `docs/BUILD_PLAN.md`), same shape as `bellows`/`pick`/`auger`
+          above -- a miracle is a HELD PAIR, per the substance x form rule
+          (CLAUDE.md "Resolved decisions" D1), and needs an element of its
+          own for the identical reason a trinket does: it refines from
+          nothing, it IS the element. `tags:['miracle']` (NOT `relic`) is
+          what lets it cross into `forms.js#phial` and NOTHING else --
+          `phial`'s own `subTags:['miracle']` is the whole reason that form
+          exists separately from `relic`, so a miracle can never satisfy a
+          trinket selector by accident.
+
+          OUTSIDE THIS PHASE'S OWN FILE OWNERSHIP -- `docs/BUILD_PLAN.md`
+          Phase 4 does not list `data/substances.js` at all, unlike
+          `data/tuning.js`/`rules/mining.js`, which it names as explicit,
+          narrow exceptions. Added anyway, loudly, because a miracle
+          CANNOT exist as a held pair without an element of its own: there
+          is no alternative that keeps it inside `data/miracles.js` alone,
+          the same structural necessity that made Phase 2b add
+          `run.brandLeft` to `model/run.js` and Phase 2c add `cyclops_maw`'s
+          numbers outside their own lists (see docs/FINDINGS.md, both
+          precedents). One row, matching the tier's own "content is
+          deliberately thin" convention. ---- */
+  { id:'chasm', name:'RIFT OF HADES', tags:['miracle'],
+    item:{ mass:0.2, hud:{ order:11 } },
+    look:{ item:['abyC', 'vioHi'] } }
 ];
 
 /* ---- derived indices, built once, frozen. Nothing scans this table on a hot

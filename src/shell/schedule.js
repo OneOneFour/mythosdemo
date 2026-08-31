@@ -74,9 +74,28 @@
                            the same promise `items before trinkets` already
                            makes for a picked-up relic — no hand-recipe makes
                            one today, but the ordering costs nothing to hold.
+     trinkets before boons  unrelated ledgers, the SAME reasoning
+                           `belts before crafting` already states above: the
+                           trinket sync reads `run.equipped`/`run.inv`, the
+                           boon sync reads `model/boons.js#active`, and
+                           neither touches the other's rows even though both
+                           write into `model/mods.js` — every row either tier
+                           adds is keyed by its OWN `src` prefix
+                           ('boon:'+id vs. the trinket's own id), so the two
+                           tiers can never remove each other's rows regardless
+                           of which runs first. Placed adjacent so both
+                           modifier-sync steps stay together, immediately
+                           before the ONE thing either of them can change the
+                           behaviour of this frame:
      items before machines  an item that lands in a mouth is caught THIS frame —
                            the catch box is checked against fresh positions, and
                            `items` is what rebuilt the spatial index.
+     boons before machines  a rate modifier a boon just turned on (or a
+                           conflict just suppressed) should apply to this
+                           same frame's recipe tick, not the next — the
+                           IDENTICAL promise `trinkets before machines`
+                           already made below, now made twice because there
+                           are two modifier tiers instead of one.
      trinkets before machines  a rate modifier a relic just turned on should
                            apply to this same frame's recipe tick, not the next.
 
@@ -97,6 +116,7 @@
 
 import { write as rw } from '../model/run.js';
 import * as belts from '../rules/belts.js';
+import * as boons from '../rules/boons.js';
 import * as crafting from '../rules/crafting.js';
 import * as fields from '../rules/fields.js';
 import * as grants from '../rules/grants.js';
@@ -105,6 +125,7 @@ import * as lift from '../rules/lift.js';
 import * as light from '../rules/light.js';
 import * as machines from '../rules/machines.js';
 import * as mining from '../rules/mining.js';
+import * as miracles from '../rules/miracles.js';
 import * as player from '../rules/player.js';
 import * as reveal from '../rules/reveal.js';
 import * as trinkets from '../rules/trinkets.js';
@@ -120,6 +141,7 @@ export const STEPS = [
   { id: 'belts',    step: (dt) => belts.step(dt) },
   { id: 'crafting', step: (dt, cmd) => crafting.step(dt, cmd) },
   { id: 'trinkets', step: () => trinkets.step() },
+  { id: 'boons',    step: (dt) => boons.step(dt) },
   { id: 'machines', step: (dt) => machines.step(dt) },
   { id: 'lift',     step: (dt) => lift.step(dt) },
   { id: 'fields',   step: (dt) => fields.step(dt) }
@@ -137,7 +159,10 @@ export function stepAll(dt, cmd) {
   for (const s of STEPS) s.step(dt, cmd);
 }
 
-/* Re-exported so `shell/boot.js` has one import for the rules it must call
-   OUTSIDE the per-frame order — granting and placement are events, not steps,
-   and putting them in the array above would be a lie about when they happen. */
-export { grants, trinkets };
+/* Re-exported so `shell/boot.js`/`shell/main.js` have one import for the
+   rules they must call OUTSIDE the per-frame order — granting, drafting and
+   using a miracle are events, not steps, and putting them in the array above
+   would be a lie about when they happen. `boons` is exported for its
+   `grant`/`draftable` pair even though it ALSO has a per-frame `step` in
+   `STEPS` above, the same dual role `trinkets` already has. */
+export { boons, grants, miracles, trinkets };

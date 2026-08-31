@@ -36,6 +36,7 @@ import { F } from '../data/forms.js';
 import { S } from '../data/substances.js';
 import { BANDS, SPAWN_BAND } from '../data/world.js';
 import { write as aimw } from '../model/aim.js';
+import { write as boonw } from '../model/boons.js';
 import { write as fieldw } from '../model/fields.js';
 import { write as itemw } from '../model/items.js';
 import { write as journalw } from '../model/journal.js';
@@ -72,6 +73,9 @@ export function newRun(seed = (Math.random() * 1e9) | 0) {
   itemw.clear();
   digw.clearAll();
   modw.clear();
+  boonw.clear();       // Phase 4 (docs/BUILD_PLAN.md): a boon surviving a
+                        // restart is invariant 8's determinism bug, same as
+                        // every other model clear on this list
   aimw.reset();
   journalw.clear();
   resetChunks();               // canvases holding the previous world
