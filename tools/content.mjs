@@ -24,6 +24,7 @@ import { GRANTS } from '../src/data/grants.js';
 import { BOONS, BOON } from '../src/data/boons.js';
 import { MIRACLES } from '../src/data/miracles.js';
 import { DROPS } from '../src/data/drops.js';
+import { BANDS, SPAWN_BAND } from '../src/data/world.js';
 import { holdable, massOfPair } from '../src/model/items.js';
 
 const EPS = 1e-6;
@@ -51,6 +52,51 @@ function minedPairs() {
 }
 
 const keyOf = (sub, form) => `${sub}:${form}`;
+
+/* Pure re-derivation of `model/world.js#worldY`, over the RAW `data/world.js`
+   rows rather than an allocated band record — this tool runs before anything
+   is booted, so there is no live band to ask. `origin`/`tile` are both plain
+   numbers on the row already, which is what makes this safe: `worldY` itself
+   has no allocation-time state, only arithmetic over the cfg. */
+const worldYOf = (bandCfg, ty) => bandCfg.origin.y + ty * bandCfg.tile;
+
+/* Depth (in the SPAWN band's own tile units), same datum `view/hud.js#depth`
+   and `model/run.js#placementCheck`'s `minDepth` gate both use: the spawn
+   band's own floor line. Used below to prove a `minDepth`-gated machine's
+   OWN build bill never requires material gated deeper than the machine
+   itself -- a catch-22 (nothing could ever mine what the machine needs to
+   reach the depth it needs) would otherwise pass every other check here. */
+function depthOfTy(bandCfg, ty, spawnCfg, datum) {
+  return (worldYOf(bandCfg, ty) - datum) / spawnCfg.tile;
+}
+
+/* The shallowest depth at which a substance is ever minable, scanning every
+   band's `strata` rows directly -- `layer`/`blobs`/`trees` all carry a
+   `fromTy`; `vein` carries `dy` off the band's own `floorTy` instead. Returns
+   Infinity for a substance no stratum ever places (a relic, a trinket, a
+   miracle -- anything with no `tile` block at all). `subOrd` is a SUBSTANCE
+   ORDINAL (an `S[...]` value), like every other query in this file -- a
+   strata row's own `sub` is the bare content-id STRING `data/world.js` was
+   written with, so it is translated through `S[...]` for the comparison
+   rather than compared directly (comparing a string to an ordinal always
+   silently fails, which is exactly the bug this comment now guards against:
+   an early draft of this function did that and the depth-gate check below
+   never once fired, on real content or on a deliberately broken one). */
+function minMineDepth(subOrd) {
+  const spawnCfg = BANDS.find(b => b.id === SPAWN_BAND);
+  const datum = worldYOf(spawnCfg, spawnCfg.floorTy ?? 0);
+  let min = Infinity;
+  for (const band of BANDS) {
+    for (const s of band.strata || []) {
+      if (S[s.sub] !== subOrd) continue;
+      const ty = s.kind === 'vein' ? (band.floorTy ?? 0) + (s.dy || 0) : s.fromTy;
+      if (ty === undefined) continue;
+      const d = depthOfTy(band, ty, spawnCfg, datum);
+      if (d < min) min = d;
+    }
+  }
+  return min;
+}
 
 export function checkContent({ quiet = false } = {}) {
   const violations = [];
@@ -100,66 +146,33 @@ export function checkContent({ quiet = false } = {}) {
   /* ---- 3. every machine `cost` key parses to a real, holdable sub/form
      pair. ---- */
   const mined = minedPairs();
-  for (const m of MACH) {
-    for (const key of Object.keys(m.cost || {})) {
-      checks++;
-      const [subId, formId] = key.split('/');
-      const sub = S[subId], form = F[formId];
-      if (sub === undefined || form === undefined || !holdable(sub, form)) {
-        fail(`machine "${m.id}": cost key "${key}" is not a real, holdable pair`);
-        continue;
-      }
 
-      /* ---- 4. every machine `cost` key is REACHABLE: mined directly, or
-         produced by some recipe's out clause. Shallow on purpose -- one hop,
-         not the transitive graph assertion 5 builds -- because a build bill
-         names an exact pair and either something makes that exact pair or it
-         does not. ---- */
-      checks++;
-      const minedHere = mined.some(p => p.sub === sub && p.form === form);
-      const producedHere = recipes.some(r => (r.out || []).some(c =>
-        c.subFrom ? (F[c.form] === form && expand(c.subFrom).some(p => p.sub === sub))
-                  : (c.sub !== undefined && S[c.sub] === sub && F[c.form] === form)));
-      if (!minedHere && !producedHere)
-        fail(`machine "${m.id}": cost key "${key}" is neither mined directly nor produced by any recipe`);
+  /* ---- the reachability fixpoint, built ONCE and shared by assertions 4 and
+     5. Ties a `subFrom` clause's resolution to WHICHEVER SUBSTANCES ARE
+     ALREADY REACHABLE for the matching input selector, using `matches()`
+     against the reachable set itself -- never `expand()`'s full crossable()
+     scan -- which is what keeps e.g. `adamant/ingot` out of the reachable
+     set: nothing ever mines `adamant/ore` (adamant's `tile.drops` is
+     `gravel`), so `adamant/ore` never enters `R`, so `smelt`'s
+     star-slash-hash-ore subFrom clause never resolves to adamant, so
+     `adamant/ingot` is never "reachable" at all -- there is nothing to flag,
+     by construction, not by exemption.
+
+     Built here, BEFORE the machine-cost loop below, so assertion 4 (a build
+     bill's exact pair) can ask the SAME transitive question assertion 5 (an
+     orphan recipe output) already had to answer, rather than the shallower
+     one-hop "mined, or produced by ANY recipe whose OWN inputs might
+     themselves be unreachable" check this file shipped with in Phase 1. */
+  const R = new Set(mined.map(p => keyOf(p.sub, p.form)));
+  const reachableSubsFor = sel => {
+    const subs = new Set();
+    for (const k of R) {
+      const [sub, form] = k.split(':').map(Number);
+      if (matches(sel, sub, form)) subs.add(sub);
     }
-  }
-
-  /* ---- 5. no orphans -- reachability graph SCOPED TO DECLARED PAIRS.
-     Corrected scope per docs/BUILD_PLAN.md Phase 1 section 5 (the version
-     re-read before this file was written, not the original plan): asserting
-     over the FULL crossable() cartesian space (data/forms.js#expand's
-     "holdable" universe) fails on a pre-existing, harmless gap --
-     `crossable()` is an ANY-match on tags, so `copper/gravel` and
-     `tin/gravel` are holdable today with no mining path or recipe ever
-     touching them, and adamant's `metal` tag (kept deliberately, for a
-     future ore/ingot/plate path) would add `adamant/ore`, `adamant/ingot`
-     and `adamant/plate` to that universe too, with nothing declaring any of
-     them this phase.
-
-     So the fixpoint below ties a `subFrom` clause's resolution to WHICHEVER
-     SUBSTANCES ARE ALREADY REACHABLE for the matching input selector, using
-     `matches()` against the reachable set itself -- never `expand()`'s full
-     crossable() scan -- which is exactly what keeps `adamant/ingot` out of
-     the declared set: nothing ever mines `adamant/ore` (adamant's
-     `tile.drops` is `gravel`), so `adamant/ore` never enters the reachable
-     set, so `smelt`'s star-slash-hash-ore subFrom clause never resolves to adamant, so
-     `adamant/ingot` is never "declared" at all -- there is nothing to flag,
-     by construction, not by exemption. Machine `cost` keys are EXCLUDED from
-     this graph on purpose: that is assertion 4's job, and asserting it twice
-     would just be two implementations of the same check that could silently
-     disagree. */
+    return subs;
+  };
   {
-    const R = new Set(mined.map(p => keyOf(p.sub, p.form)));
-    const reachableSubsFor = sel => {
-      const subs = new Set();
-      for (const k of R) {
-        const [sub, form] = k.split(':').map(Number);
-        if (matches(sel, sub, form)) subs.add(sub);
-      }
-      return subs;
-    };
-
     let grew = true;
     while (grew) {
       grew = false;
@@ -181,7 +194,49 @@ export function checkContent({ quiet = false } = {}) {
         }
       }
     }
+  }
 
+  for (const m of MACH) {
+    for (const key of Object.keys(m.cost || {})) {
+      checks++;
+      const [subId, formId] = key.split('/');
+      const sub = S[subId], form = F[formId];
+      if (sub === undefined || form === undefined || !holdable(sub, form)) {
+        fail(`machine "${m.id}": cost key "${key}" is not a real, holdable pair`);
+        continue;
+      }
+
+      /* ---- 4. every machine `cost` key is REACHABLE: mined pair -> recipes
+         -> the exact cost bill, TRANSITIVELY -- `R` already proves every one
+         of its own members is reachable from a mined pair through zero or
+         more recipe hops, so a straight membership test here is strictly
+         stronger than (and now replaces) the one-hop "produced by SOME
+         recipe" scan this used to be: a recipe whose OWN inputs are
+         themselves unreachable no longer counts as "producing" a cost pair,
+         which the old one-hop check could not see. ---- */
+      checks++;
+      if (!R.has(keyOf(sub, form)))
+        fail(`machine "${m.id}": cost key "${key}" is neither mined directly nor reachable through any recipe`);
+    }
+  }
+
+  /* ---- 5. no orphans -- reachability graph SCOPED TO DECLARED PAIRS.
+     Corrected scope per docs/BUILD_PLAN.md Phase 1 section 5 (the version
+     re-read before this file was written, not the original plan): asserting
+     over the FULL crossable() cartesian space (data/forms.js#expand's
+     "holdable" universe) fails on a pre-existing, harmless gap --
+     `crossable()` is an ANY-match on tags, so `copper/gravel` and
+     `tin/gravel` are holdable today with no mining path or recipe ever
+     touching them, and adamant's `metal` tag (kept deliberately, for a
+     future ore/ingot/plate path) would add `adamant/ore`, `adamant/ingot`
+     and `adamant/plate` to that universe too, with nothing declaring any of
+     them this phase.
+
+     `R` is the fixpoint built above, shared with assertion 4. Machine `cost`
+     keys are EXCLUDED from this graph on purpose: that is assertion 4's job,
+     and asserting it twice would just be two implementations of the same
+     check that could silently disagree. */
+  {
     /* Now assert every LITERAL-sub output is actually in the fixpoint's
        reachable set -- if it is not, that recipe's inputs could never be
        satisfied from any mined pair or any other recipe's output, which is
@@ -314,15 +369,40 @@ export function checkContent({ quiet = false } = {}) {
   /* ---- 10. every BOONS#conflictsWith entry names a real boon id and a
      real mode. Phase 4 (docs/BUILD_PLAN.md): "two hostile gifts must not
      silently co-exist" only means something if the id it points at
-     resolves. ---- */
+     resolves.
+
+     Phase 6 (docs/BUILD_PLAN.md) extends this with two more shapes:
+     NEVER SELF-REFERENTIAL -- a boon named as its own rival is either a typo
+     or a paradox (`rules/boons.js#step` only ever compares a LATER boon's
+     row against an EARLIER one by id; a self-reference could never even be
+     "the older one" of itself) -- and SYMMETRIC WHERE BOTH SIDES BOTHER TO
+     SAY SO: `rules/boons.js#step` resolves a conflict off whichever boon was
+     granted LATER, so today's shipped content (`hephaestus-forge` /
+     `poseidon-flood`, `athena-focus` / `ares-frenzy`) is deliberately
+     ONE-DIRECTIONAL -- the rivalry only fires if the aggressor is the one
+     granted second, and that is accepted design, not a bug this lints
+     against. What IS a bug: a pair that DOES declare both directions
+     disagreeing about HOW the fight resolves -- 'suppress' one way and
+     'invert' the other would make the outcome depend on grant order in a way
+     no content author would choose on purpose. So: symmetry is not required,
+     but where both directions exist, their modes must agree. */
   for (const b of BOONS) {
     for (const c of b.conflictsWith || []) {
+      checks++;
+      if (c.id === b.id) { fail(`boon "${b.id}": conflictsWith names itself`); continue; }
       checks++;
       if (!BOON[c.id])
         fail(`boon "${b.id}": conflictsWith names unknown boon "${c.id}"`);
       checks++;
       if (c.mode !== 'suppress' && c.mode !== 'invert')
         fail(`boon "${b.id}": conflictsWith "${c.id}" has mode "${c.mode}", expected "suppress" or "invert"`);
+
+      checks++;
+      const rival = BOON[c.id];
+      const back = rival?.conflictsWith?.find(rc => rc.id === b.id);
+      if (back && back.mode !== c.mode)
+        fail(`boon "${b.id}" <-> "${c.id}": conflictsWith is declared in both directions with ` +
+             `DIFFERENT modes ("${c.mode}" vs "${back.mode}") -- the outcome would depend on grant order`);
     }
   }
 
@@ -354,6 +434,53 @@ export function checkContent({ quiet = false } = {}) {
     checks++;
     if (!(d.chance > 0 && d.chance <= 1))
       fail(`drop "${d.id}": chance ${d.chance} is not in (0, 1]`);
+  }
+
+  /* ---- 13. every trinket `id` is a real, HOLDABLE substance x relic pair --
+     the identity trick `data/trinkets.js`'s own header names ("a trinket
+     refines from nothing -- it IS the element"), the same shape assertion 11
+     already proves for a miracle x phial pair. `run.invCount(S[t.id],
+     F.relic)` is how `rules/trinkets.js` asks "is this held" everywhere, so a
+     trinket whose id does not resolve to a holdable relic pair would silently
+     never be obtainable, equippable or spendable. (Phase 6, docs/BUILD_PLAN.md
+     tier-1 bullet: "every substance/form pair referenced by any ... trinket
+     ... exists and is holdable".) ---- */
+  for (const t of TRINKETS) {
+    checks++;
+    const sub = S[t.id];
+    if (sub === undefined || !holdable(sub, F.relic))
+      fail(`trinket "${t.id}": no holdable substance x relic pair -- add a data/substances.js row tagged 'relic'`);
+  }
+
+  /* ---- 14. DEPTH GATES ARE MONOTONIC: nothing a machine's build bill
+     requires is gated deeper than the machine's OWN `minDepth`. Only
+     `cyclops_maw` (and its mirrored variant) carries `minDepth` today, and
+     its cost is deliberately priced in granite-tier goods reachable well
+     above depth 200 -- see that row's own comment ("the one substance the
+     Maw alone can mine cannot also be a prerequisite for building it, or
+     nothing could ever build the first one"). This is the lint that keeps
+     that a PROVEN fact rather than an eyeballed one, and the one a future
+     T5 gated behind an even deeper `minDepth` would need to keep satisfying.
+     `minMineDepth` (above) is Infinity for a substance no stratum ever
+     places (a relic, a trinket bought elsewhere) -- those are caught by
+     assertion 3/4 already (a cost pair must be minable or produced), not
+     here, so Infinity would only ever fire THIS check for a substance that
+     is otherwise unreachable, a duplicate report of an existing failure; to
+     keep this assertion's own failures legible, skip a substance already
+     Infinity (unreachable), since assertion 4 already named it. ---- */
+  for (const m of MACH) {
+    if (!m.minDepth) continue;
+    for (const key of Object.keys(m.cost || {})) {
+      const [subId] = key.split('/');
+      const sub = S[subId];
+      if (sub === undefined) continue;                  // already failed assertion 3
+      const need = minMineDepth(sub);
+      if (!Number.isFinite(need)) continue;              // already failed assertion 3/4
+      checks++;
+      if (need > m.minDepth)
+        fail(`machine "${m.id}": minDepth ${m.minDepth} but its own cost key "${key}" is not minable ` +
+             `until depth ${need.toFixed(0)} -- nothing could ever build the first one`);
+    }
   }
 
   if (!quiet) {
