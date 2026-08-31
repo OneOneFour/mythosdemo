@@ -268,7 +268,20 @@ function applyUiIntents() {
      moment, so a close in between strands it. Reset both halves of the drag
      state here rather than let a phantom drag survive into the next time the
      panel opens. */
-  if (!isOpen('main')) { prevUiDown = false; if (ui.drag) clearDrag(); return; }
+  if (!isOpen('main')) {
+    prevUiDown = false;
+    if (ui.drag) clearDrag();
+    /* The quickbar's KEYS/legend toggle is drawn ALWAYS (`view/ui/quickbar.js`),
+       not gated on the main panel being open, and `shell/input.js` now routes
+       a click on it as a UI click regardless -- give it the one dispatch it
+       needs here rather than let the early return above swallow it silently.
+       Nothing else is live with no panel open: tabs, slots and search all
+       belong to the window this branch has already established is closed. */
+    if (cmd.hasMouse && cmd.uiClick && uiHitPanel(cmd.mx - drawCam.x, cmd.my - drawCam.y)?.id === 'hints-toggle')
+      toggleHints();
+    cmd.uiClick = false;
+    return;
+  }
   if (!cmd.hasMouse) { prevUiDown = cmd.uiDown; return; }
 
   const sx = cmd.mx - drawCam.x, sy = cmd.my - drawCam.y;

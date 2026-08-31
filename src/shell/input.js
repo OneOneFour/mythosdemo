@@ -1,5 +1,5 @@
-/* LAYER shell — KEYBOARD AND POINTER. Imports `core`, `model` (read) and
-   `shell`.
+/* LAYER shell — KEYBOARD AND POINTER. Imports `core`, `model` (read), `view`
+   (read, the drawn-rect registry only) and `shell`.
 
    ============================================================================
    NOTE FOR FUTURE EDITS, kept from the previous codebase because it is still
@@ -21,6 +21,7 @@
 
 import { VIEW, stage } from '../core/canvas.js';
 import { buildableMachines } from '../model/run.js';
+import { drawn as uiDrawn } from '../view/ui/state.js';
 import { audio, unlockAudio } from './audio.js';
 import { closeTop, isOpen, setSearch, setSearchFocus, top, toggle, ui } from './ui.js';
 
@@ -269,6 +270,22 @@ export function installInput() {
   };
   pointer.toWorld = toWorld;
 
+  /* The quickbar's KEYS/legend toggle is drawn ALWAYS, not only while a panel
+     is open (`view/ui/quickbar.js`'s own header: "a quickbar is part of the
+     permanent HUD"), so a click on it needs the identical "cannot also dig
+     through to the world" guarantee `isOpen(top())` gives every other UI
+     control below -- otherwise the button is visible but a click on it just
+     falls through to an ordinary mine/place at whatever the reticle happens
+     to be aimed at. Hit-tested in SCREEN space (pre-camera), matching exactly
+     the space `view/ui/state.js#drawn` records rects in -- this is the same
+     conversion `toWorld` below does, minus the `cam` offset it adds. */
+  const onAlwaysOnUi = e => {
+    const r = cv.getBoundingClientRect();
+    const sx = (e.clientX - r.left) / VIEW.scale, sy = (e.clientY - r.top) / VIEW.scale;
+    const p = uiDrawn.panels.find(p => p.id === 'hints-toggle');
+    return !!p && sx >= p.x && sx < p.x + p.w && sy >= p.y && sy < p.y + p.h;
+  };
+
   cv.addEventListener('pointermove', e => toWorld(e, pointer.cam));
   cv.addEventListener('pointerdown', e => {
     unlockAudio();
@@ -277,7 +294,7 @@ export function installInput() {
        intents instead of the gameplay ones whenever a panel is open, so a
        click meant for a slot can never also dig, mine or place through to
        the world underneath it. */
-    if (isOpen(top())) {
+    if (isOpen(top()) || onAlwaysOnUi(e)) {
       if (e.button === 2) cmd.uiRight = true; else { cmd.uiClick = true; cmd.uiDown = true; }
       cmd.uiCtrl = e.ctrlKey || e.metaKey;
       cmd.uiShift = e.shiftKey;
@@ -286,7 +303,7 @@ export function installInput() {
     e.preventDefault();
   });
   cv.addEventListener('pointerup', e => {
-    if (isOpen(top())) {
+    if (isOpen(top()) || onAlwaysOnUi(e)) {
       if (e.button === 2) cmd.uiRight = false; else { cmd.uiClick = false; cmd.uiDown = false; }
     } else if (e.button === 2) cmd.place = false; else cmd.mouse = false;
   });

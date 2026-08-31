@@ -21,23 +21,10 @@
     cursor: crosshair;
     touch-action: none;
   }
-  #keys {
-    position: fixed; left: 50%; bottom: 4px; transform: translateX(-50%);
-    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
-    color: #fdfcfa; pointer-events: none; user-select: none;
-    white-space: nowrap;
-  }
 </style>
 </head>
 <body>
 <canvas id="stage"></canvas>
-<div id="keys">
-  A/D move &nbsp;·&nbsp; W/S climb &nbsp;·&nbsp; Space hop &nbsp;·&nbsp;
-  click or X dig &nbsp;·&nbsp; E build &nbsp;·&nbsp; F furnace &nbsp;·&nbsp;
-  L winch &nbsp;·&nbsp; T trinket &nbsp;·&nbsp; B boon &nbsp;·&nbsp;
-  G grid &nbsp;·&nbsp; C chunks &nbsp;·&nbsp; H debug &nbsp;·&nbsp;
-  M mute &nbsp;·&nbsp; R restart
-</div>
 <script type="module" src="./src/shell/main.js"></script>
 </body>
 </html>
