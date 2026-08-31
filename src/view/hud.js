@@ -6,12 +6,17 @@
    thing that creeps back in, so the rule is absolute.
 
    ============================================================================
-   THE POCKET STRIP NAMES NOTHING. The previous HUD hardcoded four substance
-   names and a fifth special case; this one draws `run.pocketRows()`, which is a
-   model query sorted by the one ordering rule in `data/forms.js`. Appending
-   `tin` gave it a slot. Appending a `brick` form would give it another. The
-   colour comes from the substance's `look.item`, so a new element arrives with
-   its own swatch and no edit here.
+   THE ALWAYS-ON HUD SHOWS A BAR, NOT A STRIP. It used to draw every held pair
+   by name and count below the hearts (`pockets()`, a text strip driven by
+   `run.pocketRows()` -- deleted along with its only caller once this changed).
+   That was clutter, not information the player needs at a glance: the same
+   `pocketRows()` query still backs the full detail in the CHARACTER tab (`i`)
+   and the old text inventory panel (`invPanel` below, `flags.showInv`'s
+   existing gate). All that remains always-on is a compact burden bar, drawn
+   with the SAME `view/ui/bar.js` primitive and the SAME three-colour rule the
+   Character tab's own burden bar already uses (`view/ui/mainPanel.js#
+   drawCharacterTab`) -- one fact about "how heavy am I", not a second
+   implementation of it.
    ============================================================================
 
    Panels clamp on narrow viewports. Below roughly 240 px of base width the
@@ -33,11 +38,10 @@
 import { drawText, textWidth } from '../core/font.js';
 import { R } from '../core/pixels.js';
 import { mix } from '../core/palette.js';
-import { FORM, labelOf, shortLabelOf } from '../data/forms.js';
+import { labelOf, shortLabelOf } from '../data/forms.js';
 import { M, MACH } from '../data/machines.js';
 import { colour } from '../data/palette.js';
 import { HAND_RECIPES } from '../data/recipes.js';
-import { SUB } from '../data/substances.js';
 import { SPAWN_BAND } from '../data/world.js';
 import { TRINKET } from '../data/trinkets.js';
 import { BOON } from '../data/boons.js';
@@ -51,6 +55,7 @@ import { bandOf, worldY } from '../model/world.js';
 import { banner, toasts } from './fx.js';
 import { resolveHover } from './hover.js';
 import { stats as paintStats } from './paint.js';
+import { drawBar } from './ui/bar.js';
 import { drawMainPanel } from './ui/mainPanel.js';
 import { drawQuickbar } from './ui/quickbar.js';
 import { drawn as uiDrawn, resetDrawn as resetUiDrawn } from './ui/state.js';
@@ -75,9 +80,13 @@ const UI = {
 };
 
 /* `view/hover.js#resolveHover` hit-tests against exactly these rectangles, so
-   the strip/panel and their tooltips cannot silently disagree about where an
-   entry sits. Rebuilt from scratch every `drawHUD` call -- read, never relied
-   on for anything but the next line's hover test and the test hook. */
+   the old inventory panel and its tooltips cannot silently disagree about
+   where an entry sits. Used to also carry the always-on strip's own
+   rectangles (removed above); kept because `invPanel` below still needs a
+   hover target and `tests/visual.spec.js`'s hover test still reads this
+   array through `__mf.hits`. Rebuilt from scratch every `drawHUD` call --
+   read, never relied on for anything but the next line's hover test and the
+   test hook. */
 export const pocketHits = [];
 
 /* The BUILD list's own rectangles, in the SAME screen space `pocketHits`
@@ -96,7 +105,6 @@ export const hoverInfo = { active: false, x: 0, y: 0, lines: null };
 
 export function drawHUD(g, f) {
   const { W, H } = f;
-  const narrow = W < 300;
 
   /* Phase 5b: the widget layer's own scratch space is rebuilt once per HUD
      frame, the same place `pocketHits.length = 0` below already resets this
@@ -104,14 +112,13 @@ export function drawHUD(g, f) {
   resetUiDrawn();
 
   hearts(g, 6, 6);
-  burden(g, 6, 14);
-  const stripHits = pockets(g, 6, narrow ? 28 : 26, W);
+  const burdenBottom = burden(g, 6, 14, W);
   pocketHits.length = 0;
-  pocketHits.push(...stripHits);
-  /* The panel opens BELOW wherever the strip actually ended, not a fixed y --
-     the strip wraps onto a second row once enough distinct pairs are held, and
-     a fixed offset would let the panel overlap it exactly the way CLAUDE.md's
-     own "narrow panel" mistake describes. */
+  /* The panel opens a fixed gap below the burden bar. It used to open below
+     wherever the pocket STRIP actually ended (the strip wrapped onto a
+     second row once enough distinct pairs were held) -- now that the strip
+     is gone, `burden()`'s own return value (which already accounts for the
+     lockout line growing it) is the only thing that needs measuring. */
   /* Phase 5b: `'i'` toggles `flags.showInv` AND `shell/ui.js#toggle('main')`
      TOGETHER (Phase 5a's own wiring, see `shell/input.js`'s comment at the
      `'i'` handler) -- so with the new tabbed window shipped, this OLD panel
@@ -124,8 +131,7 @@ export function drawHUD(g, f) {
      is `flags.showInv` in `shell/input.js`, unchanged and still true
      whenever this text panel WOULD have drawn. See docs/FINDINGS.md. */
   if (f.flags.showInv && !f.ui.stack.includes('main')) {
-    const top = stripHits.reduce((m, h) => Math.max(m, h.y + h.h + 4), narrow ? 38 : 36);
-    pocketHits.push(...invPanel(g, f, top));
+    pocketHits.push(...invPanel(g, f, burdenBottom + 4));
   } else {
     buildHits.length = 0;                 // panel closed: nothing to hover
   }
@@ -168,73 +174,39 @@ function hearts(g, x, y) {
 }
 
 /* ---------- BURDEN, D3/D4 ----------
-   One plain line: the dense bar is Phase 5. Amber past the soft threshold,
-   red at/over the hard cap, with the lockout spelled out in words so a
-   refused climb (rules/player.js) is never a silent wall the player has to
-   reverse-engineer. */
-function burden(g, x, y) {
+   A compact bar below the hearts, reusing `view/ui/bar.js#drawBar` -- the
+   SAME primitive and the SAME three-state colour rule the Character tab's
+   own burden bar already draws (`view/ui/mainPanel.js#drawCharacterTab`):
+   good under the soft cap, amber past it, red at/over the hard cap. Narrow
+   by construction (bar plus value text tops out well under 130 px) so it
+   never reaches the depth gauge `depth()` draws top-right, even at the
+   200 px phone floor `core/canvas.js#resize` enforces. The lockout is still
+   spelled out in words below the bar so a refused climb (`rules/player.js`)
+   is never a silent wall the player has to reverse-engineer. Returns the y
+   just past whatever it drew, so `drawHUD` can anchor the old inventory
+   panel below it instead of a strip that no longer exists. */
+function burden(g, x, y, W) {
   const cap = eff('burden'), soft = eff('burdenSoft'), frac = burdenFrac();
-  const col = frac >= 1 ? UI.heart : frac >= soft ? UI.amber : UI.dim;
-  let s = `BURDEN ${burdenOf().toFixed(1)} / ${cap.toFixed(0)} T`;
-  if (frac >= 1) s += ' TOO HEAVY TO CLIMB';
-  drawText(g, s, x, y, col, 1, 1);
-}
+  const locked = frac >= 1;
+  const col = locked ? UI.heart : frac >= soft ? UI.amber : UI.good;
 
-/* One swatch, one name and one count per held pair. A pair the substance row
-   flags `always` shows a zero, which is how the first minute has something to
-   point at without a tutorial beat existing.
+  const bar = drawBar(g, {
+    id: 'hud-burden', x, y, w: 50, h: 3, frac, fillColour: col, vw: W,
+    valueText: `${burdenOf().toFixed(1)} / ${cap.toFixed(0)} T`
+  });
 
-   Wraps to a second row rather than running off the edge of a narrow viewport
-   -- CLAUDE.md's own list of past mistakes here is exactly "a panel that
-   overlaps at 200 px wide", and a name is much wider than the swatch-plus-count
-   this strip used to be. Returns the rectangle it drew for every entry, so
-   `view/hover.js` can hit-test the SAME layout instead of a second copy of
-   this x/y math. */
-function pockets(g, x, y, maxW) {
-  const hits = [];
-  let cx = x, cy = y;
-  for (const row of pocketRows()) {
-    const s = SUB[row.sub];
-    const l = s.look;
-    if (!l?.item) continue;
-    const col = colour(l.item[0]);
-    const label = labelOf(row.sub, row.form);
-    const n = String(row.n);
-    const lw = textWidth(label), nw = textWidth(n);
-    /* A gap of a full glyph cell (6 px) between the name and the count -- 3 px
-       read as "ORE0" with no space at all once the label stopped being a bare
-       swatch, which is illegible at this font size. */
-    const w = 6 + lw + 6 + nw + 3;
-
-    if (cx > x && cx + w > maxW - 4) { cx = x; cy += 8; }
-
-    /* A relic (a trinket, the starting pick) is a unique held THING, not a
-       stack of material -- ARCHITECTURE's substance x form split means it
-       lands in this same strip with no code path of its own, so the border is
-       the only thing that stops it reading as "ore, ore, mystery ore" the
-       moment one enters the pockets. `tags.includes('relic')` is the same test
-       `data/forms.js#crossable` uses to decide the `relic` form may cross it. */
-    const relic = s.tags?.includes('relic');
-    if (relic) R(g, cx - 1, cy, 6, 6, UI.relic);
-    R(g, cx, cy + 1, 4, 4, col);
-    R(g, cx, cy + 4, 4, 1, mix(col, UI.back, 0.5));
-    /* A tile-capable form is what a ladder is built from, so it is marked:
-       the player needs to know which of their pockets can become a wall. */
-    if (FORM[row.form].tile) R(g, cx + 1, cy + 2, 2, 1, UI.back);
-
-    drawText(g, label, cx + 6, cy, UI.dim, 1, 1);
-    drawText(g, n, cx + 6 + lw + 6, cy, row.n ? UI.ink : UI.dim, 1, 1);
-
-    hits.push({ x: cx - 1, y: cy - 1, w: w, h: 8, sub: row.sub, form: row.form });
-    cx += w + 5;
+  let by = bar.y + bar.h;
+  if (locked) {
+    drawText(g, 'TOO HEAVY TO CLIMB', x, by + 2, UI.heart, 1, 1);
+    by += 9;
   }
-  return hits;
+  return by + 2;
 }
 
 /* The full inventory, toggled by `i` (`shell/input.js#flags.showInv`). Same
-   data source as the strip (`pocketRows()`), filtered to what is actually
-   HELD -- the strip's zero-count teaching slots have nothing to list a mass
-   or a count for. `massOfPair` is a `model/items.js` query, not a render
+   data source the CHARACTER tab's grid uses (`pocketRows()`), filtered to
+   what is actually HELD -- a zero-count teaching slot has nothing to list a
+   mass or a count for. `massOfPair` is a `model/items.js` query, not a render
    decision: the mass of a copper ingot is a fact about the world, not about
    how it is drawn. */
 /* A build cost or a hand-recipe's inputs, as one readable line. `exact`
@@ -332,8 +304,8 @@ function invPanel(g, f, top) {
   /* BUILD. Greyed by `afford` rather than hidden -- a machine the player
      cannot yet pay for is still something worth planning a haul toward.
      Each row's own rectangle is captured into `buildHits`, the SAME idiom
-     `stripHits`/`pocketHits` already use for the pockets, so `buildGhost`
-     can hit-test the pointer against exactly what got drawn rather than a
+     `pocketHits` above already uses for the pockets, so `buildGhost` can
+     hit-test the pointer against exactly what got drawn rather than a
      second copy of this layout math. */
   drawText(g, 'BUILD', x + 4, ry, UI.ink, 1, 1);
   ry += lineH;
@@ -366,9 +338,10 @@ function tooltip(g, f) {
   /* The Phase 5b panel may already have drawn its own tooltip this frame
      (`view/ui/tooltip.js`'s `drawn.tooltip` is a SINGLE slot, per that
      file's own header: only one tooltip can be under the cursor at once).
-     When it has, this older pocket-strip tooltip must yield rather than
-     overwrite it -- both read the same pointer position, and the panel's
-     own grids sit visually on top of the strip when the panel is open. */
+     When it has, this older invPanel tooltip must yield rather than
+     overwrite it -- both read the same pointer position, and the new
+     panel's own grids sit visually on top of the old one when both are
+     somehow reachable at once. */
   if (uiDrawn.tooltip) return;
   const info = resolveHover(f, pocketHits);
   hoverInfo.active = !!info;
