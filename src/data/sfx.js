@@ -1,22 +1,13 @@
 /* LAYER data — SOUND: the journal-kind to sound mapping, and the waveform rows.
    Imports nothing. May be imported by `data`, `model`, `rules`, `view`.
 
-   Notification flows DOWNWARD as data. `rules` never calls `play()`: it pushes
-   a row onto `model/journal.js`, and `shell/notify.js` drains the queue once a
-   frame and looks the kind up in `KIND_SFX` below. The device -- the thing that
-   actually makes noise -- lives in `shell`, because a device is a device and a
-   call from `rules` to `shell` would be an upward edge.
-
-   So this file is the contract between the two. A journal kind that is not a
-   key in `KIND_SFX` is silent, deliberately: not every fact is audible.
+   This file is the contract between the journal and the audio device -- see
+   docs/DEVELOPER_GUIDE.md#notification-and-the-journal. A journal kind that is
+   not a key in `KIND_SFX` is silent, deliberately: not every fact is audible.
 
    There are no audio assets and no loader. That is the point -- the single-file
    bundle stays a single file. Rows are ZzFX parameter lists; author new ones
-   with the GUI at https://killedbyapixel.github.io/ZzFX/ and paste the array in.
-
-   ZzFX covers one-shots only. Continuous ambience -- lava rumble swelling with
-   depth, a machine hum tracking production -- needs persistent oscillator nodes
-   and is deliberately not here. */
+   with the GUI at https://killedbyapixel.github.io/ZzFX/ and paste the array in. */
 
 /* ---- THE MAPPING. Journal kind -> sound row name. -------------------------
    These kind strings are the vocabulary `rules` pushes and `shell` drains.

@@ -125,6 +125,13 @@ being true rather than annotating it.
   a `def.cost` that has been `undefined` on every machine row since machines
   became held items, so its affordability display had been permanently wrong.
   Digits now arm quickbar slots. `canAfford` went with it.
+- **Cost-at-placement (`data/machines.js#cost`).** A machine's bill used to be
+  spent at the moment of placement. Reversed on feedback: a machine is now a
+  substance × `rig` pair, crafted by an ordinary hand recipe and carried like
+  heavy wood. The objection at the time ("a furnace is not an element") proved
+  too much — `bellows` and `chasm` are already one substance each for the same
+  "refines from nothing, IS the element" reason. Every row's `item.mass` is the
+  former `cost` bill summed through `massOfPair`, so no number was retuned.
 - **`run.trinkets`** as a second inventory beside `run.inv` — the two could
   disagree. Now `run.equipped` is a selection over `run.inv`.
 - **The always-on pocket strip** (`view/hud.js#pockets`) — clutter; replaced by a
@@ -195,6 +202,10 @@ Rule of thumb: a key that **spawns something from nothing** goes behind
   are safe without a reset hook only because `model/world.js#write.allocate`
   always hands out a fresh band record. If band records ever get reused, both
   caches become stale-read bugs with no `newRun()` wiring to fix them.
+- **The winch reach arithmetic exists twice**, deliberately:
+  `model/run.js#canBoardWinch` and `rules/lift.js#reaches` compute the same
+  thing, because a `model` query may not import `rules` and `view` needs the
+  answer. Change one, change the other.
 - **`hasPick()` migrated from `invCount(S.pick, F.relic)` to `bestTool() !== null`**
   and the two are true under identical conditions today only because the stock
   pick is the only tool a fresh run starts with.

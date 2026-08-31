@@ -1,12 +1,8 @@
 /* LAYER data — MACHINES: one row per machine, all of it literals. Frozen.
    Imports `data` only. May be imported by `data`, `model`, `rules`, `view`.
 
-   ============================================================================
-   READ THIS BLOCK BEFORE ADDING A ROW.
-   The interpreter that runs these rows is `rules/machines.js`. It contains no
-   machine name, no substance name and no magic number. You should not have to
-   read it to add a machine; you should have to read this block once.
-   ============================================================================
+   Read this key reference before adding a row, and
+   docs/DEVELOPER_GUIDE.md#adding-a-machine for how the interpreter reads one.
 
      tw, th      footprint in tiles.
      footing     how many solid tiles must be under it to place it.
@@ -42,27 +38,6 @@
                  "down is free, up is expensive" is one place, not one per row.
 
      variantOf   copy another row and override these keys. See `kiln_divine`.
-
-     NO `cost` KEY HERE ANY MORE. Phase 3 (`docs/BUILD_PLAN.md`) priced a
-     build here, spent from the pockets the moment the machine was PLACED --
-     "cost at placement" was an explicit, accepted DEVIATION from the
-     original plan, which asked for a machine ITEM the player carries and
-     places, on the grounds that a held thing here is substance x form and a
-     furnace is not an element (`data/substances.js`'s header). That
-     reasoning has been REVERSED, on direct post-launch feedback: it proved
-     too much, since `data/substances.js#bellows` and `#chasm` are already
-     "one substance per trinket/miracle," justified by the identical "this
-     refines from nothing, it IS the element" argument, crossed with a
-     shared form (`relic`, `phial`). A machine is fabricated, not compressed
-     from ore, and unique in itself -- the same category. So: a machine IS
-     now a held item, `<machine-id>/rig` (`data/forms.js#rig`,
-     `data/substances.js`'s machine-substance block), built by an ordinary
-     hand:true recipe in `data/recipes.js` naming this row's OWN former bill
-     verbatim, and placed through the SAME pockets-driven path a tile-capable
-     form already used (`rules/placement.js#placeMachine`,
-     `model/run.js#placementCheck` checking `invCount(S[id], F.rig) > 0`
-     instead of a cost bill). See `docs/SPEC.md` section 13 and
-     `docs/FINDINGS.md` for the full before/after.
 
      look        appearance only. `view/` is the only reader, and no machine or
                  substance name appears anywhere in `view/`.
@@ -134,23 +109,12 @@ export const MACHINES = [
 
     recipes:['smelt'],
 
-    /* Building one now costs `data/recipes.js#furnace` (12 copper/ore + 6
-       timber/log, ~16.8 T -- `docs/SPEC.md` section 13), a held
-       `furnace/rig` item spent at PLACEMENT, not a bill charged here. */
-
     look:{ body:'irC', trim:'irB', base:'irD', fire:true,
            pips:[ { sel:'*/#ore', row:0 }, { sel:'*/#fuel', row:1 } ],
            sfx:{ accept:'ignite', produce:'ingot' } } },
 
-  /* ---- KILN DIVINE: the variant, and the proof that variants are nearly free.
-     It is the furnace row with four keys overridden: a new id, a new name, a new
-     look, and a heat gate is NOT added -- nothing mechanical changes here at
-     all. It is twice as fast because `data/tuning.js` carries one line,
-     `rate.kiln_divine: 2.0`, and for no other reason.
-
-     Total cost of a variant: this six-line row plus one tuning row. No engine
-     code learned the word "kiln", and a `rate.furnace` trinket still stacks
-     multiplicatively on top without either knowing the other exists. ---- */
+  /* ---- KILN DIVINE: the variant.
+     See docs/DEVELOPER_GUIDE.md#variants-are-nearly-free ---- */
   { id:'kiln_divine', name:'DIVINE KILN', variantOf:'furnace',
     look:{ body:'clayB', trim:'clayA', base:'clayC', fire:true, halo:'ichor',
            pips:[ { sel:'*/#ore', row:0 }, { sel:'*/#fuel', row:1 } ],
@@ -168,8 +132,8 @@ export const MACHINES = [
      eating hearts once you have run dry. That is the trap, expressed as row
      order rather than as a special case in the interpreter.
 
-     `heart` is not a substance. It is a bare unit offered by the `vital` row in
-     `data/sources.js`, which is the whole non-item-fuel mechanism. ---- */
+     `heart` is a bare unit, not a substance -- see
+     docs/DEVELOPER_GUIDE.md#non-item-inputs ---- */
   { id:'lift', name:'WINCH STAGE',
     tw:2, th:3, footing:2,
 
@@ -187,14 +151,6 @@ export const MACHINES = [
       { in:{ '*/#fuel':1 }, out:[], secs:6.0 },                  // honest fuel
       { in:{ heart:1 }, from:'vital', out:[], secs:6.0 }          // the terms
     ],
-
-    /* Building one now costs `data/recipes.js#lift` (6 copper/plate + 4
-       timber/log + 2 copper/ingot, ~20.8 T -- refined material, not raw ore,
-       priced like the investment a bottleneck stage is), a held `lift/rig`
-       item spent at PLACEMENT -- checked AGAINST the shaft-reach gate below
-       (`lift.span` must actually land in `lift.toBand`), not instead of it:
-       a player can hold a stage and still be refused for aiming it at solid
-       rock. */
 
     look:{ body:'woodC', trim:'irB', base:'irD', fire:true,
            pips:[ { sel:'*/#fuel', row:0 } ],
@@ -235,16 +191,6 @@ export const MACHINES = [
 
     recipes:['press'],
 
-    /* Building one now costs `data/recipes.js#press_machine` (4 copper/plate
-       + 2 copper/ingot, 12.8 T -- REFINED goods, not raw ore: a press turns
-       ingot into plate, so building one costs the tier it produces, the same
-       "pay in the tier above" shape `lift`'s bill already uses), a held
-       `press/rig` item spent at PLACEMENT. A player who wants a press before
-       holding one can still hand-press (`data/recipes.js#press`, `hand:true`)
-       their way to plate directly -- the point of a placed press was never
-       "the only way to make a plate", only "more than one pair of hands'
-       worth at once" (`docs/DESIGN.md`). */
-
     /* Iron-toned like the furnace's trim, not its body -- reads as the same
        forge-metal family without being mistaken for a furnace at a glance.
        Reuses `ignite`/`ingot` for accept/produce: there is no dedicated
@@ -269,11 +215,8 @@ export const MACHINES = [
      the footprint -- `rules/lift.js#carry()` turned ninety degrees, per its
      own file header.
 
-     THE FUEL RECIPE IS THE LIFT'S HONEST-FUEL ROW, VERBATIM IN SHAPE: `out:[]`
-     banks a CHARGE through the ordinary `produce()` path below, the exact
-     mechanism a lift stage uses, and `rules/belts.js` spends exactly one
-     charge per item it delivers off the belt's end. Nothing in this file or
-     that one can tell a belt's charge from a lift's.
+     THE FUEL RECIPE IS THE LIFT'S HONEST-FUEL ROW, VERBATIM IN SHAPE -- see
+     docs/DEVELOPER_GUIDE.md#charges-and-honest-fuel
 
      4 tiles long, 1 tall, `footing:4` -- a full solid floor under the whole
      span, not just the two end tiles a taller machine checks. `th:1` is why
@@ -322,13 +265,11 @@ export const MACHINES = [
   { id:'belt_l', name:'CONVEYOR (LEFT)', variantOf:'belt_r',
     belt:{ dir:-1 } },
 
-  /* ---- BRAZIER: the placed, fuel-powered light source (Phase 2b). Prometheus
-     carried the fire; a brazier is where you put it down. Same honest-fuel
-     recipe SHAPE the lift and the belt already use -- `out:[]` banks a
-     charge, and `rules/machines.js#choose` keeps `m.running` true for as long
-     as the buffer holds at least one, with no code here or there able to tell
-     this charge from a lift's or a belt's. `light:{ level:12, whileRunning:
-     true }` is therefore "lit while fuelled" for free: the moment the last
+  /* ---- BRAZIER: the placed, fuel-powered light source. Prometheus carried
+     the fire; a brazier is where you put it down. Same honest-fuel recipe
+     shape the lift and the belt use, so
+     `light:{ level:12, whileRunning:true }` is "lit while fuelled" for free
+     (docs/DEVELOPER_GUIDE.md#light-emitters): the moment the last
      charge is spent, `m.running` goes false and `rules/light.js`'s next
      recompute (triggered by the emitter signature changing, not by any tile
      write) darkens the room again. 1x1, footing 1 -- a bowl on the ground,
@@ -351,10 +292,7 @@ export const MACHINES = [
            pips:[ { sel:'*/#fuel', row:0 } ],
            sfx:{ accept:'ignite', produce:'winch' } } },
 
-  /* ---- HEARTH: placed, never expires, and priced FOR NOW at 2 copper/plate
-     rather than in the essence tier `docs/DESIGN.md` actually wants for it --
-     essence does not exist as of this phase (Phase 1's table, not this
-     phase's to invent one row early for). See docs/FINDINGS.md. No `recipes`
+  /* ---- HEARTH: placed, never expires. No `recipes`
      at all, so `rules/machines.js#choose` always returns null for it and
      `m.running` never goes true -- `light:{level:'max'}` has no
      `whileRunning`, so it does not care: absent means "lit for as long as it
@@ -385,11 +323,9 @@ export const MACHINES = [
        name. */
     look:{ body:'basB', trim:'basA', base:'basD', fire:true, halo:'ichor' } },
 
-  /* ---- TALOS HEAD: T3, the first PLACED miner (Phase 2c). A severed bronze
-     automaton head, bolted facing sideways into the wall it chews -- `mine:
-     {facing:1, ...}` is the SAME direction convention `belt.dir` already
-     uses, and `talos_head_l` below is the identical near-free mirrored
-     variant `belt_l` already proves.
+  /* ---- TALOS HEAD: T3, the first PLACED miner. A severed bronze automaton
+     head, bolted facing sideways into the wall it chews. See
+     docs/DEVELOPER_GUIDE.md#placed-miners
 
      `tier:2` is deliberately IDENTICAL to the adamant auger's own
      `item.tool.tier` -- this machine can bite exactly what a T2 hand can,
@@ -414,12 +350,6 @@ export const MACHINES = [
 
     catchBox:{ mouth:'top', slack:2 },
     handFeed:{ reach:10, from:['*/#fuel'] },
-
-    /* Building one now costs `data/recipes.js#talos_head` (8 copper/plate +
-       2 copper/ingot, 22.4 T), a held `talos_head/rig` item spent at
-       PLACEMENT -- shared with `talos_head_l` below (`model/run.js
-       #machineIdFor` resolves the same held pair to whichever facing
-       `player.face` says, the belt's own trick). */
 
     mine:{ facing:1, tier:2, tiles:1, secs:12.0 },
 
@@ -456,12 +386,6 @@ export const MACHINES = [
 
     catchBox:{ mouth:'top', slack:2 },
     handFeed:{ reach:10, from:['*/#fuel'] },
-
-    /* Building one now costs `data/recipes.js#cyclops_maw` (16 copper/plate
-       + 6 copper/ingot + 6 granite/gravel, 50.7 T), a held
-       `cyclops_maw/rig` item spent at PLACEMENT -- shared with
-       `cyclops_maw_l` below, the same `player.face`-resolved trick
-       `talos_head`/`belt_r` already use. */
 
     minDepth:200,
 

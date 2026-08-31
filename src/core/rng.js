@@ -29,9 +29,8 @@ export const hash2 = (x, y) => {
   return ((h ^ h >>> 16) >>> 0) / 4294967296;
 };
 
-/* ES module bindings are read-only for importers, so the generator lives on an
-   object and is swapped by property. This is the project convention for any
-   scalar written in one module and read in another. */
+/* See docs/DEVELOPER_GUIDE.md#cross-module-mutable-state for why the generator
+   lives on an object. */
 export const rng = { next: Math.random };
 
 export function seedRng(seed) { rng.next = mulberry(seed | 0); }

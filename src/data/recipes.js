@@ -6,17 +6,8 @@
    list either way. Named rows are for transformations more than one machine
    performs; inline rows are for a machine's own private behaviour.
 
-   ============================================================================
-   THE ONE SMELT ROW. `smelt` covers every ore that will ever exist, because
-   its input is a selector over any ore-tagged form and its output takes the
-   SUBSTANCE from whatever satisfied that input. Adding `tin` to
-   `substances.js` needs no row here, and a tin ingot differs from a copper
-   ingot automatically rather than needing a hand-written row someone forgets.
-
-   This is the defect the reference prototype had: two ores both declared
-   `smeltsTo:'ingot'` against a single `ingot` row, so a tin ingot was
-   byte-identical to a copper one.
-   ============================================================================
+   See docs/DEVELOPER_GUIDE.md#adding-a-recipe for the one-smelt-row rule and
+   what `hand:true` promises.
 
    Row shape:
 
@@ -39,42 +30,18 @@
 
      hand     true if a PLAYER may also run this exact row, by hand, not only a
               machine that names it. See `rules/crafting.js` and `HAND_RECIPES`
-              below. Deliberately not a second row: hand-crafting is the SAME
-              transformation at the SAME `secs`, spending and producing exactly
-              what the machine would -- the point (`docs/DESIGN.md`) is that a
-              person can do a furnace's job, just not five furnaces' worth of
-              it at once, and a duplicated row with different numbers would
-              quietly break that promise the first time someone tuned one and
-              forgot the other. */
+              below. Deliberately not a second row -- one row, two runners. */
 
 export const RECIPES = Object.freeze({
 
-  /* ============================================================================
-     MACHINE-BUILD RECIPES (design reversal, superseding Phase 3's cost-at-
-     placement deviation -- see `data/forms.js#rig` and the machine-substance
-     block in `data/substances.js` for the full argument). Each spends the
-     EXACT bill `data/machines.js` used to charge at placement -- copied
-     verbatim, not retuned, since preserving Phase 3's numbers is the whole
-     point of this move being a relocation and not a rebalance -- and
-     produces exactly one `<machine>/rig`. `hand:true` on every one: nothing
-     else ever names these, so a machine is built the same way a stair or an
-     auger is, by hand, never by another machine.
+  /* ---- MACHINE-BUILD RECIPES. Each spends the exact bill `data/machines.js`
+     used to charge at placement and produces one `<machine>/rig`. `hand:true`
+     on every one: a machine is built by hand, never by another machine.
 
-     DECLARED BEFORE `smelt`/`press`/`peg_rungs`/`kindle`/`daedalan`/`auger`
-     below, and this order is LOAD-BEARING, the exact class of mistake
-     CLAUDE.md's own "recipe-ordering collision" entries (`peg_rungs`/
-     `kindle`, `daedalan`/`auger`) warn against, now at machine scale:
-     `rules/crafting.js#choose` fires the FIRST HAND_RECIPES row whose
-     inputs are fully held, so wherever a bigger bill's condition holds, a
-     smaller bill sharing the same materials is trivially also satisfied
-     (12 copper/ore + 6 timber/log, `furnace`'s own bill, is a strict
-     superset of `smelt`'s 4 ore + 1 fuel). Declaring the machine first means
-     a well-stocked player builds the machine, not a stray ingot; a player
-     who wants to keep smelting by hand keeps their ore/log stock under a
-     machine's own threshold, the identical "manage your float" trade
-     `daedalan`/`auger` already documents. Checked pairwise against every
-     other hand:true row below for exactly this containment before this
-     order was picked:
+     DECLARED BEFORE every other hand recipe below, and THAT ORDER IS
+     LOAD-BEARING -- see docs/DEVELOPER_GUIDE.md#hand-recipe-declaration-order
+     Checked pairwise against every other hand:true row below for exactly this
+     containment before this order was picked:
        furnace, brazier  -- both a strict superset of smelt (ore+fuel) /
                              peg_rungs / kindle (log alone) -- declared first.
        lift              -- a strict superset of daedalan / auger (plate +
@@ -90,21 +57,18 @@ export const RECIPES = Object.freeze({
                              press_machine, belt_r, and the EXISTING
                              daedalan/auger), so `hearth` is declared LAST OF
                              ALL, or it would starve every one of them the
-                             moment enough plate for both existed. ============================================================================ */
+                             moment enough plate for both existed. ---- */
 
   furnace: Object.freeze({
     id:'furnace', name:'CRUDE FURNACE',
     in:{ 'copper/ore':12, 'timber/log':6 },
     out:[ { sub:'furnace', form:'rig', n:1 } ],
-    /* 8.0s: the same order-of-magnitude commitment Phase 3's own text framed
-       this bill as (`docs/BUILD_PLAN.md` Phase 3's furnace paragraph), now
-       spent as craft time instead of a placement-time toll. */
     secs:8.0,
     hand:true
   }),
 
   /* No `kiln_divine` row -- see `data/substances.js`'s own comment on why
-     one is not shippable without inventing a number Phase 3 never set. */
+     one is not shippable without inventing a number nobody set. */
 
   brazier: Object.freeze({
     id:'brazier', name:'BRAZIER',
@@ -119,9 +83,7 @@ export const RECIPES = Object.freeze({
     in:{ 'copper/plate':6, 'timber/log':4, 'copper/ingot':2 },
     out:[ { sub:'lift', form:'rig', n:1 } ],
     /* 20.0s: `lift` is the game's own bottleneck (invariant 4), priced like
-       the investment it is -- the same "the investment" framing
-       `data/machines.js`'s former cost comment already used for this exact
-       bill, now spent as time instead of a placement toll. */
+       the investment it is. */
     secs:20.0,
     hand:true
   }),

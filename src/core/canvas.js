@@ -5,11 +5,10 @@
    The world has its own fixed coordinate space and the canvas is only a window
    onto it. Resizing changes VIEW, never the world (ARCHITECTURE invariant 2).
 
-   Deviation from the old `core/canvas.js`, declared: the canvas is no longer
-   looked up at module load. `stage` is an object mutated by `attach()`, per the
-   project convention that cross-module mutable state lives on an object. That
-   also lets a headless tool run the whole stack with `stage.ctx === null`
-   instead of stubbing `document` globally. */
+   The canvas is not looked up at module load. `stage` is an object mutated by
+   `attach()`, which also lets a headless tool run the whole stack with
+   `stage.ctx === null` instead of stubbing `document` globally.
+   See docs/DEVELOPER_GUIDE.md#cross-module-mutable-state for the convention. */
 
 /* Base resolution in world pixels. `w`/`h` are how much world is visible;
    `scale` is the nearest-neighbour upscale factor applied by CSS. */

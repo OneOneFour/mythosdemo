@@ -2,18 +2,7 @@
    Imports `core` and `data` only. May be imported by `data`, `model`, `rules`,
    `view`.
 
-   ============================================================================
-   READ THIS BLOCK BEFORE ADDING A ROW. Read `data/forms.js` first: it states
-   the rule for whether a new thing is a row HERE or a row THERE.
-
-       A SUBSTANCE IS AN ELEMENT. Anything you can hold is substance x form.
-       A thing with no element of its own is a FORM of the element it came
-       from -- not a new substance.
-
-   So `copper`, `tin`, `timber` and `stone` are rows here; `ore`, `ingot`,
-   `gravel` and `log` are rows in `forms.js`. A copper ingot needs no row
-   anywhere: it is the copper row crossed with the ingot form.
-   ============================================================================
+   See docs/DEVELOPER_GUIDE.md#adding-a-substance before adding a row.
 
      tags   free strings. `#metal` in a selector means "any row tagged metal".
 
@@ -54,8 +43,7 @@
             functions in `view/treatments.js`, which is how "this glows" is
             added without editing a paint function.
 
-   Index is half of the tile id byte, so ROWS ARE APPEND-ONLY: appending keeps
-   every existing id, and therefore every save, valid. */
+   ROWS ARE APPEND-ONLY; see docs/DEVELOPER_GUIDE.md#adding-a-substance. */
 
 export const SUBSTANCES = [
 
@@ -73,11 +61,7 @@ export const SUBSTANCES = [
            item:['cuA', 'cuC'],
            treatments:[ { fn:'glint', col:'veinA', n:2 } ] } },
 
-  /* ---- tin: the one-row claim, and the whole point of substance x form.
-          It gets a vein, ore, gravel and an ingot; it is smelted by the same
-          recipe as copper because that recipe binds the SUBSTANCE of whatever
-          ore it ate. Adding this row added nothing to `forms.js`,
-          `recipes.js` or `machines.js`. ---- */
+  /* ---- tin: see docs/DEVELOPER_GUIDE.md#adding-a-substance ---- */
   { id:'tin', name:'TIN', tags:['metal', 'mineable'],
     tile:{ solid:true, hard:1.10, drops:'ore' },
     item:{ mass:1.0, hud:{ order:2 } },
@@ -103,8 +87,7 @@ export const SUBSTANCES = [
            canopy:{ leaves:['vdB', 'vdA'], w:3, h:2 } } },
 
   /* ---- stone: the bulk of the world. Mines to gravel, never to ore, and has
-          no ingot because it is not a metal -- the form crossing is limited by
-          the FORM's `subTags`, not by a row here. ---- */
+          no ingot -- see docs/DEVELOPER_GUIDE.md#adding-a-form ---- */
   { id:'stone', name:'STONE', tags:['rock', 'mineable', 'spoil'],
     tile:{ solid:true, hard:1.60, drops:'gravel' },
     item:{ mass:0.6, hud:{ order:4 } },
@@ -115,14 +98,8 @@ export const SUBSTANCES = [
               sedimentary rock at a glance, with no new rendering code. */
            treatments:[ { fn:'banded', col:'irD', every:8 } ] } },
 
-  /* ---- bellows: the trinket tier, and the reason a trinket is a SUBSTANCE
-          and not a form. A trinket refines from nothing -- it IS the element,
-          singular and unique -- so `data/trinkets.js#TRINKET[id].mods` hangs
-          off a substance id rather than the game inventing a second, parallel
-          "equipped" list next to `run.inv`. No `tile` block: a relic was never
-          rock, and `crossable()` only lets it take `forms.js`'s `relic` form,
-          not `ore` or `gravel`. Every future trinket is a row here, exactly
-          like this one, and needs nothing new in `rules/trinkets.js`. ---- */
+  /* ---- bellows: the trinket tier. See
+          docs/DEVELOPER_GUIDE.md#the-four-gift-tiers ---- */
   { id:'bellows', name:'BELLOWS OF THE FORGE', short:'BELLOWS', tags:['relic'],
     item:{ mass:0.4, hud:{ order:5 } },
     look:{ item:['ichor', 'vioHi'] } },
@@ -136,12 +113,6 @@ export const SUBSTANCES = [
           teleports into your hands" idiom mining already uses, extended to the
           one tool the game hands you rather than one you find. ---- */
   { id:'pick', name:'STOCK PICKAXE', short:'PICK', tags:['relic'],
-    /* `tool:{tier:1, power:1.0}` (Phase 2c): tier 1 is every substance with no
-       `tile.tier` of its own (absent means 1), and power 1.0 multiplies
-       `eff('pickPower')` by exactly nothing -- so this row is BEHAVIOURALLY
-       UNCHANGED. Before this phase `hasPick()` read `invCount` directly;
-       now it reads `bestTool() !== null`, which is true under the identical
-       condition (this is the only tool a fresh run ever starts with). */
     item:{ mass:0.5, hud:{ order:6 }, tool:{ tier:1, power:1.0 } },
     look:{ item:['irB', 'woodC'] } },
 
@@ -196,11 +167,8 @@ export const SUBSTANCES = [
            item:['adamantA', 'adamantC'],
            treatments:[ { fn:'glint', col:'adamantA', n:2 } ] } },
 
-  /* ---- auger: the T2 hand tool (Phase 2c), appended last per the header's
-          append-only rule rather than beside `pick` -- ordinals are id
-          storage and every existing substance's stays put. No `tile` block:
-          a tool was never rock, same as `bellows`/`pick` above, and
-          `crossable()` only lets it take `forms.js`'s `relic` form.
+  /* ---- auger: the T2 hand tool. See
+          docs/DEVELOPER_GUIDE.md#tools-are-relic-substances
 
           `tool:{tier:2, power:1.8}` is the ONE number this whole tier's
           equality proof rests on: `rules/machines.js`'s Talos Head reads it
@@ -225,42 +193,13 @@ export const SUBSTANCES = [
           what lets it cross into `forms.js#phial` and NOTHING else --
           `phial`'s own `subTags:['miracle']` is the whole reason that form
           exists separately from `relic`, so a miracle can never satisfy a
-          trinket selector by accident.
-
-          OUTSIDE THIS PHASE'S OWN FILE OWNERSHIP -- `docs/BUILD_PLAN.md`
-          Phase 4 does not list `data/substances.js` at all, unlike
-          `data/tuning.js`/`rules/mining.js`, which it names as explicit,
-          narrow exceptions. Added anyway, loudly, because a miracle
-          CANNOT exist as a held pair without an element of its own: there
-          is no alternative that keeps it inside `data/miracles.js` alone,
-          the same structural necessity that made Phase 2b add
-          `run.brandLeft` to `model/run.js` and Phase 2c add `cyclops_maw`'s
-          numbers outside their own lists (see docs/FINDINGS.md, both
-          precedents). One row, matching the tier's own "content is
-          deliberately thin" convention. ---- */
+          trinket selector by accident. ---- */
   { id:'chasm', name:'RIFT OF HADES', tags:['miracle'],
     item:{ mass:0.2, hud:{ order:11 } },
     look:{ item:['abyC', 'vioHi'] } },
 
-  /* ============================================================================
-     MACHINE SUBSTANCES (design reversal, superseding Phase 3's "cost at
-     placement" deviation -- see `data/forms.js#rig`'s own header for the full
-     argument). One row per machine, exactly like `bellows`/`chasm` above: a
-     machine "refines from nothing" the same way a trinket or a miracle does,
-     it is fabricated as a whole, and crosses into the shared `rig` form.
-     `id` reuses the machine's OWN id from `data/machines.js`, the identical
-     1:1 naming precedent `bellows` already sets against `data/trinkets.js`.
-
-     `item.mass` is the machine's FORMER `data/machines.js#cost` bill, summed
-     with `model/items.js#massOfPair` (never hand-computed) -- crossed with
-     `rig`'s `massK:1.0`, that sum IS the carried item's mass, which is what
-     makes a built machine "heavier" than the raw materials it came from
-     while still satisfying the mass-conservation content lint (the
-     `data/recipes.js` row spends exactly that bill, so output mass equals,
-     never exceeds, input mass). No `tile` block, no `look.base/hi/lo` (never
-     native rock) -- only `look.item`, borrowing the machine's OWN
-     `data/machines.js#look` swatches so a held machine reads as a smaller
-     version of the thing it becomes once placed. ============================================================================ */
+  /* ---- MACHINE SUBSTANCES: one row per machine.
+          See docs/DEVELOPER_GUIDE.md#a-machine-is-a-held-item ---- */
 
   /* 12 copper/ore + 6 timber/log, `model/items.js#massOfPair` summed:
      12x1.0 + 6x0.8 = 16.8 T (`docs/SPEC.md` section 13's own number,
@@ -282,20 +221,12 @@ export const SUBSTANCES = [
     item:{ mass:12.8, hud:{ order:14 } },
     look:{ item:['irB', 'irA'] } },
 
-  /* THE MIRRORED PAIR, ONE SUBSTANCE: `belt_r`/`belt_l` share one visual
-     already (`variantOf`) and, checked against `rules/mining.js#aimAtKeys`,
-     already share a real DIRECTION signal too -- `player.face` (+-1) is the
-     exact convention `belt.dir` uses. A held belt therefore places FACING
-     -- `model/run.js#machineIdFor` resolves this substance to `belt_r` or
-     `belt_l` off the player's own facing at the moment of placement, the
-     same "aim decides" rule mining already lives by -- rather than needing
-     two substances (and, worse, two hand-recipes with a BIT-IDENTICAL bill,
-     which `rules/crafting.js#choose`'s documented "first match wins" would
-     starve one of forever with no float-management workaround, unlike
-     `daedalan`/`auger`'s differing log counts). This ALSO doubles as the
-     tile-byte economy Phase 3's kiln_divine variant already banked on: one
-     row, not two, and it is why `talos_head`/`cyclops_maw` below take the
-     same treatment for their own `_l` mirrors.
+  /* THE MIRRORED PAIR, ONE SUBSTANCE (see
+     docs/DEVELOPER_GUIDE.md#mirrored-machine-pairs): two substances would mean
+     two hand-recipes with a BIT-IDENTICAL bill, which
+     `rules/crafting.js#choose`'s "first match wins" would starve one of
+     forever with no float-management workaround, unlike `daedalan`/`auger`'s
+     differing log counts.
      id is `belt_r`, the base row's own id, per the 1:1 naming precedent --
      2 copper/plate + 4 stone/gravel: 2x2.4 + 4x0.3 = 6.0 T. */
   { id:'belt_r', name:'CONVEYOR', tags:['machine'],
@@ -337,9 +268,7 @@ export const SUBSTANCES = [
      rule would deterministically always produce `furnace` instead, forever,
      the one kind of tie `daedalan`/`auger`'s differing quantities exist
      specifically to avoid). Retuning it to break the tie would invent a
-     number Phase 3 never set. `kiln_divine` remains grantable
-     (`data/grants.js#gift-kiln`) but is not currently placeable -- a real
-     gap, recorded in `docs/FINDINGS.md`, not a silent omission. */
+     number nobody set. */
 ];
 
 /* ---- derived indices, built once, frozen. Nothing scans this table on a hot

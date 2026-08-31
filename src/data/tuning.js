@@ -1,17 +1,8 @@
 /* LAYER data — TUNABLES: the frozen DESIGN. Base values only. Never written.
 
-   ============================================================================
    IMPORT RULE, ENFORCED: only `model/mods.js` may import this file.
-   `tools/layers.mjs` fails the build on any other importer.
-   ============================================================================
-
-   That rule is the whole trick. ES module bindings are read-only for importers,
-   so a boon cannot reassign `export const WALK = 60`, and this table being
-   frozen means it cannot be patched either. Both facts are fine, because
-   nothing reads this file directly: consumers call `eff('walk')` from
-   `model/mods.js`, which returns base x this run's modifiers. If the checker
-   did not forbid the direct import, one lazy call site would silently opt out
-   of every trinket in the game and nobody would notice for a month.
+   `tools/layers.mjs` fails the build on any other importer. Why, and what
+   `eff()` does with these rows: docs/DEVELOPER_GUIDE.md#the-tunable-pipeline
 
    Two kinds of row, and the difference is only what `base` means:
 
@@ -84,9 +75,8 @@ export const TUNABLES = [
   { id:'hard', kind:'scale', base:1.0, scope:'substance',
     note:'multiplies `tile.hard`. Lower is faster to mine. `hard.stone` scopes it.' },
 
-  /* The variant proof. `kiln_divine` is a copy of the furnace row with a
-     different id; it is twice as fast because of this one line and nothing
-     else. No engine code learned the word "kiln". */
+  /* See docs/DEVELOPER_GUIDE.md#variants-are-nearly-free -- `kiln_divine` is
+     twice as fast because of this one line and nothing else. */
   { id:'rate', kind:'scale', base:1.0, scope:'machine',
     scoped:{ kiln_divine:2.0 },
     note:'multiplies machine progress. Higher is faster. `rate.furnace` scopes it.' },
@@ -104,9 +94,7 @@ export const TUNABLES = [
   { id:'burdenSoft',       kind:'value', base:0.75, unit:'x',       note:'fraction of burden where climb-speed falloff starts' },
   { id:'burdenClimbFloor', kind:'value', base:0.40, unit:'x',       note:'climb-speed multiplier at the hard cap, the tick before lockout' },
 
-  /* ---- trinkets (D1). run.equipped is a fixed-length SELECTION over
-     run.inv, not a second inventory -- see CLAUDE.md D1 and
-     rules/trinkets.js's header on why run.trinkets was deleted. */
+  /* ---- trinkets. See docs/DEVELOPER_GUIDE.md#the-four-gift-tiers ---- */
   { id:'trinketSlots', kind:'value', base:3, unit:'slots', note:'length of run.equipped; a boon could someday widen it' },
 
   /* ---- light (Phase 2b). `lightMax` is both daylight and the ceiling any
@@ -117,11 +105,6 @@ export const TUNABLES = [
   { id:'lightFalloffAir',  kind:'value', base:1,  unit:'levels', note:'lost per tile of open air the light BFS crosses' },
   { id:'lightFalloffRock', kind:'value', base:3,  unit:'levels', note:'lost per tile of solid rock the light BFS crosses' },
   { id:'brandSecs',        kind:'value', base:90, unit:'s',      note:'one lit timber/brand burns this long, then is consumed' },
-  /* Phase 2b addition, not anticipated by Phase 1's own light rows above --
-     see docs/FINDINGS.md. The carried brand's own brightness while lit; a
-     literal on a data/machines.js row would have nowhere to live for it,
-     since the brand is a substance/form pair (rules/light.js), not a machine,
-     and rules/light.js is the only reader. */
   { id:'brandLevel',       kind:'value', base:9,  unit:'levels', note:'light level while a timber/brand is lit' },
 
   /* ---- tool tiers (Phase 2c). `hard` already scales a substance's
@@ -131,13 +114,6 @@ export const TUNABLES = [
   { id:'toolTier', kind:'scale', base:1.0, scope:'substance',
     note:'bends tile.tier gating in rules/mining.js; a boon could lend a tier' },
 
-  /* ---- toss velocity (Phase 1 row, Phase 2a reader). Four existing
-     falling-item call sites (rules/mining.js, rules/trinkets.js,
-     rules/crafting.js, rules/machines.js) each hardcode a DIFFERENT toss
-     magnitude -- docs/FINDINGS.md's toss-velocity finding. These two rows
-     exist so the new drop verb (Phase 2a) does not become a fifth
-     independently-chosen number. The four existing sites are deliberately
-     left as-is this phase; only the new drop verb reads these. */
   { id:'tossUp',     kind:'value', base:50, unit:'px/s', note:'upward toss on a newly dropped item; drop verb only, see docs/FINDINGS.md' },
   { id:'tossSpread', kind:'value', base:12, unit:'px/s', note:'horizontal scatter on the same drop' }
 ];

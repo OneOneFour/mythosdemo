@@ -3,20 +3,8 @@
    Imports `data/substances.js`. May be imported by `data`, `model`, `rules`,
    `view`.
 
-   ============================================================================
-   THE RULE THAT DECIDES WHERE A NEW THING GOES. Stated once, verbatim from the
-   design decision, because this exact ambiguity is what the previous content
-   model got wrong:
-
-     A SUBSTANCE IS AN ELEMENT. Anything you can hold is substance x form.
-     If a new thing has no element of its own, it is a FORM of the element
-     it came from -- not a new substance. A brick is fired copper gravel,
-     and stays copper.
-
-   So `gravel`, `ingot` and `log` are forms, not substances. That is why one
-   `smelt` row covers every ore in the game, and why adding `tin` -- an element
-   -- added no row here at all.
-   ============================================================================
+   See docs/DEVELOPER_GUIDE.md#adding-a-form for the rule that decides whether a
+   new thing is a row here or a row in `substances.js`.
 
      massK     multiplies the substance's base mass. An ingot is denser than the
                ore it came from, for every element, with one number.
@@ -83,8 +71,8 @@ export const FORMS = [
   /* A trinket's only form: not mineable, not smeltable, not tile-capable --
      `subTags:['relic']` means only a `relic`-tagged substance may cross into
      it, which is what keeps this from ever matching an ore selector by
-     accident. One form covers every trinket that will ever exist, the same
-     way `ore` covers every ore: the STRIDE cost is paid once, not per god. */
+     accident. One form covers every trinket that will ever exist -- see
+     docs/DEVELOPER_GUIDE.md#adding-a-form */
   { id:'relic', label:'RELIC',
     size:4, massK:1.0, hudOrder:5,
     tags:['relic'],
@@ -184,24 +172,8 @@ export const FORMS = [
     subTags:['metal'],
     tile:{ solid:false, climb:true } },
 
-  /* ---- rig: a MACHINE, held. This reverses Phase 3's own accepted
-     deviation (`data/machines.js`'s big `cost` comment, `docs/BUILD_PLAN.md`
-     Phase 3, `docs/SPEC.md` section 13) on direct post-launch feedback: a
-     built machine is now "a thing like wood or stone that lives in a pocket
-     slot, but heavier," not a material bill spent at the moment of placement.
-
-     Phase 3 rejected a machine-item on the grounds that "a furnace is not an
-     element -- one substance row per machine is exactly what
-     data/substances.js's header forbids." That reasoning proves too much:
-     `bellows` (a trinket) is ALREADY one substance per trinket, justified in
-     that file's own header by "a trinket refines from nothing -- it IS the
-     element, singular and unique," crossed with the shared `relic` form;
-     `chasm` (a miracle) is the identical trick crossed with `phial`. A
-     machine is fabricated, not compressed from ore, and unique in itself --
-     exactly the same category. `rig` is that form: the shared "which
-     fabricated-whole-machine thing is this" form every future machine-item
-     substance takes, the same STRIDE-cost-paid-once move `relic`/`phial`
-     already made for trinkets/miracles.
+  /* ---- rig: a MACHINE, held. The shared form every machine-item substance
+     takes; see docs/DEVELOPER_GUIDE.md#a-machine-is-a-held-item
 
      No `tile` block, on purpose: a machine is placed as a multi-tile
      STRUCTURE through `model/machines.js`/`rules/placement.js#placeMachine`,

@@ -5,7 +5,7 @@
    content rows are allowed to use live in `data/palette.js`, which re-exports
    this table and is what `tools/resolve.mjs` checks a `look` key against.
 
-   Add a named entry rather than inlining hex at a call site. */
+   See docs/DEVELOPER_GUIDE.md#colour-and-appearance. */
 
 export const P = {
   skyHi:'#c4dcee', skyLo:'#8fb9d8', cloudA:'#ffffff', cloudB:'#dbe8f4', cloudC:'#b9cfe4',
@@ -30,12 +30,7 @@ export const P = {
   vdA:'#63947a', vdB:'#4b7460', vdC:'#365746', vdD:'#243c30',
   irA:'#a3a3ad', irB:'#74747f', irC:'#4a4a54', irD:'#2c2c34',
   ichor:'#ffd97a', hot:'#ff9a3c', ui:'#d2c9b2', uiDim:'#7b7361', uiBack:'#0d0b12',
-  /* Phase 5b (docs/BUILD_PLAN.md): the widget layer's own status colours,
-     named here rather than inlined per `bar.js`'s own header ("the caller
-     resolves that... and hands over a colour name"). Identical hex to the
-     values `view/hud.js#UI` already picked inline for the plain-text burden
-     line and the CRAFT panel's craftable-green -- one fact, reused, not a
-     second palette invented for the dense panels. */
+  /* the widget layer's status colours; same hex as hud.js's UI row */
   uiGood:'#9ad86a', uiAmber:'#e0a030', uiHeart:'#d8433a',
   /* granite: a cool light grey, distinct from ir* (iron-grey, warmer/darker)
      so the two rocks read apart at a glance. adamant: a dark teal-black with

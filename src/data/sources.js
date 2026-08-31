@@ -4,17 +4,8 @@
    ============================================================================
    THIS IS THE ONE FILE IN `data/` WHERE A ROW CARRIES CODE.
    Read the price note at the bottom before adding a row.
+   How `from:` and `units:` work: docs/DEVELOPER_GUIDE.md#non-item-inputs
    ============================================================================
-
-   A recipe input clause names its source with `from:`, defaulting to 'buffer':
-
-     { in:{ 'timber/log':1 } }                    <- from the machine's buffer
-     { in:{ heart:1 }, from:'vital' }             <- from the player's body
-
-   That one word is what makes a non-item fuel content instead of engine code,
-   and it is what the lift needs. `rules/machines.js` never learns where an
-   input came from: it calls `SOURCES[from].count(...)` and
-   `SOURCES[from].spend(...)`, and each row here answers for itself.
 
    `count` and `spend` are pure functions over an injected narrow api. The api
    is defined in exactly one place, `rules/machines.js`, and is the whole
@@ -30,9 +21,7 @@
    `units` tells the interpreter how to read the input KEYS of a clause:
 
      'pair'   keys are selectors over substance x form. The normal case.
-     'named'  keys are the bare strings in `offers` and are NOT substances, so
-              health is never mirrored into the inventory, the HUD keeps drawing
-              five hearts, and `model/run.js` does not change shape.
+     'named'  keys are the bare strings in `offers` and are NOT substances.
 
    PRICE, stated plainly: this file is not serialisable or diffable as content.
    Every other table in `data/` could be JSON, shipped to a modder, or diffed

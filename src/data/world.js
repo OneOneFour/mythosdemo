@@ -8,11 +8,9 @@
    single biggest structural blocker in the old code, and it is why more than
    one depth band was impossible.
 
-   Here a band is a ROW. `model/world.js` allocates from it at run time, every
-   band-shaped number is in this file, and MORE THAN ONE BAND IS RESIDENT AT
-   ONCE. Every tile query takes the band record as its first argument. Band
-   ordinals are never assumed to be zero: a band is a value passed to a query,
-   not an ambient global.
+   Here a band is a ROW -- see docs/DEVELOPER_GUIDE.md#bands-and-worldgen.
+   Every tile query takes the band record as its first argument, and band
+   ordinals are never assumed to be zero.
    ============================================================================
 
    Three bands exist from the start because the game's thesis needs a
