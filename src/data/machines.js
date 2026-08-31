@@ -43,24 +43,26 @@
 
      variantOf   copy another row and override these keys. See `kiln_divine`.
 
-     cost        { 'sub/form': n, ... } material spent once, from the pockets,
-                 the moment the machine is PLACED -- see `rules/placement.js`.
-                 EXACT sub/form pairs, not selectors: `buffer.cap`'s grammar
-                 answers "any ore", and a build bill is a specific list of
-                 materials, not "any". Absent (the default) means free.
-
-                 Phase 3 (`docs/BUILD_PLAN.md`) prices `furnace` and `lift` for
-                 real: a `furnace`/`lift` ITEM you carry and place was the
-                 original plan, but a held thing here is substance x form, and
-                 a furnace is not an element -- one machine, one substance row
-                 is exactly what `data/substances.js`'s header forbids. COST AT
-                 PLACEMENT is the substitute: the bill IS the commitment, and
-                 because Phase 2a made mass a hard cap, a 20-talent haul is a
-                 trip you plan around, the same "hauling a machine down a
-                 shaft" weight the item-carry design wanted, without a
-                 machine-item form. `press` is priced too, no longer the one
-                 free-provisional row below furnace and lift -- see
-                 `docs/SPEC.md` section 13 for all three numbers.
+     NO `cost` KEY HERE ANY MORE. Phase 3 (`docs/BUILD_PLAN.md`) priced a
+     build here, spent from the pockets the moment the machine was PLACED --
+     "cost at placement" was an explicit, accepted DEVIATION from the
+     original plan, which asked for a machine ITEM the player carries and
+     places, on the grounds that a held thing here is substance x form and a
+     furnace is not an element (`data/substances.js`'s header). That
+     reasoning has been REVERSED, on direct post-launch feedback: it proved
+     too much, since `data/substances.js#bellows` and `#chasm` are already
+     "one substance per trinket/miracle," justified by the identical "this
+     refines from nothing, it IS the element" argument, crossed with a
+     shared form (`relic`, `phial`). A machine is fabricated, not compressed
+     from ore, and unique in itself -- the same category. So: a machine IS
+     now a held item, `<machine-id>/rig` (`data/forms.js#rig`,
+     `data/substances.js`'s machine-substance block), built by an ordinary
+     hand:true recipe in `data/recipes.js` naming this row's OWN former bill
+     verbatim, and placed through the SAME pockets-driven path a tile-capable
+     form already used (`rules/placement.js#placeMachine`,
+     `model/run.js#placementCheck` checking `invCount(S[id], F.rig) > 0`
+     instead of a cost bill). See `docs/SPEC.md` section 13 and
+     `docs/FINDINGS.md` for the full before/after.
 
      look        appearance only. `view/` is the only reader, and no machine or
                  substance name appears anywhere in `view/`.
@@ -132,13 +134,9 @@ export const MACHINES = [
 
     recipes:['smelt'],
 
-    /* PHASE 3 COST: 12 copper/ore + 6 timber/log, ~16.8 T against the 40 T
-       cap (`docs/SPEC.md` section 13) -- raw, unrefined material, on purpose:
-       `furnace` is GRANTED from run start (`data/boons.js#STARTING_MACHINES`),
-       but grant only answers "may this run ever place one", not "for free".
-       Every furnace still costs exactly the ore and timber the first two
-       minutes already teach a player to dig (`docs/SPEC.md` section 5). */
-    cost:{ 'copper/ore':12, 'timber/log':6 },
+    /* Building one now costs `data/recipes.js#furnace` (12 copper/ore + 6
+       timber/log, ~16.8 T -- `docs/SPEC.md` section 13), a held
+       `furnace/rig` item spent at PLACEMENT, not a bill charged here. */
 
     look:{ body:'irC', trim:'irB', base:'irD', fire:true,
            pips:[ { sel:'*/#ore', row:0 }, { sel:'*/#fuel', row:1 } ],
@@ -190,15 +188,13 @@ export const MACHINES = [
       { in:{ heart:1 }, from:'vital', out:[], secs:6.0 }          // the terms
     ],
 
-    /* PHASE 3 COST: 6 copper/plate + 4 timber/log + 2 copper/ingot, ~20.8 T
-       against the 40 T cap (`docs/SPEC.md` section 13) -- refined material,
-       not raw ore, because a stage of the game's own bottleneck (invariant 4:
-       five independent stages, never one continuous cage) is priced like the
-       investment it is, not like a wall you happen to dig through. Checked
-       AGAINST `rules/placement.js`'s shaft-reach gate below (`lift.span` must
-       actually land in `lift.toBand`), not instead of it: a player can afford
-       a stage and still be refused for aiming it at solid rock. */
-    cost:{ 'copper/plate':6, 'timber/log':4, 'copper/ingot':2 },
+    /* Building one now costs `data/recipes.js#lift` (6 copper/plate + 4
+       timber/log + 2 copper/ingot, ~20.8 T -- refined material, not raw ore,
+       priced like the investment a bottleneck stage is), a held `lift/rig`
+       item spent at PLACEMENT -- checked AGAINST the shaft-reach gate below
+       (`lift.span` must actually land in `lift.toBand`), not instead of it:
+       a player can hold a stage and still be refused for aiming it at solid
+       rock. */
 
     look:{ body:'woodC', trim:'irB', base:'irD', fire:true,
            pips:[ { sel:'*/#fuel', row:0 } ],
@@ -239,16 +235,15 @@ export const MACHINES = [
 
     recipes:['press'],
 
-    /* PHASE 3 COST: 4 copper/plate + 2 copper/ingot, 12.8 T -- no longer the
-       one free-provisional row this file's own header used to name. Priced
-       in REFINED goods, not raw ore: a press turns ingot into plate, so
-       building one costs the tier it produces, the same "pay in the tier
-       above" shape `lift`'s cost already uses. A player who wants a press
-       before affording one can still hand-press (`data/recipes.js#press`,
-       `hand:true`) their way to the 4 plate this bill needs -- the point of
-       a placed press was never "the only way to make a plate", only "more
-       than one pair of hands' worth at once" (`docs/DESIGN.md`). */
-    cost:{ 'copper/plate':4, 'copper/ingot':2 },
+    /* Building one now costs `data/recipes.js#press_machine` (4 copper/plate
+       + 2 copper/ingot, 12.8 T -- REFINED goods, not raw ore: a press turns
+       ingot into plate, so building one costs the tier it produces, the same
+       "pay in the tier above" shape `lift`'s bill already uses), a held
+       `press/rig` item spent at PLACEMENT. A player who wants a press before
+       holding one can still hand-press (`data/recipes.js#press`, `hand:true`)
+       their way to plate directly -- the point of a placed press was never
+       "the only way to make a plate", only "more than one pair of hands'
+       worth at once" (`docs/DESIGN.md`). */
 
     /* Iron-toned like the furnace's trim, not its body -- reads as the same
        forge-metal family without being mistaken for a furnace at a glance.
@@ -261,12 +256,10 @@ export const MACHINES = [
 
   /* ---- BELT: horizontal relocation, and the one machine explicitly priced to
      be RARE. `docs/DESIGN.md`'s genre statement names flat, cheap horizontal
-     logistics as the thing this project refuses to become, so this was the
-     first row to carry a nonzero `cost` for real, BEFORE `furnace`/`lift`/
-     `press` above earned their own bills in Phase 3 (`docs/BUILD_PLAN.md`) --
-     2 plate and 4 gravel, priced in the game's own SECOND compression tier
-     rather than raw ore, so a lane of these is a plate-shipping decision and
-     not a doorstep mat laid beside every machine.
+     logistics as the thing this project refuses to become -- `data/recipes.js
+     #belt_r` spends 2 plate and 4 gravel, priced in the game's own SECOND
+     compression tier rather than raw ore, so a lane of these is a
+     plate-shipping decision and not a doorstep mat laid beside every machine.
 
      IT RUNS NO TRANSFORM. `rules/machines.js`'s generic interpreter turns
      inputs into outputs; a belt turns a POSITION into a later position with
@@ -292,7 +285,16 @@ export const MACHINES = [
      `belt:{ dir }` is the one key here `rules/belts.js` reads that no other
      machine's row carries: `1` drags toward increasing world x, `-1` toward
      decreasing. `belt_l` is `belt_r` with that key and the id/name flipped via
-     `variantOf` -- the same near-free variant `kiln_divine` proves above. ---- */
+     `variantOf` -- the same near-free variant `kiln_divine` proves above.
+
+     A HELD BELT PLACES FACING: `data/substances.js` gives `belt_r`/`belt_l`
+     ONE shared substance (`belt_r`'s own id), and `model/run.js#machineIdFor`
+     resolves it to whichever of these two rows to instantiate off
+     `player.face` (+-1) at the moment of placement -- the exact same
+     direction convention `belt.dir` already carries, reused rather than
+     reinvented, and the reason `belt_l` needs no build recipe of its own
+     (its bill would be bit-identical to `belt_r`'s, an unbreakable tie
+     `rules/crafting.js#choose`'s first-match rule could never resolve). ---- */
   { id:'belt_r', name:'CONVEYOR (RIGHT)',
     tw:4, th:1, footing:4,
 
@@ -306,8 +308,6 @@ export const MACHINES = [
     belt:{ dir:1 },
 
     recipes:[ { in:{ '*/#fuel':1 }, out:[], secs:6.0 } ],
-
-    cost:{ 'copper/plate':2, 'stone/gravel':4 },
 
     /* Timber-and-iron, not the furnace's fired clay: a belt is built, not
        stoked, and `fire:true` here reads as the burner that pays for the
@@ -345,8 +345,6 @@ export const MACHINES = [
 
     recipes:[ { in:{ '*/#fuel':1 }, out:[], secs:6.0 } ],
 
-    cost:{ 'timber/log':4, 'stone/gravel':2 },
-
     light:{ level:12, whileRunning:true },
 
     look:{ body:'ochreB', trim:'ochreA', base:'ochreD', fire:true,
@@ -367,8 +365,6 @@ export const MACHINES = [
      `rules/light.js` reads `eff('lightMax')` and not a literal. ---- */
   { id:'hearth', name:'HEARTH',
     tw:2, th:2, footing:2,
-
-    cost:{ 'copper/plate':2 },
 
     /* An `in:{}` recipe is satisfied by construction -- `rules/machines.js#
        choose`'s availability loop iterates zero selectors and stays `ok` --
@@ -419,7 +415,11 @@ export const MACHINES = [
     catchBox:{ mouth:'top', slack:2 },
     handFeed:{ reach:10, from:['*/#fuel'] },
 
-    cost:{ 'copper/plate':8, 'copper/ingot':2 },
+    /* Building one now costs `data/recipes.js#talos_head` (8 copper/plate +
+       2 copper/ingot, 22.4 T), a held `talos_head/rig` item spent at
+       PLACEMENT -- shared with `talos_head_l` below (`model/run.js
+       #machineIdFor` resolves the same held pair to whichever facing
+       `player.face` says, the belt's own trick). */
 
     mine:{ facing:1, tier:2, tiles:1, secs:12.0 },
 
@@ -457,7 +457,11 @@ export const MACHINES = [
     catchBox:{ mouth:'top', slack:2 },
     handFeed:{ reach:10, from:['*/#fuel'] },
 
-    cost:{ 'copper/plate':16, 'copper/ingot':6, 'granite/gravel':6 },
+    /* Building one now costs `data/recipes.js#cyclops_maw` (16 copper/plate
+       + 6 copper/ingot + 6 granite/gravel, 50.7 T), a held
+       `cyclops_maw/rig` item spent at PLACEMENT -- shared with
+       `cyclops_maw_l` below, the same `player.face`-resolved trick
+       `talos_head`/`belt_r` already use. */
 
     minDepth:200,
 

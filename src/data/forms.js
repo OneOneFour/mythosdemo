@@ -47,7 +47,20 @@ export const FORMS = [
   { id:'gravel', label:'GRAVEL', short:'GRVL',
     size:3, massK:0.5, hudOrder:2,
     tags:['bakeable', 'spoil'],
-    subTags:['metal', 'rock'] },
+    subTags:['metal', 'rock'],
+    /* PLACEABLE RUBBLE, for the dig-and-restore follow-up: mined gravel
+       (`stone/gravel`, `soil/gravel`, and now `granite`/`adamant`'s gravel
+       too, since Phase 1 gave all four the same `drops:'gravel'`) can be
+       shovelled back into a dug-out hole through the EXACT SAME `placeTile`
+       path `log`/`rung`/`stair` already use -- same unbacked-tile refusal,
+       same "mining a placed tile gives it back" recovery. `solid:true` (a
+       real wall, unlike the ladder forms above), `climb:false` (loose
+       backfill, not a rung), `hardK:0.5` -- softer than any NATIVE rock this
+       drops from (stone 1.60, soil 0.50, granite 2.4, adamant 5.0), so
+       shovelled-back fill is deliberately the easiest thing in the game to
+       dig back out, never harder than the loosest of the four sources
+       (soil's own 0.50 native hardness). */
+    tile:{ solid:true, climb:false, hardK:0.5 } },
 
   { id:'ingot', label:'INGOT', short:'ING',
     size:4, massK:1.6, hudOrder:3,
@@ -169,7 +182,41 @@ export const FORMS = [
     size:4, massK:3.0, hudOrder:10, climbK:1.8,
     tags:[],
     subTags:['metal'],
-    tile:{ solid:false, climb:true } }
+    tile:{ solid:false, climb:true } },
+
+  /* ---- rig: a MACHINE, held. This reverses Phase 3's own accepted
+     deviation (`data/machines.js`'s big `cost` comment, `docs/BUILD_PLAN.md`
+     Phase 3, `docs/SPEC.md` section 13) on direct post-launch feedback: a
+     built machine is now "a thing like wood or stone that lives in a pocket
+     slot, but heavier," not a material bill spent at the moment of placement.
+
+     Phase 3 rejected a machine-item on the grounds that "a furnace is not an
+     element -- one substance row per machine is exactly what
+     data/substances.js's header forbids." That reasoning proves too much:
+     `bellows` (a trinket) is ALREADY one substance per trinket, justified in
+     that file's own header by "a trinket refines from nothing -- it IS the
+     element, singular and unique," crossed with the shared `relic` form;
+     `chasm` (a miracle) is the identical trick crossed with `phial`. A
+     machine is fabricated, not compressed from ore, and unique in itself --
+     exactly the same category. `rig` is that form: the shared "which
+     fabricated-whole-machine thing is this" form every future machine-item
+     substance takes, the same STRIDE-cost-paid-once move `relic`/`phial`
+     already made for trinkets/miracles.
+
+     No `tile` block, on purpose: a machine is placed as a multi-tile
+     STRUCTURE through `model/machines.js`/`rules/placement.js#placeMachine`,
+     never as grid terrain -- do not confuse this with `log`/`rung`/`stair`
+     above, which place as a single terrain tile through `placeTile`.
+     `massK:1.0` so a machine substance's own `item.mass`
+     (`data/substances.js`) IS the carried item's mass directly, with no
+     second multiplier to keep straight -- unlike `ingot`/`plate`, which
+     really do compress a shared element differently per form, a `rig`
+     substance's mass already IS the machine (see each row's own comment for
+     how it derives from the machine's former `cost` bill). */
+  { id:'rig', label:'RIG', short:'RIG',
+    size:4, massK:1.0, hudOrder:11,
+    tags:['machine', 'placeable'],
+    subTags:['machine'] }
 ];
 
 export const FORM = Object.freeze(FORMS.map(Object.freeze));

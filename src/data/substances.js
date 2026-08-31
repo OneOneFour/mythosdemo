@@ -240,7 +240,106 @@ export const SUBSTANCES = [
           deliberately thin" convention. ---- */
   { id:'chasm', name:'RIFT OF HADES', tags:['miracle'],
     item:{ mass:0.2, hud:{ order:11 } },
-    look:{ item:['abyC', 'vioHi'] } }
+    look:{ item:['abyC', 'vioHi'] } },
+
+  /* ============================================================================
+     MACHINE SUBSTANCES (design reversal, superseding Phase 3's "cost at
+     placement" deviation -- see `data/forms.js#rig`'s own header for the full
+     argument). One row per machine, exactly like `bellows`/`chasm` above: a
+     machine "refines from nothing" the same way a trinket or a miracle does,
+     it is fabricated as a whole, and crosses into the shared `rig` form.
+     `id` reuses the machine's OWN id from `data/machines.js`, the identical
+     1:1 naming precedent `bellows` already sets against `data/trinkets.js`.
+
+     `item.mass` is the machine's FORMER `data/machines.js#cost` bill, summed
+     with `model/items.js#massOfPair` (never hand-computed) -- crossed with
+     `rig`'s `massK:1.0`, that sum IS the carried item's mass, which is what
+     makes a built machine "heavier" than the raw materials it came from
+     while still satisfying the mass-conservation content lint (the
+     `data/recipes.js` row spends exactly that bill, so output mass equals,
+     never exceeds, input mass). No `tile` block, no `look.base/hi/lo` (never
+     native rock) -- only `look.item`, borrowing the machine's OWN
+     `data/machines.js#look` swatches so a held machine reads as a smaller
+     version of the thing it becomes once placed. ============================================================================ */
+
+  /* 12 copper/ore + 6 timber/log, `model/items.js#massOfPair` summed:
+     12x1.0 + 6x0.8 = 16.8 T (`docs/SPEC.md` section 13's own number,
+     unchanged -- the bill moved from a placement-time gate to a recipe
+     input, it was not retuned). */
+  { id:'furnace', name:'CRUDE FURNACE', tags:['machine'],
+    item:{ mass:16.8, hud:{ order:12 } },
+    look:{ item:['irC', 'irB'] } },
+
+  /* 6 copper/plate + 4 timber/log + 2 copper/ingot: 6x2.4 + 4x0.8 + 2x1.6 =
+     20.8 T, `docs/SPEC.md`'s own lift number, unchanged. */
+  { id:'lift', name:'WINCH STAGE', tags:['machine'],
+    item:{ mass:20.8, hud:{ order:13 } },
+    look:{ item:['woodC', 'irB'] } },
+
+  /* 4 copper/plate + 2 copper/ingot: 4x2.4 + 2x1.6 = 12.8 T, `docs/SPEC.md`'s
+     own press number, unchanged. */
+  { id:'press', name:'PRESS', tags:['machine'],
+    item:{ mass:12.8, hud:{ order:14 } },
+    look:{ item:['irB', 'irA'] } },
+
+  /* THE MIRRORED PAIR, ONE SUBSTANCE: `belt_r`/`belt_l` share one visual
+     already (`variantOf`) and, checked against `rules/mining.js#aimAtKeys`,
+     already share a real DIRECTION signal too -- `player.face` (+-1) is the
+     exact convention `belt.dir` uses. A held belt therefore places FACING
+     -- `model/run.js#machineIdFor` resolves this substance to `belt_r` or
+     `belt_l` off the player's own facing at the moment of placement, the
+     same "aim decides" rule mining already lives by -- rather than needing
+     two substances (and, worse, two hand-recipes with a BIT-IDENTICAL bill,
+     which `rules/crafting.js#choose`'s documented "first match wins" would
+     starve one of forever with no float-management workaround, unlike
+     `daedalan`/`auger`'s differing log counts). This ALSO doubles as the
+     tile-byte economy Phase 3's kiln_divine variant already banked on: one
+     row, not two, and it is why `talos_head`/`cyclops_maw` below take the
+     same treatment for their own `_l` mirrors.
+     id is `belt_r`, the base row's own id, per the 1:1 naming precedent --
+     2 copper/plate + 4 stone/gravel: 2x2.4 + 4x0.3 = 6.0 T. */
+  { id:'belt_r', name:'CONVEYOR', tags:['machine'],
+    item:{ mass:6.0, hud:{ order:15 } },
+    look:{ item:['woodB', 'irA'] } },
+
+  /* 4 timber/log + 2 stone/gravel: 4x0.8 + 2x0.3 = 3.8 T. */
+  { id:'brazier', name:'BRAZIER', tags:['machine'],
+    item:{ mass:3.8, hud:{ order:16 } },
+    look:{ item:['ochreB', 'ochreA'] } },
+
+  /* 2 copper/plate: 2x2.4 = 4.8 T -- `hearth`'s own former bill was
+     deliberately the smallest in the game (docs/FINDINGS.md), and stays so
+     here: this is the lightest machine substance in the table. */
+  { id:'hearth', name:'HEARTH', tags:['machine'],
+    item:{ mass:4.8, hud:{ order:17 } },
+    look:{ item:['basB', 'basA'] } },
+
+  /* THE MIRRORED PAIR, ONE SUBSTANCE, same reasoning as `belt_r` above:
+     `talos_head`/`talos_head_l` share a visual and the identical `facing`
+     convention (`mine:{facing}`), resolved off `player.face` at placement.
+     8 copper/plate + 2 copper/ingot: 8x2.4 + 2x1.6 = 22.4 T. */
+  { id:'talos_head', name:'TALOS HEAD', tags:['machine'],
+    item:{ mass:22.4, hud:{ order:18 } },
+    look:{ item:['cuB', 'irA'] } },
+
+  /* THE MIRRORED PAIR, ONE SUBSTANCE, same reasoning again:
+     `cyclops_maw`/`cyclops_maw_l`. 16 copper/plate + 6 copper/ingot + 6
+     granite/gravel: 16x2.4 + 6x1.6 + 6x0.45 = 50.7 T -- the heaviest machine
+     in the game, matching its own T4 tier. */
+  { id:'cyclops_maw', name:'CYCLOPS MAW', tags:['machine'],
+    item:{ mass:50.7, hud:{ order:19 } },
+    look:{ item:['adamantB', 'adamantD'] } }
+
+  /* `kiln_divine` is deliberately NOT given a substance here. Its former
+     `cost` (inherited, unchanged, via `variantOf:'furnace'`) is BIT-IDENTICAL
+     to `furnace`'s -- so a `kiln_divine` hand-recipe would share furnace's
+     exact trigger condition with no way to ever fire (`choose`'s first-match
+     rule would deterministically always produce `furnace` instead, forever,
+     the one kind of tie `daedalan`/`auger`'s differing quantities exist
+     specifically to avoid). Retuning it to break the tie would invent a
+     number Phase 3 never set. `kiln_divine` remains grantable
+     (`data/grants.js#gift-kiln`) but is not currently placeable -- a real
+     gap, recorded in `docs/FINDINGS.md`, not a silent omission. */
 ];
 
 /* ---- derived indices, built once, frozen. Nothing scans this table on a hot
