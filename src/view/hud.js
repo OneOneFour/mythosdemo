@@ -33,7 +33,7 @@
 import { drawText, textWidth } from '../core/font.js';
 import { R } from '../core/pixels.js';
 import { mix } from '../core/palette.js';
-import { FORM, labelOf } from '../data/forms.js';
+import { FORM, labelOf, shortLabelOf } from '../data/forms.js';
 import { M, MACH } from '../data/machines.js';
 import { colour } from '../data/palette.js';
 import { HAND_RECIPES } from '../data/recipes.js';
@@ -252,7 +252,11 @@ function billOf(clauses, exact) {
     const n = clauses[k];
     if (exact) {
       const { sub, form } = parseKey(k);
-      parts.push(`${n} ${labelOf(sub, form)}`);
+      /* POLISH: SHORT names here -- this is exactly the "narrow crafting
+         grid" style bill-of-materials line the abbreviation was made for,
+         a fixed-width panel row that a full name ("12 COPPER ORE+6 TIMBER
+         LOG") can run past. */
+      parts.push(`${n} ${shortLabelOf(sub, form)}`);
     } else {
       const raw = k.includes('/') ? k.slice(k.indexOf('/') + 1) : k;
       parts.push(`${n} ${(raw[0] === '#' ? raw.slice(1) : raw).toUpperCase()}`);
@@ -433,7 +437,11 @@ function boonStack(g, f, W, startY) {
     const flashing = a.left > 0 && a.left <= 5;
     const flash = flashing && ((f.t * 6) | 0) % 2 === 0;
 
-    const label = b.name;
+    /* POLISH: the SHORT name here -- the boon timer stack is the exact
+       fixed-width, right-anchored row named as clipping-prone ("FORGE OF
+       HEPHAESTUS"). Falls back to the full name for a boon with no `short`
+       given yet, same as `shortLabelOf` does for a substance/form pair. */
+    const label = b.short || b.name;
     const secs = Math.max(0, Math.ceil(a.left));
     const timeStr = ((secs / 60) | 0) + ':' + String(secs % 60).padStart(2, '0');
     const barW = 24;

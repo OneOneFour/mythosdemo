@@ -26,7 +26,7 @@
 import { drawText, textWidth } from '../../core/font.js';
 import { mix } from '../../core/palette.js';
 import { R } from '../../core/pixels.js';
-import { expand, F, FORM, labelOf, matches } from '../../data/forms.js';
+import { expand, F, FORM, matches, shortLabelOf } from '../../data/forms.js';
 import { MACH } from '../../data/machines.js';
 import { colour } from '../../data/palette.js';
 import { HAND_RECIPES, RECIPES } from '../../data/recipes.js';
@@ -73,6 +73,23 @@ const activeOf = (stored, list) => list.some(t => t.id === stored) ? stored : li
 function swatchOf(sub) {
   const l = SUB[sub].look;
   return l?.item ? colour(l.item[0]) : DIM;
+}
+
+/* POLISH: a PLACEHOLDER ICON, not real art. `slot.js#drawSlot`'s contract
+   already draws a swatch, an optional glyph and a count -- exactly Phase 5a's
+   own "swatch-plus-count" convention -- but most slots left `glyph` unset, so
+   a plain colour square was the only identity a recipe or an inventory slot
+   ever carried, easy to confuse against another substance of a similar hue
+   until real iconography exists. A 1-2 letter code off the substance's own
+   `short`/`name` fills that gap with no new icon system: still one rect, one
+   swatch colour, one small glyph, drawn by the same `R()`/`drawText()` this
+   file already uses everywhere else. Callers that already have a MORE useful
+   glyph (a locked recipe's '?', a missing ingredient's own letter, the
+   quickbar's slot digit) keep that instead -- this is only ever the
+   fallback. */
+function glyphOf(sub) {
+  const s = SUB[sub];
+  return (s.short || s.name || '').slice(0, 2).toUpperCase();
 }
 
 /* A unique held THING: a trinket or a miracle, the two tags `data/forms.js`
@@ -149,7 +166,10 @@ function drawCharacterTab(g, f, body) {
   const items = rows.map(r => ({
     sub: r.sub, form: r.form, n: r.n, mass: massOfPair(r.sub, r.form) * r.n,
     colour: swatchOf(r.sub),
-    glyph: FORM[r.form].tile ? '#' : null
+    /* The tile-capable marker '#' carries real meaning (this is what a
+       ladder is built from) and keeps priority; everything else falls back
+       to the placeholder identity glyph rather than no glyph at all. */
+    glyph: FORM[r.form].tile ? '#' : glyphOf(r.sub)
   }));
   const invRows = Math.min(3, Math.max(1, Math.floor((body.bottom - ry - 22) / (SLOT_SIZE + 1))));
   const grid = drawGrid(g, {
@@ -165,7 +185,7 @@ function drawCharacterTab(g, f, body) {
   const equipItems = Array.from({ length: slots }, (_, i) => {
     const sub = run.equipped[i];
     if (sub == null) return null;
-    return { sub, form: F.relic, n: 1, mass: massOfPair(sub, F.relic), colour: swatchOf(sub) };
+    return { sub, form: F.relic, n: 1, mass: massOfPair(sub, F.relic), colour: swatchOf(sub), glyph: glyphOf(sub) };
   });
   drawText(g, 'TRINKETS', x, ry, INK, 1, 1);
   ry += 8;
@@ -377,10 +397,16 @@ function drawCraftingTab(g, f, body) {
                colour: BACK, glyph: '?', frameColour: DIM };
     }
     const base = rep ? swatchOf(rep.sub) : DIM;
-    if (craftable) return { sub: rep?.sub, form: rep?.form, n: 0, mass: 0, colour: base, frameColour: GOOD };
+    /* A craftable recipe used to show a bare swatch with no glyph at all --
+       the placeholder identity glyph fills that in (Polish 5). A recipe
+       missing an ingredient keeps its own, more useful, single-letter
+       selector glyph instead. */
+    if (craftable) return { sub: rep?.sub, form: rep?.form, n: 0, mass: 0, colour: base, frameColour: GOOD,
+                             glyph: rep ? glyphOf(rep.sub) : null };
     const miss = missingSelector(r);
     return { sub: rep?.sub, form: rep?.form, n: 0, mass: 0,
-             colour: mix(base, BACK, 0.55), glyph: miss ? selectorGlyph(miss) : null };
+             colour: mix(base, BACK, 0.55),
+             glyph: miss ? selectorGlyph(miss) : (rep ? glyphOf(rep.sub) : null) };
   });
 
   const grid = drawGrid(g, {
@@ -429,8 +455,14 @@ function recipeTooltip(r) {
   if (out) {
     const form = FORM[F[out.form]];
     const n = out.n || 1;
-    const name = out.sub !== undefined ? SUB[S[out.sub]].name : 'MATCHED';
-    lines.push(`-> ${n} ${name} ${form.label}`);
+    /* POLISH: the SHORT name/label here, not the full one -- this is an
+       inline reference inside an already-multi-line tooltip, the exact
+       "recipe tooltips' inline references" spot named for abbreviation,
+       unlike `r.name` above (the recipe's own title line, which stays full
+       length) and unlike the Character tab's `pairTooltip` (deliberately
+       left full, see that function's own header). */
+    const name = out.sub !== undefined ? (SUB[S[out.sub]].short || SUB[S[out.sub]].name) : 'MATCHED';
+    lines.push(`-> ${n} ${name} ${form.short || form.label}`);
   }
   const machineName = MACH.find(m => (m.recipes || []).some(x => x === r.id || x?.id === r.id))?.name;
   lines.push(`BY HAND: ${r.secs.toFixed(1)} S` + (machineName ? ` -- SAME AS ${machineName}` : ''));
@@ -546,9 +578,20 @@ function drawLogisticsTab(g, f, body) {
   for (let i = 0; i < list.length && ry <= bottom - 8; i++) {
     const m = list[i];
     const bill = m.cost
-      ? Object.keys(m.cost).map(k => { const p = parseKey(k); return `${m.cost[k]} ${labelOf(p.sub, p.form)}`; }).join('+')
+      ? Object.keys(m.cost).map(k => { const p = parseKey(k); return `${m.cost[k]} ${shortLabelOf(p.sub, p.form)}`; }).join('+')
       : 'FREE';
-    drawText(g, `${i + 1} ${m.name} ${bill}`, x, ry, m.afford ? GOOD : DIM, 1, 1);
+    const line = `${i + 1} ${m.name} ${bill}`;
+    drawText(g, line, x, ry, m.afford ? GOOD : DIM, 1, 1);
+    /* BUG FIX (Bug 1 audit): this row used to be a bare `drawText` call with
+       no rectangle recorded anywhere -- it LOOKS exactly like the CRAFTING
+       tab's numbered, colour-coded rows next door, but nothing hit-tested a
+       click against it, so only the matching digit key (1-9,
+       `shell/input.js`) ever placed anything. Registering the rect into
+       `./state.js#drawn.buttons` gives `shell/main.js`'s dispatcher
+       something real to click -- same `wants.machine` field the digit
+       handler already sets, so a click on row 3 and pressing '3' place the
+       identical machine. */
+    drawn.buttons.push({ id: 'build:' + m.id, x, y: ry - 1, w, h: 9 });
     ry += 9;
   }
 }

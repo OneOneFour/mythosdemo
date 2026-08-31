@@ -144,7 +144,24 @@ export function installInput() {
        a debug overlay while the player is mid-sentence would be worse than
        one dropped keystroke. */
     if (ui.searchFocus) {
-      if (e.key === 'Escape' || e.key === 'Enter') { setSearchFocus(false); e.preventDefault(); return; }
+      /* BUG FIX: Escape used to only blur the field, stopping short of the
+         `isOpen(top())` close-panel branch further down this function --
+         reachable only once the field had already lost focus, i.e. after a
+         SECOND press. A player who clicked into search had no single key
+         that reliably left the window. Escape now does both in the one
+         press it already owns: blur, then pop the panel stack exactly as it
+         would have if the field had never been focused. Enter stays
+         blur-only -- it commits a search, it does not mean "leave". 'i' is
+         deliberately NOT special-cased out of this block: it is a legitimate
+         search character (filtering for "ingot"), and the same Escape fix is
+         the actual way out, not carving a hole in the search alphabet. */
+      if (e.key === 'Escape') {
+        setSearchFocus(false);
+        if (isOpen(top())) closeTop();
+        e.preventDefault();
+        return;
+      }
+      if (e.key === 'Enter') { setSearchFocus(false); e.preventDefault(); return; }
       if (e.key === 'Backspace') { setSearch(ui.search.slice(0, -1)); e.preventDefault(); return; }
       if (e.key.length === 1) { setSearch((ui.search + e.key).slice(0, 20)); e.preventDefault(); return; }
       e.preventDefault();

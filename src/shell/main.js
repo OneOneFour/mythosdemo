@@ -16,13 +16,15 @@
 
 import { VIEW, resize, stage } from '../core/canvas.js';
 import { clamp } from '../core/math.js';
+import { F } from '../data/forms.js';
 import { M, MACH } from '../data/machines.js';
+import { RECIPES } from '../data/recipes.js';
 import { aim } from '../model/aim.js';
 import { items } from '../model/items.js';
-import { peek as journalPeek } from '../model/journal.js';
+import { peek as journalPeek, push as journalPush } from '../model/journal.js';
 import { machines } from '../model/machines.js';
 import { PH, PW, player, write as playerw } from '../model/player.js';
-import { pocketRows, run, write as runw } from '../model/run.js';
+import { canCraft, invCount, isKnown, pocketRows, run, write as runw } from '../model/run.js';
 import { bands, heightPx, widthPx, write as worldw } from '../model/world.js';
 import { dropHeaviest } from '../rules/items.js';
 import { deconstruct, placeMachine, placeTile, placeableFromPockets } from '../rules/placement.js';
@@ -33,7 +35,7 @@ import { clearEdges, cmd, flags, pointer, wants } from './input.js';
 import { drainJournal } from './notify.js';
 import { boons, grants, miracles, stepAll, trinkets } from './schedule.js';
 import {
-  assignQuickbar, cancelQueued, clearDrag, close as closePanel, isOpen,
+  assignQuickbar, cancelQueued, clearDrag, close as closePanel, closeTop, isOpen,
   queueCraft, scrollBy, setDrag, setSearchFocus, setTab, toggleHints, ui
 } from './ui.js';
 import { hoverInfo, pocketHits } from '../view/hud.js';
@@ -128,6 +130,19 @@ function applyIntents() {
      wipes `wants.machine`/`wants.draft`/`cmd.place` on its own schedule
      whether or not this function consumed them. */
   if (flags.showMap) return;
+
+  /* POLISH: auto-hide the panel when placement starts. Opening the menu and
+     then trying to place/deconstruct something used to leave the player
+     aiming at the world from BEHIND their own window -- the panel draws over
+     everything (`view/hud.js#drawHUD`'s own ordering) and does not pause
+     anything, so the world underneath was live but unseeable. Closing the
+     top panel HERE, before any of the three placement-shaped intents below
+     are consumed, lets the SAME key press both close the menu and (this very
+     call, since the checks below run immediately after) carry out the
+     placement -- not two separate presses. Gated on the intent actually
+     being present this frame, not on `isOpen('main')` alone, so merely
+     having the menu open does not close it on some unrelated frame. */
+  if (isOpen('main') && (wants.machine || cmd.place || cmd.deconstruct)) closeTop();
 
   if (wants.machine && aim.valid && aim.band) {
     /* Anchor the footprint so its BOTTOM row is the aimed tile: you point at the
@@ -261,6 +276,18 @@ function uiHitSlot(sx, sy) {
   return null;
 }
 
+/* BUG FIX (Bug 1 audit): the LOGISTICS tab's ported BUILD rows
+   (`view/ui/mainPanel.js#drawLogisticsTab`) are plain `drawText` lines that
+   now also register a rectangle into `./state.js#drawn.buttons` -- the
+   generic "clickable text row that is not a grid slot" idiom this project
+   otherwise has no primitive for. Same hit-test shape as every other
+   `uiHit*` helper here. */
+function uiHitButton(sx, sy) {
+  for (const b of uiDrawn.buttons)
+    if (sx >= b.x && sx < b.x + b.w && sy >= b.y && sy < b.y + b.h) return b;
+  return null;
+}
+
 function applyUiIntents() {
   /* The panel closing mid-drag (Escape, say) leaves `cmd.uiDown` with no
      panel-side pointerup left to clear it -- `shell/input.js` only routes a
@@ -292,6 +319,7 @@ function applyUiIntents() {
     else {
       const tabHit = uiHitTab(sx, sy);
       const slotHit = !tabHit && uiHitSlot(sx, sy);
+      const btnHit = !tabHit && !slotHit && uiHitButton(sx, sy);
       const panelHit = uiHitPanel(sx, sy);
       const onSearch = panelHit?.id === 'main-craft-search';
       const onHints = panelHit?.id === 'hints-toggle';
@@ -304,7 +332,47 @@ function applyUiIntents() {
         const id = ids && ids[slotHit.slot.index];
         if (id) {
           if (slotHit.gridId === 'craft-queue') cancelQueued(slotHit.slot.index);
-          else queueCraft(id, cmd.uiCtrl ? 99 : cmd.uiShift ? 5 : 1);
+          else {
+            /* BUG FIX (Bug 4): a click used to queue a recipe unconditionally,
+               even one the player cannot currently afford --
+               `rules/crafting.js#choose()` only ever runs the first
+               HAND_RECIPES row it can fully pay for, so an unaffordable
+               queued entry never spends anything (no bypass) but also never
+               completes: it just sits there forever, indistinguishable from
+               one actually progressing. Refuse the click outright instead,
+               with the SAME `'refused'` journal row `rules/placement.js`
+               already uses for a one-line reason, so the toast reads
+               identically to every other refusal in the game. */
+            const r = RECIPES[id];
+            const known = r && isKnown(id);
+            if (known && canCraft(r.in)) queueCraft(id, cmd.uiCtrl ? 99 : cmd.uiShift ? 5 : 1);
+            else journalPush('refused', null, { why: known ? 'CANNOT AFFORD' : 'UNKNOWN RECIPE' });
+          }
+        }
+      }
+      else if (btnHit && btnHit.id.startsWith('build:')) {
+        /* BUG FIX (Bug 1 audit): these rows used to be bare `drawText` calls
+           with no rectangle recorded anywhere -- they look exactly like the
+           CRAFTING tab's numbered, colour-coded rows next door, but nothing
+           hit-tested a click against them, so only the matching digit key
+           (1-9, `shell/input.js`) ever placed anything.
+
+           Calls `placeMachine` DIRECTLY, mirroring the `wants.machine` block
+           above's own footprint arithmetic, rather than setting
+           `wants.machine` itself and letting a later frame's block consume
+           it: `wants.machine` is read at the TOP of `applyIntents()`, before
+           `applyUiIntents()` (which runs at the very end) can ever set it,
+           and `clearEdges()` -- called once every real frame regardless --
+           wipes it again before the NEXT frame's block gets a turn. A
+           click-set `wants.machine` would therefore be silently erased
+           without ever placing anything; this is a REAL bug this audit
+           found, not a hypothetical, and is why this branch calls
+           `placeMachine` in the SAME frame the click lands instead. */
+        const id = btnHit.id.slice(6);
+        const def = MACH[M[id]];
+        if (def && aim.valid && aim.band) {
+          placeMachine(aim.band, id, aim.tx, aim.ty - def.th + 1);
+          closeTop();   // Polish 6: placing from the panel closes it too
         }
       }
 
@@ -331,21 +399,47 @@ function applyUiIntents() {
   if (downEdge) {
     const hit = uiHitSlot(sx, sy);
     if (hit && hit.slot.sub != null)
-      setDrag({ sub: hit.slot.sub, form: hit.slot.form, n: hit.slot.n, from: hit.gridId });
+      /* `index` added (Bug 1 audit): a per-slot equip/unequip below needs to
+         know WHICH equip slot a drag started from, not just which grid --
+         `from` alone was enough for "equip the first empty slot" but not for
+         "clear THIS slot" or "swap these two". */
+      setDrag({ sub: hit.slot.sub, form: hit.slot.form, n: hit.slot.n, from: hit.gridId, index: hit.slot.index });
   }
   if (upEdge && ui.drag) {
     const hit = uiHitSlot(sx, sy);
-    if (hit) {
-      if (hit.gridId === 'quickbar')
-        assignQuickbar(hit.slot.index, { sub: ui.drag.sub, form: ui.drag.form });
-      else if (hit.gridId === 'equip' && ui.drag.from === 'inv')
-        /* THE SAME UNDERLYING ACTION the 'p' key already dispatches
-           (docs/BUILD_PLAN.md Phase 5b's own instruction): with one trinket
-           in the game, "equip whatever was dragged" and "equip the first
-           held-but-unequipped trinket" are the same trinket, and adding a
-           slot-specific rules call is not this task's to write --
-           `rules/trinkets.js` is out of Phase 5b's FILE OWNERSHIP. */
-        trinkets.equipFirst();
+    if (hit && hit.gridId === 'quickbar') {
+      assignQuickbar(hit.slot.index, { sub: ui.drag.sub, form: ui.drag.form });
+    } else if (hit && hit.gridId === 'equip') {
+      /* BUG FIX (Bug 1 audit, docs/FINDINGS.md Phase 5b): dragging ONTO an
+         equip slot used to always call `trinkets.equipFirst()` regardless of
+         which of the (up to `eff('trinketSlots')`) slots was actually
+         targeted, and dragging OUT of an equip slot did nothing at all -- no
+         unequip path existed, `rules/trinkets.js` exposes no per-slot verb.
+         `model/run.js#write.equip(slot, sub)` is already exported for
+         exactly this (its own header: "the caller is trusted to have
+         already checked equip is legal") -- wiring a REAL per-slot
+         equip/unequip/swap needs no `rules/` or `model/` file edit, only
+         calling a model write shell already calls elsewhere (`give` above
+         does the same thing for `write.collect`). `ui.drag.form === F.relic`
+         is the same test `data/forms.js` uses to say a pair IS a trinket
+         (only a `relic`-tagged substance may cross into that form), so this
+         can never equip ordinary material by accident. */
+      if (ui.drag.from === 'inv' && ui.drag.form === F.relic &&
+          invCount(ui.drag.sub, F.relic) > 0 && !run.equipped.includes(ui.drag.sub)) {
+        runw.equip(hit.slot.index, ui.drag.sub);
+      } else if (ui.drag.from === 'equip' && ui.drag.index !== hit.slot.index) {
+        const other = run.equipped[hit.slot.index];
+        runw.equip(hit.slot.index, ui.drag.sub);
+        runw.equip(ui.drag.index, other ?? null);
+      }
+    } else if (ui.drag.from === 'equip') {
+      /* Dropped anywhere that is not another equip slot (empty canvas, the
+         inventory grid, outside the panel entirely) -- the real UNEQUIP
+         path Phase 5b left unwired because `rules/trinkets.js` had no
+         per-slot verb to call. It has a `model` write that does exactly
+         this, so a drag-out now really clears the slot instead of silently
+         doing nothing. */
+      runw.equip(ui.drag.index, null);
     }
     clearDrag();
   }
@@ -529,6 +623,11 @@ function installTestHook() {
         tabs: uiDrawn.tabs.map(t => ({ ...t, hits: t.hits.map(h => ({ ...h })) })),
         grids: uiDrawn.grids.map(gr => ({ ...gr, slots: gr.slots.map(s => ({ ...s })) })),
         bars: uiDrawn.bars.map(b => ({ ...b })),
+        /* Bug-fix addition (Bug 1 audit): the LOGISTICS tab's BUILD row
+           rectangles (`./view/ui/state.js#drawn.buttons`), so a test can find
+           a real click target for them the same way `grids`/`tabs`/`panels`
+           already let it, instead of a hardcoded pixel coordinate. */
+        buttons: uiDrawn.buttons.map(b => ({ ...b })),
         tooltip: uiDrawn.tooltip ? { ...uiDrawn.tooltip, lines: uiDrawn.tooltip.lines.slice() } : null
       };
     },

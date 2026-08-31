@@ -812,3 +812,71 @@ rewrite history here.
   are declared, their `mode`s agree, since a pair disagreeing about
   suppress-vs-invert would make the outcome depend on grant order in a way no
   content author would choose on purpose.
+
+## Post-launch GUI bugfix pass (Bugs 1–4, Polish 5–6)
+
+- **A real, previously-shipped bug: `wants.machine` set from inside
+  `shell/main.js#applyUiIntents()` can never place anything.** Found while
+  wiring the LOGISTICS BUILD rows to a real click (Bug 1). `wants.machine` is
+  read at the TOP of `applyIntents()` (before `applyUiIntents()`, which runs
+  at the very END of the same function, can ever set it), and `clearEdges()`
+  — called once every real animation frame regardless of what ran — wipes
+  `wants.machine` back to `null` before the NEXT frame's block gets a turn.
+  A digit key (`shell/input.js`) never hits this because the keydown handler
+  sets `wants.machine` asynchronously BETWEEN frames, so it is already true
+  when that frame's `applyIntents()` starts and the SAME call's own block
+  consumes and self-clears it immediately. A UI click has no such head start:
+  anything setting `wants.machine` from inside the dispatcher would be
+  silently erased, never placing anything, with no error and no refusal
+  toast — just nothing happening. Fixed by having the BUILD-row click call
+  `placeMachine` directly (mirroring the `wants.machine` block's own
+  footprint arithmetic) instead of setting the flag. Any FUTURE UI action
+  that wants to trigger a `wants.*`-shaped one-shot intent from inside
+  `applyUiIntents()` will hit the identical trap — worth remembering before
+  reusing that pattern.
+
+- **`cmd.hasMouse` flips aim from keys to the literal world point under the
+  cursor the instant ANY real DOM pointer event fires** (`shell/schedule.js`:
+  `if (cmd.hasMouse) mining.aimAtWorld(cmd.mx, cmd.my); else
+  mining.aimAtKeys(cmd);`), and `shell/input.js#toWorld` sets `hasMouse=true`
+  on every pointermove/down/up — including ones that land on a UI panel.
+  This means clicking a BUILD row (or, pre-existing, pressing a digit key
+  with the mouse resting over the old inventory panel) aims wherever the
+  panel happens to sit over the world on screen, not wherever the player was
+  last facing. Not a new bug this pass introduced — verified it is identical
+  for the pre-existing digit-key path — but it made testing the real click
+  fiddly enough to document: a real-click placement test must resolve
+  `__mf.aim` from the ACTUAL mouse position first (one real frame after
+  `page.mouse.move`), then build its scenario around whatever tile that
+  actually is, rather than precomputing a target tile and assuming the click
+  will land there. See `tests/visual.spec.js`'s "a LOGISTICS BUILD row
+  places the machine" test for the pattern.
+
+- **Bug 4 investigated, no spend bypass found.** Clicking an unaffordable
+  recipe never spent or produced anything — `rules/crafting.js#choose()`
+  gates every input on `bestPocketed` before ever touching `run.craftProgress`
+  — confirming the reported "feels free" was a missing-refusal /
+  feedback gap, not a bypass, exactly as suspected before investigating.
+  Fixed by refusing the click outright (`shell/main.js`'s recipe-click
+  branch) rather than queuing an entry `choose()` can never run.
+
+- **Equip/unequip was wired for real, not left a clearer no-op.**
+  `rules/trinkets.js` exposes no per-slot equip/unequip verb (only
+  `equipFirst()`, "first empty slot"), but `model/run.js#write.equip(slot,
+  sub)` already exists and is already trusted-caller by its own header
+  comment — calling it from `shell/main.js`'s drag dispatcher (the same way
+  `give()` already calls `write.collect`) needed no `rules/` or `model/`
+  file edit. Dragging a trinket onto a specific equip slot now equips it
+  there (not just "the first empty slot"); dragging between two occupied
+  equip slots swaps them; dragging OUT of an equip slot onto anything else
+  unequips it. `ui.drag` gained an `index` field to make this possible
+  (which equip slot a drag started from, not just which grid).
+
+- **The LOGISTICS tab's BUILD rows were never clickable at all.** They were
+  bare `drawText` calls with no rectangle recorded anywhere — visually
+  identical in style to the CRAFTING tab's numbered rows right next door
+  (same numbering, same afford-colour convention), but only the matching
+  digit key (1-9) ever placed anything. This is almost certainly what the
+  original bug report ("can't click on a lot of the buttons in there") was
+  describing. Fixed by adding a generic clickable-text-row primitive
+  (`view/ui/state.js#drawn.buttons`) and registering each BUILD row into it.

@@ -1334,6 +1334,457 @@ test('NO-SPAWN GUARD: with flags.showDebug off, F, L, T and B produce no entity 
   expect(after.items).toBe(before.items);
 });
 
+/* ============================================================
+   REAL CLICKS — GUI interaction bug fixes.
+
+   Every test below drives the mouse for REAL (`page.mouse.move/down/up`),
+   not `__mf.intent()`'s internal shortcut, because these are UI-interaction
+   bug fixes and only a real click proves a real click works.
+
+   CRITICAL TIMING TRAP, found and root-caused once this session: under
+   `?test=1` the RAF loop never starts (`src/shell/main.js`'s own
+   `installTestHook` guard at the bottom of that file), so a bare
+   `page.mouse.click()` fires mousedown+mouseup with ZERO time between them
+   -- and `cmd.uiClick` is armed on mousedown and cleared on mouseup by
+   `src/shell/input.js`'s own pointer handlers, so with nothing processing it
+   in between it never reaches `shell/main.js#applyUiIntents()`. A real
+   human's click always has at least one real animation frame between down
+   and up; `__mf.frames(1)` inserted between `page.mouse.down()` and
+   `page.mouse.up()` below is the faithful stand-in for that under the
+   disabled loop. Every target rect comes from `__mf.ui`'s own live
+   projection of what was actually drawn, never a hardcoded pixel (CLAUDE.md:
+   a coordinate that works at the desktop viewport fails at the phone one). */
+
+async function toClient(page, sx, sy) {
+  return page.evaluate(async ({ sx, sy }) => {
+    const { VIEW } = await import('/src/core/canvas.js');
+    const r = document.getElementById('stage').getBoundingClientRect();
+    return { x: r.left + sx * VIEW.scale, y: r.top + sy * VIEW.scale };
+  }, { sx, sy });
+}
+
+/* A real down-frame-up click at a SCREEN-space point (the same space
+   `__mf.ui`'s panel/tab/grid/button rects are given in). `shift`/`ctrl`
+   arm the identical modifier keys `shell/input.js#pointerdown` reads into
+   `cmd.uiShift`/`cmd.uiCtrl`. */
+async function realClick(page, sx, sy, { shift = false, ctrl = false } = {}) {
+  const { x, y } = await toClient(page, sx, sy);
+  await page.mouse.move(x, y);
+  if (shift) await page.keyboard.down('Shift');
+  if (ctrl) await page.keyboard.down('Control');
+  await page.mouse.down();
+  await page.evaluate(() => __mf.frames(1));      // the real frame a physical click always has
+  await page.mouse.up();
+  if (shift) await page.keyboard.up('Shift');
+  if (ctrl) await page.keyboard.up('Control');
+  await page.evaluate(() => __mf.frames(1));      // let the dispatcher's own effects settle
+}
+
+/* A real drag: down at (sx0,sy0), a frame, move to (sx1,sy1), a frame, up --
+   the same down/move/up shape `shell/main.js#applyUiIntents`'s rising/falling
+   `cmd.uiDown` edges are written to expect. */
+async function realDrag(page, sx0, sy0, sx1, sy1) {
+  const a = await toClient(page, sx0, sy0);
+  const b = await toClient(page, sx1, sy1);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.evaluate(() => __mf.frames(1));
+  await page.mouse.move(b.x, b.y);
+  await page.evaluate(() => __mf.frames(1));
+  await page.mouse.up();
+  await page.evaluate(() => __mf.frames(1));
+}
+
+test('REAL CLICK: switching tabs and the panel close box both work (Bug 1 + Bug 2)', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { open } = await import('/src/shell/ui.js');
+    const { banner } = await import('/src/view/fx.js');
+    open('main');
+    banner.fade = 0;
+    __mf.cmd.hasMouse = false;
+    __mf.frames(1);
+  });
+
+  /* `ui.tab.main` is only WRITTEN by an explicit `setTab` -- the default
+     ("char", the first tab) is resolved transiently at render time
+     (`view/ui/mainPanel.js#activeOf`) and never persisted until a tab is
+     actually picked, so it reads `undefined` here rather than 'char'. */
+  let ui = await page.evaluate(() => __mf.ui);
+  expect(ui.tab.main).toBeFalsy();
+
+  const row = ui.tabs.find(t => t.id === 'main');
+  const craftTab = row.hits.find(h => h.id === 'craft');
+  await realClick(page, craftTab.x + craftTab.w / 2, craftTab.y + craftTab.h / 2);
+
+  ui = await page.evaluate(() => __mf.ui);
+  expect(ui.tab.main).toBe('craft');
+  expect(ui.open).toContain('main');
+
+  /* Bug 2's other half: a real, clickable close box exists regardless of
+     keyboard focus state -- there is always a mouse-only way out. */
+  const closeHit = ui.panels.find(p => p.id === 'main').closeHit;
+  expect(closeHit).toBeTruthy();
+  await realClick(page, closeHit.x + closeHit.w / 2, closeHit.y + closeHit.h / 2);
+
+  ui = await page.evaluate(() => __mf.ui);
+  expect(ui.open).not.toContain('main');
+});
+
+test('Escape while the search field has focus blurs it AND closes the panel in one press (Bug 2)', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { open, setTab, setSearchFocus } = await import('/src/shell/ui.js');
+    open('main');
+    setTab('main', 'craft');
+    setSearchFocus(true);
+    __mf.cmd.hasMouse = false;
+    __mf.frames(1);
+  });
+
+  let ui = await page.evaluate(() => __mf.ui);
+  expect(ui.searchFocus).toBe(true);
+  expect(ui.open).toContain('main');
+
+  /* 'i' must NOT close the panel while search has focus -- it is a legitimate
+     search character (filtering for "ingot"), not a special case to carve
+     out. It should be typed into the search string instead. */
+  await page.keyboard.press('i');
+  await page.evaluate(() => __mf.frames(1));
+  ui = await page.evaluate(() => __mf.ui);
+  expect(ui.search).toBe('i');
+  expect(ui.searchFocus).toBe(true);
+  expect(ui.open).toContain('main');
+
+  /* One Escape does both: blur AND close, not two separate presses. */
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => __mf.frames(1));
+  ui = await page.evaluate(() => __mf.ui);
+  expect(ui.searchFocus).toBe(false);
+  expect(ui.open).not.toContain('main');
+});
+
+test('REAL CLICK: recipe grid click/shift-click/ctrl-click queue 1/5/max (Bug 1)', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { open, setTab } = await import('/src/shell/ui.js');
+    __mf.give(S.timber, F.log, 200);   // affordable for every click below
+    open('main');
+    setTab('main', 'craft');
+    __mf.cmd.hasMouse = false;
+    __mf.frames(1);
+    __mf.intent('tab', { row: 'main-craft-cat', tab: 'placeables' });   // rung is form.tile -> 'placeables'
+  });
+
+  const rungSlot = () => page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const grid = __mf.ui.grids.find(g => g.id === 'recipes');
+    const idx = grid.slots.findIndex(s => s.sub === S.timber && s.form === F.rung);
+    return grid.slots[idx];
+  });
+
+  let slot = await rungSlot();
+  expect(slot).toBeTruthy();
+  await realClick(page, slot.x + slot.w / 2, slot.y + slot.h / 2);
+  let q = await page.evaluate(() => __mf.ui.craftQueue.length);
+  expect(q).toBe(1);
+
+  slot = await rungSlot();
+  await realClick(page, slot.x + slot.w / 2, slot.y + slot.h / 2, { shift: true });
+  q = await page.evaluate(() => __mf.ui.craftQueue.length);
+  expect(q).toBe(6);          // 1 + 5
+
+  slot = await rungSlot();
+  await realClick(page, slot.x + slot.w / 2, slot.y + slot.h / 2, { ctrl: true });
+  q = await page.evaluate(() => __mf.ui.craftQueue.length);
+  expect(q).toBe(99);         // capped at `shell/ui.js#CRAFT_QUEUE_MAX`, not 6+99
+});
+
+test('REAL CLICK: clicking a craft-queue slot cancels that entry', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { open, setTab } = await import('/src/shell/ui.js');
+    __mf.give(S.timber, F.log, 20);
+    open('main');
+    setTab('main', 'craft');
+    __mf.cmd.hasMouse = false;
+    __mf.frames(1);
+    __mf.intent('tab', { row: 'main-craft-cat', tab: 'placeables' });
+  });
+
+  const rungIndex = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    return __mf.ui.grids.find(g => g.id === 'recipes').slots.findIndex(s => s.sub === S.timber && s.form === F.rung);
+  });
+  await page.evaluate(index => __mf.intent('slot', { grid: 'recipes', index, ctrl: true }), rungIndex);
+
+  let q = await page.evaluate(() => __mf.ui.craftQueue.length);
+  expect(q).toBeGreaterThan(1);
+
+  const qSlot = await page.evaluate(() => __mf.ui.grids.find(g => g.id === 'craft-queue').slots[0]);
+  await realClick(page, qSlot.x + qSlot.w / 2, qSlot.y + qSlot.h / 2);
+
+  const q2 = await page.evaluate(() => __mf.ui.craftQueue.length);
+  expect(q2).toBe(q - 1);
+});
+
+test('REAL CLICK: clicking an unaffordable recipe refuses instead of queuing forever (Bug 4)', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { open, setTab } = await import('/src/shell/ui.js');
+    open('main');
+    setTab('main', 'craft');
+    __mf.cmd.hasMouse = false;
+    __mf.frames(1);
+    __mf.intent('tab', { row: 'main-craft-cat', tab: 'placeables' });
+  });
+
+  const before = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    return { rungs: invCount(S.timber, F.rung), logs: invCount(S.timber, F.log) };
+  });
+  expect(before.logs).toBe(0);      // a fresh run has nothing to pay peg_rungs with
+
+  const slot = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const grid = __mf.ui.grids.find(g => g.id === 'recipes');
+    const idx = grid.slots.findIndex(s => s.sub === S.timber && s.form === F.rung);
+    return grid.slots[idx];
+  });
+  expect(slot).toBeTruthy();
+  await realClick(page, slot.x + slot.w / 2, slot.y + slot.h / 2);
+
+  const after = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    const { toasts } = await import('/src/view/fx.js');
+    return {
+      rungs: invCount(S.timber, F.rung),
+      queue: __mf.ui.craftQueue.length,
+      toast: toasts[toasts.length - 1]?.text
+    };
+  });
+
+  /* No bypass: nothing was spent and nothing was produced. And no silent
+     forever-stuck queue entry either -- the click was refused outright, with
+     the same journal-row refusal convention `rules/placement.js` uses. */
+  expect(after.rungs).toBe(before.rungs);
+  expect(after.queue).toBe(0);
+  expect(after.toast).toContain('CANNOT AFFORD');
+});
+
+test('REAL CLICK: a LOGISTICS BUILD row places the machine, the same as its digit key (Bug 1)', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { bandOf } = await import('/src/model/world.js');
+    const { open, setTab } = await import('/src/shell/ui.js');
+    __mf.revealAll(bandOf('surface'));
+    __mf.give(S.copper, F.ore, 20);
+    __mf.give(S.timber, F.log, 8);
+    __mf.cmd.hasMouse = false;
+    open('main');
+    setTab('main', 'log');
+    __mf.frames(1);
+  });
+
+  const before = await page.evaluate(() => __mf.machines.length);
+  const btn = await page.evaluate(() => __mf.ui.buttons.find(b => b.id === 'build:furnace'));
+  expect(btn).toBeTruthy();       // the row is now a real, registered click target
+
+  /* `cmd.hasMouse` becomes true the instant ANY real DOM pointer event fires
+     (`shell/input.js`'s own `toWorld`), which flips `shell/schedule.js`'s aim
+     resolution from keys to the literal WORLD point under the cursor
+     (`mining.aimAtWorld`) -- true of the pre-existing digit-key BUILD path
+     too, the moment a mouse has ever been touched, not something this fix
+     introduced. So a real click's aim lands wherever the panel HAPPENS to
+     sit over the world on screen, not wherever the player was previously
+     facing. Rather than guess that spot, move the mouse first, let one real
+     frame resolve `__mf.aim` from it, and THEN carve a guaranteed-valid
+     build site exactly there -- the same "read what is actually true"
+     discipline this file's other tests already use for hit rects. */
+  const client = await toClient(page, btn.x + btn.w / 2, btn.y + btn.h / 2);
+  await page.mouse.move(client.x, client.y);
+  await page.evaluate(() => __mf.frames(1));
+
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const band = __mf.aim.band, tx = __mf.aim.tx, ty = __mf.aim.ty;
+    for (let dy = -4; dy <= 0; dy++)
+      for (let dx = -2; dx <= 3; dx++)
+        tw.clear(band, tx + dx, ty + dy);
+    for (let dx = -2; dx <= 3; dx++)
+      tw.set(band, tx + dx, ty + 1, S.stone);   // an explicit floor, not a bet on natural terrain
+  });
+
+  await page.mouse.down();
+  await page.evaluate(() => __mf.frames(1));      // the real animation frame a physical click always has
+  await page.mouse.up();
+  await page.evaluate(() => __mf.frames(3));      // let the dispatcher's own effects settle
+
+  const after = await page.evaluate(() => __mf.machines.length);
+  expect(after).toBe(before + 1);
+
+  /* Polish 6, exercised for free by the same click: placing from an open
+     panel closes it. */
+  const open = await page.evaluate(() => __mf.ui.open.includes('main'));
+  expect(open).toBe(false);
+});
+
+test('REAL DRAG: dragging a trinket onto an equip slot equips it, dragging it out unequips it (Bug 1)', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { open, setTab } = await import('/src/shell/ui.js');
+    __mf.give(S.bellows, F.relic, 1);
+    open('main');
+    setTab('main', 'char');
+    __mf.cmd.hasMouse = false;
+    __mf.frames(1);
+  });
+
+  const slots = () => page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const inv = __mf.ui.grids.find(g => g.id === 'inv');
+    const eq = __mf.ui.grids.find(g => g.id === 'equip');
+    return { invSlot: inv.slots.find(s => s.sub === S.bellows), eqSlot: eq.slots[0] };
+  });
+
+  let { invSlot, eqSlot } = await slots();
+  expect(invSlot).toBeTruthy();
+  expect(eqSlot).toBeTruthy();
+  await realDrag(page, invSlot.x + invSlot.w / 2, invSlot.y + invSlot.h / 2,
+                        eqSlot.x + eqSlot.w / 2, eqSlot.y + eqSlot.h / 2);
+
+  let equipped = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { run } = await import('/src/model/run.js');
+    return run.equipped[0] === S.bellows;
+  });
+  expect(equipped).toBe(true);
+
+  /* Drag it back OUT onto empty canvas (no grid there at all) -- the
+     previously-unwired unequip path. */
+  ({ invSlot, eqSlot } = await slots());
+  await realDrag(page, eqSlot.x + eqSlot.w / 2, eqSlot.y + eqSlot.h / 2, 4, 4);
+
+  equipped = await page.evaluate(async () => {
+    const { run } = await import('/src/model/run.js');
+    return run.equipped[0] === null;
+  });
+  expect(equipped).toBe(true);
+});
+
+test('fog of war: hovering an unseen tile shows nothing; the same tile shows its name once revealed (Bug 3)', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const result = await page.evaluate(async () => {
+    const { bandOf, worldX, worldY, seenAt } = await import('/src/model/world.js');
+    const { banner } = await import('/src/view/fx.js');
+
+    const band = bandOf('topsoil');
+    const tx = 60, ty = 60;         // far from spawn and from `settle()`'s own reveal
+    const seenBefore = seenAt(band, tx, ty);
+
+    banner.fade = 0;
+    __mf.cmd.hasMouse = true;
+    __mf.cam.x = worldX(band, tx) - 4;
+    __mf.cam.y = worldY(band, ty) - 4;
+    __mf.mouseAt(6, 6);             // a couple px inside the tile at (tx,ty)
+    __mf.draw();
+    const hoverUnseen = { ...__mf.hover };
+
+    __mf.revealAll(band);
+    __mf.draw();
+    const hoverSeen = { ...__mf.hover };
+
+    return { seenBefore, hoverUnseen, hoverSeen };
+  });
+
+  expect(result.seenBefore).toBe(false);
+  expect(result.hoverUnseen.active).toBe(false);           // no tooltip at all, not a placeholder
+  expect(result.hoverSeen.active).toBe(true);
+  expect(result.hoverSeen.lines?.length).toBeGreaterThan(0);
+});
+
+test('opening the panel then placing closes it, and the placement still succeeds (Polish 6)', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { write: pw } = await import('/src/model/player.js');
+    const { open } = await import('/src/shell/ui.js');
+
+    /* A small room (5 rows tall -- PH is 16px = 2 tile rows, so this is
+       generous headroom, the same margin the pre-existing "overloaded past
+       40 T" test's own ladder shaft uses) carved into solid rock, plus ONE
+       open cell beside it to place into -- backed on its far side by the
+       untouched wall, `rules/placement.js#placeTile`'s own "needs something
+       to hang from" rule. Player centred exactly mid-row `ty` (`- 4`, half
+       a tile) so `rules/mining.js#aimAtKeys` (no up/down held, facing right)
+       resolves to that row and not the one below it. */
+    const band = bandOf('topsoil');
+    const tx = 10, ty = 40;
+    for (let dy = -2; dy <= 2; dy++) tw.clear(band, tx, ty + dy);
+    tw.clear(band, tx + 1, ty);
+    pw.band(band);
+    pw.move(worldX(band, tx), worldY(band, ty) - 4);
+
+    __mf.give(S.timber, F.rung, 5);
+    __mf.cmd.hasMouse = false;
+    open('main');
+    __mf.hold({ right: 1 }, 6);     // face right, toward the open cell at (tx+1,ty)
+    __mf.frames(1);
+  });
+
+  let isOpen = await page.evaluate(() => __mf.ui.open.includes('main'));
+  expect(isOpen).toBe(true);
+
+  const before = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    return invCount(S.timber, F.rung);
+  });
+
+  await page.keyboard.press('e');
+  await page.evaluate(() => __mf.frames(5));
+
+  isOpen = await page.evaluate(() => __mf.ui.open.includes('main'));
+  expect(isOpen).toBe(false);            // the same press closed the panel...
+
+  const after = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    return invCount(S.timber, F.rung);
+  });
+  expect(after).toBe(before - 1);        // ...and the placement itself still went through
+});
+
 /* Dev serves src/ untransformed; dist is bundled and minified by esbuild.
    That is a real divergence risk, so it is asserted rather than assumed.
    Requires `npm run build` first — `npm run parity` does both. */

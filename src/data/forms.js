@@ -44,12 +44,12 @@ export const FORMS = [
     tags:['ore', 'crushable'],
     subTags:['metal'] },
 
-  { id:'gravel', label:'GRAVEL',
+  { id:'gravel', label:'GRAVEL', short:'GRVL',
     size:3, massK:0.5, hudOrder:2,
     tags:['bakeable', 'spoil'],
     subTags:['metal', 'rock'] },
 
-  { id:'ingot', label:'INGOT',
+  { id:'ingot', label:'INGOT', short:'ING',
     size:4, massK:1.6, hudOrder:3,
     /* `ingot` tag added alongside `refined` so a recipe can select "any metal
        ingot" the same way `smelt` selects "any ore" -- see `press` in
@@ -90,7 +90,7 @@ export const FORMS = [
      to avoid renumbering an existing row; it still sorts after ingot within
      any one substance's group, which is the only ordering `byHudOrder`
      actually produces (substance first, form second). ---- */
-  { id:'plate', label:'PLATE',
+  { id:'plate', label:'PLATE', short:'PLT',
     size:4, massK:2.4, hudOrder:6,
     tags:['refined', 'plate'],
     subTags:['metal'] },
@@ -281,3 +281,16 @@ export const byHudOrder = (a, b) =>
    "COPPER INGOT". */
 export const labelOf = (subOrd, formOrd) =>
   `${SUB[subOrd].name} ${FORM[formOrd].label}`.trim();
+
+/* POLISH: the abbreviated twin of `labelOf`, for the places a full name
+   clips -- the narrow crafting grid's bill-of-materials lines, a recipe
+   tooltip's inline references, and the boon timer stack. `short` is a real,
+   hand-authored word on the row (`data/substances.js`/`data/forms.js`), not
+   a runtime truncation: this project draws with `R()`/`drawText()` only, has
+   no `clip()` and no CSS ellipsis (invariant 11), so slicing a full name to
+   fit would either cut a word mid-letter or need its own clipping machinery
+   -- both worse than shipping the short word as data. Falls back to the full
+   name/label wherever a row has not been given one, so adding a substance or
+   form never breaks this by omission. */
+export const shortLabelOf = (subOrd, formOrd) =>
+  `${SUB[subOrd].short || SUB[subOrd].name} ${FORM[formOrd].short || FORM[formOrd].label}`.trim();

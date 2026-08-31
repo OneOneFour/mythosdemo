@@ -43,7 +43,7 @@
 
 export const BOONS = [
 
-  { id:'hephaestus-forge', name:'FORGE OF HEPHAESTUS', god:'hephaestus', secs:60,
+  { id:'hephaestus-forge', name:'FORGE OF HEPHAESTUS', short:'FORGE', god:'hephaestus', secs:60,
     text:'THE FORGE BURNS HOT',
     mods:[ { key:'rate.furnace', mul:1.5 } ] },
 
@@ -53,12 +53,12 @@ export const BOONS = [
      header names for a trinket that softens everything) but douses a forge
      already burning: SUPPRESS, the older boon's rows vanish entirely while
      both would be active. */
-  { id:'poseidon-flood', name:"POSEIDON'S FLOOD", god:'poseidon', secs:60,
+  { id:'poseidon-flood', name:"POSEIDON'S FLOOD", short:'FLOOD', god:'poseidon', secs:60,
     text:'THE DEEP RISES; THE FORGE GUTTERS',
     mods:[ { key:'hard', mul:0.85 } ],
     conflictsWith:[ { id:'hephaestus-forge', mode:'suppress' } ] },
 
-  { id:'athena-focus', name:"ATHENA'S FOCUS", god:'athena', secs:50,
+  { id:'athena-focus', name:"ATHENA'S FOCUS", short:'FOCUS', god:'athena', secs:50,
     text:'A STEADIER HAND',
     mods:[ { key:'pickPower', mul:1.25 } ] },
 
@@ -68,7 +68,7 @@ export const BOONS = [
      flat) but if Athena's focus is already running, the frenzy turns her
      precision against itself: her 1.25x becomes 0.8x while his lasts, so a
      player holding both is WORSE off than holding neither. */
-  { id:'ares-frenzy', name:"ARES' FRENZY", god:'ares', secs:40, trap:true,
+  { id:'ares-frenzy', name:"ARES' FRENZY", short:'FRENZY', god:'ares', secs:40, trap:true,
     text:'STRIKE WITHOUT THINKING',
     mods:[ { key:'pickPower', add:0.2 } ],
     conflictsWith:[ { id:'athena-focus', mode:'invert' } ] },
@@ -78,7 +78,7 @@ export const BOONS = [
      side-effect) -- opening a rift eases the climb back out of it. No
      `conflictsWith`: a miracle's own side-effect is not a god's draft, so
      there is no rival draft offer for it to be hostile against. */
-  { id:'hades-passage', name:'THE WAY IS EASED', god:'hades', secs:20,
+  { id:'hades-passage', name:'THE WAY IS EASED', short:'PASSAGE', god:'hades', secs:20,
     text:'THE WAY IS EASED',
     mods:[ { key:'climb', mul:1.3 } ] }
 ];

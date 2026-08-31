@@ -22,7 +22,7 @@
 
 export const TRINKETS = [
 
-  { id:'bellows', name:'BELLOWS OF THE FORGE', god:'hephaestus',
+  { id:'bellows', name:'BELLOWS OF THE FORGE', short:'BELLOWS', god:'hephaestus',
     text:'THE FIRE ANSWERS FASTER',
     /* Scoped, so it speeds the furnace and NOT the divine kiln -- and it
        multiplies on top of `rate.kiln_divine: 2.0` if it is ever pointed

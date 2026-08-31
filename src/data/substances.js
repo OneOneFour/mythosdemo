@@ -61,7 +61,7 @@ export const SUBSTANCES = [
 
   /* ---- the commented row. Every row below is this shape with different
           literals; copy the nearest one and change the words. ---- */
-  { id:'copper', name:'COPPER', tags:['metal', 'mineable'],
+  { id:'copper', name:'COPPER', short:'CU', tags:['metal', 'mineable'],
 
     tile:{ solid:true,
            hard:0.95,                    // seconds at pick power 1
@@ -88,7 +88,7 @@ export const SUBSTANCES = [
   /* ---- timber: the fuel and the ladder. Its `log` form is tile-capable and
           climbable, so felling a tree and building a ladder are the same two
           nouns in different places -- see `forms.js`. ---- */
-  { id:'timber', name:'TIMBER', tags:['organic', 'mineable'],
+  { id:'timber', name:'TIMBER', short:'WOOD', tags:['organic', 'mineable'],
     tile:{ solid:true, hard:0.35, drops:'log' },
     item:{ mass:0.8, hud:{ order:3, always:true } },
     look:{ base:'woodB', hi:'woodA', lo:'woodD',
@@ -123,7 +123,7 @@ export const SUBSTANCES = [
           rock, and `crossable()` only lets it take `forms.js`'s `relic` form,
           not `ore` or `gravel`. Every future trinket is a row here, exactly
           like this one, and needs nothing new in `rules/trinkets.js`. ---- */
-  { id:'bellows', name:'BELLOWS OF THE FORGE', tags:['relic'],
+  { id:'bellows', name:'BELLOWS OF THE FORGE', short:'BELLOWS', tags:['relic'],
     item:{ mass:0.4, hud:{ order:5 } },
     look:{ item:['ichor', 'vioHi'] } },
 
@@ -135,7 +135,7 @@ export const SUBSTANCES = [
           and walking over it is an ordinary pickup -- the same "material never
           teleports into your hands" idiom mining already uses, extended to the
           one tool the game hands you rather than one you find. ---- */
-  { id:'pick', name:'STOCK PICKAXE', tags:['relic'],
+  { id:'pick', name:'STOCK PICKAXE', short:'PICK', tags:['relic'],
     /* `tool:{tier:1, power:1.0}` (Phase 2c): tier 1 is every substance with no
        `tile.tier` of its own (absent means 1), and power 1.0 multiplies
        `eff('pickPower')` by exactly nothing -- so this row is BEHAVIOURALLY
@@ -174,7 +174,7 @@ export const SUBSTANCES = [
           substance (copper, tin, timber, stone, soil) is unaffected. Mines
           to `gravel`, same as stone and soil, so no new rubble form is
           needed for it. ---- */
-  { id:'granite', name:'GRANITE', tags:['rock', 'mineable'],
+  { id:'granite', name:'GRANITE', short:'GRNT', tags:['rock', 'mineable'],
     tile:{ solid:true, hard:2.4, drops:'gravel', tier:2 },
     item:{ mass:0.9, hud:{ order:8 } },
     look:{ base:'graniteB', hi:'graniteA', lo:'graniteD',
@@ -189,7 +189,7 @@ export const SUBSTANCES = [
           this phase adds that recipe, and mining it still only ever yields
           gravel). `tile.tier:3` gates it behind Phase 2c's auger/Talos-head
           tools -- a bronze pickaxe cannot scratch it. ---- */
-  { id:'adamant', name:'ADAMANT', tags:['rock', 'metal', 'mineable'],
+  { id:'adamant', name:'ADAMANT', short:'ADMT', tags:['rock', 'metal', 'mineable'],
     tile:{ solid:true, hard:5.0, drops:'gravel', tier:3 },
     item:{ mass:1.4, hud:{ order:9 } },
     look:{ base:'adamantB', hi:'adamantA', lo:'adamantD',
@@ -212,7 +212,7 @@ export const SUBSTANCES = [
           `power:1.0` pick's `tier:1` cannot reach at all, per the gate in
           `rules/mining.js`. `data/recipes.js#auger` forges it: 2 copper/plate
           + 1 timber/log. */
-  { id:'auger', name:'ADAMANT AUGER', tags:['relic'],
+  { id:'auger', name:'ADAMANT AUGER', short:'AUGER', tags:['relic'],
     item:{ mass:0.9, hud:{ order:10 }, tool:{ tier:2, power:1.8 } },
     look:{ item:['adamantA', 'irB'] } },
 

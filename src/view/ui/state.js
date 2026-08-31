@@ -20,7 +20,14 @@ export const drawn = { panels: [], tabs: [], grids: [], bars: [], tooltip: null,
      a grid slot's `{sub,form,n,mass}` shape (Phase 5a's contract, unchanged)
      is not enough on its own to name a recipe with a `subFrom` output. Reset
      alongside everything else below, never relied on across frames. */
-  recipeIndex: {} };
+  recipeIndex: {},
+  /* Bug-fix addition (Bug 1 audit): a generic `{id,x,y,w,h}` rectangle for a
+     plain clickable TEXT row that is not a grid slot, a tab or a panel --
+     the LOGISTICS tab's ported BUILD list is the first (and, so far, only)
+     user. Not a general-purpose widget: it carries no visual of its own
+     (`view/ui/mainPanel.js` draws the row with plain `drawText`, unchanged),
+     only the hit rectangle a real click needs to exist at all. */
+  buttons: [] };
 
 export function resetDrawn() {
   drawn.panels.length = 0;
@@ -28,5 +35,6 @@ export function resetDrawn() {
   drawn.grids.length = 0;
   drawn.bars.length = 0;
   drawn.tooltip = null;
+  drawn.buttons.length = 0;
   for (const k in drawn.recipeIndex) delete drawn.recipeIndex[k];
 }
