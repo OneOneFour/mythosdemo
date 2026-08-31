@@ -116,6 +116,72 @@ test('a placed furnace', async ({ page }) => {
   await shot(page, 'furnace.png');
 });
 
+/* `press` (added in an earlier phase) had no key of its own at all -- `f` and
+   `l` are hardcoded to `furnace`/`lift` in `shell/input.js`, and nothing
+   bound a third literal key for a third machine. The fix is the build menu:
+   `model/run.js#buildableMachines()` lists `run.granted` in order, and a
+   number key while the panel is open arms `wants.machine` for that list
+   position (`data/boons.js#STARTING_MACHINES` is `['furnace','lift','press']`,
+   so "3" is `press`). This proves the SPECIFIC machine at that position gets
+   placed, not merely that some machine does -- the failure mode a looser
+   assertion (`machines.length === 1`) would hide, per CLAUDE.md's own warning
+   about a test that measures the wrong thing. */
+test('the build menu places the machine at the pressed number, not just any machine', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.flags.showInv = true; });
+  await page.keyboard.press('3');
+  await page.evaluate(() => __mf.frames(240));
+  const info = await page.evaluate(async () => {
+    const { M } = await import('/src/data/machines.js');
+    return { count: __mf.machines.length, def: __mf.machines[0]?.def, press: M.press, furnace: M.furnace };
+  });
+  expect(info.count).toBe(1);
+  expect(info.def).toBe(info.press);
+  expect(info.def).not.toBe(info.furnace);
+});
+
+/* Hand-crafting has no persisted screenshot-visible state worth asserting on
+   (the bar is a scalar on `run`, not drawn as a HUD element yet) -- what
+   matters is whether holding the key for long enough actually spends the
+   inputs and produces the output, which only a state read-back can prove.
+   `smelt`'s `secs` is 4.0 (`data/recipes.js`), so 500 substeps at the fixed
+   1/120s step is comfortably past completion; the output is a FALLING item
+   (invariant 5, never a direct credit — see `rules/crafting.js`), so the
+   extra 120 frames give it time to clear the 0.35s pickup-magnet delay in
+   `rules/items.js` and land in the pockets of a player standing right where
+   it was tossed. */
+test('holding the hand-craft key smelts ore into an ingot, spending exactly its inputs', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const info = await page.evaluate(async () => {
+    const { write, invCount } = await import('/src/model/run.js');
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+
+    write.collect(S.copper, F.ore, 4);
+    write.collect(S.timber, F.log, 1);
+    const before = {
+      ore: invCount(S.copper, F.ore),
+      fuel: invCount(S.timber, F.log),
+      ingot: invCount(S.copper, F.ingot)
+    };
+
+    __mf.hold({ craft: 1 }, 500);
+    __mf.frames(120);
+
+    const after = {
+      ore: invCount(S.copper, F.ore),
+      fuel: invCount(S.timber, F.log),
+      ingot: invCount(S.copper, F.ingot)
+    };
+    return { before, after };
+  });
+
+  expect(info.before).toEqual({ ore: 4, fuel: 1, ingot: 0 });
+  expect(info.after).toEqual({ ore: 0, fuel: 0, ingot: 1 });
+});
+
 test('debug overlays on, for seam inspection', async ({ page }) => {
   await boot(page);
   await settle(page);

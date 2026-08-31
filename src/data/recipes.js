@@ -35,7 +35,17 @@
               { sub, form, n }         literal output.
               { subFrom, form, n }     DERIVED: the substance that satisfied the
                                        named input clause, in the named form.
-              Exactly one of `sub` / `subFrom` per clause. */
+              Exactly one of `sub` / `subFrom` per clause.
+
+     hand     true if a PLAYER may also run this exact row, by hand, not only a
+              machine that names it. See `rules/crafting.js` and `HAND_RECIPES`
+              below. Deliberately not a second row: hand-crafting is the SAME
+              transformation at the SAME `secs`, spending and producing exactly
+              what the machine would -- the point (`docs/DESIGN.md`) is that a
+              person can do a furnace's job, just not five furnaces' worth of
+              it at once, and a duplicated row with different numbers would
+              quietly break that promise the first time someone tuned one and
+              forgot the other. */
 
 export const RECIPES = Object.freeze({
 
@@ -48,7 +58,8 @@ export const RECIPES = Object.freeze({
     id:'smelt', name:'SMELT',
     in:{ '*/#ore':4, '*/#fuel':1 },
     out:[ { subFrom:'*/#ore', form:'ingot', n:1 } ],
-    secs:4.0
+    secs:4.0,
+    hand:true
   }),
 
   /* ---- press: the SECOND compression tier. `docs/DESIGN.md` locks plate at
@@ -67,9 +78,21 @@ export const RECIPES = Object.freeze({
     id:'press', name:'PRESS',
     in:{ '*/#ingot':3, '*/#fuel':1 },
     out:[ { subFrom:'*/#ingot', form:'plate', n:1 } ],
-    secs:8.0
+    secs:8.0,
+    hand:true
   })
 });
+
+/* Every recipe a player may run directly, in table order. `rules/crafting.js`
+   tries them in this order for the same "first one you have materials for
+   wins" reason a machine tries ITS `recipes` list in the order it was
+   written. Derived once, here, rather than filtered by every reader --
+   `view/hud.js`'s CRAFT list and `rules/crafting.js`'s own chooser would
+   otherwise be two implementations of "which rows have `hand:true`" that
+   could silently disagree, the same failure `MACH`/`M` exist to prevent for
+   machines. */
+export const HAND_RECIPES = Object.freeze(
+  Object.values(RECIPES).filter(r => r.hand));
 
 /* Resolve a machine row's `recipes` into concrete rows. Named strings are
    looked up; objects pass through. Throws on an unknown name, because a

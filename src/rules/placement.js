@@ -15,13 +15,20 @@
    placement time, so granting a machine mid-run costs no architecture at all.
 
    Every refusal pushes a journal row carrying its reason. `shell/notify.js`
-   turns that into text; nothing here knows what a toast is. */
+   turns that into text; nothing here knows what a toast is.
+
+   A GRANTED MACHINE MAY STILL COST SOMETHING TO BUILD. `data/machines.js`'s
+   `cost` key is an optional bill of exact `sub/form` pairs, checked with
+   `model/run.js#canAfford` after every other refusal and spent with `rw.spend`
+   only once every other check -- including affordability -- has already
+   passed, so a refused placement never touches the pockets. */
 
 import { AIR, FORM, NATIVE } from '../data/forms.js';
 import { M, MACH } from '../data/machines.js';
 import { push } from '../model/journal.js';
 import { machineAt, write as mw } from '../model/machines.js';
-import { canPlace, invCount, write as rw } from '../model/run.js';
+import { parseKey } from '../model/items.js';
+import { canAfford, canPlace, invCount, write as rw } from '../model/run.js';
 import { climbAt, solidAt, tileAt, write as tw } from '../model/tiles.js';
 import { inBounds, worldX, worldY } from '../model/world.js';
 
@@ -49,7 +56,16 @@ export function placeMachine(band, machineId, tx, ty) {
   for (let i = 0; i < def.tw; i++) if (solidAt(band, tx + i, ty + def.th)) footing++;
   if (footing < def.footing) return no('NEEDS A FLOOR');
 
+  if (def.cost && !canAfford(def.cost)) return no('CANNOT AFFORD IT');
+
   const m = mw.place(band, defIdx, tx, ty);
+  /* Spent AFTER `mw.place`, not before: every check above -- including
+     affordability -- has already passed by this line, so this can only ever
+     run once the placement itself is guaranteed to succeed. */
+  if (def.cost) for (const k in def.cost) {
+    const { sub, form } = parseKey(k);
+    rw.spend(sub, form, def.cost[k]);
+  }
   push('place', { x: m.box.x, y: m.box.y }, { machine: machineId, def: defIdx });
   return m;
 }

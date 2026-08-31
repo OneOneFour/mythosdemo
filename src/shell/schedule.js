@@ -18,13 +18,27 @@
                            frame's position, not the last one's.
      mining before items    a tile broken this frame drops before anything falls,
                            so the drop gets a full step of gravity immediately.
+     items before crafting  a hand-craft is spent straight out of `run.inv`, and
+                           an ingredient `items` just caught with the pickup
+                           radius is already there by the time this runs — so
+                           holding the craft key through the exact frame an
+                           ingredient lands still counts that frame toward the
+                           bar, not the next one. The cost of putting it here
+                           rather than before `items` (as `mining` sits, for its
+                           own drop) is that a COMPLETED craft's output item
+                           waits one extra frame for its first gravity step;
+                           judged the smaller loss, since a player is far more
+                           likely to feel a fresh pickup count toward a craft
+                           already in progress than to notice one frame of an
+                           item sitting nearly still at the moment it appears.
+     crafting before trinkets  spending or gaining pocket material this frame
+                           is visible to the trinket sync in the SAME frame,
+                           the same promise `items before trinkets` already
+                           makes for a picked-up relic — no hand-recipe makes
+                           one today, but the ordering costs nothing to hold.
      items before machines  an item that lands in a mouth is caught THIS frame —
                            the catch box is checked against fresh positions, and
                            `items` is what rebuilt the spatial index.
-     items before trinkets  a relic `items` just caught with the pickup radius
-                           is already in `run.inv` by the time this runs, so a
-                           drafted trinket's modifier starts on the same frame
-                           it lands rather than the next one.
      trinkets before machines  a rate modifier a relic just turned on should
                            apply to this same frame's recipe tick, not the next.
      machines before lift   a charge banked this frame turns the drum now, so
@@ -37,6 +51,7 @@
 
 import { write as rw } from '../model/run.js';
 import * as boons from '../rules/boons.js';
+import * as crafting from '../rules/crafting.js';
 import * as fields from '../rules/fields.js';
 import * as items from '../rules/items.js';
 import * as lift from '../rules/lift.js';
@@ -51,6 +66,7 @@ export const STEPS = [
   { id: 'player',   step: (dt, cmd) => player.step(dt, cmd) },
   { id: 'mining',   step: (dt, cmd) => mining.step(dt, cmd) },
   { id: 'items',    step: (dt) => items.step(dt) },
+  { id: 'crafting', step: (dt, cmd) => crafting.step(dt, cmd) },
   { id: 'trinkets', step: () => trinkets.step() },
   { id: 'machines', step: (dt) => machines.step(dt) },
   { id: 'lift',     step: (dt) => lift.step(dt) },

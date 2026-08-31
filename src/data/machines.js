@@ -43,6 +43,16 @@
 
      variantOf   copy another row and override these keys. See `kiln_divine`.
 
+     cost        { 'sub/form': n, ... } material spent once, from the pockets,
+                 the moment the machine is PLACED -- see `rules/placement.js`.
+                 EXACT sub/form pairs, not selectors: `buffer.cap`'s grammar
+                 answers "any ore", and a build bill is a specific list of
+                 materials, not "any". Absent (the default) means free, which
+                 is why `furnace`, `lift` and `press` -- granted, not earned,
+                 and `press` provisional besides -- carry none: this key is for
+                 content that costs something to BUILD, not for retrofitting a
+                 price onto starting gear.
+
      look        appearance only. `view/` is the only reader, and no machine or
                  substance name appears anywhere in `view/`.
 

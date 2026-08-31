@@ -35,14 +35,15 @@ import { R } from '../core/pixels.js';
 import { mix } from '../core/palette.js';
 import { FORM, labelOf } from '../data/forms.js';
 import { colour } from '../data/palette.js';
+import { HAND_RECIPES } from '../data/recipes.js';
 import { SUB } from '../data/substances.js';
 import { SPAWN_BAND } from '../data/world.js';
 import { TRINKET } from '../data/trinkets.js';
 import { aim } from '../model/aim.js';
-import { massOfPair } from '../model/items.js';
+import { massOfPair, parseKey } from '../model/items.js';
 import { mods } from '../model/mods.js';
 import { player } from '../model/player.js';
-import { hasPick, pocketRows, run } from '../model/run.js';
+import { buildableMachines, canCraft, hasPick, pocketRows, run } from '../model/run.js';
 import { bandOf, worldY } from '../model/world.js';
 import { banner, toasts } from './fx.js';
 import { resolveHover } from './hover.js';
@@ -176,9 +177,44 @@ function pockets(g, x, y, maxW) {
    or a count for. `massOfPair` is a `model/items.js` query, not a render
    decision: the mass of a copper ingot is a fact about the world, not about
    how it is drawn. */
+/* A build cost or a hand-recipe's inputs, as one readable line. `exact`
+   clauses (a machine's `cost`) are literal `sub/form` keys, so `labelOf`
+   builds a real name out of them; a recipe's `in` clauses are SELECTORS
+   (star-slash-hash-ore, see the grammar comment in `data/forms.js`), which
+   name no single substance until one is chosen, so those fall back to the
+   selector's own form/tag word instead. Either way this is
+   presentation text, not a second selector-matching implementation --
+   `model/run.js#canAfford`/`canCraft` already decided the yes/no this only
+   labels. */
+function billOf(clauses, exact) {
+  const parts = [];
+  for (const k in clauses) {
+    const n = clauses[k];
+    if (exact) {
+      const { sub, form } = parseKey(k);
+      parts.push(`${n} ${labelOf(sub, form)}`);
+    } else {
+      const raw = k.includes('/') ? k.slice(k.indexOf('/') + 1) : k;
+      parts.push(`${n} ${(raw[0] === '#' ? raw.slice(1) : raw).toUpperCase()}`);
+    }
+  }
+  return parts.length ? parts.join('+') : 'FREE';
+}
+
 function invPanel(g, f, top) {
   const { W, H } = f;
   const rows = pocketRows().filter(r => r.n > 0);
+
+  /* BUILD lists every machine this run may place, `model/run.js#canPlace`'s
+     own set, in GRANTED order -- see `buildableMachines`. CRAFT lists every
+     `hand:true` recipe (`data/recipes.js#HAND_RECIPES`). Numbering BUILD's
+     rows is what `shell/input.js`'s 1-9 keys read against; CRAFT has no
+     number because `rules/crafting.js#choose` always picks the first one the
+     player can afford, not a menu selection. */
+  const machines = buildableMachines();
+  const recipes = HAND_RECIPES;
+  const machLines = machines.map((m, i) => `${i + 1} ${m.name} ${billOf(m.cost, true)}`);
+  const craftLines = recipes.map(r => `${r.name} ${billOf(r.in, false)}`);
   const lineH = 9;
 
   /* Width fits the longest NAME alone, clamped to the viewport -- a relic's
@@ -186,14 +222,22 @@ function invPanel(g, f, top) {
      could ever be squeezed onto the same line as at any viewport width
      without the two overlapping, which is why they get their own indented
      line below the name instead of a right-aligned column. Two lines per
-     entry, always, rather than only when a name is long: a fixed row shape
-     is one thing to get right instead of a per-row branch that is only
-     exercised by whichever item happens to have the longest name. */
+     pocket entry, always, rather than only when a name is long: a fixed row
+     shape is one thing to get right instead of a per-row branch that is only
+     exercised by whichever item happens to have the longest name. BUILD and
+     CRAFT rows get one line each -- a name plus a short bill of materials
+     does not run as long as a relic's full name does. */
   const w = Math.min(
-    Math.max(textWidth('POCKETS'), 60, ...rows.map(r => textWidth(labelOf(r.sub, r.form)))) + 8,
+    Math.max(
+      textWidth('POCKETS'), textWidth('BUILD'), textWidth('CRAFT'), 60,
+      ...rows.map(r => textWidth(labelOf(r.sub, r.form))),
+      ...machLines.map(l => textWidth(l)), ...craftLines.map(l => textWidth(l))
+    ) + 8,
     W - 12
   );
-  const lines = 1 + (rows.length ? rows.length * 2 : 1);   // header + rows, or header + EMPTY
+  const lines = 1 + (rows.length ? rows.length * 2 : 1)             // POCKETS
+              + 1 + (machLines.length ? machLines.length : 1)       // BUILD
+              + 1 + (craftLines.length ? craftLines.length : 1);    // CRAFT
   const h = lines * lineH + 8;
   const x = (W - w) >> 1, y = Math.min(top, H - h - 4);
   const hits = [];
@@ -205,10 +249,8 @@ function invPanel(g, f, top) {
 
   if (!rows.length) {
     drawText(g, 'EMPTY', x + 4, ry, UI.dim, 1, 1);
-    return hits;
-  }
-
-  for (const row of rows) {
+    ry += lineH;
+  } else for (const row of rows) {
     const label = labelOf(row.sub, row.form);
     const n = 'x' + row.n;
     const m = massOfPair(row.sub, row.form).toFixed(1);
@@ -222,6 +264,28 @@ function invPanel(g, f, top) {
 
     hits.push({ x, y: hitTop, w, h: lineH * 2, sub: row.sub, form: row.form });
   }
+
+  /* BUILD. Greyed by `afford` rather than hidden -- a machine the player
+     cannot yet pay for is still something worth planning a haul toward. */
+  drawText(g, 'BUILD', x + 4, ry, UI.ink, 1, 1);
+  ry += lineH;
+  if (!machLines.length) { drawText(g, 'NOTHING GRANTED', x + 4, ry, UI.dim, 1, 1); ry += lineH; }
+  else machines.forEach((m, i) => {
+    drawText(g, machLines[i], x + 4, ry, m.afford ? UI.ink : UI.dim, 1, 1);
+    ry += lineH;
+  });
+
+  /* CRAFT. Marked `UI.good` when craftable right now, so the panel answers
+     "what can I make" at a glance -- the same colour the reticle uses for a
+     legal placement. */
+  drawText(g, 'CRAFT', x + 4, ry, UI.ink, 1, 1);
+  ry += lineH;
+  if (!craftLines.length) { drawText(g, 'NONE', x + 4, ry, UI.dim, 1, 1); ry += lineH; }
+  else recipes.forEach((r, i) => {
+    drawText(g, craftLines[i], x + 4, ry, canCraft(r.in) ? UI.good : UI.dim, 1, 1);
+    ry += lineH;
+  });
+
   return hits;
 }
 

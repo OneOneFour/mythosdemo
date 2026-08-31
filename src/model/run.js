@@ -25,11 +25,12 @@
    shape of `run` in four places -- three fields that other modules each invented
    -- and that class of bug is what a schema is for. */
 
-import { F, FORM, byHudOrder } from '../data/forms.js';
+import { F, FORM, byHudOrder, matches } from '../data/forms.js';
 import { S, SUB } from '../data/substances.js';
 import { STARTING_MACHINES } from '../data/boons.js';
+import { M, MACH } from '../data/machines.js';
 import { bump } from './epoch.js';
-import { keyOf } from './items.js';
+import { keyOf, parseKey } from './items.js';
 
 export const RUN_SCHEMA = Object.freeze({
   seed: 1337, t: 0,
@@ -40,7 +41,17 @@ export const RUN_SCHEMA = Object.freeze({
                         // see `rules/trinkets.js` and `hasPick()` below
   granted: null,        // machine ids this run may place
   cycle: 1, tribute: null,
-  deepest: 0            // world px, for the depth gauge and for `meta`
+  deepest: 0,           // world px, for the depth gauge and for `meta`
+
+  /* The hand-craft bar. A scalar, not a Map like `model/mining.js#dig.work` --
+     a player has one pair of hands, so there is only ever one craft in
+     flight, and it belongs on `run` rather than in a dedicated module so it
+     resets with everything else (invariant 8) for free. `craftRecipe` is
+     which named recipe the bar is counting toward, so a change of materials
+     mid-hold (a different recipe now matches first) starts the bar over
+     instead of quietly carrying old progress into a different item. See
+     `rules/crafting.js`. */
+  craftProgress: 0, craftRecipe: null
 });
 
 export const META_SCHEMA = Object.freeze({
@@ -113,7 +124,11 @@ export const write = {
   },
 
   grant(machineId)  { if (!run.granted.includes(machineId)) run.granted.push(machineId); bump(); },
-  tribute(t)        { run.tribute = t; bump(); }
+  tribute(t)        { run.tribute = t; bump(); },
+
+  /* The hand-craft bar, written as one pair so a recipe change and its reset
+     progress can never be observed half-applied. */
+  craft(progress, recipe) { run.craftProgress = progress; run.craftRecipe = recipe; bump(); }
 };
 
 /* ---- queries ---- */
@@ -121,6 +136,59 @@ export const write = {
 export const invCount = (sub, form) => run.inv[keyOf(sub, form)] || 0;
 export const hearts   = () => run.hearts;
 export const canPlace = machineId => run.granted.includes(machineId);
+
+/* Whether every clause of a machine's build `cost` (`data/machines.js`) is
+   currently held. `cost` keys are EXACT sub/form pairs, not selectors -- a
+   build bill is a specific list of materials, not "any ore" -- so this is a
+   straight `invCount` loop and not a selector match. `null`/absent `cost`
+   means free, which is why every machine granted at run start can still be
+   placed once this exists. Exported as a query (not left as a private check
+   inside `rules/placement.js`) because `view/hud.js`'s build menu needs the
+   same yes/no answer to grey out what the player cannot yet afford, and
+   `view` may not import `rules`. */
+export function canAfford(cost) {
+  if (!cost) return true;
+  for (const k in cost) {
+    const { sub, form } = parseKey(k);
+    if (invCount(sub, form) < cost[k]) return false;
+  }
+  return true;
+}
+
+/* Does the pocket ledger hold at least `n` of a SINGLE pair matching `sel`?
+   Mirrors `rules/machines.js`'s private `best`, specialised to `run.inv` --
+   exposed here rather than left inside a `rules` module for the same reason
+   as `canAfford` above: the CRAFT panel needs to grey out an unaffordable
+   hand-recipe with no `rules` import available to it. */
+export function pocketsHave(sel, n) {
+  for (const k in run.inv) {
+    if (run.inv[k] < n) continue;
+    const p = parseKey(k);
+    if (matches(sel, p.sub, p.form)) return true;
+  }
+  return false;
+}
+
+/* Whether every input clause of a recipe (`data/recipes.js` shape) is
+   currently satisfiable from the pockets. What the CRAFT panel greys out by;
+   `rules/crafting.js#choose` asks the same question on its way to picking a
+   concrete pair to spend, which is a strictly stronger check than this one
+   (it also has to find ONE pair per clause, not just enough total), so the
+   two are related but not the same code -- this is display, that is a
+   decision with a consequence. */
+export const canCraft = recipeIn =>
+  Object.keys(recipeIn).every(sel => pocketsHave(sel, recipeIn[sel]));
+
+/* Every machine this run may place, in GRANTED order -- the same order the
+   build menu (`view/hud.js`) lists them and a number key
+   (`shell/input.js`) selects by, so "press 3" and "the third row of the
+   panel" cannot silently disagree about which machine that is. */
+export function buildableMachines() {
+  return run.granted.map(id => {
+    const def = MACH[M[id]];
+    return { id, name: def.name, cost: def.cost || null, afford: canAfford(def.cost) };
+  });
+}
 
 /* Whether the player has ever picked up the stock pickaxe -- `shell/boot.js`
    plants one near spawn every run, and this is true from the moment it is

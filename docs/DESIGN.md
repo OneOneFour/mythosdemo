@@ -36,8 +36,30 @@ silently becomes net-negative to ship. You never tell the player this — the
 fuel bill tells them. That one equation generates most of the factory design
 pressure for free.
 
+**Hands compete with machines on throughput; they lose on headcount.** A
+player can always perform a machine's transformation by hand — smelt ore,
+press plates — at the same rate the machine itself runs, because the reason
+to build a furnace was never that a person cannot smelt copper. It is that a
+person has exactly one pair of hands and can stand in exactly one place at a
+time, while five furnaces run in five shafts at once, unattended, for as long
+as they are fed. Get the balance wrong either direction and the automation
+game stops being one: make hand-crafting slower or costlier than the
+machine's own rate and it is punitive busywork nobody would rationally
+choose, which is fine — except it means the game never actually teaches the
+recipe before the player can afford the machine that runs it. Make it instant
+or free and it becomes strictly *better* than the machine it duplicates, and
+no one would ever place one — the exact bug this document opened by warning
+against: anything that makes production cheap without the machine's
+tradeoff (one body, one place) undermines the reason automation exists at
+all. So a hand-craft is built to match the machine's `secs` and spend and
+produce identically, and the only lever automation gets to pull is
+parallelism: more machines than the player has hands, running in places the
+player currently is not.
+
 *Partially in the mockup:* the lift's speed asymmetry and the `perOut`
 refinement ratios on stations. The fuel economics are not simulated.
+Hand-crafting itself — matching a machine's rate rather than being instant or
+throttled — is implemented; see `rules/crafting.js`.
 
 ## Run structure
 

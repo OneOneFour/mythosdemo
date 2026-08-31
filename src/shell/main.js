@@ -56,7 +56,7 @@ export function step(dt) {
   const digging = cmd.dig || cmd.mouse;
   const c = {
     left: cmd.left, right: cmd.right, up: cmd.up, down: cmd.down,
-    hop: cmd.hop, dig: digging, place: cmd.place,
+    hop: cmd.hop, dig: digging, place: cmd.place, craft: cmd.craft,
     hasMouse: cmd.hasMouse, mx: cmd.mx, my: cmd.my
   };
 

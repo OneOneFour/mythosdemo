@@ -20,13 +20,16 @@
    ours to fake. */
 
 import { VIEW, stage } from '../core/canvas.js';
+import { buildableMachines } from '../model/run.js';
 import { audio, unlockAudio } from './audio.js';
 
 /* The command set the rules read. One object, mutated by property, per the
-   project convention for cross-module mutable state. */
+   project convention for cross-module mutable state. `craft` is a HOLD, like
+   `dig`, not an edge -- `rules/crafting.js` accumulates while it is true and
+   forgets the bar the instant it is not. */
 export const cmd = {
   left: false, right: false, up: false, down: false,
-  hop: false, dig: false, place: false,
+  hop: false, dig: false, place: false, craft: false,
   mouse: false, mx: 0, my: 0, hasMouse: false
 };
 
@@ -53,6 +56,7 @@ function set(k, down) {
   if (key === ' ')                  { if (down && !hopHeld) cmd.hop = true; hopHeld = down; }
   if (key === 'x' || key === 'j')   cmd.dig = down;
   if (key === 'e')                  { if (down && !placeHeld) cmd.place = true; placeHeld = down; }
+  if (key === 'u')                  cmd.craft = down;
 }
 
 export function installInput() {
@@ -72,6 +76,22 @@ export function installInput() {
     if (k === 'b') wants.draft = 'boon';
     if (k === 'l') wants.machine = 'lift';
     if (k === 'r') wants.restart = true;
+
+    /* Digits only mean anything while the inventory panel is open: they pick
+       the Nth row of `model/run.js#buildableMachines()`, the SAME list and
+       SAME order `view/hud.js`'s BUILD section draws, so "press 3" and "the
+       panel's third row" can never disagree about which machine that is.
+       Unbound with the panel closed rather than always-on, so a digit typed
+       during ordinary play (there is nothing else digits do yet) is not a
+       silent machine-placement trap. */
+    if (flags.showInv) {
+      const slot = '123456789'.indexOf(k);
+      if (slot >= 0) {
+        const list = buildableMachines();
+        if (list[slot]) wants.machine = list[slot].id;
+      }
+    }
+
     if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k))
       e.preventDefault();
   });
@@ -82,7 +102,7 @@ export function installInput() {
      changed stays down forever otherwise, and the player returns to a character
      walking into a wall. */
   addEventListener('blur', () => {
-    for (const k of ['left', 'right', 'up', 'down', 'dig', 'place', 'mouse']) cmd[k] = false;
+    for (const k of ['left', 'right', 'up', 'down', 'dig', 'place', 'craft', 'mouse']) cmd[k] = false;
     hopHeld = false; placeHeld = false;
   });
 
