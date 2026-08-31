@@ -450,3 +450,40 @@ rewrite history here.
   `cmd.miracle` is an edge-triggered flag) so there is no actual collision,
   but flagged here in case a future reader assumes there is one from the
   name alone.
+
+## Phase 5a (the widget layer)
+
+- **`text.js` was not created.** The primitives list names it "only if they
+  earn their keep." Nothing this phase needs beyond `core/font.js#drawText`/
+  `textWidth` as-is — no truncation-with-ellipsis, no multi-line wrap. Phase
+  5b's crafting grid (a recipe name plus a missing-ingredient label, both at
+  fixed widths) is the first plausible need; add it there if it turns out
+  to, rather than speculatively now.
+
+- **Click DISPATCH — hit-testing a UI click against a drawn rect and calling
+  into `rules` — is explicitly Phase 5b's, not this phase's.** `cmd.uiClick`/
+  `uiRight`/`uiCtrl`/`uiShift`/`uiWheel` (`src/shell/input.js`) and
+  `shell/ui.js#setDrag`/`clearDrag` exist and are exercised by this phase's
+  scratch harness directly, but nothing in `shell/main.js#applyIntents` reads
+  them yet, because there is no drawn slot for a click to land on until a
+  real panel exists. Phase 5b's dispatcher hit-tests `cmd.mx/my` (or the
+  `uiClick`-time coordinate) against whatever `view/ui/*.js` drew that frame
+  — the same rects `__mf.ui` projects — and only then decides drag-start vs.
+  a plain click vs. a shift/ctrl-modified one.
+
+- **`shell/ui.js#ui` is not cleared by `newRun()`.** It is presentation
+  state (which panel is open, which tab, scroll position), never read by
+  `rules` or `model`, so a field surviving a restart is not the invariant-8
+  determinism bug it would be for `model` state — a player probably wants
+  their open panel to survive their character dying. Flagged in case a
+  later phase disagrees and wants it reset on death specifically (not on
+  every `newRun()`).
+
+- **`'i'` now does two things (`flags.showInv` AND `shell/ui.js#toggle('main')`),
+  and only the first has ever been visible.** See `src/shell/input.js`'s own
+  comment at the `'i'` handler. This phase could not retire `flags.showInv`
+  without breaking the 1-9 build-menu digits, which are gated on it
+  (`src/shell/input.js` lines below), and breaking that would be a gameplay
+  regression outside "infrastructure only." Phase 5b, once its tabbed window
+  reads `isOpen('main')`, should decide whether the build menu migrates onto
+  the new panel too or `flags.showInv` stays a second, permanent system.

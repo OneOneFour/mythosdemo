@@ -22,6 +22,7 @@
 import { VIEW, stage } from '../core/canvas.js';
 import { buildableMachines } from '../model/run.js';
 import { audio, unlockAudio } from './audio.js';
+import { closeTop, isOpen, top, toggle } from './ui.js';
 
 /* The command set the rules read. One object, mutated by property, per the
    project convention for cross-module mutable state. `craft` is a HOLD, like
@@ -31,7 +32,26 @@ export const cmd = {
   left: false, right: false, up: false, down: false,
   hop: false, dig: false, place: false, craft: false, drop: false,
   deconstruct: false, miracle: false, equip: false,
-  mouse: false, mx: 0, my: 0, hasMouse: false
+  mouse: false, mx: 0, my: 0, hasMouse: false,
+
+  /* UI pointer intents (Phase 5a, docs/BUILD_PLAN.md; D2 in CLAUDE.md).
+     THE OPEN PANEL STACK CAPTURES INPUT: the pointer handlers below route to
+     THESE fields instead of `mouse`/`place` whenever `shell/ui.js#top()` is
+     open, so a click on a slot can never also place a tile in the world the
+     panel is sitting over. `uiClick`/`uiRight` mirror `mouse`/`place`'s own
+     held-while-the-button-is-down shape, and are cleared every frame in
+     `clearEdges()` regardless of button state -- the exact mechanism that
+     already makes `place` a one-shot per physical click despite never being
+     latched like `hop`, since a pointer held down fires no repeat event the
+     way a held key does. `uiCtrl`/`uiShift` are the modifier snapshot taken
+     at click time, for ctrl-click/shift-click (queue max / queue five, in
+     Phase 5b). `uiWheel` is a per-FRAME signed delta, not one-shot -- it
+     accumulates between clears so a fast scroll is not dropped. There is no
+     drag FIELD here: `shell/ui.js#setDrag`/`clearDrag` already hold that
+     payload, and computing it needs to hit-test the click against whatever
+     a panel actually drew -- Phase 5b's dispatcher, once a panel exists to
+     click on. */
+  uiClick: false, uiRight: false, uiCtrl: false, uiShift: false, uiWheel: 0
 };
 
 /* One-shot intents, consumed and cleared by `shell/main.js`. Separate from
@@ -101,7 +121,24 @@ export function installInput() {
     if (k === 'g') flags.showGrid   = !flags.showGrid;
     if (k === 'c') flags.showChunks = !flags.showChunks;
     if (k === 'h') flags.showDebug  = !flags.showDebug;
-    if (k === 'i') flags.showInv    = !flags.showInv;
+    /* 'i' REUSED, not migrated (Phase 5a, docs/BUILD_PLAN.md; D2 in
+       CLAUDE.md): it keeps toggling the existing text `flags.showInv` panel
+       (`view/hud.js#invPanel`) UNCHANGED -- that panel is real, shipped
+       gameplay (it is how the build menu's 1-9 digits below even become
+       live), and this phase ships no replacement for it yet, so retiring
+       its only key binding here would be a functional regression, not
+       infrastructure. It ALSO now opens/closes the new panel stack
+       (`shell/ui.js#toggle('main')`), which today has nothing registered
+       to read `isOpen('main')`, so this second effect is inert -- it is
+       the hook Phase 5b's tabbed window binds to, so THAT phase does not
+       have to touch this file to pick a key. One physical key, one
+       mnemonic, two systems mid-migration. */
+    if (k === 'i') { flags.showInv = !flags.showInv; toggle('main'); }
+    /* Escape closes the TOP of the panel stack only -- a modal above the
+       window (none exists yet) would close before the window under it.
+       No-op on an empty stack, so Escape is otherwise free for the browser
+       (leaving pointer capture, etc.) exactly as it was before this phase. */
+    if (k === 'escape' && isOpen(top())) { closeTop(); e.preventDefault(); }
     /* 'o' for "overview" -- 'm' was already mute, and every other mnemonic
        letter (map, w/a/s/d, world) was claimed by movement or an earlier
        phase; checked the full `KEYS` table and every `if (k === ...)` above
@@ -177,7 +214,9 @@ export function installInput() {
      changed stays down forever otherwise, and the player returns to a character
      walking into a wall. */
   addEventListener('blur', () => {
-    for (const k of ['left', 'right', 'up', 'down', 'dig', 'place', 'craft', 'mouse']) cmd[k] = false;
+    for (const k of ['left', 'right', 'up', 'down', 'dig', 'place', 'craft', 'mouse', 'uiClick', 'uiRight'])
+      cmd[k] = false;
+    cmd.uiCtrl = false; cmd.uiShift = false; cmd.uiWheel = 0;
     hopHeld = false; placeHeld = false; dropHeld = false; deconHeld = false;
     miracleHeld = false; equipHeld = false;
   });
@@ -200,15 +239,36 @@ export function installInput() {
   cv.addEventListener('pointerdown', e => {
     unlockAudio();
     toWorld(e, pointer.cam);
-    if (e.button === 2) cmd.place = true; else cmd.mouse = true;
+    /* THE OPEN PANEL STACK CAPTURES INPUT (Phase 5a): route to the UI
+       intents instead of the gameplay ones whenever a panel is open, so a
+       click meant for a slot can never also dig, mine or place through to
+       the world underneath it. */
+    if (isOpen(top())) {
+      if (e.button === 2) cmd.uiRight = true; else cmd.uiClick = true;
+      cmd.uiCtrl = e.ctrlKey || e.metaKey;
+      cmd.uiShift = e.shiftKey;
+    } else if (e.button === 2) cmd.place = true; else cmd.mouse = true;
     cv.setPointerCapture(e.pointerId);
     e.preventDefault();
   });
   cv.addEventListener('pointerup', e => {
-    if (e.button === 2) cmd.place = false; else cmd.mouse = false;
+    if (isOpen(top())) {
+      if (e.button === 2) cmd.uiRight = false; else cmd.uiClick = false;
+    } else if (e.button === 2) cmd.place = false; else cmd.mouse = false;
   });
   cv.addEventListener('contextmenu', e => e.preventDefault());
   cv.addEventListener('pointerleave', () => { cmd.hasMouse = false; cmd.mouse = false; });
+
+  /* Wheel scrolls a panel's grid, never the page -- only routed, and only
+     preventDefault'd, while a panel is open; with none open the wheel does
+     whatever the browser would do anyway. `cmd.uiWheel` is a per-FRAME
+     signed delta (see its declaration above), consumed and zeroed in
+     `clearEdges()`. */
+  cv.addEventListener('wheel', e => {
+    if (!isOpen(top())) return;
+    cmd.uiWheel += Math.sign(e.deltaY);
+    e.preventDefault();
+  }, { passive: false });
 }
 
 /* The camera the pointer maps against. `shell/main.js` points this at its own
@@ -224,6 +284,13 @@ export function clearEdges() {
   cmd.deconstruct = false;
   cmd.miracle = false;
   cmd.equip = false;
+  /* Same one-shot-per-physical-click trick `place` already relies on above:
+     a pointer held down fires no repeat event, so clearing these every
+     frame regardless of button state still leaves exactly one true frame
+     per press. `uiWheel` is a per-frame delta, zeroed after being read. */
+  cmd.uiClick = false;
+  cmd.uiRight = false;
+  cmd.uiWheel = 0;
   wants.restart = false;
   wants.machine = null;
   wants.draft = null;

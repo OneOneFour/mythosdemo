@@ -31,7 +31,9 @@ import { boot, newRun } from './boot.js';
 import { clearEdges, cmd, flags, pointer, wants } from './input.js';
 import { drainJournal } from './notify.js';
 import { boons, grants, miracles, stepAll, trinkets } from './schedule.js';
+import { ui } from './ui.js';
 import { hoverInfo, pocketHits } from '../view/hud.js';
+import { drawn as uiDrawn } from '../view/ui/state.js';
 
 export const STEP = 1 / 120;
 export const MAX_CATCHUP = 0.25;             // s of real time simulated per frame
@@ -43,8 +45,14 @@ export const cam = { x: 0, y: 0 };
    import `shell` and allocating a fresh one sixty times a second is waste.
    `mouse` is `cmd.mx`/`cmd.my`/`cmd.hasMouse` copied in every `draw()` — WORLD
    px, same as `cam`, so `view/hover.js` can test world content directly and
-   subtract `cam` itself for anything drawn in screen space (the HUD). */
-const frameCtx = { cam, t: 0, dt: 0, frame: 0, W: 0, H: 0, flags, mouse: { x: 0, y: 0, has: false } };
+   subtract `cam` itself for anything drawn in screen space (the HUD).
+   `ui` is `shell/ui.js`'s live state object, passed through exactly as
+   `flags` already is (D2 in CLAUDE.md §"Resolved decisions") — `view` may
+   read which panel is open, its active tab, the focused slot, the drag
+   payload, the search string and scroll offsets, but may never write any of
+   it. No panel reads it yet (Phase 5a ships none); Phase 5b's is the first
+   consumer. */
+const frameCtx = { cam, t: 0, dt: 0, frame: 0, W: 0, H: 0, flags, ui, mouse: { x: 0, y: 0, has: false } };
 
 /* ---------- one frame of simulation ---------- */
 export function step(dt) {
@@ -294,6 +302,35 @@ function installTestHook() {
        a `{sub, form}` pair instead of guessing a pixel coordinate — the same
        trap CLAUDE.md's "hardcoded click coordinates" mistake describes. */
     hover: hoverInfo, hits: pocketHits,
+
+    /* THE WIDGET-LAYER PROJECTION (D2 in CLAUDE.md §"Resolved decisions";
+       docs/BUILD_PLAN.md Phase 5a). One handle, not a second `window.__ui`
+       global — composed HERE, in `shell`, rather than in `view`, because it
+       merges two things that live in different layers and neither may
+       import the other: `shell/ui.js#ui` (which panel is open, the active
+       tab, focus, drag, search) and `view/ui/state.js#drawn` (the geometry
+       and content the widget primitives actually painted last call — the
+       exact `pocketHits`/`hoverInfo` idiom above, one layer over). A GETTER,
+       not a field snapshotted once at install time, so every read reflects
+       whatever was true as of the last `draw()` — the "rebuilt each draw,
+       never a copy" requirement, satisfied by reading the two live objects
+       fresh rather than caching a merged one. Phase 5a registers no panel,
+       so today every array here is empty and `open`/`focus`/`drag` are
+       empty/null; the shape exists for Phase 5b's panels to fill. */
+    get ui() {
+      return {
+        open: ui.stack.slice(),
+        tab: { ...ui.tab },
+        focus: ui.focus ? { ...ui.focus } : null,
+        drag: ui.drag ? { ...ui.drag } : null,
+        search: ui.search,
+        panels: uiDrawn.panels.map(p => ({ ...p, closeHit: p.closeHit ? { ...p.closeHit } : null })),
+        tabs: uiDrawn.tabs.map(t => ({ ...t, hits: t.hits.map(h => ({ ...h })) })),
+        grids: uiDrawn.grids.map(gr => ({ ...gr, slots: gr.slots.map(s => ({ ...s })) })),
+        bars: uiDrawn.bars.map(b => ({ ...b })),
+        tooltip: uiDrawn.tooltip ? { ...uiDrawn.tooltip, lines: uiDrawn.tooltip.lines.slice() } : null
+      };
+    },
 
     /* Fog of war, TEST ONLY. `model/world.js#write.revealAll` has no other
        caller: several screenshot tests park the camera at a band the player
