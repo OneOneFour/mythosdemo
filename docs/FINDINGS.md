@@ -880,3 +880,16 @@ rewrite history here.
   original bug report ("can't click on a lot of the buttons in there") was
   describing. Fixed by adding a generic clickable-text-row primitive
   (`view/ui/state.js#drawn.buttons`) and registering each BUILD row into it.
+
+## Orchestrator verification — UI interaction bugfix batch (post-launch)
+
+Independently reconfirmed: `npm run check` (0 layer violations), `npm run
+check:content` (165 checks), `npm run lint`, and the full Playwright suite
+(88 tests, both viewports + parity) all pass after `ca0ad75` and `113823a`.
+The `wants.machine`/`clearEdges()` ordering bug fixed in `113823a` is
+corroborated by a real `page.mouse`-driven regression test
+("a LOGISTICS BUILD row places the machine, the same as its digit key") that
+would have caught the original failure mode and now passes — the digit-key
+path's own pre-existing test ("cold start -> mine 12 copper ore -> ... place
+a furnace") still passes too, confirming the fix is additive, not a
+regression on the path that already worked.
