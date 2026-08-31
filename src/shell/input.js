@@ -38,8 +38,11 @@ export const cmd = {
 export const wants = { restart: false, machine: null, draft: null };
 
 /* Presentation toggles. Read by `view` through the frame context — `view` may
-   not import `shell`, so they are passed in rather than imported. */
-export const flags = { showGrid: false, showChunks: false, showDebug: false, showInv: false };
+   not import `shell`, so they are passed in rather than imported. `showMap` is
+   the full-world overview: `shell/main.js#frame()` reads it to freeze the
+   substep loop, and `view/scene.js#render()` reads it to take the overview
+   render path instead of the normal camera-relative one. */
+export const flags = { showGrid: false, showChunks: false, showDebug: false, showInv: false, showMap: false };
 
 const KEYS = {
   a: 'left',  arrowleft: 'left',
@@ -70,6 +73,13 @@ export function installInput() {
     if (k === 'c') flags.showChunks = !flags.showChunks;
     if (k === 'h') flags.showDebug  = !flags.showDebug;
     if (k === 'i') flags.showInv    = !flags.showInv;
+    /* 'o' for "overview" -- 'm' was already mute, and every other mnemonic
+       letter (map, w/a/s/d, world) was claimed by movement or an earlier
+       phase; checked the full `KEYS` table and every `if (k === ...)` above
+       before picking it. Same edge-triggered boolean-flip idiom as `showGrid`/
+       `showChunks`/`showDebug`/`showInv` -- a held key does not matter here,
+       since the map is a mode you sit in, not an action you repeat. */
+    if (k === 'o') flags.showMap    = !flags.showMap;
     if (k === 'm') audio.muted = !audio.muted;
     if (k === 'f') wants.machine = 'furnace';
     if (k === 't') wants.draft = 'trinket';

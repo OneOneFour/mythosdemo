@@ -510,6 +510,160 @@ test('fog resets to fully unrevealed on newRun()', async ({ page }) => {
   expect(info.seenAfter).toBe(false);       // ARCHITECTURE invariant 8
 });
 
+/* ============================================================
+   MAP OVERVIEW
+
+   `view/scene.js#drawMap` is a genuinely different render path (the whole
+   world at ~1 screen px/tile, read straight off the tile grid, not the
+   per-chunk canvas cache normal play uses) gated on `flags.showMap`, and
+   `shell/main.js#step()`/`applyIntents()` freeze the run while it is true.
+   Three separate claims, three separate tests, same reasoning as the fog
+   tests above: a screenshot alone cannot distinguish "hidden" from "never
+   drawn", or "paused" from "nothing happened to move it".
+   ============================================================ */
+
+/* Same caution as the fog-of-war tests: don't trust natural worldgen to place
+   a known substance where this test expects one, and don't trust the player's
+   own spawn-adjacent reveal to land exactly on the probed tile. A stone tile
+   is written explicitly, revealed by teleporting the player onto it and
+   calling `rules/reveal.js#step()` directly (isolating the mechanism from
+   physics, exactly like the permanence test above), and then the player is
+   moved AWAY before drawing -- otherwise the map's own player marker would
+   paint over the very pixel this test samples. */
+test('the map overview shows explored terrain and leaves unexplored terrain undrawn', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const info = await page.evaluate(async () => {
+    const { bandOf, bands, widthPx, heightPx, seenAt, worldX, worldY } =
+      await import('/src/model/world.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { write: pw } = await import('/src/model/player.js');
+    const { step: revealStep } = await import('/src/rules/reveal.js');
+    const { S } = await import('/src/data/substances.js');
+    const { P } = await import('/src/core/palette.js');
+
+    const surface = bandOf('surface');
+    const topsoil = bandOf('topsoil');
+    const sx = 100, sy = 30;           // an arbitrary surface tile, forced to stone
+    const hx = 100, hy = 300;          // a topsoil tile nobody has ever stood near
+
+    tw.set(surface, sx, sy, S.stone);
+    pw.band(surface);
+    pw.move(worldX(surface, sx), worldY(surface, sy));
+    revealStep();
+    pw.move(worldX(surface, 0), worldY(surface, 0));   // clear of the probed tile
+    revealStep();
+
+    __mf.flags.showMap = true;
+    __mf.draw();
+
+    /* The exact scale/offset `drawMap` derives -- documented in `view/scene.js`
+       as "one screen pixel per the smallest band tile, shrunk further only if
+       the full world would not otherwise fit the viewport". Recomputed here
+       from the same public band data the renderer reads, not asserted as a
+       magic constant. */
+    const c = document.getElementById('stage');
+    const top = bands[0].origin.y;
+    const bottomBand = bands[bands.length - 1];
+    const worldH = bottomBand.origin.y + heightPx(bottomBand) - top;
+    const left = Math.min(...bands.map(b => b.origin.x));
+    const worldW = Math.max(...bands.map(b => b.origin.x + widthPx(b))) - left;
+    const base = 1 / Math.min(...bands.map(b => b.tile));
+    const scale = Math.min(base, c.width / worldW, c.height / worldH);
+    const ox = (c.width - worldW * scale) / 2;
+    const oy = (c.height - worldH * scale) / 2;
+
+    const mapPx = (wx, wy) => ({
+      x: Math.min(c.width - 1, Math.max(0, Math.round(ox + (wx - left) * scale))),
+      y: Math.min(c.height - 1, Math.max(0, Math.round(oy + (wy - top) * scale)))
+    });
+    const revealed = mapPx(worldX(surface, sx) + surface.tile / 2, worldY(surface, sy) + surface.tile / 2);
+    const hidden = mapPx(worldX(topsoil, hx) + topsoil.tile / 2, worldY(topsoil, hy) + topsoil.tile / 2);
+
+    const g2d = c.getContext('2d');
+    const [rr, rg, rb] = g2d.getImageData(revealed.x, revealed.y, 1, 1).data;
+    const [hr, hg, hb] = g2d.getImageData(hidden.x, hidden.y, 1, 1).data;
+
+    return {
+      seenSurface: seenAt(surface, sx, sy), seenTopsoil: seenAt(topsoil, hx, hy),
+      revealedRGB: [rr, rg, rb], hiddenRGB: [hr, hg, hb],
+      stoneBase: P.irC, voidBase: P.abyC
+    };
+  });
+
+  const hex = h => [h.slice(1, 3), h.slice(3, 5), h.slice(5, 7)].map(x => parseInt(x, 16));
+
+  expect(info.seenSurface).toBe(true);
+  expect(info.seenTopsoil).toBe(false);
+  expect(info.revealedRGB).toEqual(hex(info.stoneBase));  // explored stone paints its own colour
+  expect(info.hiddenRGB).toEqual(hex(info.voidBase));     // unexplored tile draws nothing at all
+});
+
+/* A pixel-sampling test proves the fog rule; it says nothing about whether the
+   whole-world layout actually reads as a sensible overview -- three bands
+   stacked top to bottom, correctly scaled, not overlapping, not clipped off
+   the common desktop/phone viewports this suite already covers. That needs a
+   screenshot, same as `overlays.png` exists alongside the fog pixel tests
+   above rather than instead of them. Fully revealed, same reasoning
+   `astral.png`/`topsoil.png` already use: the point here is the OVERVIEW
+   layout, not fog, so fog is taken out of the picture rather than left to
+   seed 1337's incidental exploration. */
+test('the map overview, fully explored', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { bands, write } = await import('/src/model/world.js');
+    for (const b of bands) write.revealAll(b);
+    __mf.flags.showMap = true;
+    __mf.draw();
+  });
+  await shot(page, 'map.png');
+});
+
+test('opening the map overview freezes the run, and closing it resumes and restores normal rendering', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+
+  const info = await page.evaluate(() => {
+    const hashOf = () => {
+      const c = document.getElementById('stage');
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      let h = 2166136261;
+      for (let i = 0; i < d.length; i += 4) {
+        h ^= d[i] | (d[i + 1] << 8) | (d[i + 2] << 16);
+        h = Math.imul(h, 16777619);
+      }
+      return h >>> 0;
+    };
+
+    const beforeHash = hashOf();
+    const xBefore = __mf.player.x, tBefore = __mf.clock.t;
+
+    /* Held right + dig, exactly the intents that move the player and would
+       chip at a tile if the physics ran at all. `hold()` calls `step()` and
+       `applyIntents()` directly, the same entry points the real RAF loop
+       uses -- this is not testing a mock of the pause, it is testing the
+       pause. */
+    __mf.flags.showMap = true;
+    __mf.hold({ right: 1, dig: 1 }, 120);
+    const xDuringMap = __mf.player.x, tDuringMap = __mf.clock.t;
+
+    __mf.flags.showMap = false;
+    __mf.draw();                              // back on the normal path
+    const afterCloseHash = hashOf();
+
+    __mf.hold({ right: 1 }, 60);              // the run actually resumes
+    const xAfterResume = __mf.player.x;
+
+    return { beforeHash, afterCloseHash, xBefore, xDuringMap, tBefore, tDuringMap, xAfterResume };
+  });
+
+  expect(info.xDuringMap).toBe(info.xBefore);          // frozen: held movement did nothing
+  expect(info.tDuringMap).toBe(info.tBefore);          // frozen: the run clock did not advance
+  expect(info.afterCloseHash).toBe(info.beforeHash);   // closing reproduces the identical normal frame
+  expect(info.xAfterResume).toBeGreaterThan(info.xBefore); // and play genuinely resumes after
+});
+
 test('the same seed renders identically twice', async ({ page }) => {
   await boot(page);
   const hashOf = () => page.evaluate(() => {

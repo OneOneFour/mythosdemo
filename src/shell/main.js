@@ -47,6 +47,19 @@ const frameCtx = { cam, t: 0, dt: 0, frame: 0, W: 0, H: 0, flags, mouse: { x: 0,
 
 /* ---------- one frame of simulation ---------- */
 export function step(dt) {
+  /* THE MAP OVERVIEW FREEZES THE RUN. Guarded HERE, not in `frame()`, so the
+     pause is one fact true of `step()` itself rather than something only the
+     real RAF loop knows to honour -- the headless test hook's `frames()`/
+     `hold()` call this function directly (there is no RAF loop under
+     `?test=1`), and a test proving the pause has to hold a movement key
+     through exactly this entry point. Nothing advances: not the clock, not
+     `stepAll` (so no substance rule runs), not the camera follow at the
+     bottom of this function. `frame()`'s accumulator keeps draining in real
+     time regardless -- each call here still costs the caller one `STEP` off
+     `clock.acc` even though it does nothing, so no backlog of catch-up frames
+     is waiting the instant the map closes. */
+  if (flags.showMap) return;
+
   clock.dt = dt;
   clock.t += dt;
   clock.frame++;
@@ -81,6 +94,14 @@ export function step(dt) {
    (the game is paused, `aim` isn't valid yet) survives to the next frame
    instead of being erased on a schedule it knows nothing about. */
 function applyIntents() {
+  /* Same freeze as `step()`, and the same reason: placing a machine or
+     drafting a boon resolves against `aim`, which is a reading of the world
+     the player cannot currently see -- the map covers it. A press that lands
+     while the map is open is simply dropped, not queued: `clearEdges()` still
+     wipes `wants.machine`/`wants.draft`/`cmd.place` on its own schedule
+     whether or not this function consumed them. */
+  if (flags.showMap) return;
+
   if (wants.machine && aim.valid && aim.band) {
     /* Anchor the footprint so its BOTTOM row is the aimed tile: you point at the
        space a machine should stand in, not at its top-left corner. `th` comes
@@ -205,6 +226,7 @@ export function frame(now) {
   if (n) clearEdges();
   stepFx(real);
   drainJournal(clock.t);
+
   draw();
   requestAnimationFrame(frame);
 }
