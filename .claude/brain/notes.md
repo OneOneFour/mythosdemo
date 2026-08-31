@@ -203,9 +203,9 @@ Rule of thumb: a key that **spawns something from nothing** goes behind
   always hands out a fresh band record. If band records ever get reused, both
   caches become stale-read bugs with no `newRun()` wiring to fix them.
 - **The winch reach arithmetic exists twice**, deliberately:
-  `model/run.js#canBoardWinch` and `rules/lift.js#reaches` compute the same
-  thing, because a `model` query may not import `rules` and `view` needs the
-  answer. Change one, change the other.
+  `model/run.js#placementCheck`'s `def.lift` branch and `rules/lift.js#reaches`
+  compute the same thing, because a `model` query may not import `rules` and
+  `view` needs the answer for the build ghost. Change one, change the other.
 - **`hasPick()` migrated from `invCount(S.pick, F.relic)` to `bestTool() !== null`**
   and the two are true under identical conditions today only because the stock
   pick is the only tool a fresh run starts with.

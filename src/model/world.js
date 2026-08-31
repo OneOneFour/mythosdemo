@@ -10,11 +10,8 @@
    forty call sites. It buys three coexisting bands, a lift that travels between
    two of them, and a world size that `newRun()` gets a say in.
 
-   COORDINATES. Two spaces, and only this file converts between them:
-
-     world px    absolute, shared by every band. The camera and the lift live
-                 here. `origin` is a band's offset in this space.
-     band tiles  band-local, 0..tw-1 / 0..th-1. Every tile query lives here.
+   COORDINATES. Two spaces, and only this file converts between them -- see
+   docs/DEVELOPER_GUIDE.md#bands-and-worldgen.
 
    `origin` is in PIXELS, not tiles, because a tile offset is meaningless
    between two bands whose `tile` sizes differ -- and `tile` is per-band
@@ -36,12 +33,9 @@ export const write = {
       cx: Math.ceil(cfg.tw / cfg.chunk),
       cy: Math.ceil(cfg.th / cfg.chunk),
       mat: new Uint8Array(cfg.tw * cfg.th),
-      /* A per-chunk VERSION counter, not a dirty flag. `view` owns the chunk
-         cache and must know which chunks changed -- but `view` may not write to
-         `model`, so it cannot clear a flag. A counter that only goes up lets the
-         renderer keep its own "version I last painted" map and stay
-         side-effect-free. The epoch assertion is what forced this, and it is a
-         better invalidation scheme than the flag it replaced. */
+      /* A per-chunk VERSION counter, not a dirty flag: `view` may not write to
+         `model`, so it cannot clear a flag. The epoch assertion is what forced
+         this. See docs/DEVELOPER_GUIDE.md#view-cache-invalidation */
       ver: null,
       /* Fog of war: one bit per tile, permanent for the run. A `Uint8Array` and
          not a `Set` of indices -- unlike `fields.js#act`, which is deliberately

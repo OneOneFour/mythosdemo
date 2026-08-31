@@ -2,8 +2,8 @@
    Imports `core`, `model`. May be imported by `model`, `rules`, `view`.
 
    In `model` and not in `rules` for one reason: `view` must be able to draw the
-   player, and `view` may not import `rules`. That sibling rule is what stops the
-   renderer growing a gameplay dependency.
+   player, and `view` may not import `rules`. See
+   docs/DEVELOPER_GUIDE.md#where-does-state-go
 
    The record is a plain object with no methods. `rules/player.js` moves it.
    Every physics NUMBER lives in `data/tuning.js` and is read through

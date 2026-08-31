@@ -1,24 +1,9 @@
 /* LAYER model — run-scoped state and meta-state, split by object.
    Imports `core`, `data`, `model`. May be imported by `model`, `rules`, `view`.
 
-   ============================================================================
-   THE SPLIT, in the object shape. Two records, and which one a field belongs in
-   is decided by one question: does a death erase it?
-
-     run    hearts, pockets, granted machines, drafted trinkets, the tribute
-            clock, the seed. `write.reset()` restores every field from
-            RUN_SCHEMA, so a field that survives a restart is a determinism bug
-            and not a feature.
-     meta   what outlives the run: how many runs, the deepest depth ever, which
-            gods have been met. Nothing here is written during play except at
-            the moment a run ends.
-
-   There is deliberately NO SAVE STRING in this pass. The split is in the shape
-   so that adding one later is a serialiser and not a refactor -- a save is
-   `meta` plus `run.seed` plus `run.inv` (a drafted trinket lives there too, see
-   `rules/trinkets.js`), and replaying it reproduces every number because
-   randomness is seeded and modifiers are a list.
-   ============================================================================
+   THE SPLIT, in the object shape: two records, `run` and `meta`, and which one
+   a field belongs in is decided by one question -- does a death erase it? See
+   docs/DEVELOPER_GUIDE.md#run-state-and-run_schema
 
    Every field a `newRun()` must reset is declared ONCE, in RUN_SCHEMA, and
    reset mechanically. The previous codebase disagreed with itself about the
@@ -70,36 +55,20 @@ export const RUN_SCHEMA = Object.freeze({
      `rules/crafting.js`. */
   craftProgress: 0, craftRecipe: null,
 
-  /* OUT-OF-OWNERSHIP TOUCH, DONE LOUDLY (Phase 5b, docs/BUILD_PLAN.md): the
-     CRAFTING tab needs to draw an unlearned recipe as a locked silhouette --
-     "you are a thief, recipes are stolen" -- and that needs a field on `run`,
-     which is not `view`'s (or `shell`'s) layer to add to by default. The
-     plan's own text names this as the one case flagged for approval before
-     writing, and approves it: add it. Shaped as a plain ARRAY of recipe id
-     strings, matching `run.granted`'s own convention (also a bare array of
-     ids) rather than a `Set` -- `run.equipped`/`run.granted` are both
-     plain-serialisable already, and a save string (`docs/DESIGN.md`'s "not
-     yet, but the shape should not fight it later") wants the same shape
-     everywhere. SEEDED WITH EVERY `HAND_RECIPES` ID in `write.reset()` below:
-     nothing is actually lockable yet -- Phase 4's "recipes are stolen"
-     framing is about a FUTURE drop/tribute/draft source revealing a recipe
-     the player does not yet have, and no such source exists in this build.
-     Shipping "everything currently craftable is known" is therefore the
-     honest starting state, not a cop-out -- see docs/FINDINGS.md for the
-     locking-source gap this leaves open. */
+  /* Which recipes the player has learned; the CRAFTING tab draws an unlearned
+     one as a locked silhouette. A plain ARRAY of recipe id strings, matching
+     `run.granted`'s own convention rather than a `Set`, because both are
+     plain-serialisable and a save string wants the same shape everywhere.
+     SEEDED WITH EVERY `HAND_RECIPES` ID in `write.reset()` below: nothing is
+     actually lockable yet, because no source exists that reveals a recipe. */
   known: null,
 
   /* Seconds left on the one lit `timber/brand`. Same shape as `craftProgress`
      immediately above and for the identical reason: a player has one pair of
      hands, there is only ever one lit brand, and a scalar on `run` resets
      with everything else (invariant 8) for free. Written and ticked by
-     `rules/light.js`, which is OUTSIDE this file's FILE OWNERSHIP for Phase
-     2b of `docs/BUILD_PLAN.md` -- see `docs/FINDINGS.md` for why this one
-     field and its one writer were added anyway: `docs/BUILD_PLAN.md` itself
-     specifies "run.brandLeft ... for the same reason run.craftProgress is a
-     scalar", and the only alternative was module-scoped state in
-     `rules/light.js` with no `newRun()` hook to clear it -- a field that
-     survives a restart, which invariant 8 exists to forbid. */
+     `rules/light.js`; the alternative was module-scoped state there with no
+     `newRun()` hook to clear it, which invariant 8 exists to forbid. */
   brandLeft: 0
 });
 
@@ -214,21 +183,17 @@ export const invCount = (sub, form) => run.inv[keyOf(sub, form)] || 0;
 export const hearts   = () => run.hearts;
 export const canPlace = machineId => run.granted.includes(machineId);
 
-/* ---- machine items (design reversal superseding Phase 3's cost-at-placement
-   deviation -- see `data/forms.js#rig` / `data/substances.js`'s machine-
-   substance block for the full argument). A machine is now a held
-   `<id>/rig` pair, so "may this be placed" is "is one currently held", the
-   same `invCount` question a tile-capable form already answers.
+/* ---- machine items. A machine is a held `<id>/rig` pair, so "may this be
+   placed" is "is one currently held" -- the same `invCount` question a
+   tile-capable form already answers.
+   See docs/DEVELOPER_GUIDE.md#a-machine-is-a-held-item
 
    THE MIRRORED PAIRS SHARE ONE SUBSTANCE. `belt_r`/`belt_l`,
    `talos_head`/`talos_head_l` and `cyclops_maw`/`cyclops_maw_l` are each one
    `variantOf` row overriding only `belt`/`mine`'s own facing key -- derived
    here from that SHAPE (variantOf + belt-or-mine override) rather than
    hand-listed, so a future mirrored pair added the same way needs no edit
-   here. A held pair therefore resolves to a CONCRETE machine id off the
-   player's own `face` (+-1) at the moment of placement, the identical
-   direction convention `belt.dir`/`mine.facing` already carry -- "aim
-   decides", the same rule mining already lives by. */
+   here. See docs/DEVELOPER_GUIDE.md#mirrored-machine-pairs */
 const MIRROR_TO_BASE = Object.freeze(Object.fromEntries(
   MACHINES.filter(m => m.variantOf && (m.belt || m.mine)).map(m => [m.id, m.variantOf])));
 const BASE_TO_MIRROR = Object.freeze(Object.fromEntries(
@@ -266,13 +231,9 @@ export function machineIdFor(sub) {
 
 /* Whether a machine may be placed at this exact footprint, RIGHT NOW -- every
    refusal `rules/placement.js#placeMachine` can produce, as a query instead of
-   a side effect. Phase 3 (`docs/BUILD_PLAN.md`): the ghost preview in `view/`
-   needs the same yes/no the placement rule enforces, and `view` may not
-   import `rules` -- the same reason a build-affordability check once had to
-   become a model query rather than staying private to `rules/placement.js`
-   (that particular query, `canAfford`, is gone now: it read a `def.cost` no
-   machine row has carried since machines became craftable items -- see
-   `docs/FINDINGS.md`). ONE
+   a side effect: the ghost preview in `view/` needs the same yes/no the
+   placement rule enforces, and `view` may not import `rules`
+   (docs/DEVELOPER_GUIDE.md#one-decision-two-readers). ONE
    implementation, TWO readers: this function decides, `rules/placement.js`
    calls it and turns a `false` into a journal row, `view` calls it and turns
    a `false` into a tinted ghost with `why` drawn beside it. Neither reader
@@ -377,7 +338,7 @@ export function pocketsHave(sel, n) {
 export const canCraft = recipeIn =>
   Object.keys(recipeIn).every(sel => pocketsHave(sel, recipeIn[sel]));
 
-/* The grant tier's real teeth (follow-up to Phase 5b's `run.known` seed): a
+/* The grant tier's real teeth (see docs/DEVELOPER_GUIDE.md#adding-a-recipe): a
    MACHINE-BUILD recipe (`data/recipes.js`'s own block of `<id>/rig`-producing
    rows, e.g. `furnace`, `talos_head`) is known only once that machine id has
    actually been granted -- `STARTING_MACHINES` or `rules/grants.js#grant()`

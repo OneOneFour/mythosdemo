@@ -2,28 +2,9 @@
    The ONLY file in the project permitted to import `data/tuning.js`.
    `tools/layers.mjs` fails the build on any other importer.
 
-   ============================================================================
-   The problem, exactly. `data/` is frozen plain objects: that is the whole
-   thesis, and it is what makes a table diffable, dumpable and shippable. A
-   trinket must change an effective value at RUN TIME. Those two facts look like
-   a contradiction and are not, because a BASE value and an EFFECTIVE value are
-   different things that had been sharing one name.
-
-     data/tuning.js   the DESIGN. Frozen. `walk` is 60 because 60 is the number
-                      a designer chose. Nothing may ever write it.
-     model/mods.js    the RUN. Mutable, run-scoped, cleared by `newRun()`, and a
-                      list of rows copied out of `data/trinkets.js`.
-     eff(id, scope)   base x this run's modifiers. The only way to read either.
-
-   This is also what a roguelike wants: a save is a seed plus a list of trinket
-   ids, and replaying it reproduces every number. If a boon patched the frozen
-   table instead, two saves could not be diffed and the base value would be lost
-   the moment it was overwritten.
-
-   The cost is one call per read -- `eff('walk')` rather than `WALK` -- and the
-   discipline never to read the frozen table directly. That discipline is not
-   left to reviewers; it is a build failure.
-   ============================================================================
+   The three-way split (frozen design / run-scoped mods / `eff()` as the only
+   reader), why it is shaped that way and what it costs:
+   docs/DEVELOPER_GUIDE.md#the-tunable-pipeline
 
    ORDER OF APPLICATION is fixed, so draft order cannot change a number:
 
@@ -59,9 +40,8 @@ export const write = {
 const applies = (key, id, scope) =>
   key === id || (scope !== undefined && key === id + '.' + scope);
 
-/* Per-scope base override. This is what makes a variant machine faster purely
-   by tuning: `rate` has base 1.0, and `rate.kiln_divine` has base 2.0, and a
-   trinket's multiplier still lands on top of whichever base applied. */
+/* Per-scope base override -- see
+   docs/DEVELOPER_GUIDE.md#the-tunable-pipeline */
 const baseOf = (t, scope) =>
   (scope !== undefined && t.scoped && t.scoped[scope] !== undefined)
     ? t.scoped[scope] : t.base;

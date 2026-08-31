@@ -7,10 +7,7 @@
    and a catch box is checked every frame by design.
 
    It stays in `model` rather than `core` because a bucket size in world pixels
-   is a world fact, not arithmetic.
-
-   NOT in the file list the brief gave; declared as an addition, because
-   `model/items.js` needs a spatial index and inlining one there would hide it. */
+   is a world fact, not arithmetic. */
 
 export const BUCKET = 32;              // px
 

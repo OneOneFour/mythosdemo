@@ -5,7 +5,7 @@
    `data/machines.js`, so the ROW is the definition and the RECORD is only what
    changes: buffer, progress, charges, fire, deck. Printing one in a debugger
    tells you everything about that machine's state, and `JSON.stringify(machines)`
-   is most of a save.
+   is most of a save. See docs/DEVELOPER_GUIDE.md#adding-a-machine
 
    Buffers are keyed by the `sub/form` string from `model/items.js`, not by tile
    byte. See the note there: a buffer is read by a human debugging a stuck
@@ -149,9 +149,7 @@ export const full = (m, sel) => count(m, sel) >= capOf(MACH[m.def], sel);
    hand-feed too); the recipe scan is what still catches a machine whose
    fuel requirement is expressed only inline (there is none today, but a row
    is free to be that shape). `null` for a machine that needs no fuel at all.
-   Memoised per definition, the same reason `capOf`'s selector expansion is:
-   this is a query `view` calls per machine per frame, and definitions are
-   frozen data, so the cache is bounded by the content. */
+   Memoised per definition -- see docs/DEVELOPER_GUIDE.md#buffers-and-pockets */
 const fuelSelCache = new Map();
 export function fuelSelectorOf(def) {
   if (fuelSelCache.has(def)) return fuelSelCache.get(def);

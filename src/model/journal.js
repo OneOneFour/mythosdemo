@@ -3,16 +3,9 @@
    `shell/notify.js` is the drain.
 
    `rules` never calls `play()` or `toast()`. It pushes a row here, and `shell`
-   drains it once a frame and turns rows into sound, chips and text. Nothing
-   calls upward, which is what lets the dependency direction be a RULE rather
-   than a hope: audio is a device, devices live in `shell`, and a call from
-   `rules` to `shell` would be an illegal edge.
-
-   COST, stated where it is paid: a drained event is seen one frame late,
-   ordering between two consumers is implicit rather than a call stack, and a
-   `shell` that forgets to drain loses feedback silently instead of throwing.
-   `play('pick')` is worse architecture and better debugging. The mitigation is
-   the smallest honest one -- `drain()` warns when the queue has grown past a
+   drains it once a frame. Why, and what the one-frame latency costs:
+   docs/DEVELOPER_GUIDE.md#notification-and-the-journal. The mitigation is the
+   smallest honest one -- `drain()` warns when the queue has grown past a
    frame's worth of plausible events.
 
    A JOURNAL ROW IS A FACT, NOT AN INSTRUCTION. `kind` is a bare string, `at` is

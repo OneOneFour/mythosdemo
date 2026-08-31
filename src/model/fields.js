@@ -6,9 +6,7 @@
    only the active set, so an empty world costs nothing.
 
    DELIBERATELY NOT IMPLEMENTED: diffusion. This is a seam, not a solver.
-   `rules/fields.js` decays and re-activates and does no transport. A buoyant
-   heat model is an upward bias inside that one loop, and the day it is wanted
-   nothing here changes shape.
+   `rules/fields.js` decays and re-activates and does no transport.
 
    It also deliberately does NOT bump the chunk paint version. Those chunk
    canvases cache static rock; a heat front would invalidate them every frame and

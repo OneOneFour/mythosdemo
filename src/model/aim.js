@@ -2,12 +2,8 @@
    Imports `model` only. May be imported by `model`, `rules`, `view`.
 
    In `model` rather than in `rules/mining.js` for exactly one reason: the HUD
-   draws the aim reticle, and `view` may not import `rules`. This is the sibling
-   rule doing its job, and it is also the sibling rule's cost being paid -- a
-   transient that morally belongs to the mining rule becomes model state with a
-   `newRun()` reset obligation. Five fields of state, and the alternative was the
-   renderer importing gameplay, which is the coupling the whole design exists to
-   prevent.
+   draws the aim reticle, and `view` may not import `rules`. That is the sibling
+   rule's cost being paid -- see docs/DEVELOPER_GUIDE.md#where-does-state-go
 
    `band` is here because a reticle at a band seam must know which band's tile it
    is pointing at; the same tile coordinates mean different things in two bands. */

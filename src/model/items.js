@@ -26,10 +26,9 @@ export const items = [];
 const grid = makeGrid();
 
 /* ---- the one key for a pair -------------------------------------------------
-   Machine buffers and the player's pockets are both keyed by this string. It is
-   the one place the slower representation was chosen on purpose: a buffer is the
-   thing you read while debugging a stuck factory, and `{ 'copper/ore': 3 }`
-   answers the question that `[0,0,3,0]` does not. ---- */
+   Machine buffers and the player's pockets are both keyed by this string. The
+   slower representation, chosen on purpose -- see
+   docs/DEVELOPER_GUIDE.md#buffers-and-pockets ---- */
 export const keyOf = (sub, form) => `${SUB[sub].id}/${FORM[form].id}`;
 
 export const parseKey = k => {
