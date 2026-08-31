@@ -146,6 +146,58 @@ test('the same seed renders identically twice', async ({ page }) => {
   expect(await hashOf()).toBe(await hashOf());
 });
 
+/* Hover has no persisted model state (ARCHITECTURE invariant 9) -- it is
+   resolved fresh from the pointer every frame by `view/hover.js`, and read
+   back here through `__mf.hover`/`__mf.hits`, which `view/hud.js` exposes for
+   exactly this. A screenshot cannot prove hover actually works: two identical
+   pixels could come from the tooltip resolving nothing at all. This asserts
+   the resolved CONTENT, the way `tools/check.mjs`'s trinket check proves an
+   item was actually produced rather than that a recipe merely didn't throw. */
+test('hovering an inventory pair resolves a tooltip naming it', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const info = await page.evaluate(async () => {
+    const { write } = await import('/src/model/run.js');
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { banner } = await import('/src/view/fx.js');
+
+    write.collect(S.copper, F.ore, 5);
+    __mf.flags.showInv = true;
+    /* `drawHUD` shows the title card instead of a tooltip while `banner.fade`
+       is still counting down from `newRun()`'s 2.6 s opening title -- real
+       play never notices because nobody hovers anything in the first three
+       seconds, but `settle()` only advances the clock, not `stepFx` (which is
+       what actually decays it), so it would still read as active here. */
+    banner.fade = 0;
+    /* `draw()`, not `frames()`: a substep also runs `updateCamera`, and
+       `mouseAt` converts a SCREEN position to world px by adding the CURRENT
+       camera -- a step between setting the mouse and rendering would move the
+       camera out from under it. The HUD itself never moves with the camera at
+       all (it is screen space already), so nothing here needs the physics to
+       run, only a render. */
+    __mf.draw();
+
+    /* `__mf.hits` is the SAME rectangle list `view/hud.js` just drew -- the
+       strip AND the open panel both list copper ore once collect() has run,
+       so this is two hits; the panel's is pushed second. Finding it this way,
+       rather than a hardcoded screen coordinate, is what keeps the assertion
+       honest at both the desktop and phone viewports (CLAUDE.md: a hardcoded
+       click position breaks at the other one). */
+    const hits = __mf.hits.filter(h => h.sub === S.copper && h.form === F.ore);
+    const panelHit = hits[hits.length - 1];
+    __mf.mouseAt(panelHit.x + 2, panelHit.y + 2);
+    __mf.draw();
+
+    return { hitCount: hits.length, hover: { ...__mf.hover } };
+  });
+
+  expect(info.hitCount).toBe(2);              // strip entry + panel row
+  expect(info.hover.active).toBe(true);
+  expect(info.hover.lines[0]).toBe('COPPER ORE');
+  expect(info.hover.lines.some(l => l.startsWith('MASS'))).toBe(true);
+});
+
 /* Dev serves src/ untransformed; dist is bundled and minified by esbuild.
    That is a real divergence risk, so it is asserted rather than assumed.
    Requires `npm run build` first — `npm run parity` does both. */

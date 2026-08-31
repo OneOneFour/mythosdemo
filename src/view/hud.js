@@ -16,7 +16,19 @@
 
    Panels clamp on narrow viewports. Below roughly 240 px of base width the
    panels overlap and the depth gauge collides with anything centred; the clamps
-   below are what stop that, and they were learned the hard way. Keep them. */
+   below are what stop that, and they were learned the hard way. Keep them.
+
+   ============================================================================
+   HOVER IS RESOLVED, NOT STORED. `view/hover.js#resolveHover` reads the pointer
+   off the frame context and the model fresh every call; nothing here caches a
+   result on a model record (ARCHITECTURE invariant 9). The one piece of state
+   in THIS file, `pocketHits`/`hoverInfo` below, is `view`'s own scratch space
+   for what it drew and found last frame -- the same idiom `view/paint.js`'s
+   `stats` and `view/scene.js`'s `stats` already use for "what did the last
+   render do", read back only by the test hook and never by another module's
+   logic. It costs nothing the epoch check watches, because nothing here calls
+   `model/epoch.js#bump`.
+   ============================================================================ */
 
 import { drawText, textWidth } from '../core/font.js';
 import { R } from '../core/pixels.js';
@@ -27,11 +39,13 @@ import { SUB } from '../data/substances.js';
 import { SPAWN_BAND } from '../data/world.js';
 import { TRINKET } from '../data/trinkets.js';
 import { aim } from '../model/aim.js';
+import { massOfPair } from '../model/items.js';
 import { mods } from '../model/mods.js';
 import { player } from '../model/player.js';
 import { hasPick, pocketRows, run } from '../model/run.js';
 import { bandOf, worldY } from '../model/world.js';
 import { banner, toasts } from './fx.js';
+import { resolveHover } from './hover.js';
 import { stats as paintStats } from './paint.js';
 
 const UI = {
@@ -42,21 +56,50 @@ const UI = {
   hollow: '#2c2028',
   hi:     '#ff8a7a',
   good:   '#9ad86a',
-  debug:  colour('watB')
+  debug:  colour('watB'),
+  /* The pocket strip's one accent colour: a relic's frame, and nothing else.
+     `ichor` is already the divine-gold `data/palette.js` name a trinket's own
+     `look.item` uses (see `bellows` in `data/substances.js`), so a trinket's
+     border and a trinket's swatch read as the same material rather than the
+     HUD inventing a second "this is special" colour. */
+  relic:  colour('ichor')
 };
+
+/* `view/hover.js#resolveHover` hit-tests against exactly these rectangles, so
+   the strip/panel and their tooltips cannot silently disagree about where an
+   entry sits. Rebuilt from scratch every `drawHUD` call -- read, never relied
+   on for anything but the next line's hover test and the test hook. */
+export const pocketHits = [];
+
+/* What a tooltip is showing right now, or `active:false`. The one thing this
+   module exposes for introspection outside a draw call — see the header
+   comment on why this is safe and `stats` in `view/paint.js` for the
+   precedent. */
+export const hoverInfo = { active: false, x: 0, y: 0, lines: null };
 
 export function drawHUD(g, f) {
   const { W, H } = f;
   const narrow = W < 300;
 
   hearts(g, 6, 6);
-  pockets(g, 6, narrow ? 20 : 18);
+  const stripHits = pockets(g, 6, narrow ? 20 : 18, W);
+  pocketHits.length = 0;
+  pocketHits.push(...stripHits);
+  /* The panel opens BELOW wherever the strip actually ended, not a fixed y --
+     the strip wraps onto a second row once enough distinct pairs are held, and
+     a fixed offset would let the panel overlap it exactly the way CLAUDE.md's
+     own "narrow panel" mistake describes. */
+  if (f.flags.showInv) {
+    const top = stripHits.reduce((m, h) => Math.max(m, h.y + h.h + 4), narrow ? 30 : 28);
+    pocketHits.push(...invPanel(g, f, top));
+  }
   depth(g, W, 6);
   reticle(g, f);
   hint(g, W, H);
   if (f.flags.showDebug) debug(g, f, W);
   if (run.dead) deathScreen(g, W, H);
   else if (banner.fade > 0) title(g, W, H);
+  else tooltip(g, f);
 }
 
 /* ---------- five discrete hearts, per docs/SPEC.md section 2 ----------
@@ -76,24 +119,137 @@ function hearts(g, x, y) {
   }
 }
 
-/* One swatch and one count per held pair. A pair the substance row flags
-   `always` shows a zero, which is how the first minute has something to point
-   at without a tutorial beat existing. */
-function pockets(g, x, y) {
-  let cx = x;
+/* One swatch, one name and one count per held pair. A pair the substance row
+   flags `always` shows a zero, which is how the first minute has something to
+   point at without a tutorial beat existing.
+
+   Wraps to a second row rather than running off the edge of a narrow viewport
+   -- CLAUDE.md's own list of past mistakes here is exactly "a panel that
+   overlaps at 200 px wide", and a name is much wider than the swatch-plus-count
+   this strip used to be. Returns the rectangle it drew for every entry, so
+   `view/hover.js` can hit-test the SAME layout instead of a second copy of
+   this x/y math. */
+function pockets(g, x, y, maxW) {
+  const hits = [];
+  let cx = x, cy = y;
   for (const row of pocketRows()) {
-    const l = SUB[row.sub].look;
+    const s = SUB[row.sub];
+    const l = s.look;
     if (!l?.item) continue;
     const col = colour(l.item[0]);
+    const label = labelOf(row.sub, row.form);
     const n = String(row.n);
-    R(g, cx, y + 1, 4, 4, col);
-    R(g, cx, y + 4, 4, 1, mix(col, UI.back, 0.5));
+    const lw = textWidth(label), nw = textWidth(n);
+    /* A gap of a full glyph cell (6 px) between the name and the count -- 3 px
+       read as "ORE0" with no space at all once the label stopped being a bare
+       swatch, which is illegible at this font size. */
+    const w = 6 + lw + 6 + nw + 3;
+
+    if (cx > x && cx + w > maxW - 4) { cx = x; cy += 8; }
+
+    /* A relic (a trinket, the starting pick) is a unique held THING, not a
+       stack of material -- ARCHITECTURE's substance x form split means it
+       lands in this same strip with no code path of its own, so the border is
+       the only thing that stops it reading as "ore, ore, mystery ore" the
+       moment one enters the pockets. `tags.includes('relic')` is the same test
+       `data/forms.js#crossable` uses to decide the `relic` form may cross it. */
+    const relic = s.tags?.includes('relic');
+    if (relic) R(g, cx - 1, cy, 6, 6, UI.relic);
+    R(g, cx, cy + 1, 4, 4, col);
+    R(g, cx, cy + 4, 4, 1, mix(col, UI.back, 0.5));
     /* A tile-capable form is what a ladder is built from, so it is marked:
        the player needs to know which of their pockets can become a wall. */
-    if (FORM[row.form].tile) R(g, cx + 1, y + 2, 2, 1, UI.back);
-    drawText(g, n, cx + 6, y, row.n ? UI.ink : UI.dim, 1, 1);
-    cx += 6 + textWidth(n) + 6;
+    if (FORM[row.form].tile) R(g, cx + 1, cy + 2, 2, 1, UI.back);
+
+    drawText(g, label, cx + 6, cy, UI.dim, 1, 1);
+    drawText(g, n, cx + 6 + lw + 6, cy, row.n ? UI.ink : UI.dim, 1, 1);
+
+    hits.push({ x: cx - 1, y: cy - 1, w: w, h: 8, sub: row.sub, form: row.form });
+    cx += w + 5;
   }
+  return hits;
+}
+
+/* The full inventory, toggled by `i` (`shell/input.js#flags.showInv`). Same
+   data source as the strip (`pocketRows()`), filtered to what is actually
+   HELD -- the strip's zero-count teaching slots have nothing to list a mass
+   or a count for. `massOfPair` is a `model/items.js` query, not a render
+   decision: the mass of a copper ingot is a fact about the world, not about
+   how it is drawn. */
+function invPanel(g, f, top) {
+  const { W, H } = f;
+  const rows = pocketRows().filter(r => r.n > 0);
+  const lineH = 9;
+
+  /* Width fits the longest NAME alone, clamped to the viewport -- a relic's
+     full name ("BELLOWS OF THE FORGE RELIC") is longer than count-and-mass
+     could ever be squeezed onto the same line as at any viewport width
+     without the two overlapping, which is why they get their own indented
+     line below the name instead of a right-aligned column. Two lines per
+     entry, always, rather than only when a name is long: a fixed row shape
+     is one thing to get right instead of a per-row branch that is only
+     exercised by whichever item happens to have the longest name. */
+  const w = Math.min(
+    Math.max(textWidth('POCKETS'), 60, ...rows.map(r => textWidth(labelOf(r.sub, r.form)))) + 8,
+    W - 12
+  );
+  const lines = 1 + (rows.length ? rows.length * 2 : 1);   // header + rows, or header + EMPTY
+  const h = lines * lineH + 8;
+  const x = (W - w) >> 1, y = Math.min(top, H - h - 4);
+  const hits = [];
+
+  panel(g, x, y, w, h, 0.88);
+  let ry = y + 4;
+  drawText(g, 'POCKETS', x + 4, ry, UI.ink, 1, 1);
+  ry += lineH;
+
+  if (!rows.length) {
+    drawText(g, 'EMPTY', x + 4, ry, UI.dim, 1, 1);
+    return hits;
+  }
+
+  for (const row of rows) {
+    const label = labelOf(row.sub, row.form);
+    const n = 'x' + row.n;
+    const m = massOfPair(row.sub, row.form).toFixed(1);
+    const hitTop = ry - 1;
+
+    drawText(g, label, x + 4, ry, UI.ink, 1, 1);
+    ry += lineH;
+    drawText(g, n, x + 8, ry, UI.dim, 1, 1);
+    drawText(g, m, x + 8 + textWidth(n) + 6, ry, UI.dim, 1, 1);
+    ry += lineH;
+
+    hits.push({ x, y: hitTop, w, h: lineH * 2, sub: row.sub, form: row.form });
+  }
+  return hits;
+}
+
+/* The tooltip itself. `resolveHover` does the actual hit-testing and content
+   lookup, entirely from the pointer and the model; this just lays out
+   whatever it returns and remembers it in `hoverInfo` for the test hook. */
+function tooltip(g, f) {
+  const info = resolveHover(f, pocketHits);
+  hoverInfo.active = !!info;
+  hoverInfo.x = info ? info.x : 0;
+  hoverInfo.y = info ? info.y : 0;
+  hoverInfo.lines = info ? info.lines : null;
+  if (!info) return;
+
+  const { x, y, lines } = info;
+  let w = 0;
+  for (const l of lines) w = Math.max(w, textWidth(l));
+  w += 8;
+  const h = lines.length * 8 + 4;
+
+  /* Offset from the cursor, then clamped to stay on-screen -- a tooltip that
+     runs off the edge at the corner of a narrow viewport is unreadable, which
+     is the same class of bug the panel clamps above exist to prevent. */
+  const bx = Math.min(x + 8, f.W - w - 2);
+  const by = Math.min(y + 8, f.H - h - 2);
+
+  panel(g, bx, by, w, h, 0.92);
+  lines.forEach((l, i) => drawText(g, l, bx + 4, by + 3 + i * 8, i === 0 ? UI.ink : UI.dim, 1, 1));
 }
 
 /* One tile reads as one metre, measured from the SPAWN band's ground line — so

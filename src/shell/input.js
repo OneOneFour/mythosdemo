@@ -36,7 +36,7 @@ export const wants = { restart: false, machine: null, draft: null };
 
 /* Presentation toggles. Read by `view` through the frame context — `view` may
    not import `shell`, so they are passed in rather than imported. */
-export const flags = { showGrid: false, showChunks: false, showDebug: false };
+export const flags = { showGrid: false, showChunks: false, showDebug: false, showInv: false };
 
 const KEYS = {
   a: 'left',  arrowleft: 'left',
@@ -65,6 +65,7 @@ export function installInput() {
     if (k === 'g') flags.showGrid   = !flags.showGrid;
     if (k === 'c') flags.showChunks = !flags.showChunks;
     if (k === 'h') flags.showDebug  = !flags.showDebug;
+    if (k === 'i') flags.showInv    = !flags.showInv;
     if (k === 'm') audio.muted = !audio.muted;
     if (k === 'f') wants.machine = 'furnace';
     if (k === 't') wants.draft = 'trinket';

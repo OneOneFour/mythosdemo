@@ -30,6 +30,7 @@ import { boot, newRun } from './boot.js';
 import { clearEdges, cmd, flags, pointer, wants } from './input.js';
 import { drainJournal } from './notify.js';
 import { boons, stepAll, trinkets } from './schedule.js';
+import { hoverInfo, pocketHits } from '../view/hud.js';
 
 export const STEP = 1 / 120;
 export const MAX_CATCHUP = 0.25;             // s of real time simulated per frame
@@ -38,8 +39,11 @@ export const clock = { t: 0, dt: 0, frame: 0, acc: 0 };
 export const cam = { x: 0, y: 0 };
 
 /* The frame context handed to `view`. One object, reused, because `view` may not
-   import `shell` and allocating a fresh one sixty times a second is waste. */
-const frameCtx = { cam, t: 0, dt: 0, frame: 0, W: 0, H: 0, flags };
+   import `shell` and allocating a fresh one sixty times a second is waste.
+   `mouse` is `cmd.mx`/`cmd.my`/`cmd.hasMouse` copied in every `draw()` — WORLD
+   px, same as `cam`, so `view/hover.js` can test world content directly and
+   subtract `cam` itself for anything drawn in screen space (the HUD). */
+const frameCtx = { cam, t: 0, dt: 0, frame: 0, W: 0, H: 0, flags, mouse: { x: 0, y: 0, has: false } };
 
 /* ---------- one frame of simulation ---------- */
 export function step(dt) {
@@ -165,6 +169,9 @@ export function draw() {
   frameCtx.frame = clock.frame;
   frameCtx.W = VIEW.w;
   frameCtx.H = VIEW.h;
+  frameCtx.mouse.x = cmd.mx;
+  frameCtx.mouse.y = cmd.my;
+  frameCtx.mouse.has = cmd.hasMouse;
   render(g, frameCtx);
 }
 
@@ -212,6 +219,19 @@ function installTestHook() {
     ready: true,
     newRun, step, draw, resize,
     clock, cam, player, run, aim, items, machines, cmd, flags,
+
+    /* Read-back of `view/hud.js`'s own last-frame output, for hover assertions.
+       `hover` is what a tooltip would show right now; `hits` are the hitboxes
+       the HUD strip/panel actually drew, so a test can find the exact rect for
+       a `{sub, form}` pair instead of guessing a pixel coordinate — the same
+       trap CLAUDE.md's "hardcoded click coordinates" mistake describes. */
+    hover: hoverInfo, hits: pocketHits,
+
+    /* Move the pointer to a SCREEN pixel (canvas space, same units `hits`
+       reports in) without a real DOM pointer event -- there is no browser
+       gesture to synthesize headlessly, and `cmd.mx/my` are WORLD px, so this
+       is `toWorld`'s own arithmetic with `cam` standing in for the click. */
+    mouseAt(sx, sy) { cmd.mx = cam.x + sx; cmd.my = cam.y + sy; cmd.hasMouse = true; },
 
     /* Advance n substeps at a fixed dt, then draw once. `applyIntents()` runs
        once per substep here rather than once per call -- as it would inside a
