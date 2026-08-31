@@ -110,3 +110,23 @@ they will feel the asymmetry, and cycle 2 has a deadline.
 
 Procedural run generation beyond the tutorial band, monsters, fluids, heat,
 boon drafting, the Hades act, meta-progression. All recorded elsewhere.
+
+## 8. Compression ratios
+
+`docs/DESIGN.md`'s cost-of-ascension section fixes these against raw ore, but
+states them as a conceptual table rather than as recipe inputs. Locked here
+as the numbers the code is actually written against, so a future tier is
+added by matching this table rather than picking a fresh round number:
+
+| tier | ratio (vs. ore) | recipe |
+|---|---|---|
+| ore | 1:1 | mined directly |
+| ingot | 4:1 | `smelt`: 4 ore + 1 fuel -> 1 ingot |
+| plate | 12:1 | `press`: 3 ingot + 1 fuel -> 1 plate |
+| essence | 60:1 | not implemented |
+| ambrosia | ~400:1 | not implemented |
+
+Plate's ratio is expressed in ingot terms (3, not 12) because it is built
+*from* ingots, not from ore directly — 3 x the 4:1 ingot ratio is the same
+12:1 against ore. If this disagrees with `data/recipes.js`, this file is
+stale; fix it here first.

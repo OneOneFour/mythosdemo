@@ -18,7 +18,7 @@
                  accepts  selectors -- see the grammar in `data/forms.js`.
 
      buffer.cap  { selector: units }. Per-selector, so the furnace's
-                 4-ore / 2-fuel asymmetry is expressible without two fields.
+                 8-ore / 2-fuel asymmetry is expressible without two fields.
 
      catchBox    { mouth, slack } items falling through the mouth are swallowed
                  for free. This is the thesis of the game in one flag: placing a
@@ -63,7 +63,11 @@ export const MACHINES = [
     ports:[ { side:'top', mode:'in', accepts:['*/#ore', '*/#fuel'] },
             { side:'top', mode:'out' } ],
 
-    buffer:{ cap:{ '*/#ore':4, '*/#fuel':2 } },
+    /* `smelt` now eats 4 ore per run (`docs/DESIGN.md`'s 4:1 ratio) rather
+       than the 2 an earlier draft used, so the ore cap is bumped to 8 to keep
+       the same 2-runs-of-headroom the fuel cap already had at 2 -- an
+       asymmetric CAP, not an asymmetric ratio of cap to recipe demand. */
+    buffer:{ cap:{ '*/#ore':8, '*/#fuel':2 } },
 
     catchBox:{ mouth:'top', slack:2 },
     handFeed:{ reach:10, from:['*/#ore', '*/#fuel'] },
@@ -125,7 +129,51 @@ export const MACHINES = [
 
     look:{ body:'woodC', trim:'irB', base:'irD', fire:true,
            pips:[ { sel:'*/#fuel', row:0 } ],
-           sfx:{ accept:'ignite', produce:'winch' } } }
+           sfx:{ accept:'ignite', produce:'winch' } } },
+
+  /* ---- PRESS: the second compression tier, `docs/DESIGN.md`'s 12:1 plate
+     ratio. NOT a `variantOf:'furnace'` like `kiln_divine` -- a variant only
+     overrides keys on an identical machine, and this one runs a genuinely
+     different recipe (`press`, not `smelt`) with a different input shape (3
+     ingot / 1 fuel, not 4 ore / 1 fuel), so it earns its own row rather than
+     hiding a second machine's worth of change inside `variantOf`. Smaller
+     footprint than the furnace (2x2, not 3x2) because it works on ingots
+     already reduced from ore, not raw veins -- it wants less mouth to feed
+     it, not more.
+
+     NO `needs:{heat:{min:...}}` GATE, though the "sit a press above a
+     furnace" buoyant-heat pairing is exactly the kind of thing `needs` exists
+     for. `rules/fields.js` states diffusion is deliberately unimplemented --
+     heat sits at the exact tile a machine emits it into and only decays
+     there, it does not rise -- so a press one tile above a furnace would sit
+     at the same heat as a press in a field with no furnace at all: a gate
+     that reads as intentional design and is actually just permanently shut
+     (or trivially open at threshold 0) is worse than no gate. Wire this once
+     `rules/fields.js` grows the buoyant transport its own comment already
+     names as the seam. ---- */
+  { id:'press', name:'PRESS',
+    tw:2, th:2, footing:2,
+
+    ports:[ { side:'top', mode:'in', accepts:['*/#ingot', '*/#fuel'] },
+            { side:'top', mode:'out' } ],
+
+    /* Same 2x-recipe headroom rule as the furnace: `press` spends 3 ingot / 1
+       fuel per run, so the caps double that. */
+    buffer:{ cap:{ '*/#ingot':6, '*/#fuel':2 } },
+
+    catchBox:{ mouth:'top', slack:2 },
+    handFeed:{ reach:10, from:['*/#ingot', '*/#fuel'] },
+
+    recipes:['press'],
+
+    /* Iron-toned like the furnace's trim, not its body -- reads as the same
+       forge-metal family without being mistaken for a furnace at a glance.
+       Reuses `ignite`/`ingot` for accept/produce: there is no dedicated
+       press or plate sound row yet, and inventing one is audio content, not
+       this machine's data. */
+    look:{ body:'irB', trim:'irA', base:'irD', fire:true,
+           pips:[ { sel:'*/#ingot', row:0 }, { sel:'*/#fuel', row:1 } ],
+           sfx:{ accept:'ignite', produce:'ingot' } } }
 ];
 
 /* ---- variant expansion, then derived indices, built once, frozen ------------

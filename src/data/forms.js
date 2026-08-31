@@ -47,7 +47,12 @@ export const FORMS = [
 
   { id:'ingot', label:'INGOT',
     size:4, massK:1.6, hudOrder:3,
-    tags:['refined'],
+    /* `ingot` tag added alongside `refined` so a recipe can select "any metal
+       ingot" the same way `smelt` selects "any ore" -- see `press` in
+       `recipes.js`. `refined` stays a broader tag for anything smelted-or-
+       further, which `plate` also carries; `ingot` is the exact-form tag that
+       keeps a press from also accepting a plate fed back into it. */
+    tags:['refined', 'ingot'],
     subTags:['metal'] },
 
   /* The only tile-capable form. `solid:false, climb:true` is the ladder, and
@@ -66,7 +71,25 @@ export const FORMS = [
   { id:'relic', label:'RELIC',
     size:4, massK:1.0, hudOrder:5,
     tags:['relic'],
-    subTags:['relic'] }
+    subTags:['relic'] },
+
+  /* ---- plate: the SECOND compression tier, `docs/DESIGN.md`'s locked
+     12:1 ratio (ore terms) -- `docs/SPEC.md` section 8 spells out that a plate
+     is 3 ingots, since 3 x the 4:1 ingot ratio is 12:1. Same `subTags:['metal']`
+     restriction as `ingot`: a plate is a further-worked ingot, so whatever may
+     not become an ingot may not become a plate either. `massK` is denser than
+     ingot's 1.6 -- a plate is the more compact good, consistent with the
+     compression-ratio thesis that only refined goods are worth lifting.
+     No `tile` block: unlike `log`, a plate is never placed as terrain, only
+     ever held or banked -- there is no "plate wall" to dig back out of.
+     `hudOrder` is appended after `relic` rather than slotted next to `ingot`
+     to avoid renumbering an existing row; it still sorts after ingot within
+     any one substance's group, which is the only ordering `byHudOrder`
+     actually produces (substance first, form second). ---- */
+  { id:'plate', label:'PLATE',
+    size:4, massK:2.4, hudOrder:6,
+    tags:['refined', 'plate'],
+    subTags:['metal'] }
 ];
 
 export const FORM = Object.freeze(FORMS.map(Object.freeze));

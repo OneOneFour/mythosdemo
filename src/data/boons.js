@@ -28,5 +28,14 @@ export const BOON = Object.freeze(Object.fromEntries(
   BOONS.map(b => [b.id, Object.freeze(b)])));
 
 /* The machines a run may place before any boon is drafted. Everything else is
-   granted. `rules/placement.js` reads this and nothing else. */
-export const STARTING_MACHINES = Object.freeze(['furnace', 'lift']);
+   granted. `rules/placement.js` reads this and nothing else.
+
+   `press` is here PROVISIONALLY, for testability while the plate tier has no
+   content consuming it yet (no cycle-2 tribute, no boon gating it). It reads
+   as free content now for the same reason `furnace` is a starting machine and
+   not a boon grant: cycle 1 has no clock, so there is nothing yet to make
+   pressing plates a reward rather than a given. Once tribute past cycle 1
+   exists, this almost certainly wants to move to a `BOONS` row instead — a
+   press earned late is refinement-quota pressure; a press free from spawn is
+   just an unused row on the HUD. */
+export const STARTING_MACHINES = Object.freeze(['furnace', 'lift', 'press']);

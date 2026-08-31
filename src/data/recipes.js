@@ -39,12 +39,35 @@
 
 export const RECIPES = Object.freeze({
 
-  /* ---- the commented row ---- */
+  /* ---- the commented row ----
+     `docs/DESIGN.md`'s locked compression table fixes ingot at 4:1 (four ore
+     become one ingot), so `in` reads 4 here and not the round-number 2 an
+     earlier draft shipped with -- `docs/SPEC.md` names this explicitly so the
+     two files cannot drift again. */
   smelt: Object.freeze({
     id:'smelt', name:'SMELT',
-    in:{ '*/#ore':2, '*/#fuel':1 },
+    in:{ '*/#ore':4, '*/#fuel':1 },
     out:[ { subFrom:'*/#ore', form:'ingot', n:1 } ],
     secs:4.0
+  }),
+
+  /* ---- press: the SECOND compression tier. `docs/DESIGN.md` locks plate at
+     12:1 against raw ore; since one ingot already costs 4 ore, three ingots
+     is the same 12:1 expressed in ingot terms, so `in` reads 3 rather than a
+     fresh ore-relative number. The input selector is star-slash-hash-ingot,
+     not star-slash-hash-refined, on purpose (written in words, not symbols,
+     for the same reason `forms.js`'s grammar comment does -- a star followed
+     by a slash closes a block comment): `refined` also tags `plate` itself
+     (see `forms.js`), and selecting on it here would let a press eat its own
+     output, one refinement tier "compressing" into itself for free.
+     `subFrom` on the matching selector carries the substance across exactly
+     the way `smelt` carries it from ore, so a tin plate differs from a
+     copper plate with no row written anywhere for tin. */
+  press: Object.freeze({
+    id:'press', name:'PRESS',
+    in:{ '*/#ingot':3, '*/#fuel':1 },
+    out:[ { subFrom:'*/#ingot', form:'plate', n:1 } ],
+    secs:8.0
   })
 });
 
