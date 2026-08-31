@@ -30,7 +30,8 @@ import { S, SUB } from '../data/substances.js';
 import { STARTING_MACHINES } from '../data/boons.js';
 import { M, MACH } from '../data/machines.js';
 import { bump } from './epoch.js';
-import { keyOf, parseKey } from './items.js';
+import { keyOf, massOfPair, parseKey } from './items.js';
+import { eff } from './mods.js';
 
 export const RUN_SCHEMA = Object.freeze({
   seed: 1337, t: 0,
@@ -160,6 +161,25 @@ export function canAfford(cost) {
    exposed here rather than left inside a `rules` module for the same reason
    as `canAfford` above: the CRAFT panel needs to grey out an unaffordable
    hand-recipe with no `rules` import available to it. */
+/* Total carried mass, in TALENTS -- CLAUDE.md D3. A query on numbers, so it
+   is `model`, not `rules`: the DECISION about what a burdened player may
+   still do -- `rules/player.js`'s climb falloff and ladder/hop lockout,
+   `rules/items.js`'s pickup refusal, `rules/lift.js`'s boarding refusal --
+   all read this, but none of that decision lives here. */
+export function burdenOf() {
+  let mass = 0;
+  for (const k in run.inv) {
+    const { sub, form } = parseKey(k);
+    mass += massOfPair(sub, form) * run.inv[k];
+  }
+  return mass;
+}
+
+/* Fraction of the hard cap (`eff('burden')`) currently carried. `>= 1` is
+   the lockout threshold `rules/player.js` reads; `eff('burdenSoft')` is
+   where climb speed starts falling off before that. */
+export const burdenFrac = () => burdenOf() / eff('burden');
+
 export function pocketsHave(sel, n) {
   for (const k in run.inv) {
     if (run.inv[k] < n) continue;

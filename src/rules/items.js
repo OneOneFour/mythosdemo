@@ -22,11 +22,12 @@
    material that falls in is free, which is what makes placing a machine UNDER a
    vein strictly better than placing it on the surface. */
 
+import { rand } from '../core/rng.js';
 import { push } from '../model/journal.js';
-import { items, sizeOf, write as iw } from '../model/items.js';
+import { items, massOfPair, parseKey, sizeOf, write as iw } from '../model/items.js';
 import { eff } from '../model/mods.js';
-import { playerCentre } from '../model/player.js';
-import { run, write as rw } from '../model/run.js';
+import { PH, player, playerCentre } from '../model/player.js';
+import { burdenOf, run, write as rw } from '../model/run.js';
 import { solidAt } from '../model/tiles.js';
 import { bandBelow, heightPx, tileX, tileY, worldY } from '../model/world.js';
 
@@ -43,6 +44,66 @@ const MAGNET_DELAY = 0.35;
    not skitter. */
 const BOUNCE = 0.3;
 
+/* Floating-point slack for the burden comparison below -- a pickup landing
+   EXACTLY on the hard cap must succeed, not fail on a rounding hair. */
+const MASS_EPS = 1e-6;
+
+/* A refused pickup must not re-test -- and re-push the journal -- every
+   single frame it sits in the pickup radius. The same idiom
+   `rules/mining.js`'s 'pick' row already leans on (pushed every frame,
+   rate-limited downstream by `data/sfx.js`'s MIN_GAP) is applied here
+   directly rather than through that table: `data/sfx.js` belongs to a later
+   phase this cycle, and 'refused' already carries no sound to throttle --
+   only the toast text, which this local, transient side-table gates
+   instead. Keyed by object identity rather than a field on the item record
+   (`model/items.js`'s own header insists the shape stay monomorphic, and
+   this is not that file's phase to edit): a removed item is simply never
+   queried again and needs no explicit cleanup. */
+const REFUSAL_GAP = 1.0;
+const refusedAt = new WeakMap();
+function refusalDue(it) {
+  const last = refusedAt.get(it);
+  if (last !== undefined && run.t - last < REFUSAL_GAP) return false;
+  refusedAt.set(it, run.t);
+  return true;
+}
+
+/* ---------- the drop verb ----------
+   CLAUDE.md D4's own stated prerequisite: shipping the encumbrance lockout
+   without a way to put material down would soft-lock an over-cap player.
+   Spends exactly one unit of the HEAVIEST held pair -- the one that buys
+   the most relief per item dropped, not the first in HUD order -- and hands
+   it back to gravity at the player's feet, the same "material becomes a
+   falling item" idiom (invariant 5) `rules/crafting.js` and
+   `rules/trinkets.js#grant` already use, with a small toss read through
+   `eff('tossUp')`/`eff('tossSpread')` (Phase 1 rows) rather than a fifth
+   independently-chosen toss magnitude (docs/FINDINGS.md's toss-velocity
+   finding). */
+export function dropHeaviest() {
+  if (run.dead || !player.band) return;
+
+  let best = null, bestMass = -1;
+  for (const k in run.inv) {
+    const { sub, form } = parseKey(k);
+    const m = massOfPair(sub, form);
+    if (m > bestMass) { bestMass = m; best = { sub, form }; }
+  }
+  if (!best) return;
+  if (!rw.spend(best.sub, best.form, 1)) return;
+
+  const c = playerCentre();
+  const at = { x: c.x, y: c.y + PH / 2 };
+  const up = eff('tossUp'), spread = eff('tossSpread');
+  iw.spawn(player.band, at.x, at.y, best.sub, best.form,
+           (rand() - 0.5) * 2 * spread, -up);
+  /* Reuses the 'place' journal kind -- see docs/FINDINGS.md: `shell/notify.js`
+     and `data/sfx.js` (the only files that could name a dedicated 'dropped'
+     kind and its text) are outside this phase's FILE OWNERSHIP, and 'place'
+     already renders exactly this shape of row ({sub, form}) as
+     "<PAIR> PLACED", which is the closest true statement already wired. */
+  push('place', at, { sub: best.sub, form: best.form });
+}
+
 export function step(dt) {
   const grav = eff('grav'), term = eff('terminal');
   const pickupR = eff('pickupR');
@@ -56,9 +117,16 @@ export function step(dt) {
     else if (!integrate(it, dt, grav, term)) { iw.remove(it); continue; }
 
     if (it.age > MAGNET_DELAY && !run.dead && near(it, c, pickupR)) {
-      rw.collect(it.sub, it.form, 1);
-      push('pickup', { x: it.x, y: it.y }, { sub: it.sub, form: it.form });
-      iw.remove(it);
+      /* CLAUDE.md D4: a pickup that would cross the HARD cap is refused, and
+         the item stays on the ground -- never partially collected. */
+      if (burdenOf() + massOfPair(it.sub, it.form) > eff('burden') + MASS_EPS) {
+        if (refusalDue(it))
+          push('refused', { x: it.x, y: it.y }, { sub: it.sub, form: it.form, why: 'TOO HEAVY TO CARRY' });
+      } else {
+        rw.collect(it.sub, it.form, 1);
+        push('pickup', { x: it.x, y: it.y }, { sub: it.sub, form: it.form });
+        iw.remove(it);
+      }
     }
   }
 

@@ -22,10 +22,13 @@
    winch's second recipe pays a heart for a charge, and this file cannot tell a
    charge bought with timber from one bought with a heart. */
 
+import { overlaps } from '../core/math.js';
 import { push } from '../model/journal.js';
 import { itemsIn, write as iw } from '../model/items.js';
 import { defOf, machines, write as mw } from '../model/machines.js';
 import { eff } from '../model/mods.js';
+import { playerBox } from '../model/player.js';
+import { burdenFrac } from '../model/run.js';
 import { bandAt, bandOf } from '../model/world.js';
 
 /* Vertical slack, in px, within which material counts as ON the deck rather
@@ -40,8 +43,19 @@ export function step(dt) {
     const top = m.box.y - def.lift.span;
     const bottom = m.box.y;
 
-    if (m.charges > 0 && m.deck.y > top) ascend(m, def, dt, top);
-    else descend(m, dt, bottom);
+    if (m.charges > 0 && m.deck.y > top) {
+      /* CLAUDE.md D4: boarding a lift stage going UP is refused over the
+         hard cap, same as a ladder. The winch carries only MATERIAL today
+         (see `carry()` below -- there is no player-ride mechanic here to
+         extend), so this is the one place the PLAYER's own hitbox is tested
+         against a stage at all: an over-cap player standing on the deck
+         holds the stage where it is, charge intact, rather than riding it
+         up. */
+      if (overlaps(playerBox(), deckBox(m)) && burdenFrac() >= 1)
+        push('refused', { x: m.box.x, y: m.deck.y }, { why: 'TOO HEAVY TO CLIMB' });
+      else
+        ascend(m, def, dt, top);
+    } else descend(m, dt, bottom);
   }
 }
 

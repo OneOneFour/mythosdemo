@@ -23,6 +23,7 @@ import { machines } from '../model/machines.js';
 import { PH, PW, player, write as playerw } from '../model/player.js';
 import { pocketRows, run } from '../model/run.js';
 import { bands, heightPx, widthPx, write as worldw } from '../model/world.js';
+import { dropHeaviest } from '../rules/items.js';
 import { placeMachine, placeTile, placeableFromPockets } from '../rules/placement.js';
 import { step as stepFx } from '../view/fx.js';
 import { render } from '../view/scene.js';
@@ -117,6 +118,14 @@ function applyIntents() {
     const p = placeableFromPockets(pocketRows())[0];
     if (p) placeTile(aim.band, aim.tx, aim.ty, p.sub, p.form);
     cmd.place = false;
+  }
+
+  /* The drop verb (CLAUDE.md D4's prerequisite): no aim needed, it always
+     acts at the player's own feet, so unlike `place`/`wants.machine` above
+     it has no validity gate to wait on. */
+  if (cmd.drop) {
+    dropHeaviest();
+    cmd.drop = false;
   }
 
   /* Drafting, bound to a key so both boon tiers are exercisable by hand. The

@@ -26,9 +26,13 @@
      subTags   which substance tags may take this form. `ingot` requires
                `metal`, which is why there is no stone ingot and no row saying so.
      tile      present -> a PLACED unit of this form is a wall/ladder tile.
-               Only `log` has one: placing logs is how a ladder is built, and it
-               is the same two nouns as a felled tree.
-               hardK -> multiplies the substance hardness when placed. */
+               `log`, `rung` and `stair` all have one -- placing any of them
+               is how a ladder is built.
+               hardK -> multiplies the substance hardness when placed.
+     climbK    OPTIONAL. Multiplies `eff('climb')` for this form
+               (rules/player.js). Absent means 1; only `stair` sets it
+               (~1.8x), which is the point of a tier-2 ladder buying
+               VERTICAL THROUGHPUT rather than a new capability (Phase 2a). */
 
 import { S, SUB, byTag } from './substances.js';
 
@@ -119,7 +123,53 @@ export const FORMS = [
   { id:'phial', label:'PHIAL',
     size:3, massK:0.2, hudOrder:8,
     tags:['miracle'],
-    subTags:['miracle'] }
+    subTags:['miracle'] },
+
+  /* ---- rung: a cheap, dedicated ladder peg (Phase 2a, CLAUDE.md D4's own
+     prerequisite -- the encumbrance lockout needs something cheaper than a
+     whole log to climb back out on). `timber/log` already places as a
+     climbable tile -- building a ladder out of whole logs stays true -- this
+     is the SAME `climb:true` idiom at a fraction of the material.
+     `recipes.js#peg_rungs` turns TWO logs into FOUR rungs (not the plan's
+     literal one -- see that recipe's own comment for why the quantity is
+     load-bearing against a hand-craft priority collision with `kindle`, a
+     separate problem from the one below). `massK:0.3`: at the plan's
+     original ~0.35 with a 2-log input, 4 x 0.35 = 1.4 stays safely under
+     2 logs' 1.6, so this row no longer needs the sharper cut an earlier
+     1-log draft required -- but 0.3 was kept anyway, matching `brand`'s own
+     massK, since a peg is exactly that same "split lighter, with real
+     waste" shape `tools/content.mjs`'s mass-conservation check already
+     validated for brand in Phase 1 (4 x 0.3 = 1.2, under 1.6). `hardK` is
+     softer than a placed log's 0.30: a single peg is the flimsiest
+     climbable in the game, on purpose. No tag membership: a rung is not
+     fuel, ore or anything else a selector should be able to find by
+     accident. */
+  { id:'rung', label:'RUNG',
+    size:3, massK:0.3, hudOrder:9,
+    tags:[],
+    subTags:['organic'],
+    tile:{ solid:false, climb:true, hardK:0.20 } },
+
+  /* ---- stair: the tier-2 ladder, Daedalus's bronze work (Phase 2a).
+     `subTags:['metal']` is the same restriction `ingot`/`plate` use, so
+     `copper/stair` is the real pair and no new substance is needed.
+     `climbK` is NEW: a per-form multiplier into `eff('climb')`
+     (`rules/player.js`), so a stair is not a capability gate like a tool
+     tier -- it is a faster VERB, the vertical-throughput axis this phase's
+     header names as the point. Absent on every other form, which is why
+     they all still climb at exactly `eff('climb')`. `massK:3.0` is not a
+     plan-specified number: `recipes.js#daedalan` (2 copper/plate + 4
+     timber/log -> 2 copper/stair) allows up to 4.0 before violating mass
+     conservation (8.0 consumed / 2 produced), and 3.0 leaves real headroom
+     for waste -- some of the timber is scaffolding, not structure, and does
+     not survive into the stair. No `hardK` override: a bronze stair
+     recovers at plain copper hardness, tougher than a placed log or a rung,
+     which is the other half of "tier 2 costs more and is worth it." */
+  { id:'stair', label:'STAIR',
+    size:4, massK:3.0, hudOrder:10, climbK:1.8,
+    tags:[],
+    subTags:['metal'],
+    tile:{ solid:false, climb:true } }
 ];
 
 export const FORM = Object.freeze(FORMS.map(Object.freeze));

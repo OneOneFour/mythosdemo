@@ -29,7 +29,7 @@ import { audio, unlockAudio } from './audio.js';
    forgets the bar the instant it is not. */
 export const cmd = {
   left: false, right: false, up: false, down: false,
-  hop: false, dig: false, place: false, craft: false,
+  hop: false, dig: false, place: false, craft: false, drop: false,
   mouse: false, mx: 0, my: 0, hasMouse: false
 };
 
@@ -51,7 +51,7 @@ const KEYS = {
   s: 'down',  arrowdown: 'down'
 };
 
-let hopHeld = false, placeHeld = false;
+let hopHeld = false, placeHeld = false, dropHeld = false;
 
 function set(k, down) {
   const key = k.toLowerCase();
@@ -60,6 +60,12 @@ function set(k, down) {
   if (key === 'x' || key === 'j')   cmd.dig = down;
   if (key === 'e')                  { if (down && !placeHeld) cmd.place = true; placeHeld = down; }
   if (key === 'u')                  cmd.craft = down;
+  /* 'q' for the drop verb (CLAUDE.md D4's prerequisite) -- EDGE-TRIGGERED,
+     same `*Held` latch idiom as `hop`/`place` above: this file's own header
+     already records that a held key emptying the pockets into a wall in
+     half a second is a bug, and a held drop would empty the pockets one
+     pair at a time just as fast. */
+  if (key === 'q')                  { if (down && !dropHeld) cmd.drop = true; dropHeld = down; }
 }
 
 export function installInput() {
@@ -113,7 +119,7 @@ export function installInput() {
      walking into a wall. */
   addEventListener('blur', () => {
     for (const k of ['left', 'right', 'up', 'down', 'dig', 'place', 'craft', 'mouse']) cmd[k] = false;
-    hopHeld = false; placeHeld = false;
+    hopHeld = false; placeHeld = false; dropHeld = false;
   });
 
   const cv = stage.cv;
@@ -154,6 +160,7 @@ export const pointer = { cam: { x: 0, y: 0 }, toWorld: null };
 export function clearEdges() {
   cmd.hop = false;
   cmd.place = false;
+  cmd.drop = false;
   wants.restart = false;
   wants.machine = null;
   wants.draft = null;

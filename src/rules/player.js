@@ -28,12 +28,13 @@
    constant here for anyone to read around; the hitbox is in `model/player.js`
    because a hitbox is geometry, not a tunable. */
 
-import { clamp } from '../core/math.js';
+import { clamp, lerp } from '../core/math.js';
+import { FORM } from '../data/forms.js';
 import { push } from '../model/journal.js';
 import { eff } from '../model/mods.js';
 import { PH, PW, fallHearts, player, write as pw } from '../model/player.js';
-import { run, write as rw } from '../model/run.js';
-import { climbAt, solidAt } from '../model/tiles.js';
+import { burdenFrac, run, write as rw } from '../model/run.js';
+import { climbAt, formAt, solidAt } from '../model/tiles.js';
 import { bandAbove, bandBelow, bands, heightPx, tileX, tileY, widthPx, worldX, worldY } from '../model/world.js';
 
 export function step(dt, cmd) {
@@ -58,6 +59,14 @@ export function step(dt, cmd) {
   let onLadder = boxClimb(b, player.x, player.y);
   pw.set('onLadder', onLadder);
 
+  /* CLAUDE.md D4: encumbrance gates ASCENT, and nothing else. `frac` is the
+     fraction of the hard cap currently carried; `overCap` is the lockout at
+     or over it -- ladder-up, hop and (`rules/lift.js`) boarding a lift stage
+     upward are all refused there, legibly, through a journal row. Walking
+     on level ground and every downward movement below never read either
+     value: you can always fall. */
+  const frac = burdenFrac(), overCap = frac >= 1;
+
   /* ---- horizontal: no acceleration, on purpose. This is a digging game and a
           momentum model makes a 1-tile corridor infuriating. ---- */
   const want = (cmd.right ? 1 : 0) - (cmd.left ? 1 : 0);
@@ -67,17 +76,43 @@ export function step(dt, cmd) {
   /* ---- vertical ---- */
   let vy = player.vy;
   if (onLadder) {
-    /* Gravity is off on a ladder and travel is half walk speed in BOTH
-       directions. Down is free everywhere else; a ladder is the one place
-       descending costs the same as ascending. */
+    /* `climbK` is the ladder TIER's own speed (data/forms.js#stair, ~1.8x a
+       plain rung or log) -- a property of what you built, not of what you
+       carry, so it multiplies BOTH directions exactly like `climb` already
+       does. Burden only ever touches the ascending half, below. */
+    const climbK = boxClimbK(b, player.x, player.y);
+    const laddSpeed = climb * climbK;
     const v = (cmd.down ? 1 : 0) - (cmd.up ? 1 : 0);
-    vy = v * climb;
-    if (cmd.hop && !v) { vy = -hop; onLadder = false; pw.set('onLadder', false); }
+    if (v > 0) {
+      /* Descending: down is free everywhere else, and on a ladder it always
+         costs exactly the ladder's own speed, at any weight. Never scaled
+         by burden. */
+      vy = v * laddSpeed;
+    } else if (v < 0) {
+      if (overCap) {
+        vy = 0;                            // ladder-up REFUSED at/over the hard cap
+        if (cmd.up) push('refused', { x: player.x, y: player.y }, { why: 'TOO HEAVY TO CLIMB' });
+      } else {
+        const soft = eff('burdenSoft'), floor = eff('burdenClimbFloor');
+        const mult = frac <= soft ? 1 : lerp(1, floor, (frac - soft) / (1 - soft));
+        vy = v * laddSpeed * mult;
+      }
+    } else {
+      vy = 0;
+    }
+    if (cmd.hop && !v) {
+      if (overCap) push('refused', { x: player.x, y: player.y }, { why: 'TOO HEAVY TO CLIMB' });
+      else { vy = -hop; onLadder = false; pw.set('onLadder', false); }
+    }
   } else {
     if ((player.onGround || player.coyote > 0) && cmd.hop) {
-      vy = -hop;
-      pw.set('onGround', false);
-      pw.set('coyote', 0);
+      if (overCap) {
+        push('refused', { x: player.x, y: player.y }, { why: 'TOO HEAVY TO CLIMB' });
+      } else {
+        vy = -hop;
+        pw.set('onGround', false);
+        pw.set('coyote', 0);
+      }
     }
     vy = Math.min(term, vy + grav * dt);
   }
@@ -108,9 +143,13 @@ export function step(dt, cmd) {
   pw.move(clamp(player.x, b.origin.x, b.origin.x + widthPx(b) - PW), player.y);
 
   /* Below the last band there is nothing to land on and no band to hand off
-     to, so falling out of the world is fatal rather than infinite. */
+     to, so falling out of the world is fatal rather than infinite. Reads
+     `eff('fallMax')` rather than a bare `5` (docs/FINDINGS.md) -- the two
+     only agreed by coincidence before this, and a boon that ever changed
+     `fallMax` would have silently desynced void-death lethality from
+     ordinary fall lethality. */
   const last = bands[bands.length - 1];
-  if (last && player.y > last.origin.y + heightPx(last)) hurt(5, 'THE VOID');
+  if (last && player.y > last.origin.y + heightPx(last)) hurt(eff('fallMax'), 'THE VOID');
 
   rw.deepest(player.y);
 }
@@ -191,6 +230,26 @@ function boxClimb(b, x, y) {
   return false;
 }
 
+/* The fastest `climbK` among the tiles the player currently occupies -- a
+   player straddling two different ladder tiers (rare, but the box spans two
+   columns) gets the better one, never the worse. Absent on every form but
+   `stair` (data/forms.js), so a rung or a placed log both read as 1. Native
+   tiles never carry `climb:true` (see model/tiles.js#tileBlockOf's FORM-
+   wins-over-substance rule), so `formAt` is always a real placed form here,
+   never NATIVE. */
+function boxClimbK(b, x, y) {
+  const t0 = tileX(b, x), t1 = tileX(b, x + PW - 1);
+  const r0 = tileY(b, y), r1 = tileY(b, y + PH - 1);
+  let k = 1;
+  for (let ty = r0; ty <= r1; ty++)
+    for (let tx = t0; tx <= t1; tx++)
+      if (climbAt(b, tx, ty)) {
+        const f = formAt(b, tx, ty);
+        if (f >= 0 && FORM[f].climbK) k = Math.max(k, FORM[f].climbK);
+      }
+  return k;
+}
+
 /* ---------- axis-separated resolution ----------
    Both axes step at one pixel and snap flush against whatever they hit. */
 function moveX(b, d) {
@@ -204,7 +263,12 @@ function moveX(b, d) {
       /* Auto-step a single-tile lip, so walking over rubble is not a chore.
          THE LADDER CASE IS NOT OPTIONAL — see bug 2 in the header. Both
          headroom probes are required: the destination column and the current
-         one, or the step teleports through a one-tile ceiling gap. */
+         one, or the step teleports through a one-tile ceiling gap.
+         DELIBERATELY NOT GATED ON BURDEN either (CLAUDE.md D4, exception 1):
+         gating a height gain on state is exactly what wedged a player in
+         their own shaft permanently (bug 2, restated), and an over-cap
+         player must still be able to walk over rubble to reach the ledge
+         where they can drop material back under the cap. */
       if ((player.onGround || player.onLadder) &&
           !boxSolid(b, nx, player.y - b.tile) &&
           !boxSolid(b, player.x, player.y - b.tile)) {

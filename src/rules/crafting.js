@@ -24,6 +24,7 @@
 
 import { F, matches } from '../data/forms.js';
 import { HAND_RECIPES } from '../data/recipes.js';
+import { S } from '../data/substances.js';
 import { push } from '../model/journal.js';
 import { parseKey, write as iw } from '../model/items.js';
 import { player, playerCentre } from '../model/player.js';
@@ -93,7 +94,22 @@ export function step(dt, cmd) {
   const c = playerCentre();
   let firstSub, firstForm, made = 0;
   for (const clause of r.out || []) {
-    const sub = clause.sub !== undefined ? clause.sub : took[clause.subFrom]?.sub;
+    /* `clause.sub` is a bare content ID ('timber'), exactly like `clause.form`
+       just below -- both need translating through their id table (`S`/`F`)
+       into an ordinal before `model/items.js#write.spawn` can use them.
+       `subFrom` needs no such translation: `took[...].sub` already came from
+       `model/items.js#parseKey`, which returns ordinals. PRE-EXISTING BUG,
+       not introduced this phase: this line only ever read `clause.sub`
+       untranslated, which silently made `holdable()` false (SUB[sub] on a
+       string key is undefined) and `write.spawn` a no-op for EVERY literal-
+       sub output -- invisible until a hand-craft recipe with a literal `sub`
+       existed to exercise it. `kindle` (Phase 1, "the first recipe whose
+       output form is not a compression tier") was the first such recipe and
+       has been producing nothing since it shipped; caught here because
+       Phase 2a's own manual-verification step ("hand-craft peg rungs") hits
+       the identical code path. Fixed in the same commit that would otherwise
+       ship a second broken recipe on top of it. See docs/FINDINGS.md. */
+    const sub = clause.sub !== undefined ? S[clause.sub] : took[clause.subFrom]?.sub;
     if (sub === undefined || sub === null) continue;
     const form = F[clause.form];
     if (firstSub === undefined) { firstSub = sub; firstForm = form; }

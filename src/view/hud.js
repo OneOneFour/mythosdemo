@@ -41,9 +41,9 @@ import { SPAWN_BAND } from '../data/world.js';
 import { TRINKET } from '../data/trinkets.js';
 import { aim } from '../model/aim.js';
 import { massOfPair, parseKey } from '../model/items.js';
-import { mods } from '../model/mods.js';
+import { eff, mods } from '../model/mods.js';
 import { player } from '../model/player.js';
-import { buildableMachines, canCraft, hasPick, pocketRows, run } from '../model/run.js';
+import { buildableMachines, burdenFrac, burdenOf, canCraft, hasPick, pocketRows, run } from '../model/run.js';
 import { bandOf, worldY } from '../model/world.js';
 import { banner, toasts } from './fx.js';
 import { resolveHover } from './hover.js';
@@ -57,6 +57,8 @@ const UI = {
   hollow: '#2c2028',
   hi:     '#ff8a7a',
   good:   '#9ad86a',
+  /* BURDEN's warning colour, past the soft cap (D3/D4) -- see below. */
+  amber:  '#e0a030',
   debug:  colour('watB'),
   /* The pocket strip's one accent colour: a relic's frame, and nothing else.
      `ichor` is already the divine-gold `data/palette.js` name a trinket's own
@@ -83,7 +85,8 @@ export function drawHUD(g, f) {
   const narrow = W < 300;
 
   hearts(g, 6, 6);
-  const stripHits = pockets(g, 6, narrow ? 20 : 18, W);
+  burden(g, 6, 14);
+  const stripHits = pockets(g, 6, narrow ? 28 : 26, W);
   pocketHits.length = 0;
   pocketHits.push(...stripHits);
   /* The panel opens BELOW wherever the strip actually ended, not a fixed y --
@@ -91,7 +94,7 @@ export function drawHUD(g, f) {
      a fixed offset would let the panel overlap it exactly the way CLAUDE.md's
      own "narrow panel" mistake describes. */
   if (f.flags.showInv) {
-    const top = stripHits.reduce((m, h) => Math.max(m, h.y + h.h + 4), narrow ? 30 : 28);
+    const top = stripHits.reduce((m, h) => Math.max(m, h.y + h.h + 4), narrow ? 38 : 36);
     pocketHits.push(...invPanel(g, f, top));
   }
   depth(g, W, 6);
@@ -118,6 +121,19 @@ function hearts(g, x, y) {
     R(g, hx + 2, y + 5, 1, 1, col);
     if (full) R(g, hx + 1, y + 1, 1, 1, UI.hi);
   }
+}
+
+/* ---------- BURDEN, D3/D4 ----------
+   One plain line: the dense bar is Phase 5. Amber past the soft threshold,
+   red at/over the hard cap, with the lockout spelled out in words so a
+   refused climb (rules/player.js) is never a silent wall the player has to
+   reverse-engineer. */
+function burden(g, x, y) {
+  const cap = eff('burden'), soft = eff('burdenSoft'), frac = burdenFrac();
+  const col = frac >= 1 ? UI.heart : frac >= soft ? UI.amber : UI.dim;
+  let s = `BURDEN ${burdenOf().toFixed(1)} / ${cap.toFixed(0)} T`;
+  if (frac >= 1) s += ' TOO HEAVY TO CLIMB';
+  drawText(g, s, x, y, col, 1, 1);
 }
 
 /* One swatch, one name and one count per held pair. A pair the substance row

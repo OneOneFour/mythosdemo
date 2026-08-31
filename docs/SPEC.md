@@ -154,3 +154,45 @@ New substance tiers (`tile.tier`, absent = 1): `granite` tier 2 (hard 2.4s),
 `adamant` tier 3 (hard 5.0s). Monotonic against `hard` — nothing at a higher
 tier is softer than something at a lower one — and `tools/content.mjs`
 asserts it.
+
+## 10. Ladders, tiered (Phase 2a)
+
+Locked with `docs/BUILD_PLAN.md` Phase 2a. Two new forms
+(`src/data/forms.js`), append-only.
+
+| form | subTags | tile | massK | climbK | meaning |
+|---|---|---|---|---|---|
+| `rung` | `organic` | `solid:false, climb:true, hardK:0.20` | 0.3 | — (1) | cheap dedicated peg, so a ladder costs less than a whole log |
+| `stair` | `metal` | `solid:false, climb:true` | 3.0 | 1.8 | tier-2 ladder; `climbK` multiplies `eff('climb')` in both directions |
+
+Recipes (`src/data/recipes.js`), both `hand:true`:
+
+| recipe | in | out | secs |
+|---|---|---|---|
+| `peg_rungs` | 2 `timber/log` | 4 `timber/rung` | 1.5 |
+| `daedalan` | 2 `copper/plate` + 4 `timber/log` | 2 `copper/stair` | 6.0 |
+
+`peg_rungs` reads **2** logs, not the 1 the phase's own prose named, and is
+declared **before** `kindle` in `RECIPES` (previously kindle came first) —
+both are load-bearing, not cosmetic. `rules/crafting.js#choose` picks the
+first `HAND_RECIPES` row whose inputs are fully satisfied; `kindle` and a
+1-log `peg_rungs` would have an IDENTICAL trigger, so whichever is declared
+first would win forever and the other would be permanently unreachable by
+hand. Requiring 2 logs and checking `peg_rungs` first breaks the tie: holding
+exactly 1 log fails `peg_rungs`'s stronger requirement and falls through to
+`kindle`; holding 2 or more satisfies `peg_rungs` first. `massK:0.3` (not the
+phase's original ~0.35) keeps `tools/content.mjs`'s mass-conservation check
+passing at the 1-log quantity; at 2 logs there was room to spare, but 0.3 was
+kept for consistency with `brand`'s own massK and its identical "split
+lighter, with real waste" shape.
+
+Encumbrance (D3/D4) gates ASCENT only: on a ladder, descending is always
+`eff('climb') x climbK`, at any burden. Ascending is that same speed, scaled
+by burden fraction (1.0 up to `burdenSoft`, linear down to
+`burdenClimbFloor` at the hard cap), refused outright at/over the hard cap
+(`rules/player.js`) — the same refusal covers a ground/ladder hop and
+(`rules/lift.js`) boarding a lift stage going up. A pickup that would cross
+the hard cap is refused and the item stays on the ground (`rules/items.js`).
+A new drop verb (`Q`, `rules/items.js#dropHeaviest`) spends exactly one unit
+of the heaviest held pair, tossed with `eff('tossUp')`/`eff('tossSpread')` —
+the prerequisite for the lockout not being a soft-lock.

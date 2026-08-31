@@ -82,17 +82,61 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
+  /* ---- peg_rungs: timber/log -> timber/rung, the cheap dedicated ladder
+     (Phase 2a). NOT the plan's literal "1 timber/log -> 4 timber/rung", and
+     the reason is `rules/crafting.js#choose`'s own documented limitation:
+     "first match wins, a real menu would let you choose" (the menu is
+     Phase 5). `kindle`, directly below, ALSO fires off nothing but
+     `'timber/log':1` -- two hand-recipes with an IDENTICAL trigger set is a
+     tie `choose()` cannot see, and whichever is declared first always wins,
+     every time, forever. Shipping `peg_rungs` at the plan's literal 1-log
+     cost, in EITHER declaration order, makes one of the two permanently
+     unreachable by hand: kindle first starves peg_rungs outright; peg_rungs
+     first starves kindle, which Phase 2b needs hand-reachable to restock the
+     one carried light source. Requiring 2 logs and declaring peg_rungs
+     BEFORE kindle breaks the tie without touching either recipe's own
+     table-order neighbour's numbers: holding exactly 1 log fails peg_rungs's
+     stronger requirement and falls through to kindle; holding 2 or more
+     satisfies peg_rungs first and it wins. Both stay reachable; a player
+     with a surplus of logs simply gets rungs until they spend down to one.
+     Not caught by `tools/content.mjs` (a content-graph check, not a
+     hand-craft-priority one) -- caught by this phase's own manual
+     verification, which is exactly what CLAUDE.md's own "a test that
+     measures the wrong thing" warning is for. See `forms.js#rung` for the
+     mass-conservation half of this same correction. */
+  peg_rungs: Object.freeze({
+    id:'peg_rungs', name:'PEG RUNGS',
+    in:{ 'timber/log':2 },
+    out:[ { sub:'timber', form:'rung', n:4 } ],
+    secs:1.5,
+    hand:true
+  }),
+
   /* ---- kindle: timber/log -> timber/brand. THE FIRST RECIPE WHOSE OUTPUT
      FORM IS NOT A COMPRESSION TIER -- smelt and press both compress toward
      density; kindling does the opposite, one log splitting into three
      lighter, burnable brands. hand:true because no machine performs it;
      Phase 2b plants the player's first brand near spawn regardless, and this
-     recipe is how they restock once it burns out. */
+     recipe is how they restock once it burns out. Declared AFTER
+     `peg_rungs` now -- see that row's comment for why the order is
+     load-bearing, not cosmetic. */
   kindle: Object.freeze({
     id:'kindle', name:'KINDLE',
     in:{ 'timber/log':1 },
     out:[ { sub:'timber', form:'brand', n:3 } ],
     secs:1.5,
+    hand:true
+  }),
+
+  /* ---- daedalan: 2 copper/plate + 4 timber/log -> 2 copper/stair, the
+     tier-2 ladder (Phase 2a). Vertical throughput as an upgradeable axis:
+     see `forms.js#stair`'s `climbK`. hand:true for the same reason
+     `peg_rungs` is -- no machine builds a ladder, ever. */
+  daedalan: Object.freeze({
+    id:'daedalan', name:'DAEDALAN STAIR',
+    in:{ 'copper/plate':2, 'timber/log':4 },
+    out:[ { sub:'copper', form:'stair', n:2 } ],
+    secs:6.0,
     hand:true
   })
 });
