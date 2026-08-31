@@ -1039,3 +1039,62 @@ the gaps and judgment calls the reversal forced.
   and the surrounding CLAUDE.md/BUILD_PLAN.md/FINDINGS.md mentions of the
   phone project elsewhere are historical war-story records of past bugs,
   not current requirements, and were left untouched for the same reason.
+
+## Machine status/hover/right-click-deconstruct pass — a real bug found, out of scope to fix
+
+Added `model/machines.js#statusOf`/`fuelSelectorOf` (the `'running' |
+'no-fuel' | 'idle'` query), a warning-badge draw in
+`view/paint.js#paintMachine`, a status/producing-line extension to
+`view/hover.js#resolveHover`'s machine branch, and a right-click-to-
+deconstruct branch in `shell/input.js`'s pointerdown handler. All within
+this task's own FILE OWNERSHIP. Full details in the commit messages; this
+entry is only the one thing found outside that ownership.
+
+- **REAL BUG, not fixed: digging straight down silently stalls after one
+  tile whenever the player is not tile-aligned.** `rules/player.js#boxSolid`
+  (~line 215) tests BOTH tile columns the player's hitbox spans —
+  `PW` (6px, `model/player.js`) is narrower than a tile (8px), so unless
+  `player.x` happens to be an exact multiple of the tile size the hitbox
+  straddles two columns, and ordinary walk physics has no reason to ever
+  land on a multiple (`rules/player.js`'s own header: "no acceleration...
+  this is a digging game", i.e. continuous-speed movement, never
+  grid-snapped). `rules/mining.js#aimAtKeys` (~line 77) aims straight down
+  at exactly ONE column — the one under `playerCentre().x` — so a held
+  `down`+`dig` clears only that column's tile and the untouched neighbour
+  column keeps `boxSolid` true forever: `onGround` never goes false, no
+  further tile ever breaks, and the player is wedged standing on what looks
+  like open air from directly overhead.
+
+  This is not a hypothetical: `tests/visual.spec.js-snapshots/digging-desktop-darwin.png`
+  (the existing `'digging down into topsoil'` test's own accepted baseline,
+  unrelated to this task) shows the player standing at ground level with no
+  visible shaft at all after 900 held substeps of `dig`+`down` — consistent
+  with breaking exactly one tile directly under a mis-aligned player and
+  then never falling. Confirmed by hand with a substep-by-substep debug
+  trace (not committed): `player.y` oscillates in a sawtooth
+  (accelerate-then-snap-back-to-the-same-value) instead of decreasing,
+  `onGround` stays `true` throughout, and the single tile the aim ever
+  targets does read back as broken (`tileAt` returns `AIR`) — the collision,
+  not the mining, is what stalls.
+
+  **Why not fixed here:** the fix lives in `rules/player.js` and/or
+  `rules/mining.js`, both explicitly outside this task's FILE OWNERSHIP
+  (`src/model/machines.js`, `src/view/hover.js`, `src/view/scene.js`,
+  `src/view/paint.js`, `src/shell/input.js`, `tests/**`, `docs/SPEC.md`,
+  `docs/FINDINGS.md` only), and the right fix is a real design choice, not a
+  one-liner: possible directions include clearing both straddled columns
+  when digging straight down, biasing `aim` toward whichever column the
+  player is more OVER rather than a bare centre, or snapping `player.x` to
+  the tile grid the instant a downward dig begins. Any of those changes
+  mining or collision behavior a future task should pick deliberately, not
+  inherit as a side effect of a hover/status/right-click change.
+
+  **Worked around, not hidden:** `tests/visual.spec.js`'s new
+  `'digging straight down: no drift, monotonic depth, correct drops'` test
+  (added by this same pass) hand-carves a known vertical shaft and places
+  the player EXACTLY tile-aligned over it — the same "don't trust natural
+  worldgen" discipline the existing click-to-arm gravel test already uses —
+  specifically to test the mining/drop/depth mechanics this task owns
+  without also exercising the collision bug above. It passes; the mechanic
+  it actually tests (no horizontal drift, monotonic depth, correct drops per
+  tile) is confirmed correct once alignment is not itself in question.

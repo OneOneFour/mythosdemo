@@ -70,6 +70,125 @@ test('digging down into topsoil', async ({ page }) => {
   await shot(page, 'digging.png');
 });
 
+/* FUNCTIONAL, not visual: a screenshot only proves the RESULT looks like a
+   shaft; this walks the sim one substep at a time with the stock pickaxe
+   alone (no crafted tool) and checks every tile that actually broke -- no
+   horizontal drift, depth increasing by a sensible amount per tile, and the
+   falling drop matching the actual strata mined, the same three things a
+   real player would notice going wrong.
+
+   REAL BUG FOUND WHILE WRITING THIS TEST, recorded in `docs/FINDINGS.md`:
+   the player's 6px hitbox (`PW`) is narrower than an 8px tile, so whenever
+   `player.x` is not itself a multiple of the tile size, the hitbox straddles
+   TWO tile columns (`rules/player.js#boxSolid`'s `t0`/`t1`) -- but `aim`
+   only ever targets ONE of them (the column under the player's CENTRE,
+   `rules/mining.js#aimAtKeys`). Digging straight down from an unaligned `x`
+   clears that one column and then wedges on the untouched neighbour
+   forever: `onGround` never goes false, no further tile ever breaks, and
+   `digging.png` above -- unreviewed, per CLAUDE.md's own warning -- has
+   apparently been a screenshot of the player standing exactly where they
+   started the whole time. Fixing it means changing `rules/player.js` and/or
+   `rules/mining.js`, both outside this task's FILE OWNERSHIP, so this test
+   instead does what `click-to-arm: dig down, then place the dropped gravel
+   back into the exact hole` above already does for the identical
+   "don't trust natural worldgen" reason -- hand-carve a known shaft and
+   place the player EXACTLY tile-aligned over it -- to test the mechanic this
+   task actually owns without tripping over the one it does not. */
+test('digging straight down: no drift, monotonic depth, correct drops', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const result = await page.evaluate(async () => {
+    const { tileAt, subAt, dropAt, write: tw } = await import('/src/model/tiles.js');
+    const { run, write: rw } = await import('/src/model/run.js');
+    const { write: pw, PH } = await import('/src/model/player.js');
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+
+    const band = bandOf('topsoil');
+    const tx = 40, ty = 100, DEPTH = 8;
+    for (let dy = -2; dy <= DEPTH + 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) tw.clear(band, tx + dx, ty + dy);
+    for (let i = 0; i < DEPTH; i++) tw.set(band, tx, ty + i, S.soil);   // the known shaft
+    tw.set(band, tx, ty + DEPTH, S.stone);                             // a hard floor, well past TARGET_BREAKS
+
+    rw.collect(S.pick, F.relic, 1);      // the stock pickaxe, granted directly -- same precedent as above
+    pw.band(band);
+    pw.move(worldX(band, tx), worldY(band, ty) - PH);   // tile-aligned x by construction; feet flush on the shaft's own top tile
+
+    __mf.cmd.hasMouse = false;
+    __mf.cmd.down = true;
+    __mf.cmd.dig = true;
+    __mf.frames(1);                        // let `aim` resolve to the tile directly below
+
+    const startTx = __mf.aim.tx;
+    const startDeepest = run.deepest;
+
+    const TARGET_BREAKS = 5;
+    const broken = [];
+    let steps = 0;
+    while (broken.length < TARGET_BREAKS && steps < 20000 && __mf.aim.valid) {
+      const atx = __mf.aim.tx, aty = __mf.aim.ty;
+      const beforeByte = tileAt(band, atx, aty);
+      const sub = subAt(band, atx, aty);
+      const drop = dropAt(band, atx, aty);
+      __mf.frames(1);
+      steps++;
+      const afterByte = tileAt(band, atx, aty);
+      if (beforeByte !== 0 && afterByte === 0) broken.push({ tx: atx, ty: aty, sub, drop, deepest: run.deepest });
+    }
+    __mf.cmd.down = false;
+    __mf.cmd.dig = false;
+
+    /* The falling drops need a moment to land and clear the pickup-magnet
+       delay before the pockets reflect them -- the same wait every other
+       drop-then-collect test in this file already gives. */
+    __mf.frames(200);
+
+    const { invCount } = await import('/src/model/run.js');
+    const expectedByPair = {};
+    for (const b of broken) {
+      if (!b.drop) continue;
+      const key = b.drop.sub + '/' + b.drop.form;
+      expectedByPair[key] = (expectedByPair[key] || 0) + 1;
+    }
+    const actualByPair = {};
+    for (const key in expectedByPair) {
+      const [sub, form] = key.split('/').map(Number);
+      actualByPair[key] = invCount(sub, form);
+    }
+
+    return { startTx, startDeepest, broken, expectedByPair, actualByPair, tile: band.tile, steps };
+  });
+
+  expect(result.broken.length).toBe(5);
+
+  // straight down: every break in the same column
+  for (const b of result.broken) expect(b.tx).toBe(result.startTx);
+
+  // consecutive rows, no skip and no repeat
+  for (let i = 1; i < result.broken.length; i++)
+    expect(result.broken[i].ty).toBe(result.broken[i - 1].ty + 1);
+
+  // depth (`run.deepest`, the HUD's own datum) never goes backwards between breaks
+  let prevDeepest = result.startDeepest;
+  for (const b of result.broken) {
+    expect(b.deepest).toBeGreaterThanOrEqual(prevDeepest);
+    prevDeepest = b.deepest;
+  }
+
+  // total depth gained is a sensible multiple of the tile size -- roughly one
+  // tile per break, not some wildly disproportionate jump a real fall-through
+  // or drift bug would produce
+  const totalDepth = result.broken[result.broken.length - 1].deepest - result.startDeepest;
+  expect(totalDepth).toBeGreaterThan(0);
+  expect(totalDepth).toBeLessThan(result.tile * (result.broken.length + 2));
+
+  // the drops actually collected match what mining, tile by tile, promised
+  for (const key in result.expectedByPair)
+    expect(result.actualByPair[key]).toBeGreaterThanOrEqual(result.expectedByPair[key]);
+});
+
 /* Fog of war (below) hides anything the player has not stood next to, and this
    test's whole point is the OPPOSITE question: does astral terrain render
    correctly at all. The player never sets foot there in this suite, so
@@ -2007,6 +2126,237 @@ test('click-to-arm: dig down, then place the dropped gravel back into the exact 
   expect(result.tile).not.toBe(0);                    // solid again, not AIR
   expect(result.gravel).toBe(gravelBefore - 1);        // exactly one unit spent
   expect(result.armedAfter).toBeNull();                // cleared on a successful placement
+});
+
+/* ============================================================
+   FEATURE 1 (the stalled-machine warning + hover status/producing line) and
+   FEATURE 2 (right-click deconstruct), end to end: the full furnace build
+   lifecycle, screenshotted at five stages -- opening the crafting UI, the
+   armed ghost preview, placed-but-starved (the new no-fuel badge), fuelled
+   but unresourced (idle), and finally producing (running) -- with the hover
+   tooltip's status/producing line checked at the last three, and a
+   right-click deconstruct at the very end. Real input throughout: real
+   keys, `realClick`'s down-frame-up-frame click, and a matching
+   `realRightClick` for the deconstruct.
+   ============================================================ */
+
+/* The identical down-frame-up-frame shape `realClick` above already uses,
+   but for the RIGHT button. Feature 2's own dispatch (`shell/input.js`'s
+   pointerdown handler) branches on `model/aim.js#aim`, which is only
+   resolved fresh inside `step()` -- a frame after the move and before the
+   down is what lets `aim` catch up to the new pointer position before the
+   handler reads it, exactly the gap a real user's mouse motion (which spans
+   several rendered frames before a click ever lands) closes for free and a
+   scripted, zero-time move does not. */
+async function realRightClick(page, sx, sy) {
+  const { x, y } = await toClient(page, sx, sy);
+  await page.mouse.move(x, y);
+  await page.evaluate(() => __mf.frames(1));
+  await page.mouse.down({ button: 'right' });
+  await page.evaluate(() => __mf.frames(1));
+  await page.mouse.up({ button: 'right' });
+  await page.evaluate(() => __mf.frames(1));
+}
+
+test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running, deconstruct', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+
+  /* Walk over the stock pickaxe first and collect it -- not because this test
+     digs anything, but because it otherwise sits on the ground near spawn as
+     a loose world item, and `view/hover.js`'s own priority (a falling item
+     beats a machine) would have it win every hover check below the moment it
+     falls within the furnace's own generous hover radius. */
+  await page.evaluate(() => {
+    __mf.cmd.hasMouse = false;
+    __mf.hold({ right: 1 }, 90);
+    __mf.cmd.right = false;
+    __mf.frames(60);
+  });
+
+  /* ---- stage 1: open the crafting UI ---- */
+  await page.evaluate(async () => {
+    const { bandOf } = await import('/src/model/world.js');
+    const { banner } = await import('/src/view/fx.js');
+    __mf.revealAll(bandOf('surface'));
+    __mf.cmd.hasMouse = false;
+    /* `settle()` only advances `clock.t`, not `stepFx` (what actually decays
+       the opening title) -- and `view/hud.js#drawHUD` draws the title card
+       INSTEAD OF the tooltip for as long as `banner.fade > 0`, so hover
+       would silently never resolve anything for the rest of this test
+       without this. Same fix `hovering an inventory pair...` above already
+       needs and gives the identical reason for. */
+    banner.fade = 0;
+  });
+  await page.keyboard.press('i');
+  await page.evaluate(() => __mf.frames(1));
+
+  let ui = await page.evaluate(() => __mf.ui);
+  const mainTabs = ui.tabs.find(t => t.id === 'main');
+  const craftTab = mainTabs.hits.find(h => h.id === 'craft');
+  await realClick(page, craftTab.x + craftTab.w / 2, craftTab.y + craftTab.h / 2);
+
+  ui = await page.evaluate(() => __mf.ui);
+  expect(ui.tab.main).toBe('craft');
+  await shot(page, 'furnace-lifecycle-1-crafting-ui.png');
+
+  /* ---- stage 2: grant a furnace/rig, arm it by clicking its Character-tab
+     slot (click-to-arm), aim it, and screenshot the ghost BEFORE confirming
+     the placement ---- */
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { setTab } = await import('/src/shell/ui.js');
+    __mf.give(S.furnace, F.rig, 1);
+    setTab('main', 'char');
+    __mf.frames(1);
+  });
+
+  const invSlot = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const grid = __mf.ui.grids.find(g => g.id === 'inv');
+    return grid.slots.find(s => s.sub === S.furnace && s.form === F.rig);
+  });
+  expect(invSlot).toBeTruthy();
+  await realClick(page, invSlot.x + invSlot.w / 2, invSlot.y + invSlot.h / 2);
+
+  const armed = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    return { armedPlace: __mf.ui.armedPlace, sub: S.furnace, form: F.rig };
+  });
+  expect(armed.armedPlace).toEqual({ sub: armed.sub, form: armed.form });
+
+  /* Keyboard aim, no direction held -- the same "aims to the side, at the
+     player's own row" recipe `a placed furnace` proves lands on open air
+     with a floor beneath it. Closed with 'i' (NOT Escape, which also clears
+     the arm) so the ghost is not drawn underneath the panel. */
+  await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(1); });
+  await page.keyboard.press('i');
+  await page.evaluate(() => __mf.frames(1));
+
+  ui = await page.evaluate(() => __mf.ui);
+  expect(ui.open).not.toContain('main');
+  const armedStillSet = await page.evaluate(() => __mf.ui.armedPlace);
+  expect(armedStillSet).toBeTruthy();
+
+  await shot(page, 'furnace-lifecycle-2-ghost.png');
+
+  /* ---- stage 3: confirm the placement -- placed, no fuel ---- */
+  await page.keyboard.press('e');
+  await page.evaluate(() => __mf.frames(5));
+
+  const placed = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    return { machines: __mf.machines.length, rig: invCount(S.furnace, F.rig), armedAfter: __mf.ui.armedPlace };
+  });
+  expect(placed.machines).toBe(1);
+  expect(placed.rig).toBe(0);
+  expect(placed.armedAfter).toBeNull();
+
+  await shot(page, 'furnace-lifecycle-3-no-fuel.png');
+
+  /* Hover the placed machine's own centre -- world px converted to screen by
+     subtracting the CURRENT camera, the same conversion `resolveHover`
+     itself undoes. One round trip, so the camera read and the hover read
+     can never disagree about which frame they describe. */
+  const hoverMachine = () => page.evaluate(() => {
+    const m = __mf.machines[0];
+    __mf.mouseAt(m.box.x + m.box.w / 2 - __mf.cam.x, m.box.y + m.box.h / 2 - __mf.cam.y);
+    __mf.draw();
+    return { ...__mf.hover };
+  });
+
+  let hover = await hoverMachine();
+  expect(hover.active).toBe(true);
+  expect(hover.lines[0]).toBe('CRUDE FURNACE');
+  expect(hover.lines[1]).toBe('NO FUEL');
+
+  /* ---- stage 4: fuelled, no resources -- idle. Exactly the smelt recipe's
+     own fuel bill (`data/recipes.js#smelt`: 1 fuel), pulled into the
+     furnace's buffer by hand-feed the moment the player is in reach --
+     placement anchored the footprint immediately beside where the player is
+     already standing, so no repositioning is needed. ---- */
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    __mf.give(S.timber, F.log, 1);
+    __mf.cmd.hasMouse = false;
+    __mf.frames(30);                     // let hand-feed pull it into the buffer
+  });
+  await shot(page, 'furnace-lifecycle-4-fuelled-idle.png');
+
+  hover = await hoverMachine();
+  expect(hover.lines[1]).toBe('IDLE');
+  expect(hover.lines.some(l => l.startsWith('MAKING'))).toBe(false);
+
+  /* ---- stage 5: fuelled AND resourced -- producing. Exactly the smelt
+     recipe's own ore bill (4 ore), so exactly one cycle fires and the
+     buffer empties itself afterward with nothing left in the pockets to
+     refill it -- the state the deconstruct at the end of this test needs. ---- */
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    __mf.give(S.copper, F.ore, 4);
+    __mf.frames(60);                     // let hand-feed pull it in and the recipe start
+  });
+
+  const running = await page.evaluate(() => __mf.machines[0].running);
+  expect(running).toBe(true);
+
+  await shot(page, 'furnace-lifecycle-5-running.png');
+
+  hover = await hoverMachine();
+  expect(hover.lines[1]).toBe('RUNNING');
+  expect(hover.lines[2]).toBe('MAKING SMELT');
+
+  /* ---- right-click deconstruct: let the one smelt cycle actually finish
+     and drain the buffer empty first -- `rules/placement.js#deconstruct`
+     refuses ("EMPTY IT FIRST") while anything is still buffered. ---- */
+  await page.evaluate(() => __mf.frames(600));   // several 4.0s smelt-cycles' worth of margin
+
+  const drained = await page.evaluate(() => {
+    const m = __mf.machines[0];
+    return { bufKeys: Object.keys(m.buf).length, charges: m.charges };
+  });
+  expect(drained.bufKeys).toBe(0);
+  expect(drained.charges).toBe(0);
+
+  const target = await page.evaluate(() => {
+    const m = __mf.machines[0];
+    return { sx: m.box.x + m.box.w / 2 - __mf.cam.x, sy: m.box.y + m.box.h / 2 - __mf.cam.y };
+  });
+  await realRightClick(page, target.sx, target.sy);
+
+  const after = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    const { items } = await import('/src/model/items.js');
+    const { write: pw, PW } = await import('/src/model/player.js');
+
+    /* The refund is a FALLING item, never a direct pocket credit (invariant
+       5, `rules/placement.js#deconstruct`'s own comment) -- it needs to
+       land and then sit within `eff('pickupR')` (10 px) of the player before
+       the pockets reflect it. The toss is randomised sideways
+       (`eff('tossSpread')`) and the player was not necessarily still
+       standing exactly where they will land, so this steps in to close that
+       last few pixels directly rather than guessing a walk direction --
+       the same "arrange the scenario, not re-prove movement" reasoning
+       `__mf.give` itself already documents. */
+    __mf.frames(30);                     // let it fall and come to rest
+    const dropped = items.find(it => it.sub === S.furnace && it.form === F.rig);
+    if (dropped) pw.move(dropped.x - PW / 2, __mf.player.y);
+    __mf.frames(200);
+
+    return { machines: __mf.machines.length, rigBack: invCount(S.furnace, F.rig), droppedFound: !!dropped };
+  });
+  expect(after.machines).toBe(0);
+  expect(after.droppedFound).toBe(true);
+  expect(after.rigBack).toBe(1);
 });
 
 /* Dev serves src/ untransformed; dist is bundled and minified by esbuild.
