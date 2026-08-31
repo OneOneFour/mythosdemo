@@ -138,6 +138,30 @@ export const RECIPES = Object.freeze({
     out:[ { sub:'copper', form:'stair', n:2 } ],
     secs:6.0,
     hand:true
+  }),
+
+  /* ---- auger: the T2 hand tool (Phase 2c). hand:true with no machine ever
+     naming it -- same shape as `peg_rungs`/`daedalan` above, nothing builds a
+     tool but a pair of hands.
+
+     DECLARED LAST, AFTER `daedalan`, AND THE ORDER IS LOAD-BEARING -- the
+     identical collision `peg_rungs`/`kindle` already had. `daedalan` and this
+     row share the EXACT SAME input keys (`copper/plate`, `timber/log`) at the
+     same plate count (2) and different log counts (4 vs 1), so
+     `rules/crafting.js#choose`'s "first HAND_RECIPES row whose inputs are
+     fully satisfied wins" cannot see both as available and pick the one you
+     meant -- holding 4+ logs satisfies both. Declaring the STRONGER recipe
+     (`daedalan`, needing more logs) first, the same fix `peg_rungs` used
+     against `kindle`: holding 4 or more logs (and 2+ plate) always yields a
+     stair; holding 1-3 satisfies only this row and falls through to it. A
+     player who wants the auger keeps their log stock under 4 when crafting
+     it. See `docs/FINDINGS.md`. */
+  auger: Object.freeze({
+    id:'auger', name:'ADAMANT AUGER',
+    in:{ 'copper/plate':2, 'timber/log':1 },
+    out:[ { sub:'auger', form:'relic', n:1 } ],
+    secs:8.0,
+    hand:true
   })
 });
 

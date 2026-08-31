@@ -221,6 +221,61 @@ rewrite history here.
   key with no selector, mass or tunable-scope shape for that file's checks to
   apply to.
 
+## Phase 2c (mining tiers and the automated line)
+
+- **`data/recipes.js#auger` collides with `#daedalan` the identical way
+  `peg_rungs` collided with `kindle` in Phase 2a — not caught by
+  `tools/content.mjs` (a content-graph check, not a hand-craft-priority one),
+  found by reasoning through `rules/crafting.js#choose`'s own documented
+  "first satisfied wins" rule before it could bite as a manual-verification
+  surprise. Both recipes share input KEYS `copper/plate` + `timber/log`, at
+  the same plate count (2) and different log counts (4 for `daedalan`, 1 for
+  `auger`), so holding 4+ logs satisfies both simultaneously. Resolved the
+  same way: the STRONGER recipe (`daedalan`) stays declared first — it
+  already was, since `auger` is appended after it — so holding 4+ logs always
+  yields a stair, and holding 1-3 falls through to the auger. A player who
+  wants the auger keeps their log stock under 4 when crafting it. No numbers
+  changed to fix this, only the (already-correct, append-only) declaration
+  order confirmed and documented.
+
+- **`cyclops_maw`'s build cost and `minDepth` are this phase's own numbers,
+  not named by `docs/BUILD_PLAN.md`.** The plan gives `talos_head`'s cost (8
+  `copper/plate` + 2 `copper/ingot`) explicitly but says only "priced" for
+  the Maw, with no figure. Priced at 16 `copper/plate` + 6 `copper/ingot` + 6
+  `granite/gravel` — granite-tier, not adamant-tier, deliberately: the one
+  substance the Maw alone can mine (`tile.tier:3`) cannot also be a
+  prerequisite for building it, or nothing could ever build the first one.
+  `minDepth:200` was chosen against `data/world.js`'s own adamant blobs
+  (topsoil row 220, depth ~256 by `view/hud.js`'s datum), leaving room to
+  place it on the approach rather than only once already standing in the
+  vein. Both numbers are now locked in `docs/SPEC.md` section 12.
+
+- **The Maw's rate is NOT faster than the Talos Head's, by design, though
+  nothing in the plan explicitly required this for T4.** The plan states
+  "T3 must not out-throughput a hand at T2" as a requirement on the Talos
+  Head specifically; it is silent on whether the Cyclops Maw (T4) may be
+  faster than that same rate. Chose uniform equality across every placed
+  miner — `rules/machines.js#bestHandToolPower()` scans every substance's
+  `item.tool.power` and applies the same maximum to any `mine`-carrying row,
+  with no per-tier branch — because `docs/DESIGN.md`'s own rule ("automation
+  buys parallelism and nothing else") does not carve out an exception for a
+  higher machine tier, and a Maw that both reaches harder strata AND breaks
+  faster would double-dip on the one axis the design explicitly reserves for
+  hands. The Maw's real advantages are the `tier:3` gate (adamant, which no
+  hand tool can ever reach) and `tiles:3` (a face, not a point) — both
+  capability, neither rate.
+
+- **Fuel economy (`mine.secs`) is a continuous drain with TIME spent
+  chewing, not a per-tile cost**, tracked in a local `WeakMap` inside
+  `rules/machines.js` (`fuelClock`) rather than a `model/machines.js` record
+  field: that file is not this phase's to extend for a number only the
+  `mine` branch reads, and `m.prog` already belongs to `produce()` (which
+  zeroes it every frame a `mine`-only row's empty `recipes` list matches
+  nothing). Same shape as the pre-existing `recipeCache` in the same file.
+  This is why `cyclops_maw`'s "high fuel draw" is a smaller `secs` (3.0 vs.
+  `talos_head`'s 12.0) rather than a bigger fuel cost per tile: the tier list
+  names it as a running cost, not a per-bite one.
+
 ## Phase 0 (cartography)
 
 - **`src/rules/player.js:113`** — `hurt(5, 'THE VOID')` hardcodes the

@@ -70,6 +70,28 @@
                  fuel-charge recipe (`out:[]`) stays true for as long as the
                  buffer holds at least one charge's worth -- "while fuelled".
 
+     mine        { facing, tier, tiles, secs }. Phase 2c's PLACED miner --
+                 a GATE on hardness, not a second one: `rules/machines.js`
+                 chews the tile(s) it faces with the exact same seconds-to-
+                 break arithmetic `rules/mining.js` uses by hand, so the two
+                 can only ever agree. `facing` is `1`/`-1`, the same
+                 direction convention `belt.dir` already uses. `tier` gates
+                 which `tile.tier` it may bite at all (scaled by
+                 `eff('toolTier', <substance>)`, same as a hand tool).
+                 `tiles` is how many tiles tall the face is -- one at a time,
+                 topmost unbroken tile first, so a taller face is reach, not
+                 simultaneity. `secs` is how many seconds of active chewing
+                 one buffered fuel unit lasts, independent of any tile's own
+                 hardness -- the "high fuel draw" difference between tiers is
+                 a smaller `secs`, nothing about the break-speed formula
+                 itself, which is read generically off `item.tool.power`
+                 (`data/substances.js`) and never a machine-specific literal.
+
+     minDepth    tiles below the spawn band's datum a machine may not be
+                 placed above. `rules/placement.js`'s one new check this
+                 phase; refused with a reason, like every other placement
+                 gate on this list.
+
    Rows are append-only: the index is the id a save stores. */
 
 import { colour } from './palette.js';
@@ -327,7 +349,88 @@ export const MACHINES = [
     /* No `sfx`: `accept`/`produce` are never pushed for a recipe with no
        inputs and no outputs, so there is nothing here for either key to
        name. */
-    look:{ body:'basB', trim:'basA', base:'basD', fire:true, halo:'ichor' } }
+    look:{ body:'basB', trim:'basA', base:'basD', fire:true, halo:'ichor' } },
+
+  /* ---- TALOS HEAD: T3, the first PLACED miner (Phase 2c). A severed bronze
+     automaton head, bolted facing sideways into the wall it chews -- `mine:
+     {facing:1, ...}` is the SAME direction convention `belt.dir` already
+     uses, and `talos_head_l` below is the identical near-free mirrored
+     variant `belt_l` already proves.
+
+     `tier:2` is deliberately IDENTICAL to the adamant auger's own
+     `item.tool.tier` -- this machine can bite exactly what a T2 hand can,
+     no more. `secs:12.0` (Phase 2c's own number, not named by the plan) is
+     how many seconds of active chewing one buffered fuel unit lasts; four
+     buffered units is roughly a minute unattended before it needs feeding
+     again, which is the entire point of placing one in a shaft you have
+     since walked away from.
+
+     THE RATE ITSELF IS NOT A ROW HERE AT ALL. `rules/machines.js#mine` reads
+     `eff('pickPower') x bestHandToolPower()` -- the exact same two numbers
+     `rules/mining.js` reads for a swinging player -- so "mines at exactly
+     the T2 hand rate" is true because both call sites share the SAME data,
+     not because two authors copied the same literal into two files. ---- */
+  { id:'talos_head', name:'TALOS HEAD',
+    tw:1, th:1, footing:1,
+
+    ports:[ { side:'top',    mode:'in',  accepts:['*/#fuel'] },
+            { side:'bottom', mode:'out' } ],
+
+    buffer:{ cap:{ '*/#fuel':4 } },
+
+    catchBox:{ mouth:'top', slack:2 },
+    handFeed:{ reach:10, from:['*/#fuel'] },
+
+    cost:{ 'copper/plate':8, 'copper/ingot':2 },
+
+    mine:{ facing:1, tier:2, tiles:1, secs:12.0 },
+
+    look:{ body:'cuB', trim:'irA', base:'irD', fire:true,
+           pips:[ { sel:'*/#fuel', row:0 } ],
+           sfx:{ accept:'ignite' } } },
+
+  { id:'talos_head_l', name:'TALOS HEAD (LEFT)', variantOf:'talos_head',
+    mine:{ facing:-1, tier:2, tiles:1, secs:12.0 } },
+
+  /* ---- CYCLOPS MAW: T4, gated behind depth. Three tiles tall so it faces a
+     3-tile column at once -- WIDTH, not speed: it chews at the identical
+     per-tile rate `talos_head` does (see the header note on `mine` above),
+     the same "automation buys parallelism and nothing else" rule applied to
+     its own gate as well as its rate. `tier:3` is the one thing NEITHER hand
+     tool reaches -- adamant is unmineable by anything but this, which is why
+     its own `cost` is priced in granite-tier goods a T2 auger CAN reach, not
+     adamant: a machine that can only be built from the one material it alone
+     can mine would have no way to ever get built.
+
+     `secs:3.0`, a quarter of `talos_head`'s, is the "high fuel draw" the
+     tier list names -- a thirstier machine, not a faster one. `minDepth:200`
+     keeps it out of reach until a shaft is deep enough that adamant is
+     actually nearby (`data/world.js`'s adamant blobs start at topsoil row
+     220, which is depth ~256 against `view/hud.js`'s own datum -- 200 leaves
+     room to place it on the approach, not only once standing in the vein). */
+  { id:'cyclops_maw', name:'CYCLOPS MAW',
+    tw:1, th:3, footing:1,
+
+    ports:[ { side:'top',    mode:'in',  accepts:['*/#fuel'] },
+            { side:'bottom', mode:'out' } ],
+
+    buffer:{ cap:{ '*/#fuel':6 } },
+
+    catchBox:{ mouth:'top', slack:2 },
+    handFeed:{ reach:10, from:['*/#fuel'] },
+
+    cost:{ 'copper/plate':16, 'copper/ingot':6, 'granite/gravel':6 },
+
+    minDepth:200,
+
+    mine:{ facing:1, tier:3, tiles:3, secs:3.0 },
+
+    look:{ body:'adamantB', trim:'adamantD', base:'irD', fire:true,
+           pips:[ { sel:'*/#fuel', row:0 } ],
+           sfx:{ accept:'ignite' } } },
+
+  { id:'cyclops_maw_l', name:'CYCLOPS MAW (LEFT)', variantOf:'cyclops_maw',
+    mine:{ facing:-1, tier:3, tiles:3, secs:3.0 } }
 ];
 
 /* ---- variant expansion, then derived indices, built once, frozen ------------

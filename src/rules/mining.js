@@ -18,7 +18,16 @@
 
    HARDNESS IS BASE PLUS A MODIFIER, ALWAYS. `baseHardAt` deliberately returns
    the base, and the `hard` tunable is applied HERE, in exactly one place, so a
-   trinket that softens one material cannot be read around. */
+   trinket that softens one material cannot be read around.
+
+   TOOL TIER IS A GATE ON TOP OF HARDNESS, NOT A SECOND HARDNESS (Phase 2c).
+   `hard` decides how long a legal swing takes; `tile.tier` (absent means 1,
+   `data/substances.js`) decides whether a swing is legal AT ALL, checked
+   against the held tool's own tier (`model/run.js#bestTool()`, itself read off
+   a relic substance's `item.tool` block) and scaled by `eff('toolTier', <the
+   substance being struck>)` so a boon can lend a tier without touching mining
+   speed. The tool's `power` multiplies `eff('pickPower')` in the same single
+   place `hard` is applied above, for the same reason. */
 
 import { rand } from '../core/rng.js';
 import { AIR } from '../data/forms.js';
@@ -29,13 +38,22 @@ import { write as digw, workAt } from '../model/mining.js';
 import { write as iw } from '../model/items.js';
 import { eff } from '../model/mods.js';
 import { player, playerCentre } from '../model/player.js';
-import { hasPick, run } from '../model/run.js';
+import { bestTool, hasPick, run } from '../model/run.js';
 import { baseHardAt, dropAt, subAt, tileAt, write as tw } from '../model/tiles.js';
 import { bandAt, inBounds, tileX, tileY, worldX, worldY } from '../model/world.js';
 
 /* A break above this many BASE seconds reads as stone rather than as soil. The
    only number in this file, and it selects a journal kind — not a mechanic. */
 const HARD_BREAK = 0.5;
+
+/* Rate limit for the tier refusal below, mirroring `rules/items.js`'s own
+   idiom for a refused pickup: 'refused' carries no sound to gap it downstream
+   in `data/sfx.js`, only the toast text, so a held dig key against a wall it
+   cannot bite must not repaint that toast sixty times a second. A single
+   scalar, not a WeakMap keyed by tile -- there is exactly one pick swinging at
+   exactly one tile at a time. */
+const TIER_REFUSAL_GAP = 1.0;
+let lastTierRefusal = -Infinity;
 
 /* ---------- aiming ----------
    The aimed point is resolved to a BAND before it is resolved to a tile, which
@@ -83,12 +101,30 @@ export function step(dt, cmd) {
   if (byte === AIR) return;
 
   const sub = subAt(b, aim.tx, aim.ty);
+
+  /* TOOL TIER GATE, on top of hardness, not a second hardness. A silent no-op
+     on a wall you are actively swinging at is unreadable (CLAUDE.md), so a
+     refusal is a rate-limited journal row, not nothing. */
+  const tool = bestTool();
+  if (sub >= 0 && tool) {
+    const tileTier = SUB[sub].tile?.tier ?? 1;
+    const allowedTier = tool.tier * eff('toolTier', SUB[sub].id);
+    if (tileTier > allowedTier) {
+      if (run.t - lastTierRefusal >= TIER_REFUSAL_GAP) {
+        lastTierRefusal = run.t;
+        push('refused', { x: worldX(b, aim.tx), y: worldY(b, aim.ty) },
+             { sub, why: 'TOO HARD FOR THIS PICK' });
+      }
+      return;
+    }
+  }
+
   const hard = baseHardAt(b, aim.tx, aim.ty) * (sub < 0 ? 1 : eff('hard', SUB[sub].id));
   if (!(hard > 0) || !Number.isFinite(hard)) return;      // bedrock, or unmineable
 
   const at = { x: worldX(b, aim.tx), y: worldY(b, aim.ty) };
   const before = workAt(b, aim.tx, aim.ty);
-  const work = digw.add(b, aim.tx, aim.ty, dt * eff('pickPower'));
+  const work = digw.add(b, aim.tx, aim.ty, dt * eff('pickPower') * (tool ? tool.power : 1));
 
   /* A strike that did not break anything is still a fact worth reporting: it is
      what gives the swing weight. `shell` rate-limits it from `data/sfx.js`. */

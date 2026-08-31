@@ -27,18 +27,22 @@
    see `data/sources.js`. If this project ends up wanting forty such hatches
    rather than three, the architecture chose wrong. */
 
+import { rand } from '../core/rng.js';
 import { overlaps } from '../core/math.js';
-import { F, matches } from '../data/forms.js';
+import { AIR, F, matches } from '../data/forms.js';
 import { recipesOf } from '../data/recipes.js';
 import { SOURCES } from '../data/sources.js';
+import { SUB } from '../data/substances.js';
 import { hasField, write as fw, fieldAt } from '../model/fields.js';
 import { push } from '../model/journal.js';
 import { itemsIn, parseKey, write as iw } from '../model/items.js';
 import { capOf, count, defOf, fill, firstMatching, machines, write as mw } from '../model/machines.js';
+import { write as digw } from '../model/mining.js';
 import { eff } from '../model/mods.js';
 import { playerBox } from '../model/player.js';
 import { hearts, run, write as rw } from '../model/run.js';
-import { tileX, tileY } from '../model/world.js';
+import { baseHardAt, dropAt, subAt, tileAt, write as tw } from '../model/tiles.js';
+import { tileX, tileY, worldX, worldY } from '../model/world.js';
 
 /* ---------- the injected source api ----------
    This object is the ENTIRE surface a `data/sources.js` row may touch. Adding a
@@ -115,6 +119,7 @@ export function step(dt) {
     if (def.handFeed) handFeed(m, def);
     produce(m, def, dt);
     if (def.emit) emit(m, def, dt);
+    if (def.mine) mine(m, def, dt);
   }
 }
 
@@ -267,4 +272,137 @@ function acceptedBy(def, sub, form) {
     for (const sel of p.accepts) if (matches(sel, sub, form)) return sel;
   }
   return null;
+}
+
+/* ---------- mine (Phase 2c) ----------
+   A PLACED miner. GATES on top of `rules/mining.js`'s hardness, not a second
+   one -- see the `mine` key's own documentation in `data/machines.js`.
+
+   "Hands compete with machines on throughput; they lose on headcount"
+   (docs/DESIGN.md) is enforced HERE, not asserted in a comment: every placed
+   miner chews at `eff('pickPower') x bestHandToolPower()`, the exact same
+   formula and the exact same NUMBER `rules/mining.js#step` uses when a player
+   swings the best tool they hold. `bestHandToolPower` is generic over every
+   substance's `item.tool` block -- it never names the auger -- so this is one
+   formula agreeing with itself off shared data, not two authors copying a
+   literal into two files. Only the GATE (`def.mine.tier`, what the miner may
+   even bite) and the WIDTH (`def.mine.tiles`, how tall a face it can reach)
+   vary between tiers; the per-tile rate never does. */
+
+/* The best HAND tool's power, scanned off every substance's `item.tool`
+   block rather than naming one. A future hand tool raises every placed
+   miner's rate the same day it raises a swinging player's, with no edit
+   here. Defaults to 1 -- the same "no tool held" fallback `rules/mining.js`
+   uses -- though a miner can only ever run once some tool exists to read. */
+function bestHandToolPower() {
+  let p = 1;
+  for (const s of SUB) if (s.item?.tool && s.item.tool.power > p) p = s.item.tool.power;
+  return p;
+}
+
+/* First non-air tile in the face, top to bottom -- the SAME idiom
+   `rules/mining.js` uses for "what is aimed at", just aimed by data
+   (`facing`/`tiles`) instead of the player's own position. Once the top tile
+   breaks it reads AIR and the loop finds the next one down for free; no
+   separate "advance the target" state to keep in sync. */
+function mineTarget(m, def) {
+  const spec = def.mine;
+  const tx = m.tx + (spec.facing > 0 ? def.tw : -1);
+  for (let i = 0; i < spec.tiles; i++) {
+    const ty = m.ty + i;
+    if (tileAt(m.band, tx, ty) !== AIR) return { tx, ty };
+  }
+  return null;
+}
+
+/* Rate limit for the tier refusal, the identical idiom
+   `rules/mining.js`'s own `lastTierRefusal` uses for the hand-mining half of
+   this same gate -- a WeakMap here rather than one scalar because more than
+   one miner can be stalled on a too-hard face at once. */
+const REFUSAL_GAP = 1.0;
+const refusedAt = new WeakMap();
+function tierRefusalDue(m) {
+  const last = refusedAt.get(m);
+  if (last !== undefined && run.t - last < REFUSAL_GAP) return false;
+  refusedAt.set(m, run.t);
+  return true;
+}
+
+/* Seconds of active chewing one buffered fuel unit lasts, per machine. A
+   local WeakMap accumulator, not a machine-record field: `model/machines.js`
+   is not this phase's to extend for a number only this branch reads, and
+   `m.prog` already belongs to `produce()` above (which zeroes it every frame
+   this row has no matching `recipes`, since it has none). Same shape as
+   `recipeCache`, above, in this same file. */
+const fuelClock = new WeakMap();
+
+function mine(m, def, dt) {
+  const spec = def.mine;
+
+  const target = mineTarget(m, def);
+  if (!target) { mw.running(m, false); return; }        // face is clear, or empty -- nothing to chew
+
+  const sub = subAt(m.band, target.tx, target.ty);
+  if (sub < 0) { mw.running(m, false); return; }         // bedrock, or out of bounds
+
+  /* TOOL TIER GATE, identical in shape to `rules/mining.js`'s hand-mining
+     gate: a fact worth a rate-limited journal row, not a silent stall on a
+     wall this machine will otherwise sit chewing at forever. */
+  const tileTier = SUB[sub].tile?.tier ?? 1;
+  if (tileTier > spec.tier * eff('toolTier', SUB[sub].id)) {
+    if (tierRefusalDue(m))
+      push('refused', { x: worldX(m.band, target.tx), y: worldY(m.band, target.ty) },
+           { def: m.def, sub, why: 'TOO HARD FOR THIS MINER' });
+    mw.running(m, false);
+    return;
+  }
+
+  /* NO FUEL: the same silent stall every other fuel-consuming machine already
+     has (a brazier out of fuel just goes dark) -- ordinary, not exceptional,
+     and not worth a toast of its own. */
+  const fuelPair = firstMatching(m, '*/#fuel', 1);
+  if (!fuelPair) { mw.running(m, false); return; }
+
+  mw.running(m, true);
+
+  /* THE RATE. See the file-header note above: this is the one line the whole
+     tier's throughput equality rests on. */
+  const hard = baseHardAt(m.band, target.tx, target.ty) * eff('hard', SUB[sub].id);
+  const work = digw.add(m.band, target.tx, target.ty, dt * eff('pickPower') * bestHandToolPower());
+
+  /* Fuel drains continuously with TIME spent chewing, not per tile broken --
+     `secs` is "how long one unit lasts", so a smaller `secs` on a row is a
+     thirstier machine regardless of what it is biting. */
+  const clock = (fuelClock.get(m) || 0) + dt;
+  if (clock >= spec.secs) {
+    mw.consume(m, fuelPair.sub, fuelPair.form, 1);
+    fuelClock.set(m, clock - spec.secs);
+  } else fuelClock.set(m, clock);
+
+  if (work < hard) return;                               // still chewing
+
+  /* ---- broken. Read the drop BEFORE clearing the tile, same order
+     `rules/mining.js` uses. ---- */
+  const drop = dropAt(m.band, target.tx, target.ty);
+  digw.clear(m.band, target.tx, target.ty);
+  tw.clear(m.band, target.tx, target.ty);
+  /* `0.5` mirrors `rules/mining.js#HARD_BREAK` verbatim: a journal-kind
+     selector (soft vs. hard break sound), not a mechanic, and that file's own
+     header already argues it is not worth a tunable. Duplicated rather than
+     imported because `rules` siblings may not import one another. */
+  push(hard > 0.5 ? 'breakHard' : 'breakSoft',
+       { x: worldX(m.band, target.tx), y: worldY(m.band, target.ty) }, { sub });
+
+  /* ARCHITECTURE invariant 5, same as every other producer in this file: the
+     output DROPS, at the OUT port, never a direct buffer credit. Downward,
+     not tossed up like a recipe's own output loop above -- "drops to the
+     tile below the out port" is the phrase this key's spec uses, and gravity
+     (`rules/items.js`, which runs before this step every frame) carries it
+     the rest of the way regardless of which way it leaves the mouth. */
+  if (!drop) return;
+  const port = def.ports.find(p => p.mode === 'out');
+  const mouth = m.mouth[port.side];
+  const it = iw.spawn(m.band, mouth.x + mouth.w / 2, mouth.y + mouth.h,
+                       drop.sub, drop.form, (rand() - 0.5) * 24, 20);
+  if (it) push('drop', { x: mouth.x, y: mouth.y }, { sub: drop.sub, form: drop.form });
 }

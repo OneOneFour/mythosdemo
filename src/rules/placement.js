@@ -25,12 +25,13 @@
 
 import { AIR, FORM, NATIVE } from '../data/forms.js';
 import { M, MACH } from '../data/machines.js';
+import { SPAWN_BAND } from '../data/world.js';
 import { push } from '../model/journal.js';
 import { machineAt, write as mw } from '../model/machines.js';
 import { parseKey } from '../model/items.js';
 import { canAfford, canPlace, invCount, write as rw } from '../model/run.js';
 import { climbAt, solidAt, tileAt, write as tw } from '../model/tiles.js';
-import { inBounds, worldX, worldY } from '../model/world.js';
+import { bandOf, inBounds, worldX, worldY } from '../model/world.js';
 
 /* ---------- machines ---------- */
 
@@ -55,6 +56,19 @@ export function placeMachine(band, machineId, tx, ty) {
   let footing = 0;
   for (let i = 0; i < def.tw; i++) if (solidAt(band, tx + i, ty + def.th)) footing++;
   if (footing < def.footing) return no('NEEDS A FLOOR');
+
+  /* DEPTH GATE (Phase 2c, `minDepth`): tiles below the SPAWN band's own floor
+     line -- `view/hud.js`'s depth gauge reads the identical datum, so "the
+     HUD says you are 40m down" and "this machine will place here" can never
+     disagree about what depth means. Measured against WHERE IT IS BEING
+     PLACED, not the player's own depth, so a machine hauled to the surface
+     cannot borrow legality from a shaft the player is merely standing in. */
+  if (def.minDepth) {
+    const ref = bandOf(SPAWN_BAND);
+    const datum = worldY(ref, ref.cfg.floorTy ?? 0);
+    const depth = (at.y - datum) / ref.tile;
+    if (depth < def.minDepth) return no('TOO SHALLOW');
+  }
 
   if (def.cost && !canAfford(def.cost)) return no('CANNOT AFFORD IT');
 

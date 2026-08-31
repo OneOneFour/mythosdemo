@@ -248,3 +248,77 @@ row-run coalesced like `drawFog`, drawn after terrain/fields and before fog.
 A seen-but-dark tile therefore stays visibly distinct from both a fully-lit
 tile and an unseen (fog) one, and an ore vein is visually swamped by the
 darkest step well before its glint treatment could read as ore.
+
+## 12. Mining tiers and the automated line (Phase 2c)
+
+Locked with `docs/BUILD_PLAN.md` Phase 2c. A GATE on top of hardness, not a
+second hardness: `tile.tier` (Phase 1) decides whether a swing is legal at
+all; `hard` (unchanged) decides how long a legal one takes.
+
+Tools are relic substances (`item.tool:{tier, power}`), not a new table:
+
+| tool | tier | power | how |
+|---|---|---|---|
+| `pick` (STOCK PICKAXE) | 1 | 1.0 | starting kit, unchanged behaviour |
+| `auger` (ADAMANT AUGER) | 2 | 1.8 | crafted: `data/recipes.js#auger`, 2 `copper/plate` + 1 `timber/log`, 8.0s, hand:true |
+
+`model/run.js#bestTool()` returns the highest-tier tool relic held;
+`hasPick()` is now `bestTool() !== null`, a strict generalisation (true under
+the identical condition a fresh run starts in). The gate in
+`rules/mining.js#step`: a tile refuses with journal reason `'TOO HARD FOR
+THIS PICK'`, rate-limited to once per 1.0s, if `tile.tier > tool.tier x
+eff('toolTier', <substance>)`. The tool's `power` multiplies
+`eff('pickPower')` in that same one place `hard` is already applied.
+
+Placed miners (`mine:{facing, tier, tiles, secs}`, new interpreter key,
+`rules/machines.js`):
+
+| machine | footprint | cost | tier | tiles | secs (fuel drain) | minDepth |
+|---|---|---|---|---|---|---|
+| `talos_head` (+ `_l` mirror) | 1x1 | 8 `copper/plate` + 2 `copper/ingot` | 2 | 1 | 12.0 | — |
+| `cyclops_maw` (+ `_l` mirror) | 1x3 | 16 `copper/plate` + 6 `copper/ingot` + 6 `granite/gravel` | 3 | 3 | 3.0 | 200 tiles |
+
+`facing` is `1`/`-1`, `belt.dir`'s own convention; the `_l` rows are the
+identical near-free mirrored variant `belt_l` already is. `secs` is how many
+seconds of ACTIVE CHEWING one buffered fuel unit lasts — a continuous drain
+with time, unrelated to any one tile's hardness — not a per-tile cost; the
+Maw's shorter `secs` is the tier list's "high fuel draw", a thirstier
+machine, not a faster one. `tiles` is a face height, chewed one tile at a
+time (topmost unbroken first), so a taller face is reach, not simultaneity.
+
+**The rate is not a row on either machine.** `rules/machines.js#mine` reads
+`eff('pickPower') x bestHandToolPower()`, where `bestHandToolPower()` scans
+every substance's `item.tool.power` and returns the largest — the SAME two
+numbers, read off the SAME data, that a swinging player's `rules/mining.js`
+uses. Verified via the test hook: a hand-swung auger and a fuelled Talos Head
+each broke an identical `granite` tile in exactly 1.3417s at a fixed 1/120s
+step — 0.0000s difference, not merely "close". A Cyclops Maw chews at the
+identical rate; its only advantages over a Talos Head are reaching
+`tile.tier:3` (adamant, which NEITHER hand tool can bite) and a 3-tall face.
+
+`minDepth:200` (`cyclops_maw`) is checked in `rules/placement.js` against the
+SAME datum `view/hud.js`'s depth gauge already reads (`worldY` of the spawn
+band's own `floorTy`), so "the HUD says 25m" and "a machine may place here"
+can never disagree about what depth means. `data/world.js`'s adamant blobs
+start at topsoil row 220 (depth ~256 against that datum); 200 leaves room to
+place the Maw on the approach, not only once standing in the vein.
+
+**Cost.** `cyclops_maw`'s bill is deliberately priced in granite-tier goods a
+T2 auger CAN reach, not adamant: a machine that could only be built from the
+one material it alone can mine would have no way to ever get built.
+
+**Recipe-ordering collision, same shape as `peg_rungs`/`kindle` (Phase 2a).**
+`data/recipes.js#auger` and `#daedalan` share identical input KEYS
+(`copper/plate`, `timber/log`) at the same plate count and different log
+counts (1 vs 4). `daedalan` is declared first (the stronger requirement), so
+holding 4+ logs always yields a stair; holding 1-3 falls through to the
+auger. See `docs/FINDINGS.md`.
+
+**Engine cost, stated per ARCHITECTURE §3.** Two new interpreter keys:
+`mine` (`rules/machines.js`) and `minDepth` (`rules/placement.js`). No
+machine name appears in `rules/machines.js`; no machine or substance name
+appears in `src/view/`.
+
+Tile-byte headroom: adding the `auger` relic substance is the 10th
+substance row, dropping headroom from 14 to 13 substances still allowed
+before the tile-id byte overflows (`src/data/forms.js`'s guard).

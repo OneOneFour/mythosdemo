@@ -38,6 +38,16 @@
             mass   -> base mass; the form multiplies it (see `forms.js`).
             hud    -> `{ order }` position in the pocket strip. `view/hud.js`
                       reads only this, so the HUD is data-driven.
+            tool   -> OPTIONAL. `{ tier, power }`. TOOLS ARE RELIC SUBSTANCES,
+                      not a new table (Phase 2c): the stock pickaxe and the
+                      adamant auger are both ordinary `relic`-tagged rows, and
+                      this is the only new thing on either of them. `tier` is
+                      compared against a tile's `tile.tier` (above) in
+                      `rules/mining.js`'s gate; `power` multiplies
+                      `eff('pickPower')` in exactly the one place `hard` and
+                      `toolTier` already multiply theirs, so a trinket cannot
+                      be read around. `model/run.js#bestTool()` is the query
+                      that finds the highest-tier one currently held.
 
      look   appearance, and NOTHING but `view/` reads it. `base/hi/lo` and
             `item` are keys into `data/palette.js`. `treatments` name pure
@@ -126,7 +136,13 @@ export const SUBSTANCES = [
           teleports into your hands" idiom mining already uses, extended to the
           one tool the game hands you rather than one you find. ---- */
   { id:'pick', name:'STOCK PICKAXE', tags:['relic'],
-    item:{ mass:0.5, hud:{ order:6 } },
+    /* `tool:{tier:1, power:1.0}` (Phase 2c): tier 1 is every substance with no
+       `tile.tier` of its own (absent means 1), and power 1.0 multiplies
+       `eff('pickPower')` by exactly nothing -- so this row is BEHAVIOURALLY
+       UNCHANGED. Before this phase `hasPick()` read `invCount` directly;
+       now it reads `bestTool() !== null`, which is true under the identical
+       condition (this is the only tool a fresh run ever starts with). */
+    item:{ mass:0.5, hud:{ order:6 }, tool:{ tier:1, power:1.0 } },
     look:{ item:['irB', 'woodC'] } },
 
   /* ---- soil: the shallow cap `data/world.js`'s surface band wears over its
@@ -178,7 +194,27 @@ export const SUBSTANCES = [
     item:{ mass:1.4, hud:{ order:9 } },
     look:{ base:'adamantB', hi:'adamantA', lo:'adamantD',
            item:['adamantA', 'adamantC'],
-           treatments:[ { fn:'glint', col:'adamantA', n:2 } ] } }
+           treatments:[ { fn:'glint', col:'adamantA', n:2 } ] } },
+
+  /* ---- auger: the T2 hand tool (Phase 2c), appended last per the header's
+          append-only rule rather than beside `pick` -- ordinals are id
+          storage and every existing substance's stays put. No `tile` block:
+          a tool was never rock, same as `bellows`/`pick` above, and
+          `crossable()` only lets it take `forms.js`'s `relic` form.
+
+          `tool:{tier:2, power:1.8}` is the ONE number this whole tier's
+          equality proof rests on: `rules/machines.js`'s Talos Head reads it
+          back generically (scanning every substance's `item.tool` block for
+          the largest `power`, no id named) rather than carrying a second,
+          hand-copied literal of its own -- so "mines at exactly the T2 hand
+          rate" is true by construction, not by two authors remembering to
+          agree. `power:1.8` also bites `tile.tier:2` (granite) that a
+          `power:1.0` pick's `tier:1` cannot reach at all, per the gate in
+          `rules/mining.js`. `data/recipes.js#auger` forges it: 2 copper/plate
+          + 1 timber/log. */
+  { id:'auger', name:'ADAMANT AUGER', tags:['relic'],
+    item:{ mass:0.9, hud:{ order:10 }, tool:{ tier:2, power:1.8 } },
+    look:{ item:['adamantA', 'irB'] } }
 ];
 
 /* ---- derived indices, built once, frozen. Nothing scans this table on a hot

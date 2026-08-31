@@ -26,7 +26,7 @@
    -- and that class of bug is what a schema is for. */
 
 import { F, FORM, byHudOrder, matches } from '../data/forms.js';
-import { S, SUB } from '../data/substances.js';
+import { SUB } from '../data/substances.js';
 import { STARTING_MACHINES } from '../data/boons.js';
 import { M, MACH } from '../data/machines.js';
 import { bump } from './epoch.js';
@@ -226,11 +226,33 @@ export function buildableMachines() {
   });
 }
 
-/* Whether the player has ever picked up the stock pickaxe -- `shell/boot.js`
-   plants one near spawn every run, and this is true from the moment it is
-   picked up, exactly like any other held pair. No separate flag: a field that
-   duplicates `run.inv` is a field that can disagree with it. */
-export const hasPick = () => invCount(S.pick, F.relic) > 0;
+/* The highest-tier `item.tool` relic currently held (Phase 2c), or null with
+   none. TOOLS ARE RELIC SUBSTANCES, not a new table: the stock pick and the
+   adamant auger are both ordinary rows in `data/substances.js` tagged
+   `relic`, and `item.tool:{tier, power}` is the only thing that marks one as
+   a tool. A straight scan of `run.inv`, not a cached field, for the same
+   reason `hasPick` below was never a flag: a field that can disagree with
+   the pockets is a field that will. Ties keep the first found -- content
+   never ships two tools at the same tier, so this never has to choose. */
+export function bestTool() {
+  let best = null;
+  for (const k in run.inv) {
+    if (!run.inv[k]) continue;
+    const { sub, form } = parseKey(k);
+    if (form !== F.relic) continue;
+    const tool = SUB[sub]?.item?.tool;
+    if (tool && (!best || tool.tier > best.tier)) best = tool;
+  }
+  return best;
+}
+
+/* Whether the player holds ANY mining tool -- `shell/boot.js` plants the
+   stock pick near spawn every run, and this is true from the moment it (or
+   any tool) is picked up. Expressed through `bestTool()` rather than the
+   `S.pick`-specific `invCount` check it used to be, so an auger alone also
+   satisfies it -- nothing that called this for "may this player dig at all"
+   was ever asking about the STOCK pick specifically. */
+export const hasPick = () => bestTool() !== null;
 
 /* The pocket strip, as data. `view/hud.js` reads this and names nothing:
    every held pair, plus a zero slot for any substance flagged `always` so the
