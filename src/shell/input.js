@@ -20,6 +20,8 @@
    ours to fake. */
 
 import { VIEW, stage } from '../core/canvas.js';
+import { aim } from '../model/aim.js';
+import { machineAt } from '../model/machines.js';
 import { buildableMachines } from '../model/run.js';
 import { drawn as uiDrawn } from '../view/ui/state.js';
 import { audio, unlockAudio } from './audio.js';
@@ -316,6 +318,17 @@ export function installInput() {
       if (e.button === 2) cmd.uiRight = true; else { cmd.uiClick = true; cmd.uiDown = true; }
       cmd.uiCtrl = e.ctrlKey || e.metaKey;
       cmd.uiShift = e.shiftKey;
+    /* A right-click ON A PLACED MACHINE deconstructs it instead of placing --
+       the same edge-triggered flag `Backspace` already sets and
+       `shell/main.js#applyIntents` already consumes via
+       `rules/placement.js#deconstruct`, from a second input source rather
+       than a second implementation. `aim` is read directly (not re-resolved
+       here) because it is already this frame's answer to "what tile is the
+       reticle over" -- the identical value `cmd.place`'s own dispatch trusts
+       one tick later. Aiming at open ground (no machine) falls through to
+       the unchanged `cmd.place = true` below. */
+    } else if (e.button === 2 && aim.valid && aim.band && machineAt(aim.band, aim.tx, aim.ty)) {
+      cmd.deconstruct = true;
     } else if (e.button === 2) cmd.place = true; else cmd.mouse = true;
     cv.setPointerCapture(e.pointerId);
     e.preventDefault();
@@ -323,7 +336,7 @@ export function installInput() {
   cv.addEventListener('pointerup', e => {
     if (isOpen(top()) || onAlwaysOnUi(e)) {
       if (e.button === 2) cmd.uiRight = false; else { cmd.uiClick = false; cmd.uiDown = false; }
-    } else if (e.button === 2) cmd.place = false; else cmd.mouse = false;
+    } else if (e.button === 2) { cmd.place = false; cmd.deconstruct = false; } else cmd.mouse = false;
   });
   cv.addEventListener('contextmenu', e => e.preventDefault());
   cv.addEventListener('pointerleave', () => { cmd.hasMouse = false; cmd.mouse = false; });
