@@ -97,7 +97,13 @@ export const BANDS = [
     strata:[
       { kind:'layer', sub:'stone',  fromTy:0,  toTy:320 },
       { kind:'blobs', sub:'copper', fromTy:4,  toTy:180, count:80, r:[1.6, 3.8] },
-      { kind:'blobs', sub:'tin',    fromTy:60, toTy:320, count:60, r:[1.6, 3.8] }
+      { kind:'blobs', sub:'tin',    fromTy:60, toTy:320, count:60, r:[1.6, 3.8] },
+      /* Deeper strata for Phase 2c's pick-tier gate: granite uncommon below
+         the copper/tin bands, adamant rarer still and deeper again, so the
+         tier gate has somewhere meaningful to bite once a bronze pickaxe
+         cannot break either. */
+      { kind:'blobs', sub:'granite', fromTy:120, toTy:320, count:40, r:[1.4, 3.0] },
+      { kind:'blobs', sub:'adamant', fromTy:220, toTy:320, count:20, r:[1.2, 2.4] }
     ],
     look:{ sky:'abyB', tint:'irD', ambient:0.6 } }
 ];

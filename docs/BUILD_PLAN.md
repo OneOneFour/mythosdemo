@@ -274,8 +274,20 @@ Behaviour must be IDENTICAL for existing content after this change.
    - every machine `cost` key parses to a real, holdable sub/form pair
    - every machine `cost` key is REACHABLE: the pair is either mined directly
      (some substance's tile.drops) or produced by some recipe's out clause
-   - every non-raw holdable pair is reachable from a mined pair through the
-     recipe graph — no orphans, no unobtainable content
+   - every pair the game actually DECLARES — a recipe's concrete `out` pair
+     (literal `sub`, or every substance a `subFrom` clause could resolve to),
+     or a machine `cost` key (already the section-4 job, don't duplicate) — is
+     reachable from a mined pair through the recipe graph. Scope the universal
+     set to DECLARED pairs, not `data/forms.js#expand`'s full `crossable()`
+     cartesian space: `crossable()` is an ANY-match on tags, so it already
+     calls some pairs "holdable" that nothing in the game produces or
+     requires — `copper/gravel` and `tin/gravel` are holdable today
+     (`gravel`'s `subTags` is `['metal','rock']`) with no mining path or
+     recipe ever touching them, and that is harmless: nothing declares them,
+     so there is nothing to orphan. Asserting over the full holdable space
+     fails on that pre-existing, harmless gap on the very first run — check
+     reachability of what the content table actually says exists, not of
+     every pair the tag algebra happens to permit.
    - no recipe produces more total MASS than it consumes unless the row is
      tagged `transmute` (catches accidental infinite-material loops). Compute
      mass with the same substance-mass x form-massK arithmetic

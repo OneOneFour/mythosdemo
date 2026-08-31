@@ -89,7 +89,37 @@ export const FORMS = [
   { id:'plate', label:'PLATE',
     size:4, massK:2.4, hudOrder:6,
     tags:['refined', 'plate'],
-    subTags:['metal'] }
+    subTags:['metal'] },
+
+  /* ---- brand: the carried light, and the first form whose substance is not
+     metal. A hollow fennel stalk carrying stolen fire (Prometheus) -- held
+     and burned down over `eff('brandSecs')`, never placed, so it carries no
+     `tile` block. `subTags:['organic']` is the same restriction `log`
+     already uses, which is why timber is the only substance that can take
+     it today. Lighter than a log: a brand is a stripped stick, not a whole
+     trunk -- `massK:0.3`, not the ~0.5 an earlier draft of this row used,
+     because `recipes.js#kindle` turns ONE log into THREE brands and
+     `tools/content.mjs`'s mass-conservation check is what caught that at
+     0.5 a kindled log would net MORE mass than it started as (3 x 0.5 = 1.5
+     against the log's massK of 1.0). 0.3 keeps 3 brands (massK sum 0.9) at
+     or under one log (massK 1.0), with no `transmute` tag needed because
+     nothing is actually being created here, only split lighter. */
+  { id:'brand', label:'BRAND',
+    size:3, massK:0.3, hudOrder:7,
+    tags:['fuel', 'light'],
+    subTags:['organic'] },
+
+  /* ---- phial: the one form a miracle may take (CLAUDE.md "Resolved
+     decisions" D1). Kept separate from `relic` on purpose: `crossable()`'s
+     whole mechanism is the `subTags` gate, and folding a miracle into
+     `relic` would let it satisfy any trinket selector that reads `#relic`
+     by accident. `subTags:['miracle']` means only a miracle-tagged
+     substance (one row per miracle, added in Phase 4) may ever cross into
+     it. No `tile` block: a miracle is a held one-shot, never terrain. */
+  { id:'phial', label:'PHIAL',
+    size:3, massK:0.2, hudOrder:8,
+    tags:['miracle'],
+    subTags:['miracle'] }
 ];
 
 export const FORM = Object.freeze(FORMS.map(Object.freeze));

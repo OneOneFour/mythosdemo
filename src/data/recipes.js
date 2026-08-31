@@ -80,6 +80,20 @@ export const RECIPES = Object.freeze({
     out:[ { subFrom:'*/#ingot', form:'plate', n:1 } ],
     secs:8.0,
     hand:true
+  }),
+
+  /* ---- kindle: timber/log -> timber/brand. THE FIRST RECIPE WHOSE OUTPUT
+     FORM IS NOT A COMPRESSION TIER -- smelt and press both compress toward
+     density; kindling does the opposite, one log splitting into three
+     lighter, burnable brands. hand:true because no machine performs it;
+     Phase 2b plants the player's first brand near spawn regardless, and this
+     recipe is how they restock once it burns out. */
+  kindle: Object.freeze({
+    id:'kindle', name:'KINDLE',
+    in:{ 'timber/log':1 },
+    out:[ { sub:'timber', form:'brand', n:3 } ],
+    secs:1.5,
+    hand:true
   })
 });
 

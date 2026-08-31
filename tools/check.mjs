@@ -10,6 +10,7 @@
 // appearance changing; a human covers appearance being right.
 
 import { checkLayers } from './layers.mjs';
+import { checkContent } from './content.mjs';
 
 /* ---------- DOM and canvas2d stub ----------
    Not a pure stub: fillRect/drawImage also assert finiteness, which is where a
@@ -178,6 +179,20 @@ console.log('\n1. content resolves');
   const bands = D_world.BANDS || D_world.WORLD || [];
   if (bands.length !== 3) fail(`expected 3 bands, found ${bands.length}`);
   else ok(`3 bands: ${bands.map(b => b.id).join(' / ')}`);
+}
+
+
+/* ============================================================
+   1b. CONTENT LINT — recipe reachability, mass, and tunable resolution
+   ============================================================ */
+console.log('\n1b. content lint');
+{
+  const r = checkContent({ quiet: true });
+  if (r.violations.length) {
+    for (const v of r.violations) fail(v);
+  } else {
+    ok(`${r.checks} checks, 0 violations`);
+  }
 }
 
 

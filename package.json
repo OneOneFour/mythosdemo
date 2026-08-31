@@ -8,6 +8,7 @@
     "start": "node tools/serve.mjs",
     "dev": "node tools/serve.mjs",
     "check": "node tools/check.mjs",
+    "check:content": "node tools/content.mjs",
     "layers": "node tools/layers.mjs",
     "build": "node tools/build.mjs",
     "preview": "esbuild --servedir=dist --serve=5174",

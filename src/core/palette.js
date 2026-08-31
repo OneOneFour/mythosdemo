@@ -29,7 +29,14 @@ export const P = {
   snA:'#cfd6da', snB:'#9aa8b0', snC:'#6c7a84', snD:'#43505a',
   vdA:'#63947a', vdB:'#4b7460', vdC:'#365746', vdD:'#243c30',
   irA:'#a3a3ad', irB:'#74747f', irC:'#4a4a54', irD:'#2c2c34',
-  ichor:'#ffd97a', hot:'#ff9a3c', ui:'#d2c9b2', uiDim:'#7b7361', uiBack:'#0d0b12'
+  ichor:'#ffd97a', hot:'#ff9a3c', ui:'#d2c9b2', uiDim:'#7b7361', uiBack:'#0d0b12',
+  /* granite: a cool light grey, distinct from ir* (iron-grey, warmer/darker)
+     so the two rocks read apart at a glance. adamant: a dark teal-black with
+     a pale cyan glint highlight, consistent with the `glint` treatment
+     already used on copper (veinA) and tin (snA) -- reads as worked/magical
+     metal-rock rather than plain stone. */
+  graniteA:'#d8d6dc', graniteB:'#b3b0ba', graniteC:'#8b8792', graniteD:'#5a5760',
+  adamantA:'#8fe3d9', adamantB:'#2b4a52', adamantC:'#1c3238', adamantD:'#0f1c1f'
 };
 
 /* ---------- colour arithmetic ---------- */

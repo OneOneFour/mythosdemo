@@ -92,7 +92,48 @@ export const TUNABLES = [
     note:'multiplies machine progress. Higher is faster. `rate.furnace` scopes it.' },
 
   { id:'yield', kind:'scale', base:1.0, scope:'machine',
-    note:'multiplies output counts, rounded down. Where a "doubling" boon goes.' }
+    note:'multiplies output counts, rounded down. Where a "doubling" boon goes.' },
+
+  /* ---- encumbrance (CLAUDE.md "Resolved decisions" D3/D4). Mass is in
+     TALENTS. `burden` is the hard cap; `burdenSoft` is the fraction of it
+     where climb speed begins to fall off; `burdenClimbFloor` is the climb
+     multiplier AT the hard cap, the tick before ladder-up/hop are refused
+     outright. Walking on level ground and every downward movement are never
+     scaled by any of these three -- enforced in rules/player.js, Phase 2a. */
+  { id:'burden',           kind:'value', base:40,   unit:'talents', note:'hard carry cap; a pickup or a climb over this is refused' },
+  { id:'burdenSoft',       kind:'value', base:0.75, unit:'x',       note:'fraction of burden where climb-speed falloff starts' },
+  { id:'burdenClimbFloor', kind:'value', base:0.40, unit:'x',       note:'climb-speed multiplier at the hard cap, the tick before lockout' },
+
+  /* ---- trinkets (D1). run.equipped is a fixed-length SELECTION over
+     run.inv, not a second inventory -- see CLAUDE.md D1 and
+     rules/trinkets.js's header on why run.trinkets was deleted. */
+  { id:'trinketSlots', kind:'value', base:3, unit:'slots', note:'length of run.equipped; a boon could someday widen it' },
+
+  /* ---- light (Phase 2b). `lightMax` is both daylight and the ceiling any
+     emitter can reach (the hearth). The two falloffs are per-tile-of-travel
+     losses a BFS in rules/light.js subtracts, rock lossier than air so
+     light does not leak through strata the way sight already does not. */
+  { id:'lightMax',         kind:'value', base:15, unit:'levels', note:'daylight level, and the ceiling any emitter can reach' },
+  { id:'lightFalloffAir',  kind:'value', base:1,  unit:'levels', note:'lost per tile of open air the light BFS crosses' },
+  { id:'lightFalloffRock', kind:'value', base:3,  unit:'levels', note:'lost per tile of solid rock the light BFS crosses' },
+  { id:'brandSecs',        kind:'value', base:90, unit:'s',      note:'one lit timber/brand burns this long, then is consumed' },
+
+  /* ---- tool tiers (Phase 2c). `hard` already scales a substance's
+     seconds-to-break; this is a SEPARATE gate on whether a tool may swing at
+     a tile at all, scoped the same way (`toolTier.copper` narrows to one
+     substance) so a boon can lend a tier without touching mining speed. */
+  { id:'toolTier', kind:'scale', base:1.0, scope:'substance',
+    note:'bends tile.tier gating in rules/mining.js; a boon could lend a tier' },
+
+  /* ---- toss velocity (Phase 1 row, Phase 2a reader). Four existing
+     falling-item call sites (rules/mining.js, rules/trinkets.js,
+     rules/crafting.js, rules/machines.js) each hardcode a DIFFERENT toss
+     magnitude -- docs/FINDINGS.md's toss-velocity finding. These two rows
+     exist so the new drop verb (Phase 2a) does not become a fifth
+     independently-chosen number. The four existing sites are deliberately
+     left as-is this phase; only the new drop verb reads these. */
+  { id:'tossUp',     kind:'value', base:50, unit:'px/s', note:'upward toss on a newly dropped item; drop verb only, see docs/FINDINGS.md' },
+  { id:'tossSpread', kind:'value', base:12, unit:'px/s', note:'horizontal scatter on the same drop' }
 ];
 
 export const TUNE = Object.freeze(Object.fromEntries(

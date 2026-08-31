@@ -24,6 +24,14 @@
             drops   -> the FORM the element yields when mined. The substance is
                        always itself, which is why one smelt row covers every
                        ore that will ever exist.
+            tier    -> OPTIONAL. Absent means tier 1. A SEPARATE gate from
+                       `hard`: `hard` decides how long a legal swing against
+                       this substance takes; `tier` decides whether a swing is
+                       legal at all, checked against the held tool's tier in
+                       rules/mining.js (Phase 2c). Monotonic against `hard` by
+                       convention and by tools/content.mjs's check: nothing at
+                       a higher tier may be softer than something at a lower
+                       one.
 
      item   present -> the element can be carried, in any of the forms whose
             own `item` block permits it.
@@ -142,7 +150,35 @@ export const SUBSTANCES = [
               green FOR EXACTLY THIS REASON: `paintTile`'s generic "exposed
               face" highlight fires for ANY open neighbour, tunnels included,
               and painting it green was grass appearing on cave ceilings. */
-           grassCap:{ col:'grassA', h:2 } } }
+           grassCap:{ col:'grassA', h:2 } } },
+
+  /* ---- granite: the first ROCK harder than stone, for the deep strata pick
+          tiers Phase 2c gates against. `tile.tier:2` is the new optional key
+          documented above -- absent means tier 1, so every existing
+          substance (copper, tin, timber, stone, soil) is unaffected. Mines
+          to `gravel`, same as stone and soil, so no new rubble form is
+          needed for it. ---- */
+  { id:'granite', name:'GRANITE', tags:['rock', 'mineable'],
+    tile:{ solid:true, hard:2.4, drops:'gravel', tier:2 },
+    item:{ mass:0.9, hud:{ order:8 } },
+    look:{ base:'graniteB', hi:'graniteA', lo:'graniteD',
+           item:['graniteA', 'graniteC'],
+           treatments:[ { fn:'banded', col:'graniteD', every:8 } ] } },
+
+  /* ---- adamant: the hardest rock in the game, tier 3. The first ROCK
+          substance also tagged `metal` -- `tags` carries both `rock`
+          (mines like stone/granite, to `gravel`, per `tile.drops` below)
+          and `metal` (`crossable()` will let a future ore/ingot/plate form
+          cross into it once a smelt path is designed for that; nothing in
+          this phase adds that recipe, and mining it still only ever yields
+          gravel). `tile.tier:3` gates it behind Phase 2c's auger/Talos-head
+          tools -- a bronze pickaxe cannot scratch it. ---- */
+  { id:'adamant', name:'ADAMANT', tags:['rock', 'metal', 'mineable'],
+    tile:{ solid:true, hard:5.0, drops:'gravel', tier:3 },
+    item:{ mass:1.4, hud:{ order:9 } },
+    look:{ base:'adamantB', hi:'adamantA', lo:'adamantD',
+           item:['adamantA', 'adamantC'],
+           treatments:[ { fn:'glint', col:'adamantA', n:2 } ] } }
 ];
 
 /* ---- derived indices, built once, frozen. Nothing scans this table on a hot

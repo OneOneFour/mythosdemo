@@ -130,3 +130,27 @@ Plate's ratio is expressed in ingot terms (3, not 12) because it is built
 *from* ingots, not from ore directly — 3 x the 4:1 ingot ratio is the same
 12:1 against ore. If this disagrees with `data/recipes.js`, this file is
 stale; fix it here first.
+
+## 9. Encumbrance, light and tool tiers
+
+Locked with Phase 1 of `docs/BUILD_PLAN.md`. `CLAUDE.md` §"Resolved
+decisions" D3/D4 is the reasoning; this is the numbers.
+
+| tunable | value | unit | meaning |
+|---|---|---|---|
+| `burden` | 40 | talents | hard carry cap |
+| `burdenSoft` | 0.75 | x | fraction of `burden` where climb falloff starts |
+| `burdenClimbFloor` | 0.40 | x | climb-speed multiplier at the hard cap |
+| `trinketSlots` | 3 | slots | length of `run.equipped` |
+| `lightMax` | 15 | levels | daylight, and the ceiling any emitter can reach |
+| `lightFalloffAir` | 1 | levels | lost per tile of open air the light BFS crosses |
+| `lightFalloffRock` | 3 | levels | lost per tile of solid rock the light BFS crosses |
+| `brandSecs` | 90 | s | one lit `timber/brand` burns this long |
+| `toolTier` | 1.0 | x, scoped `substance` | bends `tile.tier` gating |
+| `tossUp` | 50 | px/s | upward toss on a newly dropped item (drop verb only) |
+| `tossSpread` | 12 | px/s | horizontal scatter on the same drop |
+
+New substance tiers (`tile.tier`, absent = 1): `granite` tier 2 (hard 2.4s),
+`adamant` tier 3 (hard 5.0s). Monotonic against `hard` — nothing at a higher
+tier is softer than something at a lower one — and `tools/content.mjs`
+asserts it.
