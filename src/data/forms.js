@@ -56,7 +56,17 @@ export const FORMS = [
     size:4, massK:1.0, hudOrder:4,
     tags:['fuel'],
     subTags:['organic'],
-    tile:{ solid:false, climb:true, hardK:0.30 } }
+    tile:{ solid:false, climb:true, hardK:0.30 } },
+
+  /* A trinket's only form: not mineable, not smeltable, not tile-capable --
+     `subTags:['relic']` means only a `relic`-tagged substance may cross into
+     it, which is what keeps this from ever matching an ore selector by
+     accident. One form covers every trinket that will ever exist, the same
+     way `ore` covers every ore: the STRIDE cost is paid once, not per god. */
+  { id:'relic', label:'RELIC',
+    size:4, massK:1.0, hudOrder:5,
+    tags:['relic'],
+    subTags:['relic'] }
 ];
 
 export const FORM = Object.freeze(FORMS.map(Object.freeze));

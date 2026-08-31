@@ -29,7 +29,7 @@ import { write as digw, workAt } from '../model/mining.js';
 import { write as iw } from '../model/items.js';
 import { eff } from '../model/mods.js';
 import { player, playerCentre } from '../model/player.js';
-import { run } from '../model/run.js';
+import { hasPick, run } from '../model/run.js';
 import { baseHardAt, dropAt, subAt, tileAt, write as tw } from '../model/tiles.js';
 import { bandAt, inBounds, tileX, tileY, worldX, worldY } from '../model/world.js';
 
@@ -77,7 +77,7 @@ function resolve(px, py) {
 /* ---------- the step ---------- */
 export function step(dt, cmd) {
   const b = aim.band;
-  if (run.dead || !run.hasPick || !cmd.dig || !aim.valid || !b) return;
+  if (run.dead || !hasPick() || !cmd.dig || !aim.valid || !b) return;
 
   const byte = tileAt(b, aim.tx, aim.ty);
   if (byte === AIR) return;

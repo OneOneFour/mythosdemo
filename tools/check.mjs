@@ -294,7 +294,9 @@ console.log('\n3. behaviour');
   if (!nonFinite && !stuck) ok('7,200-frame fuzz: no non-finite state, never inside rock');
 }
 
-/* --- a trinket changes an effective value, and unequipping restores it --- */
+/* --- a trinket is an item now: drafting it drops a relic, picking it up
+   changes an effective value, and spending it out of the inventory restores
+   the base -- all through `run.inv`, none of it through a dedicated list. --- */
 {
   boot.newRun(1337);
   const t = (D_trk.TRINKETS || [])[0];
@@ -305,15 +307,19 @@ console.log('\n3. behaviour');
     const key = dot < 0 ? raw : raw.slice(0, dot);
     const scope = dot < 0 ? t.mods[0].scope : raw.slice(dot + 1);
     const base = mods.eff(key, scope);
-    sched.trinkets.equip(t.id);
+    sched.trinkets.grant(t.id);
+    /* The draft spawns a falling item; let it land in the pickup radius and
+       `trinkets.step()` sync `model/mods.js` from `run.inv`. */
+    for (let i = 0; i < 180 && run.invCount(D_sub.S[t.id], D_form.F.relic) === 0; i++)
+      sched.stepAll(1 / 120, { hasMouse: false });
     const withT = mods.eff(key, scope);
-    if (withT === base) fail(`trinket ${t.id} did not change eff("${key}")`);
+    if (withT === base) fail(`trinket ${t.id} did not change eff("${key}") after pickup`);
     else ok(`trinket ${t.id}: ${key} ${base} -> ${withT}`);
-    if (sched.trinkets.unequip) {
-      sched.trinkets.unequip(t.id);
-      if (mods.eff(key, scope) !== base) fail('unequipping did not restore the base');
-      else ok('unequipping restores the base value');
-    }
+
+    run.write.spend(D_sub.S[t.id], D_form.F.relic, 1);
+    sched.trinkets.step();
+    if (mods.eff(key, scope) !== base) fail('spending the relic did not restore the base');
+    else ok('spending the relic restores the base value');
   }
 }
 

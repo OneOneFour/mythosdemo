@@ -62,7 +62,15 @@ export const BANDS = [
     fields:['heat'],
     strata:[
       { kind:'layer', sub:'stone',  fromTy:20, toTy:56 },
-      { kind:'trees', sub:'timber', fromTy:16, toTy:20, chance:0.03, height:[3, 5] },
+      /* `toTy` must reach past the layer's `fromTy:20` or a trunk's base scan
+         never finds solid ground -- it did not, for any seed, until this was
+         22: rows 16-19 are air, so `trees()`'s scan for the first solid tile
+         always fell through and every column was skipped. The extra row past
+         20 also covers a column whose row 20 happened to be carved by the
+         layer's ragged lip. `chance` raised alongside the fix, once trees
+         could exist at all, so 12ish logs is not a fistfight between the
+         first ladder and the first smelt (`log` is the only fuel). */
+      { kind:'trees', sub:'timber', fromTy:16, toTy:22, chance:0.06, height:[3, 5] },
       /* The guaranteed first vein, so the first two minutes cannot fail to
          find copper. `near:'spawn'` is resolved by worldgen, not here. */
       { kind:'blobs', sub:'copper', fromTy:26, toTy:56, count:14, r:[1.6, 3.2] },

@@ -15,8 +15,9 @@
 
    There is deliberately NO SAVE STRING in this pass. The split is in the shape
    so that adding one later is a serialiser and not a refactor -- a save is
-   `meta` plus `run.seed` plus `run.trinkets`, and replaying it reproduces every
-   number because randomness is seeded and modifiers are a list.
+   `meta` plus `run.seed` plus `run.inv` (a drafted trinket lives there too, see
+   `rules/trinkets.js`), and replaying it reproduces every number because
+   randomness is seeded and modifiers are a list.
    ============================================================================
 
    Every field a `newRun()` must reset is declared ONCE, in RUN_SCHEMA, and
@@ -25,7 +26,7 @@
    -- and that class of bug is what a schema is for. */
 
 import { F, FORM, byHudOrder } from '../data/forms.js';
-import { SUB } from '../data/substances.js';
+import { S, SUB } from '../data/substances.js';
 import { STARTING_MACHINES } from '../data/boons.js';
 import { bump } from './epoch.js';
 import { keyOf } from './items.js';
@@ -34,10 +35,10 @@ export const RUN_SCHEMA = Object.freeze({
   seed: 1337, t: 0,
   dead: false, deathCause: '',
   hearts: 5, maxHearts: 5, invuln: 0,
-  hasPick: true,
-  inv: null,            // sparse; keyed by the `sub/form` string
+  inv: null,            // sparse; keyed by the `sub/form` string -- a drafted
+                        // trinket and the starting pick both live here too,
+                        // see `rules/trinkets.js` and `hasPick()` below
   granted: null,        // machine ids this run may place
-  trinkets: null,       // ids of drafted trinkets; half of the future save
   cycle: 1, tribute: null,
   deepest: 0            // world px, for the depth gauge and for `meta`
 });
@@ -59,7 +60,6 @@ export const write = {
       seed,
       inv: {},
       granted: [...STARTING_MACHINES],
-      trinkets: [],
       tribute: null
     });
     bump();
@@ -113,8 +113,6 @@ export const write = {
   },
 
   grant(machineId)  { if (!run.granted.includes(machineId)) run.granted.push(machineId); bump(); },
-  equip(id)         { run.trinkets.push(id); bump(); },
-  unequip(id)       { run.trinkets = run.trinkets.filter(t => t !== id); bump(); },
   tribute(t)        { run.tribute = t; bump(); }
 };
 
@@ -123,6 +121,12 @@ export const write = {
 export const invCount = (sub, form) => run.inv[keyOf(sub, form)] || 0;
 export const hearts   = () => run.hearts;
 export const canPlace = machineId => run.granted.includes(machineId);
+
+/* Whether the player has ever picked up the stock pickaxe -- `shell/boot.js`
+   plants one near spawn every run, and this is true from the moment it is
+   picked up, exactly like any other held pair. No separate flag: a field that
+   duplicates `run.inv` is a field that can disagree with it. */
+export const hasPick = () => invCount(S.pick, F.relic) > 0;
 
 /* The pocket strip, as data. `view/hud.js` reads this and names nothing:
    every held pair, plus a zero slot for any substance flagged `always` so the

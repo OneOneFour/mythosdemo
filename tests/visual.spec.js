@@ -93,11 +93,19 @@ test('a placed furnace', async ({ page }) => {
   await boot(page);
   await settle(page);
   /* Keyboard aim, not mouse: a hardcoded click position is off-canvas at phone
-     size, where the base buffer is 200x422. Aim below the player, then press the
-     build key — placement is a shell INTENT, not a step. */
-  await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.hold({ down: 1 }, 4); });
+     size, where the base buffer is 200x422. No direction held: `aimAtKeys`
+     with neither up nor down aims to the SIDE, at the player's own row — which
+     on solid ground is open air with the floor directly beneath it, exactly
+     where a 2-tall machine fits. Aiming DOWN (as this test used to) lands on
+     the floor tile itself, which is solid on the spawn shelf by construction
+     (`onShelf` in `rules/generate.js` never carves that row) — a furnace can
+     never fit there, and this test had been screenshotting a "NEEDS CLEAR
+     SPACE" refusal since it was written; the baseline just never said so
+     because nothing asserted the placement had actually succeeded. */
+  await page.evaluate(() => { __mf.cmd.hasMouse = false; });
   await page.keyboard.press('f');
   await page.evaluate(() => __mf.frames(240));
+  expect(await page.evaluate(() => __mf.machines.length)).toBe(1);
   await shot(page, 'furnace.png');
 });
 

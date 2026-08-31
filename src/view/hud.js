@@ -29,7 +29,7 @@ import { TRINKET } from '../data/trinkets.js';
 import { aim } from '../model/aim.js';
 import { mods } from '../model/mods.js';
 import { player } from '../model/player.js';
-import { pocketRows, run } from '../model/run.js';
+import { hasPick, pocketRows, run } from '../model/run.js';
 import { bandOf, worldY } from '../model/world.js';
 import { banner, toasts } from './fx.js';
 import { stats as paintStats } from './paint.js';
@@ -147,7 +147,8 @@ function debug(g, f, W) {
     'GND ' + (player.onGround ? 'Y' : 'N') + ' LAD ' + (player.onLadder ? 'Y' : 'N'),
     'PAINT ' + paintStats.painted + ' RE ' + paintStats.repainted +
       ' CACHE ' + paintStats.cached,
-    'MODS ' + mods.rows.length + ' ' + run.trinkets.map(id => TRINKET[id]?.god || '?').join(' ')
+    'MODS ' + mods.rows.length + ' ' +
+      [...new Set(mods.rows.map(m => m.src))].map(id => TRINKET[id]?.god || id).join(' ')
   ];
   let w = 0;
   for (const r of rows) w = Math.max(w, textWidth(r));

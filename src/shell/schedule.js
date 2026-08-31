@@ -21,6 +21,12 @@
      items before machines  an item that lands in a mouth is caught THIS frame —
                            the catch box is checked against fresh positions, and
                            `items` is what rebuilt the spatial index.
+     items before trinkets  a relic `items` just caught with the pickup radius
+                           is already in `run.inv` by the time this runs, so a
+                           drafted trinket's modifier starts on the same frame
+                           it lands rather than the next one.
+     trinkets before machines  a rate modifier a relic just turned on should
+                           apply to this same frame's recipe tick, not the next.
      machines before lift   a charge banked this frame turns the drum now, so
                            feeding the winch and it moving are one beat.
      fields last            emissions made this frame decay from NEXT frame, so a
@@ -45,6 +51,7 @@ export const STEPS = [
   { id: 'player',   step: (dt, cmd) => player.step(dt, cmd) },
   { id: 'mining',   step: (dt, cmd) => mining.step(dt, cmd) },
   { id: 'items',    step: (dt) => items.step(dt) },
+  { id: 'trinkets', step: () => trinkets.step() },
   { id: 'machines', step: (dt) => machines.step(dt) },
   { id: 'lift',     step: (dt) => lift.step(dt) },
   { id: 'fields',   step: (dt) => fields.step(dt) }

@@ -22,7 +22,7 @@ import { items } from '../model/items.js';
 import { machines } from '../model/machines.js';
 import { PH, PW, player, write as playerw } from '../model/player.js';
 import { pocketRows, run } from '../model/run.js';
-import { heightPx, widthPx } from '../model/world.js';
+import { bands, heightPx, widthPx } from '../model/world.js';
 import { placeMachine, placeTile, placeableFromPockets } from '../rules/placement.js';
 import { step as stepFx } from '../view/fx.js';
 import { render } from '../view/scene.js';
@@ -56,7 +56,6 @@ export function step(dt) {
     hasMouse: cmd.hasMouse, mx: cmd.mx, my: cmd.my
   };
 
-  applyIntents(c);
   stepAll(dt, c);
 
   /* Purely presentational, and therefore not a rule: the pick swings on the
@@ -66,21 +65,33 @@ export function step(dt) {
 }
 
 /* One-shot intents. Placement and drafting are EVENTS, not steps, which is why
-   they are here and not in `shell/schedule.js`. */
-function applyIntents(c) {
+   they are here and not in `shell/schedule.js` -- and, as of this fix, why this
+   runs exactly once per real ANIMATION FRAME rather than once per fixed
+   substep. It used to run from inside `step()`: at a refresh rate below 120 Hz
+   a single frame runs several substeps and re-read the same still-true
+   `wants.machine`, attempting the same placement several times (one success
+   plus refusal-toast spam); above 120 Hz a frame can run ZERO substeps, and
+   `clearEdges()` still wiped the intent at the end of it, silently dropping a
+   press. Each branch self-clears the flag it consumed, immediately, rather
+   than waiting for `clearEdges()` -- so a flag this function never reaches
+   (the game is paused, `aim` isn't valid yet) survives to the next frame
+   instead of being erased on a schedule it knows nothing about. */
+function applyIntents() {
   if (wants.machine && aim.valid && aim.band) {
     /* Anchor the footprint so its BOTTOM row is the aimed tile: you point at the
        space a machine should stand in, not at its top-left corner. `th` comes
        off the row, so this line does not know how tall a furnace is. */
     const def = MACH[M[wants.machine]];
     if (def) placeMachine(aim.band, wants.machine, aim.tx, aim.ty - def.th + 1);
+    wants.machine = null;
   }
 
-  if (c.place && aim.valid && aim.band) {
+  if (cmd.place && aim.valid && aim.band) {
     /* The first tile-capable pair in the pockets, in HUD order. A build menu
        would let the player choose; the rule is the same either way. */
     const p = placeableFromPockets(pocketRows())[0];
     if (p) placeTile(aim.band, aim.tx, aim.ty, p.sub, p.form);
+    cmd.place = false;
   }
 
   /* Drafting, bound to a key so both boon tiers are exercisable by hand. The
@@ -88,11 +99,13 @@ function applyIntents(c) {
      the two calls it would make. */
   if (wants.draft === 'trinket') {
     const t = trinkets.draftable()[0];
-    if (t) trinkets.equip(t.id);
+    if (t) trinkets.grant(t.id);
+    wants.draft = null;
   }
   if (wants.draft === 'boon') {
     const b = boons.draftable()[0];
     if (b) boons.grant(b.id);
+    wants.draft = null;
   }
 }
 
@@ -115,12 +128,32 @@ function clampCam() {
   const b = player.band;
   if (!b) return;
   /* A band narrower than the viewport centres rather than clamping to a corner,
-     which is what a 96-tile astral platform on a wide monitor needs. */
-  const w = widthPx(b), h = heightPx(b);
+     which is what a 96-tile astral platform on a wide monitor needs. Bands
+     differ in width (astral is inset), so X still clamps to the CURRENT band
+     only. */
+  const w = widthPx(b);
   cam.x = w > VIEW.w ? clamp(cam.x, b.origin.x, b.origin.x + w - VIEW.w)
                      : b.origin.x + (w - VIEW.w) / 2;
-  cam.y = h > VIEW.h ? clamp(cam.y, b.origin.y, b.origin.y + h - VIEW.h)
-                     : b.origin.y + (h - VIEW.h) / 2;
+
+  /* Y clamps to the UNION of every band, not just the current one -- bands
+     stack contiguously in world space (`data/world.js` declares them
+     top-to-bottom with each origin.y equal to the previous band's bottom
+     edge), so this is one seamless column, not three separate ones. Clamping
+     per-band used to cap `cam.y` at the current band's own floor even while
+     the player kept descending past it: the camera pinned short of the seam,
+     `view/scene.js#visible()` correctly stopped drawing the band below (there
+     was nothing there to draw yet), and the instant `player.band` flipped,
+     this function re-evaluated against the NEW band's range -- whose minimum
+     is the seam itself -- snapping `cam.y` up to a full viewport height in one
+     frame. That was "digging glitches at the bottom of the screen." A union
+     clamp has no such seam: the smooth follow in `updateCamera` eases across
+     a band change exactly like it eases across anything else. */
+  const top = bands[0].origin.y;
+  const last = bands[bands.length - 1];
+  const bottom = last.origin.y + heightPx(last);
+  const totalH = bottom - top;
+  cam.y = totalH > VIEW.h ? clamp(cam.y, top, bottom - VIEW.h)
+                          : top + (totalH - VIEW.h) / 2;
 }
 
 /* ---------- draw ---------- */
@@ -143,14 +176,26 @@ export function frame(now) {
   const real = last ? t - last : STEP;
   last = t;
 
-  if (wants.restart) newRun();
+  /* Self-cleared here rather than by `clearEdges()` below: that call is now
+     skipped on a zero-substep frame (see the comment further down), and a
+     restart left set would otherwise fire again on every frame until one
+     finally runs a substep. */
+  if (wants.restart) { newRun(); wants.restart = false; }
 
   clock.acc += Math.min(MAX_CATCHUP, real);
   let n = 0;
   while (clock.acc >= STEP) { step(STEP); clock.acc -= STEP; n++; }
   if (!n) { clock.dt = real; }               // keep the FPS readout honest
 
-  clearEdges();
+  applyIntents();
+
+  /* `cmd.hop` is read inside a fixed substep (`rules/player.js`), so it must
+     only be cleared once one has actually run -- above 120 Hz refresh a frame
+     can run zero substeps, and clearing it here unconditionally erased a hop
+     or a restart before the physics ever saw it. `applyIntents()` above
+     already self-clears everything else it consumes, on its own schedule, so
+     gating the rest of `clearEdges()` on `n` costs nothing extra. */
+  if (n) clearEdges();
   stepFx(real);
   drainJournal(clock.t);
   draw();
@@ -168,9 +213,15 @@ function installTestHook() {
     newRun, step, draw, resize,
     clock, cam, player, run, aim, items, machines, cmd, flags,
 
-    /* Advance n substeps at a fixed dt, then draw once. */
+    /* Advance n substeps at a fixed dt, then draw once. `applyIntents()` runs
+       once per substep here rather than once per call -- as it would inside a
+       real `frame()` -- because it now self-clears whatever it consumes, so a
+       `wants.machine`/`wants.draft`/`cmd.place` set once by a real key event
+       still fires exactly once across the whole call, same as it would in one
+       real frame; calling it every iteration just means the test hook does not
+       have to guess which substep the real frame boundary would have been. */
     frames(n, dt = STEP) {
-      for (let i = 0; i < n; i++) { step(dt); clearEdges(); }
+      for (let i = 0; i < n; i++) { step(dt); applyIntents(); clearEdges(); }
       stepFx(n * dt);
       drainJournal(clock.t);
       draw();
@@ -182,6 +233,7 @@ function installTestHook() {
       for (const k of Object.keys(keys)) cmd[k] = keys[k];
       for (let i = 0; i < n; i++) {
         step(dt);
+        applyIntents();
         clearEdges();
         if (keys.hop) cmd.hop = false;
         if (keys.place) cmd.place = false;

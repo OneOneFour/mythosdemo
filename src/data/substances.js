@@ -83,7 +83,31 @@ export const SUBSTANCES = [
     tile:{ solid:true, hard:1.60, drops:'gravel' },
     item:{ mass:0.6, hud:{ order:4 } },
     look:{ base:'irC', hi:'irB', lo:'irD',
-           item:['limeB', 'limeD'] } }
+           item:['limeB', 'limeD'] } },
+
+  /* ---- bellows: the trinket tier, and the reason a trinket is a SUBSTANCE
+          and not a form. A trinket refines from nothing -- it IS the element,
+          singular and unique -- so `data/trinkets.js#TRINKET[id].mods` hangs
+          off a substance id rather than the game inventing a second, parallel
+          "equipped" list next to `run.inv`. No `tile` block: a relic was never
+          rock, and `crossable()` only lets it take `forms.js`'s `relic` form,
+          not `ore` or `gravel`. Every future trinket is a row here, exactly
+          like this one, and needs nothing new in `rules/trinkets.js`. ---- */
+  { id:'bellows', name:'BELLOWS OF THE FORGE', tags:['relic'],
+    item:{ mass:0.4, hud:{ order:5 } },
+    look:{ item:['ichor', 'vioHi'] } },
+
+  /* ---- pick: the first gift, same shape as any other relic. `model/run.js`'s
+          `hasPick()` is `invCount(S.pick, F.relic) > 0` -- a capability GATE
+          rather than a `data/trinkets.js` modifier, which is why it is not a
+          row in that table: nothing in `model/mods.js` needs to know a pick
+          exists. `shell/boot.js` plants one near spawn on every `newRun()`,
+          and walking over it is an ordinary pickup -- the same "material never
+          teleports into your hands" idiom mining already uses, extended to the
+          one tool the game hands you rather than one you find. ---- */
+  { id:'pick', name:'STOCK PICKAXE', tags:['relic'],
+    item:{ mass:0.5, hud:{ order:6 } },
+    look:{ item:['irB', 'woodC'] } }
 ];
 
 /* ---- derived indices, built once, frozen. Nothing scans this table on a hot
