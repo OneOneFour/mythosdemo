@@ -57,6 +57,13 @@ test('digging down into topsoil', async ({ page }) => {
   await boot(page);
   await settle(page);
   await page.evaluate(() => {
+    /* `shell/boot.js` plants the stock pickaxe a few tiles off spawn now --
+       walk over it first, or `hasPick()` is false and digging is a no-op.
+       `right` is a held key, not edge-triggered, so it must be released
+       explicitly or the player keeps drifting through the whole dig and no
+       single tile ever accumulates enough work to break. */
+    __mf.hold({ right: 1 }, 90);
+    __mf.cmd.right = false;
     __mf.hold({ dig: 1, down: 1 }, 900);
     __mf.frames(120);
   });

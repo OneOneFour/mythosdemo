@@ -60,6 +60,19 @@ export const climbOf = byte => byte !== AIR && tileBlockOf(byte)?.climb === true
 export const solidAt = (b, tx, ty) => solidOf(tileAt(b, tx, ty));
 export const climbAt = (b, tx, ty) => climbOf(tileAt(b, tx, ty));
 
+/* A clear vertical path to the top of THIS BAND'S OWN GRID -- true sky, not
+   merely "the tile directly above happens to be air", which a tunnel ceiling
+   also satisfies. `view/paint.js` is the only reader, for grass and canopy
+   caps: a cosmetic that should read as "this ground has seen the sun", not
+   "something happened to dig this tile out". Rows above `fromTy` in a band's
+   strata are never filled by worldgen, so row 0 is always open air and this
+   terminates without a separate "top of the world" constant. Only called from
+   the chunk-paint pass (cached per version), never per frame. */
+export const skyExposedAt = (b, tx, ty) => {
+  for (let y = ty - 1; y >= 0; y--) if (solidAt(b, tx, y)) return false;
+  return true;
+};
+
 /* BASE hardness in seconds at pick power 1. Deliberately the base and not the
    effective value: the `hard` tunable is applied in `rules/mining.js` through
    `eff`, so exactly one place reads the modifier. */

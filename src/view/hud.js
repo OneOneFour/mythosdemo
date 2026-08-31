@@ -112,7 +112,7 @@ function depth(g, W, y) {
 /* The aim reticle, in world space but drawn with the HUD because it is a
    statement about the pick and not about the rock. */
 function reticle(g, f) {
-  if (!aim.valid || !aim.band || !run.hasPick || run.dead) return;
+  if (!aim.valid || !aim.band || !hasPick() || run.dead) return;
   const b = aim.band, t = b.tile;
   const x = (b.origin.x + aim.tx * t - f.cam.x) | 0;
   const y = (b.origin.y + aim.ty * t - f.cam.y) | 0;

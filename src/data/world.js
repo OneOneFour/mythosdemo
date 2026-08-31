@@ -61,7 +61,14 @@ export const BANDS = [
     floorTy:20, spawnTx:42, spawn:true,
     fields:['heat'],
     strata:[
-      { kind:'layer', sub:'stone',  fromTy:20, toTy:56 },
+      /* A shallow soil cap over the stone, so the exposed ground reads as
+         dirt-with-grass (`soil`'s `hi` look) rather than bare rock. `lip:false`
+         on the stone row is load-bearing: without it, `layer()`'s ragged-edge
+         carve treats row 27 as ANOTHER exposed surface and punches random air
+         pockets along the soil/stone seam, seven tiles underground where
+         nothing should ever look carved. */
+      { kind:'layer', sub:'soil',   fromTy:20, toTy:27 },
+      { kind:'layer', sub:'stone',  fromTy:27, toTy:56, lip:false },
       /* `toTy` must reach past the layer's `fromTy:20` or a trunk's base scan
          never finds solid ground -- it did not, for any seed, until this was
          22: rows 16-19 are air, so `trees()`'s scan for the first solid tile

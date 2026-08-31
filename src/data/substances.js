@@ -74,7 +74,15 @@ export const SUBSTANCES = [
     tile:{ solid:true, hard:0.35, drops:'log' },
     item:{ mass:0.8, hud:{ order:3, always:true } },
     look:{ base:'woodB', hi:'woodA', lo:'woodD',
-           item:['woodA', 'woodC'] } },
+           item:['woodA', 'woodC'],
+           /* `view/paint.js` grows this on a timber column's TOP tile only --
+              a felled trunk's new top grows one the next time that tile
+              repaints, with no code change, because the geometry test is
+              "nothing solid above, all the way up" (`skyExposedAt`), not
+              "this is a trunk". Solid blocks, not a scatter: a chunky
+              Terraria-style canopy reads at this project's small viewport in a
+              way a stochastic dot-cloud did not. */
+           canopy:{ leaves:['vdB', 'vdA'], w:3, h:2 } } },
 
   /* ---- stone: the bulk of the world. Mines to gravel, never to ore, and has
           no ingot because it is not a metal -- the form crossing is limited by
@@ -83,7 +91,11 @@ export const SUBSTANCES = [
     tile:{ solid:true, hard:1.60, drops:'gravel' },
     item:{ mass:0.6, hud:{ order:4 } },
     look:{ base:'irC', hi:'irB', lo:'irD',
-           item:['limeB', 'limeD'] } },
+           item:['limeB', 'limeD'],
+           /* Bedding planes: free once `banded` exists, per docs/ART_DESIGN.md
+              -- a stratum that used to be a flat noise field now reads as
+              sedimentary rock at a glance, with no new rendering code. */
+           treatments:[ { fn:'banded', col:'irD', every:8 } ] } },
 
   /* ---- bellows: the trinket tier, and the reason a trinket is a SUBSTANCE
           and not a form. A trinket refines from nothing -- it IS the element,
@@ -107,7 +119,30 @@ export const SUBSTANCES = [
           one tool the game hands you rather than one you find. ---- */
   { id:'pick', name:'STOCK PICKAXE', tags:['relic'],
     item:{ mass:0.5, hud:{ order:6 } },
-    look:{ item:['irB', 'woodC'] } }
+    look:{ item:['irB', 'woodC'] } },
+
+  /* ---- soil: the shallow cap `data/world.js`'s surface band wears over its
+          stone, so the first few dug tiles read as dirt rather than rock. Its
+          `hi` is a grass tone rather than a lighter version of `base` -- every
+          other substance's `hi` is that, but this one leans on `paintTile`'s
+          existing "exposed top face" pass (`view/paint.js`) to paint a grass
+          cap wherever soil meets open air, with no new rendering code. Softer
+          than stone (a shovel's depth, not a pick's), and drops the same
+          `gravel` any `rock`-tagged substance does -- no new form for a second
+          kind of rubble. ---- */
+  { id:'soil', name:'SOIL', tags:['rock', 'mineable'],
+    tile:{ solid:true, hard:0.50, drops:'gravel' },
+    item:{ mass:0.5, hud:{ order:7 } },
+    look:{ base:'soilA', hi:'soilA', lo:'soilC',
+           item:['soilA', 'soilC'],
+           treatments:[ { fn:'banded', col:'soilC', every:5 } ],
+           /* A green cap, drawn only where `skyExposedAt` says this tile has
+              an open shot straight up to the top of the band -- true sky, not
+              a dug-out ceiling. `hi` above is a plain soil tone rather than
+              green FOR EXACTLY THIS REASON: `paintTile`'s generic "exposed
+              face" highlight fires for ANY open neighbour, tunnels included,
+              and painting it green was grass appearing on cave ceilings. */
+           grassCap:{ col:'grassA', h:2 } } }
 ];
 
 /* ---- derived indices, built once, frozen. Nothing scans this table on a hot

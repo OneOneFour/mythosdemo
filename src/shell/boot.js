@@ -19,6 +19,7 @@
      7  fields.write.allocate(...)  needs the band record from (6)
      8  generate(band)              needs (6) and (3)
      9  player.write.spawn(...)     needs (8), or it spawns inside rock
+    10  items.write.spawn(pick)     needs (9) for a position to plant it beside
 
    Getting this wrong throws during boot and renders NOTHING AT ALL, which is
    the exact mistake recorded in CLAUDE.md. It is written down here because it
@@ -31,6 +32,8 @@
 
 import { attach, resize } from '../core/canvas.js';
 import { seedRng } from '../core/rng.js';
+import { F } from '../data/forms.js';
+import { S } from '../data/substances.js';
 import { BANDS, SPAWN_BAND } from '../data/world.js';
 import { write as aimw } from '../model/aim.js';
 import { write as fieldw } from '../model/fields.js';
@@ -41,7 +44,7 @@ import { write as digw } from '../model/mining.js';
 import { write as modw } from '../model/mods.js';
 import { player, write as playerw } from '../model/player.js';
 import { write as runw } from '../model/run.js';
-import { bandOf, write as worldw } from '../model/world.js';
+import { bandOf, worldX, worldY, write as worldw } from '../model/world.js';
 import { generate } from '../rules/generate.js';
 import { reset as resetFx, title } from '../view/fx.js';
 import { resetChunks } from '../view/paint.js';
@@ -93,7 +96,15 @@ export function newRun(seed = (Math.random() * 1e9) | 0) {
          line, so the 16 px body starts in air and the first frame is a landing
          rather than an ejection. --- */
   const home = bandOf(SPAWN_BAND);
-  playerw.spawn(home, home.cfg.spawnTx ?? (home.tw >> 1), (home.cfg.floorTy ?? 0) - 2);
+  const spawnTx = home.cfg.spawnTx ?? (home.tw >> 1), floorTy = home.cfg.floorTy ?? 0;
+  playerw.spawn(home, spawnTx, floorTy - 2);
+
+  /* --- the first gift. Planted a few tiles off centre, inside the flat spawn
+         shelf (`SHELF` in `rules/generate.js`) so it never lands on a ragged
+         lip or a tree. An ordinary item, not a special case: it falls the last
+         tile like anything else and the existing pickup radius does the rest,
+         which is what `model/run.js#hasPick()` reads. --- */
+  itemw.spawn(home, worldX(home, spawnTx + 4), worldY(home, floorTy - 1), S.pick, F.relic, 0, 0);
 
   title('MYTHOS FACTORY', 'TORMENT I', 2.6);
   return player;

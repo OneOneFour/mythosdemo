@@ -29,7 +29,7 @@ import { fieldAt, hasField } from '../model/fields.js';
 import { items } from '../model/items.js';
 import { machines } from '../model/machines.js';
 import { PH, PW, player } from '../model/player.js';
-import { run } from '../model/run.js';
+import { hasPick, run } from '../model/run.js';
 import { bandAt, bands, chunkPx, heightPx, widthPx } from '../model/world.js';
 import { chips, drawChips } from './fx.js';
 import { drawHUD } from './hud.js';
@@ -179,7 +179,7 @@ function drawPlayer(g, f) {
   R(g, x + 2, y, 5, 1, INK.hair);
   R(g, x + (p.face > 0 ? 5 : 2), y + 2, 1, 1, INK.eye);     // eye
 
-  if (run.hasPick) {                                        // held out front
+  if (hasPick()) {                                          // held out front
     const hx = x + (p.face > 0 ? PW : -1), hy = y + 6;
     const sw = p.digging ? 1 : 0;
     lineTo(g, hx, hy + sw, hx + p.face * 4, hy - 3 + sw * 4, INK.haft);

@@ -48,14 +48,19 @@ const KINDS = {
 
   /* A solid band of one element across the full width. The bulk of every band
      is one of these. `fromTy` is the ground line when it is the topmost layer,
-     which is why the top row gets the ragged lip. */
+     which is why the top row gets the ragged lip BY DEFAULT -- `lip:false`
+     opts a row out, for a stratum boundary that sits underground and was never
+     exposed to open sky. Without that flag, giving a band's stone layer its
+     own `fromTy` (to sit under a shallow soil cap, say) would punch random air
+     pockets along the seam, because the lip check does not know "top of my own
+     range" from "top of the world". */
   layer(b, row) {
     const sub = S[row.sub];
     const top = Math.max(0, row.fromTy);
     const bot = Math.min(b.th, row.toTy);
     for (let ty = top; ty < bot; ty++)
       for (let tx = 0; tx < b.tw; tx++) {
-        if (ty === top && !onShelf(b, tx) && rand() < LIP) continue;
+        if (ty === top && row.lip !== false && !onShelf(b, tx) && rand() < LIP) continue;
         tw.set(b, tx, ty, sub, NATIVE);
       }
   },

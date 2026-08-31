@@ -33,9 +33,9 @@ import { fill } from '../model/machines.js';
 import { progressAt } from '../model/mining.js';
 import { sizeOf } from '../model/items.js';
 import { eff } from '../model/mods.js';
-import { baseHardAt, rowAt, solidAt, subAt, tileAt } from '../model/tiles.js';
+import { baseHardAt, rowAt, skyExposedAt, solidAt, subAt, tileAt } from '../model/tiles.js';
 import { chunkPx, chunkVer } from '../model/world.js';
-import { treat } from './treatments.js';
+import { TREAT, treat } from './treatments.js';
 
 /* Repaints per frame. A first paint is never budgeted — a chunk with no canvas
    has nothing stale to show — but a re-paint is, so walking a long tunnel while
@@ -163,12 +163,26 @@ function paintTile(g, b, tx, ty, dx, dy) {
     }
 
   /* Exposed faces catch light; buried faces do not. This is most of what makes
-     a dug corridor legible. */
+     a dug corridor legible -- any open neighbour qualifies, a cave ceiling
+     included, which is correct for lighting and wrong for grass (below). */
   if (!solidAt(b, tx, ty - 1))
     for (let x = 0; x < t; x++) {
       const jit = ((hash2(tx * t + x, ty * 7) * 3) | 0) - 1;
       R(g, dx + x, dy + Math.max(0, jit), 1, 2, L.hi);
     }
+  /* A trunk's top grows a canopy, and soil under open air grows a grass cap --
+     both gated on `skyExposedAt`, a full walk to the top of the band's own
+     grid, rather than "the one tile above is air": a tunnel ceiling satisfies
+     the latter but was never under the sun, and grass on a cave roof was
+     exactly the bug this check exists to prevent. Only walked for rows that
+     could possibly care, so ordinary rock pays nothing for it. */
+  if (L.row.look.canopy || L.row.look.grassCap) {
+    const cell = { px: dx, py: dy, tx, ty, tile: t };
+    if (skyExposedAt(b, tx, ty)) {
+      if (L.row.look.canopy) TREAT.canopy(g, cell, L.row.look.canopy);
+      if (L.row.look.grassCap) TREAT.grassCap(g, cell, L.row.look.grassCap);
+    }
+  }
   if (!solidAt(b, tx - 1, ty)) R(g, dx, dy, 1, t, L.edgeL);
   if (!solidAt(b, tx + 1, ty)) R(g, dx + t - 1, dy, 1, t, L.edgeR);
   if (!solidAt(b, tx, ty + 1)) R(g, dx, dy + t - 1, t, 1, L.lo);

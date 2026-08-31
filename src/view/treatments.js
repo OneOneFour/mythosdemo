@@ -53,6 +53,36 @@ export const TREAT = {
     const col = colour(p.col), every = p.every || 3;
     for (let y = 0; y < c.tile; y++)
       if ((c.ty * c.tile + y) % every === 0) R(g, c.px, c.py + y, c.tile, 1, col);
+  },
+
+  /* A blocky canopy over a trunk's TOP tile: `w` x `h` TILES of solid colour,
+     centred on the trunk and sitting flush on top of it, with a lighter top
+     course rather than a dithered edge -- deliberately closer to Terraria's
+     leaf blocks than to the preserved mockup's stochastic dot-cloud
+     `oliveTree()` (`reference/mockup/src/world/strata.js`), which reads as
+     fuzzy rather than as a tree at this project's small viewport. `paint.js`
+     is the only caller, and only when `skyExposedAt` is true -- "a clear shot
+     to the sky", which is a `model/tiles.js` query this file may not make
+     itself (data + core only, see the file header). */
+  canopy(g, c, p) {
+    const base = colour(p.leaves?.[0] || 'vdB'), hi = colour(p.leaves?.[1] || 'vdA');
+    const w = (p.w || 3) * c.tile, h = (p.h || 2) * c.tile;
+    const bx = (c.px + c.tile / 2 - w / 2) | 0, by = c.py - h;
+    R(g, bx, by, w, h, base);
+    R(g, bx, by, w, Math.max(1, (c.tile / 4) | 0), hi);
+  },
+
+  /* A green cap on the top few pixels of a tile, plus a few tufts poking one
+     pixel higher -- the mockup's grass-tuft look
+     (`reference/mockup/src/world/strata.js#drawSurface`), ported to a single
+     tile rather than a screen-wide pass. `paint.js` only calls this when
+     `skyExposedAt` is true, which is what keeps grass off a tunnel ceiling. */
+  grassCap(g, c, p) {
+    const col = colour(p.col || 'grassA'), h = p.h || 2;
+    R(g, c.px, c.py, c.tile, h, col);
+    for (let x = 0; x < c.tile; x++)
+      if (hash2(c.tx * c.tile + x, c.ty * 13 + 5) < 0.35)
+        R(g, c.px + x, c.py - 1, 1, 1, col);
   }
 };
 
