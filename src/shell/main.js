@@ -16,7 +16,7 @@
 
 import { VIEW, resize, stage } from '../core/canvas.js';
 import { clamp } from '../core/math.js';
-import { F } from '../data/forms.js';
+import { F, FORM } from '../data/forms.js';
 import { M, MACH } from '../data/machines.js';
 import { RECIPES } from '../data/recipes.js';
 import { aim } from '../model/aim.js';
@@ -35,7 +35,7 @@ import { clearEdges, cmd, flags, pointer, wants } from './input.js';
 import { drainJournal } from './notify.js';
 import { boons, grants, miracles, stepAll, trinkets } from './schedule.js';
 import {
-  assignQuickbar, cancelQueued, clearDrag, close as closePanel, closeTop, isOpen,
+  armPlace, assignQuickbar, cancelQueued, clearArmedPlace, clearDrag, close as closePanel, closeTop, isOpen,
   queueCraft, scrollBy, setDrag, setSearchFocus, setTab, toggleHints, ui
 } from './ui.js';
 import { hoverInfo, pocketHits } from '../view/hud.js';
@@ -131,6 +131,16 @@ function applyIntents() {
      whether or not this function consumed them. */
   if (flags.showMap) return;
 
+  /* THE ARMED PAIR TRACKS THE POCKETS (Part 1, click-to-arm placement): the
+     instant the pockets no longer hold the EXACT armed pair -- spent by a
+     craft, dropped, or placed by some other path -- the arm is stale and
+     must clear, checked once here before anything below (including the
+     highlighted slot `view/ui/mainPanel.js#frameArmedSlot` draws off this
+     SAME field) can act on a pair that is no longer true. See
+     `shell/ui.js#ui.armedPlace`'s own header for the other two clear
+     triggers (a successful placement, Escape). */
+  if (ui.armedPlace && invCount(ui.armedPlace.sub, ui.armedPlace.form) <= 0) clearArmedPlace();
+
   /* POLISH: auto-hide the panel when placement starts. Opening the menu and
      then trying to place/deconstruct something used to leave the player
      aiming at the world from BEHIND their own window -- the panel draws over
@@ -154,12 +164,20 @@ function applyIntents() {
   }
 
   if (cmd.place && aim.valid && aim.band) {
-    /* The first placeable pair in the pockets, in HUD order -- a tile-capable
-       form OR a machine's own `rig` pair (design reversal superseding Phase
-       3's cost-at-placement deviation: a machine is now held and placed the
-       SAME way a log or a stair already is). A build menu would let the
-       player choose; the rule is the same either way. */
-    const p = placeableFromPockets(pocketRows())[0];
+    /* ARMED FIRST (Part 1, click-to-arm placement): a player who clicked a
+       specific slot in the Character tab or the quickbar
+       (`shell/ui.js#ui.armedPlace`) means THAT pair, not whichever
+       placeable happens to sort first in HUD order. Re-checked as still
+       held here rather than trusted from the top-of-frame sweep above -- a
+       craft queue or a drag could have spent it in the meantime -- so a
+       stale arm can never place the wrong thing; it simply falls through to
+       the SAME "first placeable in HUD order" rule this branch has always
+       used otherwise. A build menu would let the player choose; now one
+       really does. */
+    const armed = ui.armedPlace && invCount(ui.armedPlace.sub, ui.armedPlace.form) > 0
+      ? ui.armedPlace : null;
+    const p = armed || placeableFromPockets(pocketRows())[0];
+    let placed = false;
     if (p && p.form === F.rig) {
       /* `machineIdFor` resolves a mirrored pair (belt/talos_head/cyclops_maw)
          off the player's own facing -- see `model/run.js`'s own header on
@@ -167,10 +185,11 @@ function applyIntents() {
          above anchors a footprint: bottom row at the aimed tile. */
       const id = machineIdFor(p.sub);
       const def = id && MACH[M[id]];
-      if (def) placeMachine(aim.band, id, aim.tx, aim.ty - def.th + 1);
+      if (def) placed = !!placeMachine(aim.band, id, aim.tx, aim.ty - def.th + 1);
     } else if (p) {
-      placeTile(aim.band, aim.tx, aim.ty, p.sub, p.form);
+      placed = !!placeTile(aim.band, aim.tx, aim.ty, p.sub, p.form);
     }
+    if (armed && placed) clearArmedPlace();
     cmd.place = false;
   }
 
@@ -252,6 +271,19 @@ function applyIntents() {
 
 let prevUiDown = false;
 
+/* CLICK-VS-DRAG THRESHOLD (Part 1, click-to-arm placement). A plain click on
+   an inventory or quickbar slot arms it for placement; an actual drag still
+   does its existing equip/quickbar-assign job (`upEdge` below, unchanged).
+   Both start from the exact same pointerdown -- `shell/input.js`'s own
+   header on why `uiDown` exists at all -- so telling them apart needs the
+   same movement-threshold trick every drag-and-drop UI uses: remember where
+   the press started, and only call the release a "drag" if the pointer
+   actually moved past a few pixels first. Screen-space px, the same space
+   `sx`/`sy` below are already in. */
+let dragStart = null;      // { sx, sy, gridId, index } | null, set at the down edge
+let dragExceeded = false;  // has the pointer moved past the threshold since?
+const DRAG_THRESHOLD = 3;
+
 function uiHitPanelClose(sx, sy) {
   for (const p of uiDrawn.panels) {
     const c = p.closeHit;
@@ -311,6 +343,7 @@ function applyUiIntents() {
   if (!isOpen('main')) {
     prevUiDown = false;
     if (ui.drag) clearDrag();
+    dragStart = null;
     /* The quickbar's KEYS/legend toggle is drawn ALWAYS (`view/ui/quickbar.js`),
        not gated on the main panel being open, and `shell/input.js` now routes
        a click on it as a UI click regardless -- give it the one dispatch it
@@ -411,16 +444,42 @@ function applyUiIntents() {
 
   if (downEdge) {
     const hit = uiHitSlot(sx, sy);
-    if (hit && hit.slot.sub != null)
+    if (hit && hit.slot.sub != null) {
       /* `index` added (Bug 1 audit): a per-slot equip/unequip below needs to
          know WHICH equip slot a drag started from, not just which grid --
          `from` alone was enough for "equip the first empty slot" but not for
          "clear THIS slot" or "swap these two". */
       setDrag({ sub: hit.slot.sub, form: hit.slot.form, n: hit.slot.n, from: hit.gridId, index: hit.slot.index });
+      dragStart = { sx, sy, gridId: hit.gridId, index: hit.slot.index };
+      dragExceeded = false;
+    } else {
+      dragStart = null;
+    }
   }
+
+  /* Checked every frame the button is down, not only on the edges, so a slow
+     drag that crosses the threshold between polls is still caught. */
+  if (cmd.uiDown && dragStart && !dragExceeded &&
+      (Math.abs(sx - dragStart.sx) > DRAG_THRESHOLD || Math.abs(sy - dragStart.sy) > DRAG_THRESHOLD))
+    dragExceeded = true;
+
   if (upEdge && ui.drag) {
     const hit = uiHitSlot(sx, sy);
-    if (hit && hit.gridId === 'quickbar') {
+
+    /* PLAIN CLICK, no drag threshold crossed, released on the SAME slot the
+       press started on: arm that exact pair instead of running the
+       drag-resolve branches below (Part 1, click-to-arm placement) -- see
+       `shell/ui.js#ui.armedPlace`'s own header. Restricted to a pair that
+       could actually BE placed (a tile-capable form or a machine's own
+       `rig`) and to the two grids a player actually holds placeables in, so
+       this never steals a click a real equip/quickbar drag needed, and never
+       arms a slot with nothing coherent to do once 'E' is pressed. */
+    const clicked = !dragExceeded && hit && dragStart &&
+      hit.gridId === dragStart.gridId && hit.slot.index === dragStart.index;
+    if (clicked && (hit.gridId === 'inv' || hit.gridId === 'quickbar') &&
+        hit.slot.sub != null && (FORM[hit.slot.form]?.tile || hit.slot.form === F.rig)) {
+      armPlace(hit.slot.sub, hit.slot.form);
+    } else if (hit && hit.gridId === 'quickbar') {
       assignQuickbar(hit.slot.index, { sub: ui.drag.sub, form: ui.drag.form });
     } else if (hit && hit.gridId === 'equip') {
       /* BUG FIX (Bug 1 audit, docs/FINDINGS.md Phase 5b): dragging ONTO an
@@ -455,6 +514,7 @@ function applyUiIntents() {
       runw.equip(ui.drag.index, null);
     }
     clearDrag();
+    dragStart = null;
   }
 }
 
@@ -625,6 +685,10 @@ function installTestHook() {
         drag: ui.drag ? { ...ui.drag } : null,
         search: ui.search,
         searchFocus: ui.searchFocus,
+        /* Part 1, click-to-arm placement: the pair, if any, a slot click has
+           armed for the next `cmd.place` -- same "read what is actually
+           true" reason every other field on this handle is exposed. */
+        armedPlace: ui.armedPlace ? { ...ui.armedPlace } : null,
         /* Phase 5b additions: the craft queue (recipe ids, FIFO) and the
            quickbar assignment (`{sub,form}|null` per slot) -- both plain
            `shell/ui.js` state already, exposed for the identical "read what

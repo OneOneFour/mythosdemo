@@ -55,3 +55,19 @@ export function drawSlot(g, opts) {
   }
   return { sub, form, n, mass };
 }
+
+/* A slot's own highlight border, drawn as a POST-HOC overlay against the
+   ABSOLUTE rectangle `grid.js#drawGrid` already returned for it -- the exact
+   "read back what was actually drawn" discipline `view/ui/mainPanel.js
+   #frameUniqueSlots` established for a relic's frame, moved here so a second
+   caller (the armed-placement highlight, `shell/ui.js#ui.armedPlace`) draws
+   with the IDENTICAL visual language instead of a second one-off border
+   routine. `s` is one entry of `drawGrid`'s own returned `slots` array
+   (`{x,y,w,h,...}`), not a fresh rectangle -- callers never recompute
+   geometry `drawGrid` already settled. */
+export function frameSlot(g, s, col) {
+  R(g, s.x, s.y, s.w, 1, col);
+  R(g, s.x, s.y, 1, s.h, col);
+  R(g, s.x, s.y + s.h - 1, s.w, 1, col);
+  R(g, s.x + s.w - 1, s.y, 1, s.h, col);
+}

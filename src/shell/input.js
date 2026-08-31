@@ -23,7 +23,7 @@ import { VIEW, stage } from '../core/canvas.js';
 import { buildableMachines } from '../model/run.js';
 import { drawn as uiDrawn } from '../view/ui/state.js';
 import { audio, unlockAudio } from './audio.js';
-import { closeTop, isOpen, setSearch, setSearchFocus, top, toggle, ui } from './ui.js';
+import { clearArmedPlace, closeTop, isOpen, setSearch, setSearchFocus, top, toggle, ui } from './ui.js';
 
 /* The command set the rules read. One object, mutated by property, per the
    project convention for cross-module mutable state. `craft` is a HOLD, like
@@ -158,6 +158,7 @@ export function installInput() {
       if (e.key === 'Escape') {
         setSearchFocus(false);
         if (isOpen(top())) closeTop();
+        clearArmedPlace();
         e.preventDefault();
         return;
       }
@@ -191,6 +192,10 @@ export function installInput() {
        No-op on an empty stack, so Escape is otherwise free for the browser
        (leaving pointer capture, etc.) exactly as it was before this phase. */
     if (k === 'escape' && isOpen(top())) { closeTop(); e.preventDefault(); }
+    /* Escape also cancels an armed placement (Part 1, click-to-arm), whether
+       or not a panel happens to be open -- a player who armed a pair, then
+       closed the panel to go aim, still has one visible "cancel" key. */
+    if (k === 'escape') clearArmedPlace();
     /* 'o' for "overview" -- 'm' was already mute, and every other mnemonic
        letter (map, w/a/s/d, world) was claimed by movement or an earlier
        phase; checked the full `KEYS` table and every `if (k === ...)` above

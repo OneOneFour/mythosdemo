@@ -1820,6 +1820,195 @@ test('opening the panel then placing closes it, and the placement still succeeds
   expect(after).toBe(before - 1);        // ...and the placement itself still went through
 });
 
+/* ============================================================
+   CLICK-TO-ARM PLACEMENT (Part 1) -- real clicks and real keys throughout,
+   `realClick` above being the exact "a real click always has a frame
+   between down and up" fix this session already root-caused.
+   ============================================================ */
+
+test('click-to-arm: placing a furnace fails with nothing armed, then succeeds once one is armed and built', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+
+  /* UNSUCCESSFUL: a fresh run holds nothing placeable at all -- nothing
+     armed, nothing to fall back to in HUD order either -- so pressing 'E'
+     places nothing. */
+  await page.evaluate(async () => {
+    const { bandOf } = await import('/src/model/world.js');
+    __mf.revealAll(bandOf('surface'));
+    __mf.cmd.hasMouse = false;
+  });
+  const before = await page.evaluate(() => __mf.machines.length);
+  expect(before).toBe(0);
+  await page.keyboard.press('e');
+  await page.evaluate(() => __mf.frames(5));
+  const afterRefusal = await page.evaluate(() => __mf.machines.length);
+  expect(afterRefusal).toBe(0);
+
+  /* SUCCESSFUL: grant the furnace recipe's exact bill, hand-craft the
+     `furnace/rig` item, then arm it by clicking its Character-tab slot --
+     not the digit-key BUILD menu `the build menu places...`'s own test
+     already covers -- and place it with 'E'. */
+  const crafted = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    __mf.give(S.copper, F.ore, 12);
+    __mf.give(S.timber, F.log, 6);
+    __mf.hold({ craft: 1 }, 1000);      // > 8.0s, `data/recipes.js#furnace`'s own secs
+    __mf.cmd.craft = false;             // release the key -- `hold` only auto-releases hop/place
+    __mf.frames(150);                   // let the crafted item fall and clear the pickup-magnet delay
+    return { rig: invCount(S.furnace, F.rig) };
+  });
+  expect(crafted.rig).toBe(1);
+
+  await page.evaluate(async () => {
+    const { open, setTab } = await import('/src/shell/ui.js');
+    open('main');
+    setTab('main', 'char');
+    __mf.frames(1);      // draw once so __mf.ui() reflects the open panel
+  });
+
+  const invSlot = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const grid = __mf.ui.grids.find(g => g.id === 'inv');
+    return grid.slots.find(s => s.sub === S.furnace && s.form === F.rig);
+  });
+  expect(invSlot).toBeTruthy();
+  await realClick(page, invSlot.x + invSlot.w / 2, invSlot.y + invSlot.h / 2);
+
+  const armed = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    return { armedPlace: __mf.ui.armedPlace, expectSub: S.furnace, expectForm: F.rig };
+  });
+  expect(armed.armedPlace).toEqual({ sub: armed.expectSub, form: armed.expectForm });
+
+  /* Back to keyboard aim, exactly `the "a placed furnace" test`'s own move:
+     no direction held aims to the SIDE, at the player's own row, which on
+     the spawn shelf is open air with the floor directly beneath it. */
+  await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(1); });
+
+  await page.keyboard.press('e');
+  await page.evaluate(() => __mf.frames(5));
+
+  const result = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    return { machines: __mf.machines.length, rig: invCount(S.furnace, F.rig), armedAfter: __mf.ui.armedPlace };
+  });
+  expect(result.machines).toBe(1);
+  expect(result.rig).toBe(0);              // the held item was spent, not merely declared
+  expect(result.armedAfter).toBeNull();    // cleared on a successful placement
+});
+
+test('click-to-arm: dig down, then place the dropped gravel back into the exact hole', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+
+  const tx = 10, ty = 60, holeTx = 11;   // the tile beside the player, mined and then restored
+
+  await page.evaluate(async ({ tx, ty, holeTx }) => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { write: rw } = await import('/src/model/run.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { write: pw } = await import('/src/model/player.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+
+    /* Hand-carved, deterministic, per CLAUDE.md's own "don't trust natural
+       worldgen" warning: a floor under the player's own column so digging
+       sideways for several seconds does not also start them falling, and a
+       KNOWN substance (soil, not whatever seed 1337 happens to generate) at
+       the one tile that will be mined and then rebuilt. */
+    const band = bandOf('topsoil');
+    for (let dx = 0; dx <= 1; dx++) for (let dy = -2; dy <= 0; dy++) tw.clear(band, tx + dx, ty + dy);
+    tw.set(band, tx, ty + 1, S.stone);        // floor under the player's own feet
+    tw.set(band, holeTx, ty, S.soil);         // the tile to mine, then restore
+    /* A deterministic backing wall directly above the hole, so
+       `rules/placement.js#placeTile`'s "needs something to hang from" check
+       passes regardless of what natural terrain the seed happens to put
+       beyond this hand-carved pocket -- the identical caution CLAUDE.md's
+       fog/belt tests already state for not trusting worldgen. */
+    tw.set(band, holeTx, ty - 1, S.stone);
+
+    rw.collect(S.pick, F.relic, 1);           // the stock pickaxe, granted directly
+
+    pw.band(band);
+    pw.move(worldX(band, tx), worldY(band, ty) - 4);   // centred on row `ty`, resting on the floor
+  }, { tx, ty, holeTx });
+
+  await page.evaluate(() => { __mf.cmd.hasMouse = false; });
+  await page.evaluate(() => { __mf.hold({ right: 1 }, 6); __mf.cmd.right = false; });   // face right, toward the hole
+  await page.evaluate(() => __mf.hold({ dig: 1 }, 400));   // soil hard=0.50s, comfortably past it
+  await page.evaluate(() => { __mf.cmd.dig = false; });    // `dig` is held, not edge-triggered -- release it
+  await page.evaluate(() => __mf.frames(150));             // let the dropped gravel fall and clear the pickup-magnet delay
+
+  const afterDig = await page.evaluate(async ({ holeTx, ty }) => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    const { tileAt } = await import('/src/model/tiles.js');
+    const { bandOf } = await import('/src/model/world.js');
+    return { tile: tileAt(bandOf('topsoil'), holeTx, ty), gravel: invCount(S.soil, F.gravel) };
+  }, { holeTx, ty });
+  expect(afterDig.tile).toBe(0);                    // AIR: `data/forms.js#AIR`
+  expect(afterDig.gravel).toBeGreaterThan(0);        // and it is actually pocketed, not merely dropped
+
+  /* Click-to-arm the gravel, then place it back with 'E', aimed exactly the
+     same way (no direction held, facing right) at the exact tile just
+     mined. */
+  await page.evaluate(async () => {
+    const { open, setTab } = await import('/src/shell/ui.js');
+    open('main');
+    setTab('main', 'char');
+    __mf.frames(1);
+  });
+
+  const invSlot = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const grid = __mf.ui.grids.find(g => g.id === 'inv');
+    return grid.slots.find(s => s.sub === S.soil && s.form === F.gravel);
+  });
+  expect(invSlot).toBeTruthy();
+  await realClick(page, invSlot.x + invSlot.w / 2, invSlot.y + invSlot.h / 2);
+
+  const armedPair = await page.evaluate(() => __mf.ui.armedPlace);
+  expect(armedPair).toBeTruthy();
+
+  await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(1); });
+
+  const gravelBefore = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    return invCount(S.soil, F.gravel);
+  });
+
+  await page.keyboard.press('e');
+  await page.evaluate(() => __mf.frames(5));
+
+  const result = await page.evaluate(async ({ holeTx, ty }) => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    const { tileAt } = await import('/src/model/tiles.js');
+    const { bandOf } = await import('/src/model/world.js');
+    return {
+      tile: tileAt(bandOf('topsoil'), holeTx, ty),
+      gravel: invCount(S.soil, F.gravel),
+      armedAfter: __mf.ui.armedPlace
+    };
+  }, { holeTx, ty });
+
+  expect(result.tile).not.toBe(0);                    // solid again, not AIR
+  expect(result.gravel).toBe(gravelBefore - 1);        // exactly one unit spent
+  expect(result.armedAfter).toBeNull();                // cleared on a successful placement
+});
+
 /* Dev serves src/ untransformed; dist is bundled and minified by esbuild.
    That is a real divergence risk, so it is asserted rather than assumed.
    Requires `npm run build` first — `npm run parity` does both. */

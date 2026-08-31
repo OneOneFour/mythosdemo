@@ -20,8 +20,10 @@ import { massOfPair } from '../../model/items.js';
 import { invCount } from '../../model/run.js';
 import { drawGrid } from './grid.js';
 import { drawPanel } from './panel.js';
+import { frameSlot } from './slot.js';
 
 const INK = colour('ui'), DIM = colour('uiDim'), BACK = colour('uiBack');
+const ARMED = colour('uiGood');
 const SIZE = 14, COLS = 5;
 
 const digitOf = i => String((i + 1) % 10);
@@ -47,7 +49,16 @@ export function drawQuickbar(g, f) {
              colour: l?.item ? colour(l.item[0]) : DIM, glyph: digitOf(i) };
   });
 
-  drawGrid(g, { id: 'quickbar', x, y, h: rows * (SIZE + 1) - 1, vw: W, vh: H, cols: COLS, items, cell: SIZE });
+  const grid = drawGrid(g, { id: 'quickbar', x, y, h: rows * (SIZE + 1) - 1, vw: W, vh: H, cols: COLS, items, cell: SIZE });
+  /* THE ARMED-PLACEMENT HIGHLIGHT (Part 1, click-to-arm placement): a player
+     may have assigned a placeable pair to a quickbar slot, so arming reaches
+     here too, not only the Character tab's own inventory grid -- same
+     border, same colour, `view/ui/mainPanel.js#frameArmedSlot`'s exact twin,
+     just against this file's own grid instead of duplicating that function
+     for one extra caller. */
+  if (ui.armedPlace)
+    for (const s of grid.slots)
+      if (s.sub === ui.armedPlace.sub && s.form === ui.armedPlace.form) frameSlot(g, s, ARMED);
 
   /* One toggleable hint line, bottom-left, out of the quickbar's way. Its own
      `drawPanel` id (unused visually beyond a faint backing rect) so the UI

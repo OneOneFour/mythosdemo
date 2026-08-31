@@ -28,7 +28,7 @@
 import { AIR, F, FORM, byHudOrder, matches } from '../data/forms.js';
 import { S, SUB } from '../data/substances.js';
 import { STARTING_MACHINES } from '../data/grants.js';
-import { HAND_RECIPES } from '../data/recipes.js';
+import { HAND_RECIPES, RECIPES } from '../data/recipes.js';
 import { M, MACH, MACHINES } from '../data/machines.js';
 import { SPAWN_BAND } from '../data/world.js';
 import { bump } from './epoch.js';
@@ -392,12 +392,35 @@ export function pocketsHave(sel, n) {
 export const canCraft = recipeIn =>
   Object.keys(recipeIn).every(sel => pocketsHave(sel, recipeIn[sel]));
 
+/* The grant tier's real teeth (follow-up to Phase 5b's `run.known` seed): a
+   MACHINE-BUILD recipe (`data/recipes.js`'s own block of `<id>/rig`-producing
+   rows, e.g. `furnace`, `talos_head`) is known only once that machine id has
+   actually been granted -- `STARTING_MACHINES` or `rules/grants.js#grant()`
+   this run, the SAME `canPlace` check `placementCheck`/`placeMachine` already
+   gate placement on, called here rather than duplicated. Derived from the
+   recipe's OWN output clause, not a second machine-id list kept in sync by
+   hand: an `out` clause naming a literal substance in `rig` form whose `sub`
+   resolves in `data/machines.js#M` names its own gate by construction, so a
+   future machine-build recipe is covered with no edit here. `null` for
+   anything else (a `subFrom` output, a non-`rig` form, an unresolvable
+   `sub`) -- every ORDINARY hand recipe, unaffected, per `RUN_SCHEMA.known`'s
+   own "everything else stays known" seed. */
+function machineOutputOf(r) {
+  const out = r?.out?.[0];
+  if (!out || out.sub === undefined || out.form !== 'rig') return null;
+  return M[out.sub] !== undefined ? out.sub : null;
+}
+
 /* Has this recipe been stolen yet? See `RUN_SCHEMA.known`'s header comment --
-   every `HAND_RECIPES` id is known from run start today, so this is always
-   true until a real locking source exists. Exported now, rather than left
-   inline in the CRAFTING tab, for the same reason `canCraft` above is: a
-   query on `run` is `model`'s to own, not `view`'s. */
-export const isKnown = id => run.known.includes(id);
+   every `HAND_RECIPES` id is seeded known at run start; a machine-build
+   recipe narrows that down further, per `machineOutputOf` above. Exported
+   now, rather than left inline in the CRAFTING tab, for the same reason
+   `canCraft` above is: a query on `run` is `model`'s to own, not `view`'s. */
+export function isKnown(id) {
+  if (!run.known.includes(id)) return false;
+  const machineId = machineOutputOf(RECIPES[id]);
+  return machineId === null || canPlace(machineId);
+}
 
 /* Every machine this run may place, in GRANTED order -- the same order the
    build menu (`view/hud.js`) lists them and a number key

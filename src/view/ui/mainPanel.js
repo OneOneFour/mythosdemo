@@ -25,7 +25,6 @@
 
 import { drawText, textWidth } from '../../core/font.js';
 import { mix } from '../../core/palette.js';
-import { R } from '../../core/pixels.js';
 import { expand, F, FORM, matches, shortLabelOf } from '../../data/forms.js';
 import { MACH } from '../../data/machines.js';
 import { colour } from '../../data/palette.js';
@@ -44,7 +43,7 @@ import {
 import { drawBar } from './bar.js';
 import { drawGrid } from './grid.js';
 import { drawPanel } from './panel.js';
-import { SLOT_SIZE } from './slot.js';
+import { frameSlot, SLOT_SIZE } from './slot.js';
 import { drawn } from './state.js';
 import { drawTabs } from './tabs.js';
 import { drawTooltip } from './tooltip.js';
@@ -108,10 +107,23 @@ const isUnique = sub => !!sub.tags?.some(t => t === 'relic' || t === 'miracle');
 function frameUniqueSlots(g, gridResult) {
   for (const s of gridResult.slots) {
     if (s.sub == null || !isUnique(SUB[s.sub])) continue;
-    R(g, s.x, s.y, s.w, 1, RELIC);
-    R(g, s.x, s.y, 1, s.h, RELIC);
-    R(g, s.x, s.y + s.h - 1, s.w, 1, RELIC);
-    R(g, s.x + s.w - 1, s.y, 1, s.h, RELIC);
+    frameSlot(g, s, RELIC);
+  }
+}
+
+/* THE ARMED-PLACEMENT HIGHLIGHT (Part 1, click-to-arm placement): whichever
+   slot's pair matches `ui.armedPlace` gets the SAME border treatment a
+   relic's frame above already uses, just in `GOOD` -- the "this is what
+   will happen" colour the crafting grid's craftable tint and the placement
+   ghost's ok tint both already use, rather than `RELIC`'s divine gold, so
+   arming reads as a placement fact and not a second "this is special"
+   marker. `armed` is `ui.armedPlace` itself (`{sub,form}|null`), read
+   straight off the frame context exactly as `f.flags`/`f.ui.drag` already
+   are. */
+function frameArmedSlot(g, gridResult, armed) {
+  if (!armed) return;
+  for (const s of gridResult.slots) {
+    if (s.sub === armed.sub && s.form === armed.form) frameSlot(g, s, GOOD);
   }
 }
 
@@ -178,6 +190,7 @@ function drawCharacterTab(g, f, body) {
     items, scroll: f.ui.scroll['main:inv'] || 0
   });
   frameUniqueSlots(g, grid);
+  frameArmedSlot(g, grid, f.ui.armedPlace);
   ry = grid.y + grid.h + 4;
 
   /* Equipment: `eff('trinketSlots')` slots over `run.equipped`. */

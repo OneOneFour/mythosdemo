@@ -65,7 +65,20 @@ export const ui = {
   /* One toggleable line of key hints (the QUICKBAR section of Phase 5b),
      collapsed by default so the permanent bottom bar stays as dense as the
      rest of this layer. */
-  hintsOpen: false
+  hintsOpen: false,
+
+  /* CLICK-TO-ARM PLACEMENT: `{ sub, form } | null` -- the specific held pair
+     a click on its Character-tab or quickbar slot has selected as "place
+     THIS one next", replacing the placeholder rule (`rules/placement.js
+     #placeableFromPockets`'s own header: "the first placeable pair in the
+     pockets, in HUD order... a real build menu would let the player
+     choose") with a real choice. Still just a fact about the SESSION, same
+     as everything else in this file: arming a pair does not touch `run` at
+     all, only which pair `shell/main.js#applyIntents`'s `cmd.place` branch
+     reaches for first. Cleared by `shell/main.js` the instant it stops
+     being true -- placed successfully, no longer held (spent by a craft,
+     dropped, picked clean), or Escape (`shell/input.js`). */
+  armedPlace: null
 };
 
 export function isOpen(id) { return ui.stack.includes(id); }
@@ -187,3 +200,10 @@ export function assignQuickbar(slot, payload) {
 export function clearQuickbar(slot) { assignQuickbar(slot, null); }
 
 export function toggleHints() { ui.hintsOpen = !ui.hintsOpen; }
+
+/* ---------- click-to-arm placement ----------
+   `armPlace` takes ORDINALS (a substance x form pair), the same shape
+   `ui.drag`/`ui.quickbar` already store one -- see `ui.armedPlace`'s own
+   header above for what clears it and why. */
+export function armPlace(sub, form) { ui.armedPlace = { sub, form }; }
+export function clearArmedPlace() { ui.armedPlace = null; }

@@ -38,7 +38,7 @@
 import { drawText, textWidth } from '../core/font.js';
 import { R } from '../core/pixels.js';
 import { mix } from '../core/palette.js';
-import { labelOf, shortLabelOf } from '../data/forms.js';
+import { AIR, F, FORM, labelOf, shortLabelOf } from '../data/forms.js';
 import { M, MACH } from '../data/machines.js';
 import { colour } from '../data/palette.js';
 import { HAND_RECIPES } from '../data/recipes.js';
@@ -50,7 +50,10 @@ import { boons } from '../model/boons.js';
 import { massOfPair, parseKey } from '../model/items.js';
 import { eff, mods } from '../model/mods.js';
 import { player } from '../model/player.js';
-import { buildableMachines, burdenFrac, burdenOf, canCraft, hasPick, placementCheck, pocketRows, run } from '../model/run.js';
+import {
+  buildableMachines, burdenFrac, burdenOf, canCraft, hasPick, machineIdFor, placementCheck, pocketRows, run
+} from '../model/run.js';
+import { tileAt } from '../model/tiles.js';
 import { bandOf, worldY } from '../model/world.js';
 import { banner, toasts } from './fx.js';
 import { resolveHover } from './hover.js';
@@ -470,34 +473,66 @@ function reticle(g, f) {
    `shell/main.js#applyIntents` anchors a real placement (bottom row at the
    aimed tile), so the preview can never show a spot the real placement would
    not also choose. */
-function buildGhost(g, f) {
-  if (!f.flags.showInv || !f.mouse?.has || !aim.valid || !aim.band) return;
-
-  const sx = f.mouse.x - f.cam.x, sy = f.mouse.y - f.cam.y;
-  const hover = buildHits.find(h => sx >= h.x && sx < h.x + h.w && sy >= h.y && sy < h.y + h.h);
-  if (!hover) return;
-
-  const def = MACH[M[hover.id]];
-  if (!def) return;
-
-  const b = aim.band, t = b.tile;
-  const tx = aim.tx, ty = aim.ty - def.th + 1;
-  const check = placementCheck(b, hover.id, tx, ty);
-  const col = check.ok ? UI.good : UI.heart;
+/* The tinted footprint itself, factored out so the OLD BUILD-menu-hover ghost
+   and the NEW armed-pair ghost below (Part 1, click-to-arm placement) share
+   one implementation of "paint this footprint, ok-green or refused-red, with
+   the one-word reason beside it" rather than two copies of the same loop. */
+function drawFootprintGhost(g, f, band, tx, ty, tw, th, ok, why) {
+  const t = band.tile;
+  const col = ok ? UI.good : UI.heart;
 
   g.globalAlpha = 0.35;
-  for (let j = 0; j < def.th; j++)
-    for (let i = 0; i < def.tw; i++) {
-      const x = (b.origin.x + (tx + i) * t - f.cam.x) | 0;
-      const y = (b.origin.y + (ty + j) * t - f.cam.y) | 0;
+  for (let j = 0; j < th; j++)
+    for (let i = 0; i < tw; i++) {
+      const x = (band.origin.x + (tx + i) * t - f.cam.x) | 0;
+      const y = (band.origin.y + (ty + j) * t - f.cam.y) | 0;
       R(g, x, y, t, t, col);
     }
   g.globalAlpha = 1;
 
-  if (!check.ok) {
-    const x = (b.origin.x + tx * t - f.cam.x) | 0;
-    const y = (b.origin.y + ty * t - f.cam.y) | 0;
-    drawText(g, check.why, x, y - 8, UI.heart, 1, 1);
+  if (!ok && why) {
+    const x = (band.origin.x + tx * t - f.cam.x) | 0;
+    const y = (band.origin.y + ty * t - f.cam.y) | 0;
+    drawText(g, why, x, y - 8, UI.heart, 1, 1);
+  }
+}
+
+function buildGhost(g, f) {
+  if (!aim.valid || !aim.band) return;
+
+  if (f.flags.showInv && f.mouse?.has) {
+    const sx = f.mouse.x - f.cam.x, sy = f.mouse.y - f.cam.y;
+    const hover = buildHits.find(h => sx >= h.x && sx < h.x + h.w && sy >= h.y && sy < h.y + h.h);
+    const def = hover && MACH[M[hover.id]];
+    if (def) {
+      const tx = aim.tx, ty = aim.ty - def.th + 1;
+      const check = placementCheck(aim.band, hover.id, tx, ty);
+      drawFootprintGhost(g, f, aim.band, tx, ty, def.tw, def.th, check.ok, check.why);
+      return;
+    }
+  }
+
+  /* Part 1 (click-to-arm placement): preview the ARMED pair, if any, at the
+     aim reticle -- the same footprint-tint idiom above, generalised to a
+     single-tile footprint for a tile-capable form. `view` may not import
+     `rules`, so a tile's own placement rule (`rules/placement.js#placeTile`'s
+     "needs something to hang from") is not re-proven here; the one fact this
+     CAN check without that import is whether the tile itself is currently
+     clear, which is enough to warn against the common case (aiming at solid
+     rock) without a second implementation of that rule. */
+  const armed = f.ui.armedPlace;
+  if (!armed) return;
+
+  if (armed.form === F.rig) {
+    const id = machineIdFor(armed.sub);
+    const def = id && MACH[M[id]];
+    if (!def) return;
+    const tx = aim.tx, ty = aim.ty - def.th + 1;
+    const check = placementCheck(aim.band, id, tx, ty);
+    drawFootprintGhost(g, f, aim.band, tx, ty, def.tw, def.th, check.ok, check.why);
+  } else if (FORM[armed.form]?.tile) {
+    const ok = tileAt(aim.band, aim.tx, aim.ty) === AIR;
+    drawFootprintGhost(g, f, aim.band, aim.tx, aim.ty, 1, 1, ok, ok ? null : 'SOMETHING IS ALREADY THERE');
   }
 }
 
