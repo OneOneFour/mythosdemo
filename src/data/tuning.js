@@ -67,6 +67,19 @@ export const TUNABLES = [
   /* ---- fields. Seam only: `rules/fields.js` decays and does not diffuse. ---- */
   { id:'heatDecay', kind:'value', base:0.35, unit:'/s',     note:'fraction lost per second' },
 
+  /* ---- fog of war. `rules/reveal.js` runs two passes; only the second needs a
+     number. Pass A (standing in open sky) is deliberately UNBOUNDED and reads
+     nothing here -- there is nothing to obstruct a view across open air, so it
+     has no radius to tune. Pass B (a flood through open tiles, blocked by
+     solid rock) is what makes an underground cavern read as "somewhat, not
+     all the way" visible, and this is its cap. 12 is a graph distance, not a
+     straight line -- a corridor that switches back on itself burns distance
+     fast -- and was picked as obviously more than the old radius-1 behaviour
+     (a single tile's worth of neighbours) and obviously short of "reveal the
+     whole cavern" for any room bigger than a small one. */
+  { id:'sightRadius', kind:'value', base:12, unit:'tiles',
+    note:'graph-distance cap on the Pass B flood in rules/reveal.js. Pass A has no cap.' },
+
   /* ---- scales, one row per family of data rows ---- */
   { id:'hard', kind:'scale', base:1.0, scope:'substance',
     note:'multiplies `tile.hard`. Lower is faster to mine. `hard.stone` scopes it.' },

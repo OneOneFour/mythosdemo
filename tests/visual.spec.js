@@ -408,15 +408,30 @@ test('debug overlays on, for seam inspection', async ({ page }) => {
 /* ============================================================
    FOG OF WAR
 
-   The confirmed rule: a tile reveals once the player has stood in it or in
-   one of its 4 orthogonal neighbours, and never un-reveals. The two tests
-   below that touch `rules/reveal.js` call its `step()` DIRECTLY after
-   teleporting the player via `model/player.js#write.move`/`write.band`,
-   rather than walking there with `__mf.hold`/`frames` -- that isolates the
-   mechanism from physics entirely, which matters because an 800-tile-deep
-   teleport lands the player embedded in solid rock, and letting a real
-   physics substep run there would immediately start falling/collision
-   resolution that has nothing to do with what these tests are checking.
+   The confirmed rule is still permanence -- a tile, once revealed, never
+   un-reveals -- but WHICH tiles get revealed each step is now real sight,
+   split into two independent passes in `rules/reveal.js`:
+
+     PASS A  standing anywhere with an unobstructed view of the sky reveals
+             the band's ENTIRE sky-exposed silhouette. Unbounded.
+     PASS B  a flood-fill through open tiles, blocked by solid rock, capped
+             at a graph distance (`eff('sightRadius')`). Bounded, and what
+             gives partial cavern visibility; also what subsumes the old
+             "reveal here and the tiles right next to it" rule outright.
+
+   Every test below that touches `rules/reveal.js` calls its `step()`
+   DIRECTLY after teleporting the player via `model/player.js#write.move`/
+   `write.band`, rather than walking there with `__mf.hold`/`frames` -- that
+   isolates the mechanism from physics entirely, which matters because an
+   800-tile-deep teleport lands the player embedded in solid rock, and
+   letting a real physics substep run there would immediately start
+   falling/collision resolution that has nothing to do with what these tests
+   are checking. Several also call `__mf.newRun(...)` directly inside the
+   page-evaluated block, rather than relying on `settle()`'s own spawn: the
+   default spawn sits in open sky, so `settle()`'s two frames already trigger
+   Pass A for the whole surface band before a test gets to assert anything --
+   a fresh `newRun()` with no frames run yet is the only way to observe an
+   actually-unrevealed band to compare against.
    ============================================================ */
 
 test('an unexplored area renders as the hidden colour, whatever terrain is actually there', async ({ page }) => {
@@ -508,6 +523,115 @@ test('fog resets to fully unrevealed on newRun()', async ({ page }) => {
   expect(info.seenBefore).toBe(true);
   expect(info.freshBand).toBe(true);        // newRun() reallocates, never reuses
   expect(info.seenAfter).toBe(false);       // ARCHITECTURE invariant 8
+});
+
+test('standing anywhere with open sky reveals the whole exposed surface, not a radius (Pass A)', async ({ page }) => {
+  await boot(page);
+  const info = await page.evaluate(async () => {
+    const { bandOf, seenAt, worldX, worldY } = await import('/src/model/world.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { write: pw } = await import('/src/model/player.js');
+    const { step: revealStep } = await import('/src/rules/reveal.js');
+    const { S } = await import('/src/data/substances.js');
+
+    __mf.newRun(1337);                        // a pristine band -- nothing seen yet
+    const band = bandOf('surface');
+    const floorTy = band.cfg.floorTy;
+    const standTx = 20, farTx = 100;          // 80 tiles apart: far past both the
+                                               // old radius-1 rule AND Pass B's
+                                               // graph-distance cap, so a reveal
+                                               // reaching `farTx` can only be Pass A
+
+    /* Carve both columns explicitly rather than trust worldgen to leave them
+       open (a tree trunk or a ragged soil lip would silently fail this): clear
+       straight down to the ground row, force a solid ground tile there, and
+       force the tile beneath IT solid too -- buried, never sky-exposed, the
+       control that proves this is "the sky-exposed silhouette", not "the
+       whole band". */
+    for (const tx of [standTx, farTx]) {
+      for (let ty = 0; ty < floorTy; ty++) tw.clear(band, tx, ty);
+      tw.set(band, tx, floorTy, S.stone);
+      tw.set(band, tx, floorTy + 1, S.stone);
+    }
+
+    const beforeFar = seenAt(band, farTx, floorTy);
+
+    pw.band(band);
+    /* Standing in the open air just above the carved ground -- PH (16 px) is
+       two tile rows, and both are cleared above, so the box does not clip a
+       column we did not mean to touch. */
+    pw.move(worldX(band, standTx), worldY(band, floorTy - 2));
+    revealStep();
+
+    return {
+      beforeFar,                                        // nothing revealed yet
+      farGround: seenAt(band, farTx, floorTy),          // the far column's own surface
+      farBuried: seenAt(band, farTx, floorTy + 1),      // one tile beneath it
+      standGround: seenAt(band, standTx, floorTy)       // sanity: the player's own ground
+    };
+  });
+
+  expect(info.beforeFar).toBe(false);
+  expect(info.farGround).toBe(true);      // Pass A: unbounded across the open expanse
+  expect(info.farBuried).toBe(false);     // still bounded to what is actually sky-exposed
+  expect(info.standGround).toBe(true);
+});
+
+test('a large enclosed air pocket is revealed only partway in from the edge (Pass B, bounded)', async ({ page }) => {
+  await boot(page);
+  const info = await page.evaluate(async () => {
+    const { bandOf, seenAt, worldX, worldY } = await import('/src/model/world.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { write: pw } = await import('/src/model/player.js');
+    const { step: revealStep } = await import('/src/rules/reveal.js');
+    const { eff } = await import('/src/model/mods.js');
+    const { S } = await import('/src/data/substances.js');
+
+    __mf.newRun(1337);
+    const band = bandOf('topsoil');
+    const radius = eff('sightRadius');        // the tunable itself, not a hardcoded
+                                               // copy of it, so this stays correct if
+                                               // `data/tuning.js` is ever retuned
+    const ty0 = 100, ty1 = 101;                // 2 rows tall, matching the player's
+                                               // own height, deep in topsoil and
+                                               // nowhere near open sky
+    const tx0 = 10, length = radius + 20;      // a straight room longer than the cap
+                                               // in both directions from the seed
+    const openEnd = tx0 + length - 1;
+
+    /* Hand-carve a sealed room rather than trust worldgen to leave a cavity
+       this shape anywhere: clear the interior, wall every side (ceiling,
+       floor, both end caps), so the ONLY way in or out is where the player is
+       about to be placed -- no route to open sky, which is what isolates
+       Pass B from Pass A here. */
+    for (let tx = tx0; tx <= openEnd; tx++) { tw.clear(band, tx, ty0); tw.clear(band, tx, ty1); }
+    for (let tx = tx0 - 1; tx <= openEnd + 1; tx++) {
+      tw.set(band, tx, ty0 - 1, S.stone);      // ceiling
+      tw.set(band, tx, ty1 + 1, S.stone);      // floor
+    }
+    for (let ty = ty0 - 1; ty <= ty1 + 1; ty++) {
+      tw.set(band, tx0 - 1, ty, S.stone);      // sealed left end
+      tw.set(band, openEnd + 1, ty, S.stone);  // sealed right end
+    }
+
+    pw.band(band);
+    pw.move(worldX(band, tx0), worldY(band, ty0));    // standing right at the near edge
+    revealStep();
+
+    return {
+      wallNearby: seenAt(band, tx0, ty0 - 1),           // the ceiling right over the
+                                                         // player: revealed even though
+                                                         // solid, same as the old rule
+      edge: seenAt(band, tx0 + 2, ty0),                 // a couple of tiles in
+      deep: seenAt(band, tx0 + radius + 8, ty0),        // 8 tiles past the cap
+      farEnd: seenAt(band, openEnd, ty0)                // the true far wall of the pocket
+    };
+  });
+
+  expect(info.wallNearby).toBe(true);
+  expect(info.edge).toBe(true);
+  expect(info.deep).toBe(false);      // proves the flood is BOUNDED, not "the whole pocket"
+  expect(info.farEnd).toBe(false);
 });
 
 /* ============================================================
