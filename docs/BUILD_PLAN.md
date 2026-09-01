@@ -1278,7 +1278,7 @@ corrections that changed a phase's shape, rather than just a section number:
 | claim as drafted | ground truth |
 |---|---|
 | worldgen lives in `data/world.js` | `data/world.js` holds only the declarative `BANDS` rows; the passes are `rules/generate.js#KINDS` + `#generate(b)`. **Phase 7 must own `rules/generate.js`.** |
-| the world is one array; the Heavens need rows reserved at its top | three per-band records with absolute `origin`s (`model/world.js#bands`), allocated at boot. The `astral` band already exists and the winch already targets it. Nothing to reindex. |
+| the world is one array; the Heavens need rows reserved at its top | three per-band records with absolute `origin`s (`model/world.js#bands`), allocated at boot. The `astral` band already exists; nothing declares it as a destination any more (see docs/PLAN-gears-and-winches.md). Nothing to reindex. |
 | `view/` has no per-material paint data | it does: `look:{ base, hi, lo, treatments:[{fn,…}] }` on every substance row, consumed generically by `view/paint.js` through `view/treatments.js#TREAT`. |
 | the tree canopy was lost | `TREAT.canopy` exists, and its own comment records that blocky leaf-blocks were chosen **deliberately** over the mockup's stochastic `oliveTree()` (preserved at `reference/mockup/src/world/strata.js`) because the latter reads as fuzzy at this viewport. |
 | overview is bound to `C`, in `view/overview.js` | it is `O` (`shell/input.js:181`, `flags.showMap`), drawn by `view/scene.js#drawMap`. There is no `view/overview.js` yet. |
@@ -2072,14 +2072,17 @@ height. Per the mockup:
 
 --- 4. METADATA LAYERS (each individually toggleable) ---
 
-  LIFT CHAIN     the single most useful thing in this game. Draw every lift
-                 stage, its span, which bands it connects, and — highlighted —
-                 WHERE THE CHAIN BREAKS. A vertical factory's whole failure
-                 mode is a gap between stages, and it is currently invisible.
-                 The arithmetic already exists twice, and you may import
-                 neither: rules/lift.js#reaches (view may not import rules)
-                 and model/run.js#placementCheck's 'NO SHAFT TO SERVE' branch
-                 (run.js:286, a model query you MAY read). Use the model one.
+  LIFT CHAIN     the single most useful thing in this game. Draw every
+                 SEGMENT, its two hubs, its angle, which bands it spans, its
+                 carrier's position, and — highlighted — WHERE THE CHAIN
+                 BREAKS. A vertical factory's whole failure mode is a gap
+                 between segments, and it is currently invisible. A CHAIN IS
+                 DERIVED, NEVER STORED (CLAUDE.md D10), so the query is
+                 model/segments.js#chains() and #breaks() -- a model query you
+                 MAY read; there is no rules/lift.js and nothing in view may
+                 import rules. Draw an UNPOWERED segment differently from a
+                 driven one: an unpowered chain is not broken, it is merely
+                 nobody's turn to crank, and those are different failures.
   MACHINES       one glyph each, coloured by state: running / stalled /
                  unfuelled / blocked. This data already exists behind the
                  LOGISTICS tab; read the same query, do not write a second one.
@@ -2110,8 +2113,9 @@ behaviour keys. view/ may not name a substance or machine (SPEC §12) — state
 glyphs and colours come from data, same pattern as Phase 8's look:{} keys.
 ```
 
-**Acceptance:** open overview with three lift stages placed and a gap between
-two of them, and the gap is the first thing you see. Scroll from the astral
+**Acceptance:** open overview with four hubs linked into three segments and a
+gap where a fourth should be, and the gap is the first thing you see. An
+unpowered but complete chain reads as complete, not as broken. Scroll from the astral
 band to adamant without the view ever leaving the world bounds. Confirm an
 undiscovered hollow is absent from the map.
 
@@ -2139,11 +2143,13 @@ This is answered before you start, and AUDIT-2 §1 §3 should confirm it:
     th:40, tile:8, origin:{x:128,y:0}, floorTy:30, fields:[], with a single
     stone layer at rows 30-40 and look:{ sky:'skyHi', tint:'marbleA',
     ambient:1.0 }.
-  - data/machines.js's WINCH STAGE already declares
-    lift:{ span:64, toBand:'astral' }, and its comment already states the
-    design: "one stage, one drum, one deck, one counterweight, pointed
-    surface -> astral. Five stages would be five of these records placed at
-    five level pairs; NEVER one continuous cage."
+  - the WINCH STAGE and its lift:{ span, toBand } block are GONE, replaced by
+    hub/crank/gear machines and runtime segments -- see
+    docs/PLAN-gears-and-winches.md and CLAUDE.md invariant 4 as reworded. A
+    segment reaching astral is no longer a machine row DECLARING a destination
+    band; it is two hubs within reach with a clear path between them, and the
+    band a carrier delivers into is whichever band bandAt() puts it in on
+    arrival. There is nothing left to declare and nothing to keep in sync.
   - bands are separate records with absolute origins, each allocated its own
     typed arrays by world.write.allocate(cfg) in shell/boot.js. There is no
     single array, nothing to grow, and nothing to reindex.
@@ -2202,12 +2208,17 @@ astral band, as a data/machines.js row like any other.
     entirely on him being the FIRST god who addresses you in person — do not
     spend that here.
   - Astral is widened to the surface's full column range by Step 1, so the
-    dock may be placed at any column with a completed lift chain beneath it.
-    Per Step 1's correction, most of the surface (tx 16-112) already had
-    astral overlap before the widening — so if a lift chain built there
-    still can't reach astral, the cause is a placement/height check
-    (rules/lift.js#reaches, model/run.js#placementCheck), not band geometry.
-    Diagnose which before assuming the widening alone fixes reachability.
+    dock may be placed at any column with a completed chain beneath it. Per
+    Step 1's correction, most of the surface (tx 16-112) already had astral
+    overlap before the widening. IF A CHAIN BUILT THERE CANNOT REACH ASTRAL,
+    THE CAUSE IS model/segments.js#linkCheck, AND THERE ARE ONLY TWO
+    CANDIDATES: 'TOO FAR APART' (astral's floor is further above the surface
+    than one hub's reach, which is correct and is answered by another hub, not
+    by a fix) or 'OUTSIDE THE WORLD' (a sample on the span resolves to no band
+    -- the two 16-column edge strips, which is exactly what the widening
+    closes). Diagnose which before assuming the widening alone fixes
+    reachability, and note that the dock is a hub-adjacent RECEIVER, not a
+    lift stage: it needs no lift block, no span and no toBand.
 
 --- STEP 4: THE CYCLE DIRECTOR ---
 
@@ -2298,17 +2309,18 @@ writing the existing `tutorialBeat` field to 5/6 per Step 4 — not a new
 field), src/view/hud.js panels, docs/SPEC.md, docs/DESIGN.md.
 
 STOP after writing docs/PLAN-phase10.md covering: the confirmation of Step 1
-and the astral-widening fix, how the dock row interacts with rules/lift.js#reaches and
-model/run.js#placementCheck's 'NO SHAFT TO SERVE' branch (run.js:286) given
-astral's inset x range, where rules/cycles.js sits in the schedule and why,
-the RUN_SCHEMA additions and their newRun() reset (invariant 8), and the cycle
-table. Wait for approval.
+and the astral-widening fix, how the dock row receives cargo from a segment
+carrier arriving in the astral band (model/segments.js, rules/drive.js's own
+arrival handoff) and which model/segments.js#linkCheck refusal a
+surface->astral link can still hit given astral's x range, where
+rules/cycles.js sits in the schedule and why, the RUN_SCHEMA additions and
+their newRun() reset (invariant 8), and the cycle table. Wait for approval.
 ```
 
 **Acceptance:** finish cycle 1 at the surface altar exactly as §5 describes,
 and watch `run.tutorialBeat` advance to 5 when the altar appears and to 6 on
-delivery. Then build a lift chain to the astral band from a column anywhere
-under the (now full-width) astral band, send plate up, watch the TRIBUTE
+delivery. Then chain segments to the astral band from a column anywhere
+under the (now full-width) astral band, crank plate up, watch the TRIBUTE
 panel fill, and get a band unlock. Then walk off the dock on purpose and die.
 
 ---
@@ -2421,11 +2433,16 @@ per agent, never two agents at once against the same file.
 | 8 painting | 1 `ui` | after 7 | known-good recovered in its own commit, then exceeded; no seam slicing |
 | 8a tutorial beats | 1 `systems` | after 7, may run alongside 8 | `tutorialBeat` advances 0→4 in order, resets on newRun |
 | 8b relics | 1 `ui` | after 8a and 8 | a pickaxe that looks divine; four callouts fire, two reserved; glow never touches `b.light` |
-| 9 overview | 1 `ui` | after 8b | a broken lift chain is the first thing you see; no unseen tile drawn |
+| 8c substance budget | 1 `systems` | after 8b | tile-capable headroom >= 10 rows; new lint seen to fail |
+| 8d segment skeleton | 1 `systems` | after 8c | two hubs link, three refusals fire, nothing moves, old winch still works |
+| 8e segment visuals | 1 `ui` | after 8d | a human approves the machinery; ~16 new baselines, each reviewed |
+| 8f drivetrain | 1 `systems` | after 8e | crank to rise, let go to sink, a heavy rider reverses it; rules/lift.js gone |
+| 8g drivetrain harness | 1 `harness` | with/after 8f | framerate-independent ride; every assertion seen to fail |
+| 9 overview | 1 `ui` | after 8g | a broken segment chain is the first thing you see; no unseen tile drawn |
 | 10 heavens | 1 `systems` | after 9, plan-mode first | cycle 1 unchanged; astral widened and connects; beats 5-6 fire; plate reaches the dock; SPEC and DESIGN current |
 | 11 harness | 1 `harness` | yes, throughout | worldgen properties green over 200 seeds; each new assertion seen to fail |
 
-Phases 8, 8b and 9 all live in `src/view/` — do not run them concurrently.
+Phases 8, 8b, 8e and 9 all live in `src/view/` — do not run them concurrently.
 
 ### Three things to watch across the wave
 
