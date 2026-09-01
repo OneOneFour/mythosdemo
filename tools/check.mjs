@@ -113,6 +113,7 @@ const tiles  = await import('../src/model/tiles.js');
 const mining = await import('../src/model/mining.js');
 const items  = await import('../src/model/items.js');
 const machs  = await import('../src/model/machines.js');
+const segs   = await import('../src/model/segments.js');
 const player = await import('../src/model/player.js');
 const run    = await import('../src/model/run.js');
 const mods   = await import('../src/model/mods.js');
@@ -146,7 +147,11 @@ console.log('\n   imported every layer without error');
    `main.step(dt)`, then clears edge-triggered flags exactly the way
    `shell/main.js#frame`'s real RAF loop and `__mf.frames`/`hold` both do. */
 function stepReal(dt, want = {}) {
-  for (const k of ['left', 'right', 'up', 'down', 'hop', 'dig', 'place', 'craft', 'drop', 'hasMouse'])
+  /* `turn` is on this list for the same reason `craft` is: it is a HOLD, so
+     `clearEdges()` will not put it back down, and `cmd` is a module singleton
+     shared by every probe in this file -- a section that leaves a crank held
+     would silently power the next section's drivetrain. */
+  for (const k of ['left', 'right', 'up', 'down', 'hop', 'dig', 'place', 'craft', 'drop', 'turn', 'hasMouse'])
     input.cmd[k] = want[k] ?? false;
   main.step(dt);
   input.clearEdges();
@@ -1059,6 +1064,203 @@ console.log('\n4. Phase 6 probes');
   else ok('render() with the main panel open consumes no randomness (invariant 7)');
 
   shellUi.close('main');
+}
+
+/* ============================================================
+   5. PHASE 8G — SEGMENT TRANSPORT: THE DRIVETRAIN, THE CARRIER, THE RIDE
+   ------------------------------------------------------------
+   Everything Phase 8f landed (`rules/drive.js`, `model/segments.js`, the ride
+   branch in `rules/player.js`), asserted as PROPERTIES rather than as one
+   worked example. docs/SPEC.md section 17 is the contract; where the shipped
+   formula deviates from docs/PLAN-gears-and-winches.md section 4.3 -- the
+   `* drive` factor on the ascent case -- these tests are written against
+   17.8, which records the deviation and the argument for it, and against
+   `rules/drive.js`'s own header, which states the same argument at the code.
+
+   EVERY PROBE HERE DRIVES THE REAL `main.step()` through `stepReal`, and
+   nothing re-implements the motion expression except `predictV` below, which
+   is a DELIBERATE second implementation transcribed from docs/SPEC.md 17.8
+   and exists precisely so that a change to `rules/drive.js` disagrees with
+   the spec instead of silently redefining it.
+   ============================================================ */
+console.log('\n5. segment transport (Phase 8g)');
+
+/* ---------- ONE RIG, DECLARED AS DATA ----------
+   A shaft carved in `topsoil`, hubs placed, segments linked THROUGH THE REAL
+   `linkCheck` (a rig that silently failed to link would photograph as two
+   hubs and no cable -- CLAUDE.md's "a test can silently test nothing"), the
+   carriers parked, the player either standing at a crank or aboard a carrier,
+   and cargo already at rest on the deck.
+
+   `topsoil` and not `surface`: 320 rows of solid rock with nothing in it but
+   what this rig puts there, so no relief, no tree and no vein can wander into
+   a span and refuse a link. The floor row is laid last so the player has
+   something to stand on after the carve. */
+const RIG = { band: 'topsoil', tx0: 18, w: 12 };
+
+function driveRig(spec) {
+  boot.newRun(spec.seed ?? 8080);
+  const band = world.bandOf(spec.band ?? RIG.band);
+  const { tx0, ty0, w, h } = { tx0: RIG.tx0, w: RIG.w, ...spec.room };
+  for (let ty = ty0; ty < ty0 + h; ty++)
+    for (let tx = tx0; tx < tx0 + w; tx++) tiles.write.clear(band, tx, ty);
+  for (let tx = tx0; tx < tx0 + w; tx++) tiles.write.set(band, tx, ty0 + h - 1, D_sub.S.stone);
+  for (const [tx, ty, n] of spec.rock ?? [])
+    for (let i = 0; i < (n ?? 1); i++) tiles.write.set(band, tx + i, ty, D_sub.S.stone);
+
+  /* Both of these are REAL MODIFIER ROWS through the real `eff()` pipeline --
+     the same shape a boon's row has -- and not a poke at a frozen table. A
+     40-tile span is a legal build for a hub whose reach a god has widened;
+     it is not reachable by the base `hub.reach` of 96 px, and the point of
+     going through `model/mods.js` is that the harness never needs to know
+     that. */
+  if (spec.reachMul) mods.write.add('rig-reach', [{ key: 'segReach', mul: spec.reachMul }]);
+  if (spec.torqueMul) mods.write.add('rig-torque', [{ key: 'crankTorque', mul: spec.torqueMul }]);
+
+  const placed = (spec.machines ?? []).map(([id, tx, ty]) => machs.write.place(band, D_mach.M[id], tx, ty));
+  const built = [];
+  for (const [i, j] of spec.links ?? []) {
+    const c = segs.linkCheck(placed[i], placed[j]);
+    if (!c.ok) { fail(`RIG: link ${i}-${j} refused (${c.why}) -- the rig itself is not buildable`); continue; }
+    built.push(segs.write.link(placed[i], placed[j]));
+  }
+  for (const [i, t] of spec.carriers ?? []) segs.write.carrier(built[i], t, 0);
+
+  player.write.band(band);
+  if (spec.ride !== undefined) {
+    const seg = built[spec.ride];
+    player.write.move(segs.carrierPos(seg).x - player.PW / 2, segs.carrierTop(seg) - player.PH);
+  } else {
+    player.write.move(world.worldX(band, spec.player[0]), world.worldY(band, spec.player[1]));
+  }
+  player.write.vel(0, 0);
+  player.write.set('onGround', true);
+  player.write.set('fallFrom', player.player.y);
+
+  /* CARGO IS SPAWNED ALREADY AT REST. `rules/drive.js#haul` pins it every
+     substep from the first one, but a freshly spawned item is awake and
+     `rules/items.js` would give it one substep of gravity before the haul
+     ever saw it -- which at 1/120 s is a fifth of a pixel and at 1/30 s is
+     three, and three is enough to leave a 10 px grab band over a long run.
+     `rest = 1` is the same field `haul` itself writes. */
+  for (const [i, sub, form, n] of spec.cargo ?? []) {
+    const p = segs.carrierPos(built[i]);
+    for (let k = 0; k < n; k++) {
+      const it = items.write.spawn(band, p.x, p.y, D_sub.S[sub], D_form.F[form], 0, 0);
+      if (it) it.rest = 1;
+    }
+  }
+  if (spec.burden) run.write.collect(D_sub.S.copper, D_form.F.ore, spec.burden);
+
+  return { band, placed, segs: built, seg: built[0] };
+}
+
+/* A VERTICAL 10-TILE SEGMENT WITH ONE CRANK AT ITS FOOT, and the player
+   standing on the floor beside the crank -- 21 px from the carrier, which is
+   more than `eff('pickupR')` (10 px), so cargo on the deck is never quietly
+   pocketed out of the mass term the whole section is about. */
+const ONE_CRANK = {
+  room: { ty0: 100, h: 18 },
+  machines: [['hub', 20, 115], ['hub', 20, 105], ['crank', 19, 115]],
+  links: [[0, 1]],
+  player: [18, 115]
+};
+
+/* Along-the-cable velocity in px/s, + is UP, measured from the carrier
+   parameter the simulation actually wrote. */
+function measureV(seg, secs, dt, want = { turn: true }) {
+  const t0 = seg.t;
+  const n = Math.round(secs / dt);
+  runReal(n, dt, { hasMouse: false, ...want });
+  return ((seg.t - t0) * seg.len) / (n * dt);
+}
+
+/* DOCS/SPEC.MD 17.8, TRANSCRIBED. A second implementation on purpose: the
+   assertions below compare the simulation against THIS, so a change to
+   `rules/drive.js` has to disagree with the spec to pass unnoticed. */
+function predictV(supply, mass, slope, demand = null) {
+  const base = mods.eff('segBase');
+  const need = base + mods.eff('segLoad') * mass * slope;
+  const drive = (demand ?? need) > 0 ? Math.min(1, supply / (demand ?? need)) : 0;
+  const surplus = supply - need;
+  if (surplus > 0) return mods.eff('segUp') * Math.min(1, surplus / base) * drive;
+  if (surplus < 0) return -mods.eff('segDown') * Math.min(1, -surplus / base) * slope;
+  return 0;
+}
+
+/* --- FRAMERATE INDEPENDENCE (invariant 10) applied to this mechanic: ten
+   simulated seconds of carrier travel, and ten of a RIDING player's own
+   displacement, must come out the same at 30, 60, 90 and 144 fps. This is the
+   same class of bug as the truncated-byte mining progress CLAUDE.md opens
+   with, and `rules/drive.js` is the newest place in the game where a `dt`
+   could get squared or dropped.
+
+   TWO CASES, because they exercise different code: the carrier case is a
+   POWERED ASCENT with cargo (the `surplus > 0` branch, and the whole
+   supply/demand/drive solve behind it), driven by a player standing at the
+   crank; the rider case is an UNPOWERED DESCENT (the `surplus < 0` branch)
+   with the player aboard, which is the only state in which a rider can be
+   measured over ten whole seconds -- a crank has a 12 px reach and a
+   descending rider leaves it in the first pixel, which is a fact about the
+   design, not a gap in the test (see WEIGHT REVERSES IT below).
+
+   The 40-tile cable the rider case needs is built through a real
+   `segReach` modifier row, not by bypassing `linkCheck`. --- */
+{
+  const RATES = [30, 60, 90, 144];
+  const rows = [];
+  for (const fps of RATES) {
+    const dt = 1 / fps;
+
+    const a = driveRig({ ...ONE_CRANK, seed: 8080, cargo: [[0, 'copper', 'ore', 4]] });
+    const carrier = measureV(a.seg, 10, dt, { turn: true }) * 10;
+
+    const b = driveRig({
+      seed: 8081, reachMul: 5,
+      room: { ty0: 60, h: 58 },
+      machines: [['hub', 20, 115], ['hub', 20, 75]],
+      links: [[0, 1]], carriers: [[0, 1]], ride: 0
+    });
+    const y0 = player.player.y;
+    runReal(Math.round(10 * fps), dt, { hasMouse: false });
+    rows.push({ fps, carrier, rider: player.player.y - y0, t: b.seg.t });
+  }
+
+  console.log('  ..  ride framerate table, 10 simulated seconds:');
+  console.log('        fps   carrier px (up, 4 T aboard, 1 crank)   rider px (down, unpowered)');
+  for (const r of rows)
+    console.log(`        ${String(r.fps).padStart(3)}   ${r.carrier.toFixed(4).padStart(37)}   ` +
+                `${r.rider.toFixed(4).padStart(25)}`);
+
+  /* One tenth of a pixel over ten seconds -- a hundredth of the 5.5 px/s the
+     carrier is climbing at, and far below anything the 8 px tile could show.
+     Not zero, because a 1/30 s step and a 1/120 s step accumulate a different
+     number of float additions to reach the same total. */
+  const TOL = 0.1;
+  const spread = k => Math.max(...rows.map(r => r[k])) - Math.min(...rows.map(r => r[k]));
+  if (spread('carrier') > TOL)
+    fail(`FRAMERATE: carrier travel over 10 s spread ${spread('carrier').toFixed(4)} px across ` +
+         `${RATES.join('/')} fps (tolerance ${TOL}) -- a carrier's speed depends on the framerate`);
+  else ok(`FRAMERATE: carrier travel over 10 s is ${rows[0].carrier.toFixed(2)} px at all of ` +
+          `${RATES.join('/')} fps (spread ${spread('carrier').toFixed(4)} px)`);
+
+  if (spread('rider') > TOL)
+    fail(`FRAMERATE: a RIDING player's displacement over 10 s spread ${spread('rider').toFixed(4)} px ` +
+         `across ${RATES.join('/')} fps (tolerance ${TOL}) -- the ride depends on the framerate`);
+  else ok(`FRAMERATE: a riding player falls the identical ${rows[0].rider.toFixed(2)} px in 10 s at all of ` +
+          `${RATES.join('/')} fps (spread ${spread('rider').toFixed(4)} px)`);
+
+  /* The ride is not merely CONSISTENT, it is the carrier's own travel: an
+     unpowered vertical segment descends at the full `segDown`, so ten seconds
+     is 260 px, and a rider who had silently detached would read 0 or a
+     free-fall figure instead. */
+  const wantRider = mods.eff('segDown') * 10;
+  if (Math.abs(rows[0].rider - wantRider) > 1)
+    fail(`FRAMERATE: a riding player fell ${rows[0].rider.toFixed(2)} px in 10 s, but an unpowered ` +
+         `vertical carrier descends at the full segDown (${mods.eff('segDown')} px/s) = ${wantRider} px ` +
+         `-- the rider is not tracking the carrier`);
+  else ok(`RIDE TRACKS THE CARRIER: 10 s of unpowered descent moves the rider ${rows[0].rider.toFixed(2)} px, ` +
+          `the full segDown x 10 s (${wantRider} px)`);
 }
 
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
