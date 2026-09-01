@@ -1356,6 +1356,120 @@ function predictV(supply, mass, slope, demand = null) {
                `exactly (three geometries x load x supply, including the surplus == 0 boundary)`);
 }
 
+/* --- WEIGHT REVERSES IT. The load-bearing correction in
+   docs/PLAN-gears-and-winches.md, and CLAUDE.md D4 as amended: BOARDING IS
+   NEVER REFUSED AT ANY WEIGHT, because an over-cap rider is real mass in
+   `rules/drive.js#step`'s own arithmetic and the carrier therefore slows,
+   stalls and then runs backwards under them. A refusal would be a permission;
+   this is physics, and it gets its own named assertion.
+
+   Three rows on ONE crank, straddling the 20 T break-even docs/SPEC.md 17.4
+   locks -- and the rider's own body is 8 T of it, so the pockets straddle 12:
+
+     empty pockets   mass  8 T   climbs
+     12 T of ore     mass 20 T   HOLDS STILL, the exact boundary
+     30 T of ore     mass 38 T   RUNS BACKWARDS, over 5 s, net negative
+
+   THE CRANK IS PROVABLY TURNING WHEN IT REVERSES, which is the whole claim:
+   `m.torque` is the component's delivered `drive` and is nonzero only while a
+   crank is in reach, so asserting it on the substep the reversal is measured
+   rules out the trivial reading (that the carrier sank because nobody was
+   cranking). A crank's reach is 12 px and a rider descending at 11.7 px/s
+   leaves it inside two seconds, so the 5 s figure is measured with the crank
+   held THROUGHOUT and in reach for the first stretch only -- which makes the
+   net figure more negative, never less, and the fraction is printed rather
+   than hidden. --- */
+{
+  const at = (crankTy, carrierT) => ({
+    room: { ty0: 100, h: 18 },
+    machines: [['hub', 20, 115], ['hub', 20, 105], ['crank', 19, crankTy]],
+    links: [[0, 1]], player: [18, 115], carriers: [[0, carrierT]], ride: 0
+  });
+  const ROWS = [
+    ['climbs',        at(115, 0), 0,  +1],
+    ['holds still',   at(115, 0), 12,  0],
+    ['runs backwards', at(105, 1), 30, -1]
+  ];
+
+  let bad = 0;
+  for (const [name, spec, burden, wantSign] of ROWS) {
+    const r = driveRig({ ...spec, seed: 8200 + burden, burden });
+    const mass = mods.eff('riderMass') + run.burdenOf();
+    const crank = r.placed[2];
+
+    const before = r.seg.t, y0 = player.player.y;
+    stepReal(1 / 120, { turn: true, hasMouse: false });
+    const v1 = (r.seg.t - before) * r.seg.len * 120;
+    const drove = crank.torque > 0;
+
+    let lit = 1;
+    for (let i = 1; i < 600; i++) {
+      stepReal(1 / 120, { turn: true, hasMouse: false });
+      if (crank.torque > 0) lit++;
+    }
+    const net = (r.seg.t - before) * r.seg.len;
+    const riderNet = player.player.y - y0;
+    const want = predictV(D_mach.MACH[D_mach.M.crank].crank.torque * mods.eff('crankTorque', 'crank'), mass, 1);
+
+    if (!drove) {
+      fail(`WEIGHT: the "${name}" row measured its first substep with NO torque delivered ` +
+           `(m.torque 0) -- the crank was not in reach, so the row proves nothing about weight`);
+      bad++;
+    }
+    if (Math.abs(v1 - want) > 1e-6) {
+      fail(`WEIGHT: rider mass ${mass} T on one crank -- docs/SPEC.md 17.8 gives ${want.toFixed(4)} px/s, ` +
+           `the first powered substep produced ${v1.toFixed(4)}`);
+      bad++;
+    }
+    if (Math.sign(net) !== wantSign) {
+      fail(`WEIGHT: rider mass ${mass} T, one crank HELD for 5 s -- net carrier displacement ` +
+           `${net.toFixed(3)} px (sign ${Math.sign(net)}), expected sign ${wantSign}`);
+      bad++;
+    }
+    if (Math.sign(riderNet) !== -wantSign) {
+      fail(`WEIGHT: rider mass ${mass} T -- the carrier moved ${net.toFixed(3)} px along the cable but ` +
+           `the RIDER moved ${riderNet.toFixed(3)} px in world y; they must move together`);
+      bad++;
+    }
+    console.log(`  ..  weight: pockets ${String(burden).padStart(2)} T -> mass ${String(mass).padStart(2)} T  ` +
+                `first substep ${v1.toFixed(4).padStart(9)} px/s  net over 5 s ${net.toFixed(2).padStart(8)} px  ` +
+                `rider ${riderNet.toFixed(2).padStart(8)} px  crank in reach ${lit}/600 substeps  (${name})`);
+  }
+
+  /* The one thing said out loud, and ONLY in the one state that is otherwise
+     baffling (D4 as amended): a crank is being turned and the thing is going
+     down anyway. Re-run the reversing row alone and read the journal, which
+     `stepReal` never drains. */
+  {
+    const r = driveRig({ ...at(105, 1), seed: 8299, burden: 30 });
+    runReal(600, 1 / 120, { turn: true, hasMouse: false });
+    const rows = journal.peek().filter(j => j.kind === 'refused' && j.data?.why === 'TOO HEAVY TO LIFT');
+    if (!rows.length) {
+      fail(`WEIGHT: a crank held on a reversing carrier pushed no 'TOO HEAVY TO LIFT' journal row -- ` +
+           `the one state D4 says must be said out loud is silent`);
+      bad++;
+    } else if (rows.length > 6) {
+      fail(`WEIGHT: 'TOO HEAVY TO LIFT' fired ${rows.length} times in 5 s -- the REFUSAL_GAP rate limit ` +
+           `in rules/drive.js is not holding (expected at most one per second)`);
+      bad++;
+    } else {
+      /* And it must be SILENT when the crank is not being turned: an
+         unpowered carrier sinking is not news, it is the premise. */
+      driveRig({ ...at(105, 1), seed: 8298, burden: 30 });
+      runReal(600, 1 / 120, { hasMouse: false });
+      const quiet = journal.peek().filter(j => j.kind === 'refused' && j.data?.why === 'TOO HEAVY TO LIFT');
+      if (quiet.length) {
+        fail(`WEIGHT: 'TOO HEAVY TO LIFT' fired ${quiet.length} time(s) with NO crank turned -- ` +
+             `an unpowered carrier sinking is the premise, not a refusal`);
+        bad++;
+      }
+    }
+  }
+
+  if (!bad) ok(`WEIGHT REVERSES IT: 8 T climbs, 20 T holds at the exact break-even, 38 T runs backwards ` +
+               `with the crank provably turning -- and says 'TOO HEAVY TO LIFT' once a second, only then`);
+}
+
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +
             `journal ${journal.peek ? journal.peek().length : 0} undrained`);
