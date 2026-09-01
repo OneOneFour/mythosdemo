@@ -302,7 +302,56 @@ export const SUBSTANCES = [
      in the game, matching its own T4 tier. */
   { id:'cyclops_maw', name:'CYCLOPS MAW', tags:['machine'],
     item:{ mass:50.7, hud:{ order:19 } },
-    look:{ item:['adamantB', 'adamantD'] } }
+    look:{ item:['adamantB', 'adamantD'] } },
+
+  /* ---- SEGMENT TRANSPORT (Phase 8d, docs/PLAN-gears-and-winches.md section
+     4.1). Four machine substances, priced as one family against the 40 T
+     `burden` cap (docs/SPEC.md section 9) and section 8's compression tiers.
+     Every mass below is `Σ substance.item.mass x form.massK x n` over the
+     build recipe in `data/recipes.js` -- the identical
+     `model/items.js#massOfPair` arithmetic every other row here uses, never a
+     second sum.
+
+     THE NUMBER THE FAMILY IS PRICED AROUND: a segment needs TWO hubs, so
+     2 x 10.4 = 20.8 T is the pair -- exactly what the one `lift` stage it
+     replaces weighs, to the decigram. A complete minimal segment (two hubs
+     plus one crank) is 24.1 T, so it still fits inside one 40 T trip; adding a
+     gear makes it 26.0 T and it still does (24.1 + 1.9). That is the reason the hub
+     is HALF the retired winch rather than equal to it: pricing a hub at the
+     lift's own 20.8 T would have put a working segment at 44.9 T and made
+     "carry a lift down a shaft" a two-trip errand for no design gain.
+
+     These carry no `tile` block and their only tag is `machine`, so no
+     tile-capable form crosses into them and none of them ever reaches the
+     tile byte -- see `data/forms.js`'s packing block and
+     `tools/content.mjs` assertion 16. ---- */
+
+  /* 3 copper/plate + 1 copper/ingot + 2 timber/log:
+     3x2.4 + 1x1.6 + 2x0.8 = 10.4 T. REFINED, not raw -- the class Phase 3
+     priced the winch stage in, because a hub is the investment. */
+  { id:'hub', name:'WINCH HUB', tags:['machine'],
+    item:{ mass:10.4, hud:{ order:20 } },
+    look:{ item:['irC', 'irA'] } },
+
+  /* 3 timber/log + 3 stone/gravel: 3x0.8 + 3x0.3 = 3.3 T. Timber and
+     gravel, so a player who has felled one tree can build several. */
+  { id:'crank', name:'HAND CRANK', tags:['machine'],
+    item:{ mass:3.3, hud:{ order:21 } },
+    look:{ item:['woodC', 'irA'] } },
+
+  /* 2 timber/log + 1 stone/gravel: 2x0.8 + 1x0.3 = 1.9 T -- the lightest
+     machine substance in the table, `hearth` (4.8 T) included, and
+     deliberately so: a drivetrain is built out of a fistful of these. */
+  { id:'gear', name:'GEAR', tags:['machine'],
+    item:{ mass:1.9, hud:{ order:22 } },
+    look:{ item:['cuB', 'cuA'] } },
+
+  /* 2 copper/ingot + 2 timber/log: 2x1.6 + 2x0.8 = 4.8 T. Sits between the
+     crank (3.3) and the hub (10.4), which is what "three tiles of reach for a
+     third of the loss" ought to cost. */
+  { id:'axle', name:'AXLE', tags:['machine'],
+    item:{ mass:4.8, hud:{ order:23 } },
+    look:{ item:['woodB', 'cuA'] } }
 
   /* `kiln_divine` is deliberately NOT given a substance here. Its former
      `cost` (inherited, unchanged, via `variantOf:'furnace'`) is BIT-IDENTICAL

@@ -36,6 +36,35 @@
      lift        { span, toBand } marks the machine as one stage of the staged
                  lift. Speeds come from the `liftUp` / `liftDown` tunables, so
                  "down is free, up is expensive" is one place, not one per row.
+                 BEING REPLACED by `hub`/`crank`/`gear` below -- see
+                 docs/PLAN-gears-and-winches.md. Both mechanisms exist side by
+                 side until Phase 8f retires this one.
+
+     hub         { reach, carries } marks the machine as an ENDPOINT a segment
+                 may be anchored to (CLAUDE.md D10: "hub"). `reach` is px, the
+                 longest cable this hub may anchor, multiplied by the
+                 `segReach` scale tunable (scope `machine`) so a longer-reach
+                 tier is a `variantOf` row and a range boon is one tuning row.
+                 `carries` is `['material']` or `['material','player']` --
+                 WHAT the carrier may bear, as data, so a cheap material-only
+                 chain needs no engine edit. A SEGMENT IS NOT A MACHINE: it
+                 has no footprint, no buffer and no recipe, it lives in
+                 `model/segments.js`, and it is created by an action BETWEEN
+                 two of these rather than placed.
+
+     crank       { torque, reach } the manual power source. `torque` is drive
+                 units supplied while the player is turning it, denominated in
+                 `segBase` (1.0 raises one empty carrier at full speed);
+                 `reach` is px the player must stand within, the same shape
+                 and units `handFeed:{reach}` already uses, so "close enough
+                 to feed" and "close enough to turn" cannot disagree. Nothing
+                 reads this yet -- Phase 8f does.
+
+     gear        { loss } fraction of torque lost per hop along the drivetrain
+                 graph. This is why a drivetrain is not free to sprawl, and
+                 the seam a generator eventually plugs into. `axle` is this
+                 row with three tiles of reach for a third of the loss --
+                 content, exactly as `kiln_divine` and `belt_l` are.
 
      variantOf   copy another row and override these keys. See `kiln_divine`.
 
@@ -396,7 +425,99 @@ export const MACHINES = [
            sfx:{ accept:'ignite' } } },
 
   { id:'cyclops_maw_l', name:'CYCLOPS MAW (LEFT)', variantOf:'cyclops_maw',
-    mine:{ facing:-1, tier:3, tiles:3, secs:3.0 } }
+    mine:{ facing:-1, tier:3, tiles:3, secs:3.0 } },
+
+  /* ---- SEGMENT TRANSPORT (Phase 8d, docs/PLAN-gears-and-winches.md;
+     CLAUDE.md invariant 4 as reworded, and D10 for the five nouns).
+     APPENDED, not inserted: this table is append-only because the index is
+     the id a save stores.
+
+     These four rows are the replacement for the `lift` row above. NOTHING
+     MOVES YET -- Phase 8d places them, links two hubs into a segment and
+     parks the carrier at the low end; Phase 8e draws them; Phase 8f gives
+     them torque and motion and deletes the winch. The old winch keeps
+     working, untouched, until then.
+
+     WHY THE CABLE IS NOT PLACED TILE BY TILE (D10's reconciliation): power is
+     physical -- a crank, a gear, an axle and the hub they feed all conduct
+     only through orthogonal footprint adjacency. The CABLE between two hubs
+     is the one auto-resolved piece: once both hubs exist, are within reach,
+     and the straight span between them is clear, the segment resolves itself
+     (`model/segments.js#linkCheck`). So the player places endpoints and
+     drivetrains, never cable.
+
+     THE `look` BLOCKS BELOW ARE PLACEHOLDERS. `view/paint.js#paintMachine`
+     reads `look.body`/`trim`/`base` off every row unconditionally, so a row
+     with no `look` at all throws the first time one is painted -- these exist
+     so the rows are placeable TODAY, in the existing generic style, and are
+     Phase 8e's to replace with real machinery. No `fire:true` on any of them:
+     none of these four burns anything, ever (the crank's cost is the player's
+     own standing there -- D10's "manual only", and A5 explicitly rejects a
+     heart-powered fallback). ---- */
+
+  /* WINCH HUB: the endpoint, and the investment. 2x2 with a footing of 2, the
+     same shape as the press and the hearth.
+
+     `reach:96` is 12 tiles at the 8 px tile every band ships with today.
+     THE SMALLER OF THE TWO HUBS GOVERNS a span (`linkCheck`'s 'TOO FAR
+     APART'), so a long-reach tier could never lend its reach to a short one.
+
+     NO `ports`, NO `buffer`, NO `recipes` -- the first row in this table with
+     none of the three, and the generic interpreter already handles that:
+     `rules/machines.js#choose` returns null (so `produce` zeroes progress and
+     `m.running` stays false), `catchFalling`/`handFeed`/`emit`/`mine` are all
+     gated on their own key being present. A hub receives cargo by having a
+     carrier arrive at it, which is `rules/drive.js`'s job in Phase 8f, not a
+     buffer's. */
+  { id:'hub', name:'WINCH HUB',
+    tw:2, th:2, footing:2,
+
+    hub:{ reach:96, carries:['material', 'player'] },
+
+    look:{ body:'irC', trim:'irA', base:'irD' } },
+
+  /* HAND CRANK: the only power source in the game, and manual only. 1x2 and
+     footing 1 -- a post with a handle on it, standing beside the hub it
+     turns, not a structure.
+
+     `torque:1.0` is exactly `segBase`: one crank raises one EMPTY carrier at
+     full `segUp`. A rider plus a load needs more drivetrain, which is the
+     whole of "nothing makes ascent cheap".
+
+     `reach:12` is `handFeed`'s own 10 plus a little, deliberately: standing
+     close enough to turn a crank and standing close enough to feed a machine
+     should read as the same distance. */
+  { id:'crank', name:'HAND CRANK',
+    tw:1, th:2, footing:1,
+
+    crank:{ torque:1.0, reach:12 },
+
+    look:{ body:'woodC', trim:'irA', base:'irD' } },
+
+  /* GEAR: the linkage primitive, 1x1. `loss:0.06` per hop is what stops a
+     drivetrain sprawling for free.
+
+     DIAGONALS DO NOT CONDUCT (docs/PLAN A3, confirmed): a corner needs a gear
+     IN it. That is a legibility choice, and Phase 8e's art is what teaches
+     it -- an accidentally diagonal pair must visibly not mesh. */
+  { id:'gear', name:'GEAR',
+    tw:1, th:1, footing:1,
+
+    gear:{ loss:0.06 },
+
+    look:{ body:'cuB', trim:'cuA', base:'cuD' } },
+
+  /* AXLE: three tiles of reach for a third of the loss. A `variantOf:'gear'`,
+     so it is CONTENT and not code -- the same near-free variant `kiln_divine`
+     and `belt_l` already are. `footing:1` (not 3) on purpose: an axle spans a
+     gap, so requiring a floor under all three tiles would defeat the point of
+     having it. */
+  { id:'axle', name:'AXLE', variantOf:'gear',
+    tw:3, th:1, footing:1,
+
+    gear:{ loss:0.02 },
+
+    look:{ body:'woodB', trim:'cuA', base:'woodD' } }
 ];
 
 /* ---- variant expansion, then derived indices, built once, frozen ------------

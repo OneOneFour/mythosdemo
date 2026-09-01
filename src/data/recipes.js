@@ -57,7 +57,35 @@ export const RECIPES = Object.freeze({
                              press_machine, belt_r, and the EXISTING
                              daedalan/auger), so `hearth` is declared LAST OF
                              ALL, or it would starve every one of them the
-                             moment enough plate for both existed. ---- */
+                             moment enough plate for both existed.
+
+     Phase 8d's four segment-transport rows were checked the same way, against
+     every row in this file, and only these containments exist:
+       crank             -- nothing contains it and it contains nothing except
+                             `gear` (below). {3 log, 3 gravel} is deliberately
+                             NOT a subset of `brazier`'s {4 log, 2 gravel}:
+                             an earlier draft priced it at {3 log, 2 gravel},
+                             which IS a subset, and would have made the crank
+                             permanently unreachable by hand for any player
+                             holding four logs. Raising the gravel to 3 breaks
+                             the containment in both directions. It is still
+                             declared after `brazier`, so the pre-existing
+                             brazier behaviour is unchanged where the two
+                             merely overlap.
+       gear              -- {2 log, 1 gravel} is a strict subset of BOTH
+                             `brazier` and `crank`, so it is declared after
+                             both, and before `peg_rungs`/`kindle` (whose
+                             {2 log} / {1 log} are in turn subsets of IT).
+       hub               -- {3 plate, 1 ingot, 2 log} is a strict subset of
+                             `lift`'s {6 plate, 4 log, 2 ingot}, so it is
+                             declared after it. `hearth`'s {2 plate} is a
+                             subset of the hub, which `hearth` being last of
+                             all already covers.
+       axle              -- {2 ingot, 2 log} is a strict subset of `lift` too
+                             (2<=2 ingot, 2<=4 log), so likewise after it. It
+                             has no containment relation with `hub`: the hub
+                             needs plate the axle does not, and the axle needs
+                             two ingots to the hub's one. ---- */
 
   furnace: Object.freeze({
     id:'furnace', name:'CRUDE FURNACE',
@@ -78,6 +106,32 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
+  /* ---- SEGMENT TRANSPORT, part 1 of 2: the two timber-and-gravel rows.
+     Declared HERE, between `brazier` and `lift`, for the containment reasons
+     spelled out in this block's own header -- `crank` after `brazier`, `gear`
+     after both. See docs/PLAN-gears-and-winches.md section 4.1 and
+     docs/SPEC.md section 17. ---- */
+
+  crank: Object.freeze({
+    id:'crank', name:'HAND CRANK',
+    in:{ 'timber/log':3, 'stone/gravel':3 },
+    out:[ { sub:'crank', form:'rig', n:1 } ],
+    /* 4.0s, in `brazier`/`hearth`'s class: the crank is cheap to build and
+       expensive to USE, and the whole design rests on the second half. */
+    secs:4.0,
+    hand:true
+  }),
+
+  gear: Object.freeze({
+    id:'gear', name:'GEAR',
+    in:{ 'timber/log':2, 'stone/gravel':1 },
+    out:[ { sub:'gear', form:'rig', n:1 } ],
+    /* The cheapest machine recipe in the file, and the fastest. A drivetrain
+       is several of these; nothing about them should be a decision. */
+    secs:2.0,
+    hand:true
+  }),
+
   lift: Object.freeze({
     id:'lift', name:'WINCH STAGE',
     in:{ 'copper/plate':6, 'timber/log':4, 'copper/ingot':2 },
@@ -85,6 +139,28 @@ export const RECIPES = Object.freeze({
     /* 20.0s: `lift` is the game's own bottleneck (invariant 4), priced like
        the investment it is. */
     secs:20.0,
+    hand:true
+  }),
+
+  /* ---- SEGMENT TRANSPORT, part 2 of 2: the two refined rows, declared after
+     `lift` because both bills are strict subsets of its own. ---- */
+
+  hub: Object.freeze({
+    id:'hub', name:'WINCH HUB',
+    in:{ 'copper/plate':3, 'copper/ingot':1, 'timber/log':2 },
+    out:[ { sub:'hub', form:'rig', n:1 } ],
+    /* 10.0s, exactly half `lift`'s 20.0 for exactly half its mass -- a
+       segment's two endpoints together cost the same time and the same
+       talents as the one winch stage they replace. */
+    secs:10.0,
+    hand:true
+  }),
+
+  axle: Object.freeze({
+    id:'axle', name:'AXLE',
+    in:{ 'copper/ingot':2, 'timber/log':2 },
+    out:[ { sub:'axle', form:'rig', n:1 } ],
+    secs:6.0,
     hand:true
   }),
 

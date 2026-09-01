@@ -753,3 +753,182 @@ topsoil copper 1355 -> 1246, tin 1067 -> 1010, granite 464 -> 538, adamant
 because the guarantee is the whole point of the row, and is now `dy:6, r:3.6,
 n:3` — three overlapping stars, which puts its top at row 25 even on the
 unluckiest arm roll. That is the 5-tile dig §5's beat 3 promises.
+
+## 17. Segment transport, cranks and gears (Phase 8d onward)
+
+Locked with `docs/PLAN-gears-and-winches.md` and `CLAUDE.md` invariant 4 (as
+reworded), D4 (as amended) and D10. This section is opened by **Phase 8d**,
+which lands the data, the model and the link verb with **no motion at all**;
+the motion half is filled in by Phase 8f, and every row below marked
+*(8f)* is a number this file locks before any code reads it, per this file's
+own header rule.
+
+Until Phase 8f the `lift` row and `rules/lift.js` are **still live and still
+work** — §13's winch material is therefore *not* superseded yet. Phase 8f is
+the commit that supersedes it.
+
+### 17.1 The five nouns
+
+`CLAUDE.md` D10 is binding: **hub**, **segment**, **carrier**, **chain**,
+**drivetrain**, and nothing in code, docs or a commit message may use a sixth.
+A chain is DERIVED (`model/segments.js#chains()`), never stored.
+
+### 17.2 The four machines
+
+| machine | footprint | footing | block | held substance | mass |
+|---|---|---|---|---|---|
+| `hub` | 2x2 | 2 | `hub:{ reach:96, carries:['material','player'] }` | `hub` | 10.4 T |
+| `crank` | 1x2 | 1 | `crank:{ torque:1.0, reach:12 }` | `crank` | 3.3 T |
+| `gear` | 1x1 | 1 | `gear:{ loss:0.06 }` | `gear` | 1.9 T |
+| `axle` | 3x1 | 1 | `variantOf:'gear'`, `gear:{ loss:0.02 }` | `axle` | 4.8 T |
+
+`reach:96` is 12 tiles at the 8 px tile every band ships with. `reach:12` on
+the crank is `handFeed`'s own 10 plus a little, deliberately: "close enough to
+turn" and "close enough to feed" must read as one distance.
+
+All four are in `data/grants.js#STARTING_MACHINES`, ungated, for the same
+reason `lift` is: transport is the bottleneck, not a reward.
+
+### 17.3 Build bills
+
+Same `hand:true`-recipe mechanism §15 locks for every other machine. Mass is
+`Σ substance.item.mass x form.massK x n` — the identical
+`model/items.js#massOfPair` arithmetic, never a second sum.
+
+| machine | bill | mass | recipe secs |
+|---|---|---|---|
+| `hub` | 3 `copper/plate` + 1 `copper/ingot` + 2 `timber/log` | 10.4 T | 10.0 |
+| `crank` | 3 `timber/log` + 3 `stone/gravel` | 3.3 T | 4.0 |
+| `gear` | 2 `timber/log` + 1 `stone/gravel` | 1.9 T | 2.0 |
+| `axle` | 2 `copper/ingot` + 2 `timber/log` | 4.8 T | 6.0 |
+
+**The number the family is priced around.** A segment needs TWO hubs, so the
+pair is `2 x 10.4 = 20.8 T` — *exactly* what the one `lift` stage it replaces
+weighs (§13, §15), and `2 x 10.0 = 20.0 s` of crafting, exactly the lift's own
+`secs`. A complete minimal segment (two hubs + one crank) is **24.1 T**, and
+with a gear **26.0 T**, so both still fit inside one 40 T trip (§9). Pricing a
+hub at the lift's full 20.8 T would have put a working segment at 44.9 T and
+made carrying one down a shaft a two-trip errand for no design gain.
+
+`crank`'s bill is 3 gravel and not 2 on purpose: `{3 log, 2 gravel}` is a
+strict subset of `brazier`'s `{4 log, 2 gravel}`, and
+`rules/crafting.js#choose` is first-match-wins, so at 2 gravel the crank would
+have been permanently unreachable by hand for any player holding four logs.
+See `data/recipes.js`'s declaration-order block, which states every containment
+in the file.
+
+### 17.4 Tunables
+
+Eight rows in `data/tuning.js`, read only through `eff()`.
+
+| id | kind | base | unit | meaning |
+|---|---|---|---|---|
+| `segUp` | value | 11 | px/s | carrier ascent at full surplus *(8f)* |
+| `segDown` | value | 26 | px/s | free descent on a vertical segment *(8f)* |
+| `segBase` | value | 1.0 | drive | drive to raise an EMPTY carrier at full speed *(8f)* |
+| `segLoad` | value | 0.025 | drive/talent | added drive per talent aboard, at full slope *(8f)* |
+| `riderMass` | value | 8 | talents | the player's own body on a carrier *(8f)* |
+| `segReach` | scale | 1.0 | x, scope `machine` | multiplies `hub.reach` — **read now**, by `linkCheck` |
+| `crankTorque` | scale | 1.0 | x, scope `machine` | multiplies `crank.torque` *(8f)* |
+| `torqueLoss` | scale | 1.0 | x, scope `machine` | multiplies `gear.loss` *(8f)* |
+
+`segUp`/`segDown` carry `liftUp`/`liftDown`'s **exact** bases (11 and 26): a
+carrier is not faster than the deck it replaces. `liftUp`/`liftDown` survive
+only until `rules/lift.js` is deleted, and go in the same commit — two live
+readers of one number is the drift `CLAUDE.md` warns about.
+
+At `segLoad` 0.025, the whole 40 T burden cap doubles the drive requirement on
+a vertical segment (`1.0 + 0.025 x 40 x 1.0 = 2.0`), which is the arithmetic
+that makes D4's "boarding is never refused" honest: an over-cap rider is load a
+single 1.0-torque crank cannot lift, so the carrier runs backwards under them
+and nothing had to say so.
+
+### 17.5 The segment record
+
+Runtime state in `model/segments.js`, cleared by `newRun()` like `machines` and
+`items` (invariant 8). **A segment is not a machine** and must not become one:
+no footprint, no buffer, no recipe, and it is created by an action *between*
+two machines rather than placed.
+
+```
+{ a, b,            the two hub machine RECORDS (never ids: machines never move,
+                   and a removed hub must invalidate this)
+  ax, ay, bx, by,  world-px anchor points, cached at link time
+  len,             px
+  slope,           (yLo - yHi) / len, 0 horizontal .. 1 vertical
+  hi,              'a' | 'b' -- which end is UP. Ties resolve to 'a'.
+  t,               0..1 carrier parameter, 0 = the LOW end
+  dir,             -1 up | 0 still | +1 down, for view only
+  load,            talents currently riding, for view and the tooltip
+  band }           the band the carrier is currently in
+```
+
+An anchor is the hub footprint's own **centre**, so the geometry is symmetric
+and does not depend on which end was armed first. Phase 8d parks every carrier
+at `t = 0` (the low end) with `dir = 0` and `load = 0`; nothing writes a
+nonzero `dir` or a nonzero `m.torque`/`m.turn` until Phase 8f.
+
+### 17.6 Linking: one decision, two readers
+
+`model/segments.js#linkCheck(a, b)` returns `{ ok, why, at }` and is the ONLY
+implementation — `rules/placement.js#linkSegment` turns a `false` into a
+journal row plus the mutation, and `view` (Phase 8e) turns the same `false`
+into a tinted cable ghost. The same rule `placementCheck` already follows
+(§13, `docs/DEVELOPER_GUIDE.md#one-decision-two-readers`).
+
+Refusals, **in this order** — structural before affordable, per
+`placementCheck`'s own ordering:
+
+| `why` | test |
+|---|---|
+| `'NOT A HUB'` | either end's row has no `hub` block |
+| `'ALREADY LINKED'` | `linkedTo(a, b)` — a segment already joins this exact pair |
+| `'TOO FAR APART'` | `len > min(reachOf(a), reachOf(b))`, where `reachOf(m) = hub.reach x eff('segReach', def.id)`. The **smaller** of the two hubs governs, so a long-reach tier can never lend its reach to a short one |
+| `'THE PATH IS BLOCKED'` | any sample along the span is solid |
+| `'OUTSIDE THE WORLD'` | any sample resolves to no band |
+
+There is deliberately **no** `'TOO STEEP TO STAND'`: every angle is legal.
+Recorded so the omission reads as a decision.
+
+The clear-path test is the **half-tile sweep** `rules/items.js` already states
+("no substep longer than half a tile, in either axis") — `n = max(1, ceil(len /
+(tile x 0.5)))` samples, `bandAt()` per sample so a cross-band span works, and
+`solidAt()` in that sample's own band. Not a Bresenham. `tile` is the smaller
+of the two endpoint bands' tile sizes, so a future band with a finer grid
+cannot be sampled too coarsely.
+
+Both flags are collected over the WHOLE sweep and then reported in the table's
+order, so a span that is both blocked and partly off-world reports
+`'THE PATH IS BLOCKED'` — the order above is the answer, not the iteration.
+
+**The path is checked at link time only, never re-checked** (`docs/PLAN` A4,
+confirmed): a segment whose span is later walled in keeps working. Cosmetic,
+not a soft-lock, and re-validating every segment every frame is a cost with no
+gameplay behind it.
+
+**Deconstructing a hub cuts its segments.**
+`rules/placement.js#deconstruct` calls `write.unlinkAll(m)` after its existing
+empty-check, so a removed hub can never leave a dangling segment. A rider on a
+cut segment simply falls (`docs/PLAN` A6, confirmed: allow) — gravity is
+invariant 4's whole answer and the fall-damage curve (§3) already exists.
+
+### 17.7 The link verb
+
+`l`, **edge-triggered**, the same `*Held` latch idiom `hop`/`place`/`drop`
+already use. Two presses with the aim reticle over a machine:
+
+- first press: `shell/ui.js#ui.linkFrom` is armed. Which endpoint is armed is
+  UI state, per D2 — `view` reads it through `frameCtx`, never by import.
+- second press on a **different** machine: `linkSegment(from, to)`. The arm
+  clears on success and **survives a refusal**, so a mis-aimed press costs a
+  retry rather than the whole gesture.
+- second press on an **already-linked** partner: the cable is cut.
+- second press on the **same** machine: the arm is cleared. No cable existed,
+  so nothing claims one was cut.
+- `Escape` clears it, on the same line that already clears an armed placement.
+- an arm whose machine has since been deconstructed clears on the same
+  top-of-frame sweep that already drops a stale armed placement.
+
+Shell does **not** pre-filter for hubs: the first press arms any machine and
+`linkCheck` produces `'NOT A HUB'` on the second. The decision stays in one
+place.
