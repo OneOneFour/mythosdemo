@@ -15,7 +15,7 @@
 // tools/check.mjs already does.
 
 import { SUB, S } from '../src/data/substances.js';
-import { FORM, F, expand, matches } from '../src/data/forms.js';
+import { FORM, F, expand, matches, crossable, packable, PACKABLE_LIMIT } from '../src/data/forms.js';
 import { RECIPES, recipesOf } from '../src/data/recipes.js';
 import { MACH } from '../src/data/machines.js';
 import { TUNE } from '../src/data/tuning.js';
@@ -538,6 +538,50 @@ export function checkContent({ quiet = false } = {}) {
   for (const s of SUB) walkLook(`substance "${s.id}"`, s.look);
   for (const m of MACH) walkLook(`machine "${m.id}"`, m.look);
   for (const b of BANDS) walkLook(`band "${b.id}"`, b.look);
+
+  /* ---- 16. THE TILE BYTE: THE FACT THE NARROWED GUARD RESTS ON.
+     `data/forms.js`'s import-time guard used to price every substance row as
+     if it were tile-capable and so refused content over a cost nothing was
+     paying (Phase 8c; the arithmetic is in that file's packing block and in
+     docs/SPEC.md section 15). It now measures from the highest PACKABLE
+     ordinal instead -- native terrain, or a legal crossing with a form that
+     carries a `tile` block. That is derived from the tables, so it cannot be
+     stale; what it DEPENDS on is a fact `data/forms.js` cannot check for
+     itself, and this is that check.
+
+     A substance crossable with a tile-capable form is placeable as TERRAIN
+     through `rules/placement.js#placeTile`. If it has no `tile` block of its
+     own, `model/tiles.js#baseHardOf` returns `Infinity` for the tile it
+     writes: a wall that can never be mined back out, with no `drops` and no
+     `look.tile` to paint it. So crossability with `gravel`/`log`/`rung`/
+     `stair` must imply a real `tile` block -- which is exactly what keeps the
+     eight machine substances, the three relics and the miracle off the byte,
+     and therefore what makes the narrowed guard true rather than hopeful.
+     Widening a tile-capable form's `subTags` (or adding `metal`/`rock`/
+     `organic` to a machine row) is the one edit that would break it silently,
+     and it fires here.
+
+     The second half is the byte itself, restated per substance so the failure
+     names the row: nothing packable may sit above `PACKABLE_LIMIT`, the last
+     ordinal whose byte clears `BEDROCK`. `data/forms.js` throws on the same
+     fact at import, which is the harder gate -- this exists so a content
+     author reading the lint output sees WHICH row is over the line. ---- */
+  for (let s = 0; s < SUB.length; s++) {
+    for (let f = 0; f < FORM.length; f++) {
+      if (!FORM[f].tile || !crossable(s, f)) continue;
+      checks++;
+      if (!SUB[s].tile)
+        fail(`substance "${SUB[s].id}": crossable with tile-capable form "${FORM[f].id}", so it ` +
+             `can be PLACED as terrain, but it has no \`tile\` block -- the tile would have ` +
+             `Infinity hardness (model/tiles.js#baseHardOf) and could never be mined back out`);
+    }
+    if (!packable(s)) continue;
+    checks++;
+    if (s > PACKABLE_LIMIT)
+      fail(`substance "${SUB[s].id}": packable (native terrain or a tile-capable crossing) at ` +
+           `ordinal ${s}, above the last ordinal that fits the tile byte (${PACKABLE_LIMIT}) ` +
+           `-- move it earlier in data/substances.js or drop a form`);
+  }
 
   if (!quiet) {
     for (const v of violations) console.error(`  FAIL ${v}`);

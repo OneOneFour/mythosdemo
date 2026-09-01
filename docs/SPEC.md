@@ -507,8 +507,10 @@ grantable (`data/grants.js#gift-kiln`) but not currently placeable; see
 `talos_head`/`talos_head_l` and `cyclops_maw`/`cyclops_maw_l` are each one
 `variantOf` row differing only in a `belt.dir`/`mine.facing` flip — giving
 each its own substance would need a SECOND hand-recipe with a bit-identical
-bill (the same unbreakable tie `kiln_divine` hits) AND would have overflowed
-the tile-byte budget (see below). Instead, `model/run.js#machineIdFor`
+bill (the same unbreakable tie `kiln_divine` hits) — and, on the guard as it
+was written then, would also have overflowed the tile-byte budget, though that
+half of the argument no longer holds (see below). The recipe tie is the reason
+that stands. Instead, `model/run.js#machineIdFor`
 resolves ONE held substance to a concrete machine id off `player.face`
 (+-1) at the moment of placement — the SAME direction convention
 `belt.dir`/`mine.facing` already carry, reused rather than reinvented. A
@@ -545,11 +547,47 @@ task's job, not this reversal's.
 a dug-out hole through the same `placeTile` path `log`/`rung`/`stair` use —
 loose backfill, easier to dig back out than any native rock it came from.
 
-**Tile-byte headroom.** Adding one form (`rig`, `data/forms.js`'s 11th) and
-eight machine substances (19 total) leaves 2 more substances before the tile
-id byte overflows — down from the pre-reversal headroom, since a new FORM
-costs disproportionately (every substance's stride grows by one). Verified
-by `npm run check`'s own guard at import time.
+**Tile-byte headroom.** Adding one form (`rig`, `data/forms.js`'s 11th) makes
+`STRIDE` 12, so a substance at ordinal `n` in form `f` packs to
+`1 + n * 12 + (f + 1)`, and `BEDROCK` (255) is the ceiling. Note that a new
+FORM costs disproportionately: every substance's stride grows by one.
+
+This section used to say **two substance rows left**, which was true of the
+guard as it was written and false of the game (corrected in Phase 8c,
+`docs/PLAN-gears-and-winches.md` §2.5 and §6.1). The old guard measured from
+`SUB.length - 1`, pricing *every* row as if it were tile-capable:
+`1 + 18 * 12 + 11 = 228` of 255, so the third new row overflowed at 264. But
+twelve of the nineteen rows can never be packed at all — `bellows`, `pick`,
+`auger` (relics), `chasm` (a miracle) and all **eight** machine substances.
+`rules/placement.js#placeTile` refuses any form with no `tile` block,
+`#placeableFromPockets` sends `rig` down `placeMachine` instead, and no
+tile-capable form's `subTags` (`gravel`: metal/rock, `log`/`rung`: organic,
+`stair`: metal) cross with a `relic`, `miracle` or `machine` substance.
+
+**The real figures.** The guard now measures from the highest **packable**
+ordinal — native terrain, or a legal crossing with a form carrying a `tile`
+block:
+
+| | |
+|---|---|
+| packable substances | 7 of 19 (`copper`, `tin`, `timber`, `stone`, `soil`, `granite`, `adamant`) |
+| highest packable ordinal | 8 (`adamant`) |
+| byte in use at that ordinal | `1 + 8 * 12 + 11 = 108` of 255 |
+| last ordinal that still fits | 20, at `1 + 20 * 12 + 11 = 252` |
+| **tile-capable headroom** | **12 rows** (ordinals 9–20) |
+
+Rows that can never be packed — relics, miracles, machine items — now cost
+the tile byte **nothing**. They do still consume ordinals, so a *tile-capable*
+row must land at an ordinal ≤ 20; since no tile byte is ever persisted (no
+save file, no `localStorage`), such a row may be inserted early in
+`data/substances.js` rather than appended if that limit is ever approached.
+
+Both halves are enforced, not eyeballed: `data/forms.js` throws at import if
+the highest packable ordinal exceeds 20, and `tools/content.mjs` assertion 16
+proves the fact that narrowing rests on — a substance crossable with a
+tile-capable form must carry its own `tile` block, or the tile it places would
+have `Infinity` hardness (`model/tiles.js#baseHardOf`) and never be mineable
+back out.
 
 ## 16. Worldgen: relief, contacts and hollows (Phase 7)
 

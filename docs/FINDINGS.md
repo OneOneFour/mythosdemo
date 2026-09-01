@@ -1305,3 +1305,40 @@ placed tile above WOULD clear the check and the turf would repaint away
 correctly, or if grass is ever meant to imply "undisturbed ground". Recorded
 because Phase 8 made it four times more visible, not because it is known to
 be a bug.
+
+---
+
+## Phase 8c (tile-byte guard) — three things parked
+
+**1. `CLAUDE.md` D7 cites the number this phase just corrected.** D7 opens
+"`docs/SPEC.md` §15 records exactly **two substance rows** left before the
+tile-id byte overflows ... Spending one on foliage would be the worst trade
+available." The count is now **12** tile-capable rows, and non-tile rows cost
+the byte nothing at all. D7's *conclusion* is untouched — canopy, grass and
+cliff moss are still render-only decoration, because a substance row is not
+the cheap way to draw a leaf and `view/treatments.js#TREAT` already exists —
+but its stated *reason* is stale. `CLAUDE.md` was outside this phase's file
+ownership; whoever next edits D7 should reword the premise, not the verdict.
+
+**2. `docs/PLAN-gears-and-winches.md` §2.5 miscounts the non-packable rows.**
+It says "Ten of the nineteen rows (`bellows`, `pick`, `auger`, `chasm`, and all
+six machine substances)". There are **eight** machine substances (`furnace`,
+`lift`, `press`, `belt_r`, `brazier`, `hearth`, `talos_head`, `cyclops_maw` —
+`belt_l`, `talos_head_l` and `cyclops_maw_l` share a row, and `kiln_divine`
+has none), so the count is **12 of 19**, not 10 of 19. Its headroom figure of
+12 rows is nonetheless exactly right, since that is derived from `adamant`'s
+ordinal (8) and not from the row count. Plan doc, not code.
+
+**3. The assertion as §6.1 specifies it would not have fired on the probe
+§6.1 specifies.** "its ordinal must be <= the packable maximum" is bounded by
+the byte limit, ordinal 20; the suggested probe (a machine substance made
+crossable with `gravel`) sits at ordinal 18 and would have passed. Assertion
+16 therefore has two halves: the ordinal bound as specified, plus the fact
+that actually has teeth — a substance crossable with a tile-capable form must
+carry its own `tile` block, since without one `model/tiles.js#baseHardOf`
+returns `Infinity` and the placed tile is a wall nobody can ever mine back
+out. The probe fires on that half. Both halves were seen to fail: the second
+under the §6.1 probe, the first only via the harder gate (`data/forms.js`
+throws at import before the lint can run) with three appended substance rows.
+Recorded because the same "specify the probe, then check the probe's own
+arithmetic" step is worth repeating in later phases of that plan.

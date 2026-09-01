@@ -224,8 +224,54 @@ export const AIR     = 0;
 export const BEDROCK = 255;
 const STRIDE = FORM.length + 1;
 
-if (1 + (SUB.length - 1) * STRIDE + FORM.length >= BEDROCK)
-  throw new Error(`forms: ${SUB.length} substances x ${FORM.length} forms overflows the tile byte`);
+/* ---- what the byte actually costs: PACKABLE substances, not every substance.
+   Only two things ever reach `packTile`:
+
+     a NATIVE tile   a substance carrying its own `tile` block, written by
+                     worldgen -- `packTile(sub)` with `formOrd === NATIVE`.
+     a PLACED tile   a held pair whose FORM carries a `tile` block --
+                     `rules/placement.js#placeTile` refuses anything else
+                     ('THAT DOES NOT BUILD'), and `#placeableFromPockets`
+                     handles `rig` down a separate path (`placeMachine` writes
+                     a structure through `model/machines.js`, not a tile).
+
+   So a substance is packable iff it is native terrain OR some tile-capable
+   form is a legal crossing for it. Nothing else can be handed to `packTile`:
+   `gravel`'s `subTags` are metal/rock, `log`/`rung`'s are organic and
+   `stair`'s is metal, so no `relic`, `miracle` or `machine` substance crosses
+   into any of them.
+
+   The guard used to price EVERY row as if it were tile-capable
+   (`1 + (SUB.length - 1) * STRIDE + FORM.length`), which at 19 substances read
+   228 of 255 and refused the third new row -- while real usage was
+   `1 + 8 * 12 + 11 = 108`, because the highest packable ordinal is `adamant`
+   at 8 and twelve of the nineteen rows (`bellows`, `pick`, `auger`, `chasm`
+   and all eight machine substances) can never be packed at all. That was a
+   cost nothing was paying. The narrowing rests on one fact this file cannot
+   check on its own -- that a crossable-with-a-tile-form substance really is
+   terrain -- so `tools/content.mjs` assertion 16 enforces it, and a substance
+   with no `tile` block placed as terrain would in any case be a wall of
+   `Infinity` hardness (`model/tiles.js#baseHardOf`), unmineable forever.
+
+   `packTile`/`subOfTile`/`formOfTile` are untouched: an ordinal is still an
+   ordinal, and this only changes WHICH ordinal the ceiling is measured from. */
+
+const TILE_FORMS = FORM.reduce((a, f, i) => (f.tile ? (a.push(i), a) : a), []);
+
+export const packable = subOrd =>
+  !!SUB[subOrd]?.tile || TILE_FORMS.some(f => crossable(subOrd, f));
+
+/* The highest ordinal that can reach the byte today, and the highest that
+   would still fit under BEDROCK. */
+export const PACKABLE_MAX   = SUB.reduce((m, _, i) => (packable(i) ? i : m), -1);
+export const PACKABLE_LIMIT = ((BEDROCK - 2 - FORM.length) / STRIDE) | 0;
+
+if (1 + PACKABLE_MAX * STRIDE + FORM.length >= BEDROCK)
+  throw new Error(
+    `forms: ${SUB.length} substances x ${FORM.length} forms overflows the tile byte ` +
+    `-- packable ordinal ${PACKABLE_MAX} ("${SUB[PACKABLE_MAX]?.id}") packs to ` +
+    `${1 + PACKABLE_MAX * STRIDE + FORM.length}, and ordinal ${PACKABLE_LIMIT} is the last ` +
+    `that fits (tile-capable headroom ${PACKABLE_LIMIT - PACKABLE_MAX} rows)`);
 
 export const packTile = (subOrd, formOrd = NATIVE) => 1 + subOrd * STRIDE + (formOrd + 1);
 
