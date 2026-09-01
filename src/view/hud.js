@@ -10,13 +10,14 @@
    by name and count below the hearts (`pockets()`, a text strip driven by
    `run.pocketRows()` -- deleted along with its only caller once this changed).
    That was clutter, not information the player needs at a glance: the same
-   `pocketRows()` query still backs the full detail in the CHARACTER tab (`i`)
-   and the old text inventory panel (`invPanel` below, `flags.showInv`'s
-   existing gate). All that remains always-on is a compact burden bar, drawn
-   with the SAME `view/ui/bar.js` primitive and the SAME three-colour rule the
-   Character tab's own burden bar already uses (`view/ui/mainPanel.js#
-   drawCharacterTab`) -- one fact about "how heavy am I", not a second
-   implementation of it.
+   `pocketRows()` query backs the full detail in the CHARACTER tab (`i`), which
+   is now the ONLY inventory display -- the older text panel this file used to
+   also draw (`invPanel`, gated on `flags.showInv`) was retired once the tabbed
+   window covered the same information; see `docs/FINDINGS.md` for when and
+   why. All that remains always-on is a compact burden bar, drawn with the SAME
+   `view/ui/bar.js` primitive and the SAME three-colour rule the Character
+   tab's own burden bar already uses (`view/ui/mainPanel.js#drawCharacterTab`)
+   -- one fact about "how heavy am I", not a second implementation of it.
    ============================================================================
 
    Panels clamp on narrow viewports. Below roughly 240 px of base width the
@@ -27,7 +28,7 @@
    HOVER IS RESOLVED, NOT STORED. `view/hover.js#resolveHover` reads the pointer
    off the frame context and the model fresh every call; nothing here caches a
    result on a model record (ARCHITECTURE invariant 9). The one piece of state
-   in THIS file, `pocketHits`/`hoverInfo` below, is `view`'s own scratch space
+   in THIS file, `hoverInfo` below, is `view`'s own scratch space
    for what it drew and found last frame -- the same idiom `view/paint.js`'s
    `stats` and `view/scene.js`'s `stats` already use for "what did the last
    render do", read back only by the test hook and never by another module's
@@ -41,17 +42,15 @@ import { mix } from '../core/palette.js';
 import { AIR, F, FORM, labelOf } from '../data/forms.js';
 import { M, MACH } from '../data/machines.js';
 import { colour } from '../data/palette.js';
-import { HAND_RECIPES } from '../data/recipes.js';
 import { SPAWN_BAND } from '../data/world.js';
 import { TRINKET } from '../data/trinkets.js';
 import { BOON } from '../data/boons.js';
 import { aim } from '../model/aim.js';
 import { boons } from '../model/boons.js';
-import { massOfPair } from '../model/items.js';
 import { eff, mods } from '../model/mods.js';
 import { player } from '../model/player.js';
 import {
-  burdenFrac, burdenOf, canCraft, hasPick, machineIdFor, placementCheck, pocketRows, run
+  burdenFrac, burdenOf, hasPick, machineIdFor, placementCheck, run
 } from '../model/run.js';
 import { tileAt } from '../model/tiles.js';
 import { bandOf, worldY } from '../model/world.js';
@@ -82,16 +81,6 @@ const UI = {
   relic:  colour('ichor')
 };
 
-/* `view/hover.js#resolveHover` hit-tests against exactly these rectangles, so
-   the old inventory panel and its tooltips cannot silently disagree about
-   where an entry sits. Used to also carry the always-on strip's own
-   rectangles (removed above); kept because `invPanel` below still needs a
-   hover target and `tests/visual.spec.js`'s hover test still reads this
-   array through `__mf.hits`. Rebuilt from scratch every `drawHUD` call --
-   read, never relied on for anything but the next line's hover test and the
-   test hook. See docs/DEVELOPER_GUIDE.md#record-what-you-drew */
-export const pocketHits = [];
-
 /* What a tooltip is showing right now, or `active:false`. The one thing this
    module exposes for introspection outside a draw call — see the header
    comment on why this is safe and `stats` in `view/paint.js` for the
@@ -101,22 +90,12 @@ export const hoverInfo = { active: false, x: 0, y: 0, lines: null };
 export function drawHUD(g, f) {
   const { W, H } = f;
 
-  /* The widget layer's own scratch space is rebuilt once per HUD frame, the
-     same place `pocketHits.length = 0` below already resets this file's own
-     equivalent -- see `view/ui/state.js`'s header. */
+  /* The widget layer's own scratch space is rebuilt once per HUD frame --
+     see `view/ui/state.js`'s header. */
   resetUiDrawn();
 
   hearts(g, 6, 6);
-  const burdenBottom = burden(g, 6, 14, W);
-  pocketHits.length = 0;
-  /* The panel opens a fixed gap below the burden bar: `burden()`'s own return
-     value already accounts for the lockout line growing it.
-
-     `'i'` toggles `flags.showInv` AND `shell/ui.js#toggle('main')` TOGETHER,
-     so without this guard the OLD panel would draw directly on top of the new
-     tabbed window every time either opens. */
-  if (f.flags.showInv && !f.ui.stack.includes('main'))
-    pocketHits.push(...invPanel(g, f, burdenBottom + 4));
+  burden(g, 6, 14, W);
   depth(g, W, 6);
   /* The timed-boon stack (Phase 4 STEP 5): BELOW the depth gauge just drawn
      (y 6), and its own bottom edge is handed to `debug()` so a debug panel
@@ -185,102 +164,6 @@ function burden(g, x, y, W) {
   return by + 2;
 }
 
-/* The full inventory, toggled by `i` (`shell/input.js#flags.showInv`). Same
-   data source the CHARACTER tab's grid uses (`pocketRows()`), filtered to
-   what is actually HELD -- a zero-count teaching slot has nothing to list a
-   mass or a count for. `massOfPair` is a `model/items.js` query, not a render
-   decision: the mass of a copper ingot is a fact about the world, not about
-   how it is drawn. */
-/* A hand-recipe's inputs, as one readable line. `in` clauses are SELECTORS
-   (star-slash-hash-ore, see the grammar comment in `data/forms.js`), which
-   name no single substance until one is chosen, so a line falls back to the
-   selector's own form/tag word rather than a real name. Presentation text,
-   not a second selector-matching implementation -- `model/run.js#canCraft`
-   already decided the yes/no this only labels. `exact`/the machine-`cost`
-   branch this once also served is gone along with `buildableMachines()`
-   (`docs/FINDINGS.md`); nothing else ever passed `exact:true`. */
-function billOf(clauses) {
-  const parts = [];
-  for (const k in clauses) {
-    const n = clauses[k];
-    const raw = k.includes('/') ? k.slice(k.indexOf('/') + 1) : k;
-    parts.push(`${n} ${(raw[0] === '#' ? raw.slice(1) : raw).toUpperCase()}`);
-  }
-  return parts.length ? parts.join('+') : 'FREE';
-}
-
-function invPanel(g, f, top) {
-  const { W, H } = f;
-  const rows = pocketRows().filter(r => r.n > 0);
-
-  /* CRAFT lists every `hand:true` recipe (`data/recipes.js#HAND_RECIPES`),
-     unnumbered because `rules/crafting.js#choose` always picks the first one
-     the player can afford, not a menu selection. */
-  const recipes = HAND_RECIPES;
-  const craftLines = recipes.map(r => `${r.name} ${billOf(r.in)}`);
-  const lineH = 9;
-
-  /* Width fits the longest NAME alone, clamped to the viewport -- a relic's
-     full name ("BELLOWS OF THE FORGE RELIC") is longer than count-and-mass
-     could ever be squeezed onto the same line as at any viewport width
-     without the two overlapping, which is why they get their own indented
-     line below the name instead of a right-aligned column. Two lines per
-     pocket entry, always, rather than only when a name is long: a fixed row
-     shape is one thing to get right instead of a per-row branch that is only
-     exercised by whichever item happens to have the longest name. CRAFT rows
-     get one line each -- a name plus a short bill of materials does not run
-     as long as a relic's full name does. */
-  const w = Math.min(
-    Math.max(
-      textWidth('POCKETS'), textWidth('CRAFT'), 60,
-      ...rows.map(r => textWidth(labelOf(r.sub, r.form))),
-      ...craftLines.map(l => textWidth(l))
-    ) + 8,
-    W - 12
-  );
-  const lines = 1 + (rows.length ? rows.length * 2 : 1)             // POCKETS
-              + 1 + (craftLines.length ? craftLines.length : 1);    // CRAFT
-  const h = lines * lineH + 8;
-  const x = (W - w) >> 1, y = Math.min(top, H - h - 4);
-  const hits = [];
-
-  panel(g, x, y, w, h, 0.88);
-  let ry = y + 4;
-  drawText(g, 'POCKETS', x + 4, ry, UI.ink, 1, 1);
-  ry += lineH;
-
-  if (!rows.length) {
-    drawText(g, 'EMPTY', x + 4, ry, UI.dim, 1, 1);
-    ry += lineH;
-  } else for (const row of rows) {
-    const label = labelOf(row.sub, row.form);
-    const n = 'x' + row.n;
-    const m = massOfPair(row.sub, row.form).toFixed(1);
-    const hitTop = ry - 1;
-
-    drawText(g, label, x + 4, ry, UI.ink, 1, 1);
-    ry += lineH;
-    drawText(g, n, x + 8, ry, UI.dim, 1, 1);
-    drawText(g, m, x + 8 + textWidth(n) + 6, ry, UI.dim, 1, 1);
-    ry += lineH;
-
-    hits.push({ x, y: hitTop, w, h: lineH * 2, sub: row.sub, form: row.form });
-  }
-
-  /* CRAFT. Marked `UI.good` when craftable right now, so the panel answers
-     "what can I make" at a glance -- the same colour the reticle uses for a
-     legal placement. */
-  drawText(g, 'CRAFT', x + 4, ry, UI.ink, 1, 1);
-  ry += lineH;
-  if (!craftLines.length) { drawText(g, 'NONE', x + 4, ry, UI.dim, 1, 1); ry += lineH; }
-  else recipes.forEach((r, i) => {
-    drawText(g, craftLines[i], x + 4, ry, canCraft(r.in) ? UI.good : UI.dim, 1, 1);
-    ry += lineH;
-  });
-
-  return hits;
-}
-
 /* The tooltip itself. `resolveHover` does the actual hit-testing and content
    lookup, entirely from the pointer and the model; this just lays out
    whatever it returns and remembers it in `hoverInfo` for the test hook. */
@@ -288,12 +171,15 @@ function tooltip(g, f) {
   /* The Phase 5b panel may already have drawn its own tooltip this frame
      (`view/ui/tooltip.js`'s `drawn.tooltip` is a SINGLE slot, per that
      file's own header: only one tooltip can be under the cursor at once).
-     When it has, this older invPanel tooltip must yield rather than
-     overwrite it -- both read the same pointer position, and the new
-     panel's own grids sit visually on top of the old one when both are
-     somehow reachable at once. */
+     When it has, this world-hover tooltip must yield rather than overwrite
+     it -- both read the same pointer position, and the panel's own grids sit
+     visually on top of the world when the menu is open. */
   if (uiDrawn.tooltip) return;
-  const info = resolveHover(f, pocketHits);
+  /* No HUD hitboxes of its own to check first (the one panel that used to
+     supply them, `invPanel`, is retired -- see `docs/FINDINGS.md`), so this
+     always falls straight through to `resolveHover`'s world-hover path:
+     falling item, then machine, then bare tile. */
+  const info = resolveHover(f, []);
   hoverInfo.active = !!info;
   hoverInfo.x = info ? info.x : 0;
   hoverInfo.y = info ? info.y : 0;

@@ -395,9 +395,10 @@ the bill can never quietly outlive the ore that was sitting inside it.
 **`F`/`L`.** Removed as unconditional spawns; `docs/AUDIT.md` section 3 had
 already confirmed neither was the SOLE way to place its machine (the build
 menu's digit `1`/`2` already reached the identical `buildableMachines()`
-list). Kept as a development shortcut behind `flags.showDebug` (`H`), a
-no-op with the gate off — the same pattern the `1`-`9` digits already use
-against `flags.showInv`.
+list, itself since retired along with the whole digit-driven BUILD menu and
+`flags.showInv` — see `docs/FINDINGS.md`; placement now has exactly one path,
+`cmd.place`, whether the pair is a tile or a machine). Kept as a development
+shortcut behind `flags.showDebug` (`H`), a no-op with the gate off.
 
 ## 14. God gifts: the four modifier tiers (Phase 4)
 

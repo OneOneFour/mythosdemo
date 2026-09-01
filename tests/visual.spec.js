@@ -356,6 +356,64 @@ test('a placed furnace', async ({ page }) => {
    test that measures the wrong thing. Also covers the "empty slot" and
    "pressed digit but the panel was never opened" cases along the way, since
    this mechanism (unlike the old menu) works with no panel gate at all. */
+/* Every other quickbar test assigns through `shell/ui.js#assignQuickbar`
+   directly, "because the drag-to-assign gesture itself is exercised
+   elsewhere" -- there was no "elsewhere". This is that test: a REAL
+   drag (`realDrag`, actual `page.mouse` events) from the Character tab's
+   inventory grid onto a quickbar slot, then closing the panel for real
+   (`Escape`) and using the result exactly the way a player does -- digit key
+   arms, `E` places. */
+test('REAL DRAG: dragging a held item from the inventory grid onto a quickbar slot assigns it, and the assignment survives closing the panel', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { bandOf } = await import('/src/model/world.js');
+    __mf.revealAll(bandOf('surface'));
+  });
+  const { S, F } = await page.evaluate(async () => {
+    const { write } = await import('/src/model/run.js');
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { open, setTab } = await import('/src/shell/ui.js');
+    write.collect(S.furnace, F.rig, 1);
+    open('main');
+    setTab('main', 'char');
+    __mf.cmd.hasMouse = false;
+    __mf.frames(1);
+    return { S, F };
+  });
+
+  const { invSlot, qSlot } = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const inv = __mf.ui.grids.find(g => g.id === 'inv').slots.find(s => s.sub === S.furnace && s.form === F.rig);
+    const qb = __mf.ui.grids.find(g => g.id === 'quickbar').slots[0];
+    return { invSlot: inv, qSlot: qb };
+  });
+  expect(invSlot).toBeTruthy();
+  expect(qSlot).toBeTruthy();
+
+  await realDrag(page, invSlot.x + invSlot.w / 2, invSlot.y + invSlot.h / 2, qSlot.x + qSlot.w / 2, qSlot.y + qSlot.h / 2);
+  expect(await page.evaluate(() => __mf.ui.quickbar[0])).toEqual({ sub: S.furnace, form: F.rig });
+
+  /* Close the panel for real -- Escape, not `closeTop()` called from the
+     test -- so this also proves the assignment is UI state that outlives
+     the window, not something the panel itself was quietly holding. */
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => __mf.frames(1));
+  expect(await page.evaluate(() => __mf.ui.open)).toEqual([]);
+  expect(await page.evaluate(() => __mf.ui.quickbar[0])).toEqual({ sub: S.furnace, form: F.rig });
+
+  await page.keyboard.press('1');
+  await page.evaluate(() => __mf.frames(1));
+  expect(await page.evaluate(() => __mf.ui.armedPlace)).toEqual({ sub: S.furnace, form: F.rig });
+
+  await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(1); });
+  await page.keyboard.press('e');
+  await page.evaluate(() => __mf.frames(240));
+  expect(await page.evaluate(() => __mf.machines.length)).toBe(1);
+});
+
 test('a digit key arms the matching quickbar slot, not just any held item', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -1078,12 +1136,18 @@ test('the same seed renders identically twice', async ({ page }) => {
 });
 
 /* Hover has no persisted model state (ARCHITECTURE invariant 9) -- it is
-   resolved fresh from the pointer every frame by `view/hover.js`, and read
-   back here through `__mf.hover`/`__mf.hits`, which `view/hud.js` exposes for
-   exactly this. A screenshot cannot prove hover actually works: two identical
-   pixels could come from the tooltip resolving nothing at all. This asserts
-   the resolved CONTENT, the way `tools/check.mjs`'s trinket check proves an
-   item was actually produced rather than that a recipe merely didn't throw. */
+   resolved fresh from the pointer every frame. A screenshot cannot prove
+   hover actually works: two identical pixels could come from the tooltip
+   resolving nothing at all. This asserts the resolved CONTENT, the way
+   `tools/check.mjs`'s trinket check proves an item was actually produced
+   rather than that a recipe merely didn't throw.
+
+   The Character tab's own pocket grid is the ONLY inventory display now (the
+   older text panel this used to open via `flags.showInv` was retired -- see
+   `docs/FINDINGS.md`), so this hovers a slot in THAT grid and reads its
+   tooltip back through `__mf.ui().tooltip`, `view/ui/mainPanel.js
+   #drawCharacterTooltip`'s own read-back, rather than the world-hover
+   `__mf.hover` the retired panel used to feed. */
 test('hovering an inventory pair resolves a tooltip naming it', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -1092,9 +1156,11 @@ test('hovering an inventory pair resolves a tooltip naming it', async ({ page })
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { banner } = await import('/src/view/fx.js');
+    const { open, setTab } = await import('/src/shell/ui.js');
 
     write.collect(S.copper, F.ore, 5);
-    __mf.flags.showInv = true;
+    open('main');
+    setTab('main', 'char');
     /* `drawHUD` shows the title card instead of a tooltip while `banner.fade`
        is still counting down from `newRun()`'s 2.6 s opening title -- real
        play never notices because nobody hovers anything in the first three
@@ -1109,27 +1175,23 @@ test('hovering an inventory pair resolves a tooltip naming it', async ({ page })
        run, only a render. */
     __mf.draw();
 
-    /* `__mf.hits` is the SAME rectangle list `view/hud.js` just drew. The
-       always-on pocket strip that used to double this list up (one hit for
-       the strip entry, one for the open panel row) was removed -- decluttered
-       down to just the burden bar -- so the open inventory panel's own row is
-       now the only hit `pocketRows()` produces once `collect()` has run.
-       Finding it this way, rather than a hardcoded screen coordinate, is what
-       keeps the assertion honest against a resizable desktop viewport
-       (CLAUDE.md: a hardcoded click position breaks if the window size
-       changes). */
-    const hits = __mf.hits.filter(h => h.sub === S.copper && h.form === F.ore);
-    const panelHit = hits[hits.length - 1];
-    __mf.mouseAt(panelHit.x + 2, panelHit.y + 2);
+    /* `__mf.ui().grids` is the SAME rectangle list `view/ui/mainPanel.js`
+       just drew for the open Character tab. Finding the slot this way,
+       rather than a hardcoded screen coordinate, is what keeps the assertion
+       honest against a resizable desktop viewport (CLAUDE.md: a hardcoded
+       click position breaks if the window size changes). */
+    const grid = __mf.ui.grids.find(g => g.id === 'inv');
+    const slot = grid.slots.find(s => s.sub === S.copper && s.form === F.ore);
+    __mf.mouseAt(slot.x + slot.w / 2, slot.y + slot.h / 2);
     __mf.draw();
 
-    return { hitCount: hits.length, hover: { ...__mf.hover } };
+    return { found: !!slot, tooltip: __mf.ui.tooltip ? { ...__mf.ui.tooltip, lines: __mf.ui.tooltip.lines.slice() } : null };
   });
 
-  expect(info.hitCount).toBe(1);               // panel row only, strip removed
-  expect(info.hover.active).toBe(true);
-  expect(info.hover.lines[0]).toBe('COPPER ORE');
-  expect(info.hover.lines.some(l => l.startsWith('MASS'))).toBe(true);
+  expect(info.found).toBe(true);
+  expect(info.tooltip).toBeTruthy();
+  expect(info.tooltip.lines[0]).toBe('COPPER ORE');
+  expect(info.tooltip.lines.some(l => l.startsWith('MASS'))).toBe(true);
 });
 
 /* ============================================================

@@ -35,7 +35,7 @@ import {
   armPlace, assignQuickbar, cancelQueued, clearArmedPlace, clearDrag, close as closePanel, closeTop, isOpen,
   queueCraft, scrollBy, setDrag, setSearchFocus, setTab, toggleHints, ui
 } from './ui.js';
-import { hoverInfo, pocketHits } from '../view/hud.js';
+import { hoverInfo } from '../view/hud.js';
 import { drawn as uiDrawn } from '../view/ui/state.js';
 
 export const STEP = 1 / 120;
@@ -607,12 +607,12 @@ function installTestHook() {
     newRun, step, draw, resize,
     clock, cam, player, run, aim, items, machines, cmd, flags,
 
-    /* Read-back of `view/hud.js`'s own last-frame output, for hover assertions.
-       `hover` is what a tooltip would show right now; `hits` are the hitboxes
-       the HUD strip/panel actually drew, so a test can find the exact rect for
-       a `{sub, form}` pair instead of guessing a pixel coordinate — the same
-       trap CLAUDE.md's "hardcoded click coordinates" mistake describes. */
-    hover: hoverInfo, hits: pocketHits,
+    /* Read-back of `view/hud.js`'s own last-frame output: what a WORLD-hover
+       tooltip (a bare tile, a falling item, a machine) would show right now.
+       A panel's OWN tooltip (hovering a slot inside the Character/Crafting
+       tab) is a separate read-back, `ui().tooltip` below, fed by
+       `view/ui/state.js#drawn` instead. */
+    hover: hoverInfo,
 
     /* THE WIDGET-LAYER PROJECTION. One handle, not a second `window.__ui`
        global — composed HERE, in `shell`, rather than in `view`, because it

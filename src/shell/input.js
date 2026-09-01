@@ -74,7 +74,7 @@ export const wants = { restart: false, draft: null };
    the full-world overview: `shell/main.js#frame()` reads it to freeze the
    substep loop, and `view/scene.js#render()` reads it to take the overview
    render path instead of the normal camera-relative one. */
-export const flags = { showGrid: false, showChunks: false, showDebug: false, showInv: false, showMap: false };
+export const flags = { showGrid: false, showChunks: false, showDebug: false, showMap: false };
 
 const KEYS = {
   a: 'left',  arrowleft: 'left',
@@ -165,7 +165,7 @@ export function installInput() {
     if (k === 'g') flags.showGrid   = !flags.showGrid;
     if (k === 'c') flags.showChunks = !flags.showChunks;
     if (k === 'h') flags.showDebug  = !flags.showDebug;
-    if (k === 'i') { flags.showInv = !flags.showInv; toggle('main'); }
+    if (k === 'i') toggle('main');
     /* Escape closes the TOP of the panel stack only -- a modal above the
        window (none exists yet) would close before the window under it.
        No-op on an empty stack, so Escape is otherwise free for the browser
@@ -176,8 +176,8 @@ export function installInput() {
        closed the panel to go aim, still has one visible "cancel" key. */
     if (k === 'escape') clearArmedPlace();
     /* Same edge-triggered boolean-flip idiom as `showGrid`/`showChunks`/
-       `showDebug`/`showInv` -- a held key does not matter here, since the map
-       is a mode you sit in, not an action you repeat. */
+       `showDebug` -- a held key does not matter here, since the map is a
+       mode you sit in, not an action you repeat. */
     if (k === 'o') flags.showMap    = !flags.showMap;
     if (k === 'm') audio.muted = !audio.muted;
     if (k === 'r') wants.restart = true;
@@ -199,7 +199,7 @@ export function installInput() {
        `view/ui/quickbar.js#slotForDigit`, the SAME digit-to-slot mapping
        that file's own `digitOf` draws each cell's glyph from, so "press 3"
        and "the slot showing 3" cannot disagree about which slot that is.
-       Unconditional -- no `flags.showInv`/panel gate at all -- because the
+       Unconditional -- no panel gate at all -- because the
        quickbar is part of the PERMANENT HUD (`view/ui/quickbar.js`'s own
        header), the same reasoning that already made its KEYS/legend toggle
        clickable with no panel open.
