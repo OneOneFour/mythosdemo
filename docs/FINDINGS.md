@@ -1267,3 +1267,41 @@ editing the test — a 3x2 machine placeable at arm's length on the spawn shelf
 is a real requirement of `docs/SPEC.md` §5 beat 6. Other tests in that file
 carve their own patch first (`visual.spec.js:539`'s own comment says why);
 this one did not, and still does not.
+
+---
+
+## Phase 8 (surface/sky/tree painting) — two things parked
+
+**1. `shaft-unlit.png`, `shaft-lit.png` and `topsoil.png` are insensitive to
+terrain painting, and this was measured, not guessed.** All three sit in the
+`topsoil` band, and all three survived Phase 8's entire repaint of the strata
+pass (per-substance grain, per-substance cliff-face tone, hash-jittered face
+widths, a depth-darkening curve, strata contact lines) with **zero differing
+pixels** — while the three surface-band shots moved by tens of thousands. To
+rule out a stale-cache bug, `data/substances.js`'s stone row was temporarily
+set to `speckle:0.95` (against its real 0.24, i.e. nearly every pixel grained
+instead of a quarter of them) and `npx playwright test -g shaft` still passed
+**bit-exactly**. The cause is compositing, not caching: `view/scene.js`'s
+`drawDarkness` paints `DARK_ALPHA[0] = 0.94` over an unlit tile, `atmosphere`
+then adds `min(0.55, (1 - 0.6) * 1.1) = 0.44` of void tint for topsoil's
+`ambient`, and the vignette adds more — so any difference in the underlying
+rock colour quantises to the same byte. Consequence for whoever next does deep
+art: **the deep bands' appearance cannot currently be regression-tested by
+screenshot at all**, and `shaft-lit.png` in particular does not prove what its
+name claims (its brazier lights the shaft only marginally; the image is
+near-black either way). Fixing it is a lighting question, not a painting one —
+either `DARK_ALPHA[0]` comes down, or the shot samples a genuinely lit region,
+or the test asserts on sampled pixel values instead of a full-frame diff.
+Phase 8 deliberately did not touch it: `view/scene.js`'s darkness pass has its
+own long-argued comment and its own phase.
+
+**2. A dug pit in the soil grows turf on its own floor.** `model/tiles.js#
+skyExposedAt` is "a clear vertical shot to the top of the band", which a
+freshly dug two-tile hole satisfies, so the soil tile at the bottom of it
+takes a full turf cap. Pre-existing (the two-pixel fringe did the same thing,
+just less visibly) and arguably correct — the sun does reach the bottom of an
+open pit. It only becomes wrong if a roof is ever built over one, since a
+placed tile above WOULD clear the check and the turf would repaint away
+correctly, or if grass is ever meant to imply "undisturbed ground". Recorded
+because Phase 8 made it four times more visible, not because it is known to
+be a bug.
