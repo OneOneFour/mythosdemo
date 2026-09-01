@@ -24,6 +24,26 @@ import { colour } from '../data/palette.js';
 import { R, glow } from '../core/pixels.js';
 import { hash2 } from '../core/rng.js';
 
+/* ---------- HOW FAR A DECORATION REACHES, IN TILES ----------
+   A treatment that draws OUTSIDE its own cell is clipped by the chunk canvas it
+   is drawing into, and the neighbouring chunk does not independently redraw the
+   missing part -- those pixels are permanently lost, silently, with no error and
+   nothing visual to notice it by. That is not a hypothesis; docs/AUDIT-2.md
+   section 5 read it straight off two adjacent chunk canvases (seed 1, tile
+   (7,17): the canopy's top row was out of bounds in its owning chunk and fully
+   transparent in the chunk above).
+
+   So every decoration declares its own MAXIMUM reach here, in tiles, in every
+   direction, and `view/paint.js` scans a margin of neighbouring tiles that wide
+   before it decides a chunk is finished. The number is authoritative rather than
+   descriptive: the treatments below CLAMP their own data-supplied `w`/`h`
+   against it, so a content row cannot ask for a canopy the margin does not
+   cover. Grow one of these and the margin grows with it, in one place.
+
+   `paint.js` takes the largest of them as its margin, so this table is the only
+   thing that has to be right. */
+export const EXTENT = Object.freeze({ canopy: 4, grassCap: 1 });
+
 export const TREAT = {
 
   /* Speckles, so a vein is spottable from across a cavern. Positions come from

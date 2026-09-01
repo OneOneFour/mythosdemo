@@ -20,7 +20,7 @@ import { drawText } from '../core/font.js';
 import { mix } from '../core/palette.js';
 import { R } from '../core/pixels.js';
 import { hash2 } from '../core/rng.js';
-import { AIR } from '../data/forms.js';
+import { AIR, NATIVE } from '../data/forms.js';
 import { MACH } from '../data/machines.js';
 import { colour } from '../data/palette.js';
 import { SUB } from '../data/substances.js';
@@ -28,14 +28,27 @@ import { fill, statusOf } from '../model/machines.js';
 import { progressAt } from '../model/mining.js';
 import { sizeOf } from '../model/items.js';
 import { eff } from '../model/mods.js';
-import { baseHardAt, rowAt, skyExposedAt, solidAt, subAt, tileAt } from '../model/tiles.js';
+import { baseHardAt, formAt, rowAt, skyExposedAt, solidAt, subAt, tileAt } from '../model/tiles.js';
 import { chunkPx, chunkVer } from '../model/world.js';
-import { TREAT, treat } from './treatments.js';
+import { EXTENT, TREAT, treat } from './treatments.js';
 
 /* Repaints per frame. A first paint is never budgeted — a chunk with no canvas
    has nothing stale to show — but a re-paint is, so walking a long tunnel while
-   digging cannot stack forty bakes into one frame. */
+   digging cannot stack forty bakes into one frame.
+
+   Left at 8 after the decoration margin below made a single tile write stale up
+   to nine chunks instead of one: a dig breaks roughly two tiles a second, so
+   that is under half a repaint per frame averaged, bursting to nine in the
+   frame a tile actually breaks. One chunk then shows a one-frame-stale canvas
+   rather than a blank one, which is the trade this budget already exists to
+   make. Raising it would buy that one frame at the cost of a worse spike. */
 const REPAINT_BUDGET = 8;
+
+/* HOW WIDE A NEIGHBOURHOOD A CHUNK'S APPEARANCE DEPENDS ON, in tiles. Taken
+   from the decorations' own declared reach (`view/treatments.js#EXTENT`) so the
+   two can never drift: whatever the widest decoration is, that is how far
+   outside its own range a chunk has to look for the tiles that emit into it. */
+const DECO_MARGIN = Math.max(...Object.values(EXTENT));
 
 export const stats = { painted: 0, repainted: 0, cached: 0, skipped: 0 };
 
@@ -58,9 +71,37 @@ export function beginFrame() {
 
 /* The painted canvas for a chunk, repainted if the model moved on. Returns null
    headless, where `core/canvas.js#offscreen` has no document to work with. */
+/* THE VERSION A CACHED CANVAS IS CHECKED AGAINST, and it is not this chunk's
+   own version alone.
+
+   `model/tiles.js#write.touch` bumps the written tile's chunk and, when the tile
+   sits on a seam, the one chunk over the seam from it — sized for the 1-2 px of
+   edge shading a neighbouring tile contributes and nothing wider. A decoration
+   reaching `DECO_MARGIN` tiles means a chunk's pixels also depend on tiles up to
+   that far outside it, and `view` may not extend `touch` (it may not write to
+   `model` at all, which is what the epoch assertion proves). So the dependency
+   is expressed on the READ side instead: sum the versions of this chunk and all
+   eight neighbours. Versions only ever increase, so a sum is strictly increasing
+   and two different neighbourhoods can never collide on one number.
+
+   The cost is stated at `REPAINT_BUDGET` above: one tile write now invalidates
+   up to nine chunks rather than one. That is the price of a decoration wider
+   than a tile, and the alternative — leaving it — is the silent permanent
+   pixel loss docs/AUDIT-2.md section 5 measured. */
+function stackVer(b, cx, cy) {
+  let v = 0;
+  for (let dy = -1; dy <= 1; dy++)
+    for (let dx = -1; dx <= 1; dx++) {
+      const nx = cx + dx, ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= b.cx || ny >= b.cy) continue;
+      v += chunkVer(b, nx, ny);
+    }
+  return v;
+}
+
 export function chunkCanvas(b, cx, cy) {
   const key = b.ord * 0x10000 + cy * b.cx + cx;
-  const ver = chunkVer(b, cx, cy);
+  const ver = stackVer(b, cx, cy);
   let e = cache.get(key);
 
   if (!e) {
@@ -108,6 +149,57 @@ function paintChunk(b, cx, cy, g) {
       paintTile(g, b, tx, ty, dx, dy);
     }
   }
+
+  /* DECORATIONS ARE A SECOND PASS OVER A WIDER RANGE, for two reasons.
+
+     Range: a tile up to `DECO_MARGIN` outside this chunk can paint INTO it, so
+     this loop visits those tiles too and lets the canvas clip what falls
+     outside. Without it a canopy or a turf drape is cut off at every chunk
+     seam — see `stackVer` above and docs/AUDIT-2.md section 5.
+
+     Separate pass: a decoration drawn from inside the tile loop would be
+     overpainted by whichever tiles happen to be painted after it, so the same
+     tree would sit in front of the rock in its own chunk and behind it in the
+     neighbour that redraws its overflow. All rock, then all decoration, gives
+     one z-order that every chunk agrees on. */
+  const lo = -DECO_MARGIN, hi = k + DECO_MARGIN;
+  for (let j = lo; j < hi; j++)
+    for (let i = lo; i < hi; i++)
+      decorate(g, b, t0x + i, t0y + j, i * t, j * t, px);
+}
+
+/* A tile that has seen the sun grows something. `skyExposedAt` is a full walk to
+   the top of the band's own grid, not "the tile above is air": a tunnel ceiling
+   satisfies the latter but was never under the sun, and grass on a cave roof was
+   exactly the bug that check exists to prevent (see `data/substances.js`'s soil
+   row). Only rows that declare a decoration pay for the walk.
+
+   The two `look` keys checked by name here are the pre-existing exception the
+   generic `treatments:[...]` list does not cover — a decoration is geometry
+   (which neighbours are open, whether this tile has sky) rather than a texture,
+   and geometry is a `model` query `view/treatments.js` may not make itself.
+   A THIRD name check does not belong here: see docs/DEVELOPER_GUIDE.md and
+   CLAUDE.md D7. */
+function decorate(g, b, tx, ty, dx, dy, clip) {
+  const l = rowAt(b, tx, ty).look;
+  if (!l.canopy && !l.grassCap) return;
+  if (!skyExposedAt(b, tx, ty)) return;
+
+  const t = b.tile;
+  const cell = {
+    px: dx, py: dy, tx, ty, tile: t, clip,
+    openL: !solidAt(b, tx - 1, ty),
+    openR: !solidAt(b, tx + 1, ty),
+    solidBelow: solidAt(b, tx, ty + 1)
+  };
+  /* NATIVE only for a canopy: a placed log is a LADDER, and a ladder climbing
+     out of a shaft into open sky satisfies every other condition a trunk top
+     does. A rung sprouting a five-tile olive crown is not a tree. Felling is
+     unaffected — the trunk left standing is still native, so its new top grows
+     the crown on its next repaint, which is the whole point of testing geometry
+     rather than testing "this is a tree". */
+  if (l.canopy && formAt(b, tx, ty) === NATIVE) TREAT.canopy(g, cell, l.canopy);
+  if (l.grassCap) TREAT.grassCap(g, cell, l.grassCap);
 }
 
 /* Excavated space: dark, with a floor lip and a hanging fringe, so the void
@@ -165,19 +257,6 @@ function paintTile(g, b, tx, ty, dx, dy) {
       const jit = ((hash2(tx * t + x, ty * 7) * 3) | 0) - 1;
       R(g, dx + x, dy + Math.max(0, jit), 1, 2, L.hi);
     }
-  /* A trunk's top grows a canopy, and soil under open air grows a grass cap --
-     both gated on `skyExposedAt`, a full walk to the top of the band's own
-     grid, rather than "the one tile above is air": a tunnel ceiling satisfies
-     the latter but was never under the sun, and grass on a cave roof was
-     exactly the bug this check exists to prevent. Only walked for rows that
-     could possibly care, so ordinary rock pays nothing for it. */
-  if (L.row.look.canopy || L.row.look.grassCap) {
-    const cell = { px: dx, py: dy, tx, ty, tile: t };
-    if (skyExposedAt(b, tx, ty)) {
-      if (L.row.look.canopy) TREAT.canopy(g, cell, L.row.look.canopy);
-      if (L.row.look.grassCap) TREAT.grassCap(g, cell, L.row.look.grassCap);
-    }
-  }
   if (!solidAt(b, tx - 1, ty)) R(g, dx, dy, 1, t, L.edgeL);
   if (!solidAt(b, tx + 1, ty)) R(g, dx + t - 1, dy, 1, t, L.edgeR);
   if (!solidAt(b, tx, ty + 1)) R(g, dx, dy + t - 1, t, 1, L.lo);
