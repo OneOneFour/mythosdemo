@@ -583,6 +583,32 @@ export function checkContent({ quiet = false } = {}) {
            `-- move it earlier in data/substances.js or drop a form`);
   }
 
+  /* ---- 17. THE RELIC GLOW IS A RULE, NOT A PER-ROW REMINDER (Phase 8b).
+     "Any item whose form or substance carries the divine marker draws with a
+     halo" only stays true if something enforces it structurally -- otherwise
+     a future trinket `data/drops.js` produces reads as ordinary loot forever,
+     silently, exactly the failure mode assertion 15 already exists to catch
+     for a typo'd `fn`. `tags:['relic']`/`tags:['machine']` already separate
+     the two cleanly (grepped: no substance carries both), so this checks the
+     tag, not a per-row flag nothing enforces. `rig`-form machine items must
+     NOT glow -- they are one-substance-per-thing too, same as a relic, but
+     they are not divine. ---- */
+  const hasHalo = s => (s.look?.treatments || []).some(tr => tr.fn === 'halo');
+  for (const s of SUB) {
+    if (s.tags?.includes('relic') || s.tags?.includes('miracle')) {
+      checks++;
+      if (!hasHalo(s))
+        fail(`substance "${s.id}": tagged relic/miracle but has no look.treatments halo -- ` +
+             `every divine item draws with a glow (Phase 8b); add { fn:'halo', col:'ichor', ... }`);
+    }
+    if (s.tags?.includes('machine')) {
+      checks++;
+      if (hasHalo(s))
+        fail(`substance "${s.id}": tagged machine but has a look.treatments halo -- a held/placed ` +
+             `rig is not divine and must not glow (Phase 8b's exclusion)`);
+    }
+  }
+
   if (!quiet) {
     for (const v of violations) console.error(`  FAIL ${v}`);
     const verdict = violations.length ? 'FAIL' : 'ok  ';

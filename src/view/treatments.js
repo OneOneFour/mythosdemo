@@ -80,9 +80,20 @@ export const TREAT = {
 
   /* A soft halo: hot metal, ichor, anything self-lit. The one non-integer
      effect in the project, and it is additive light rather than geometry, so it
-     cannot produce a half-pixel edge. */
+     cannot produce a half-pixel edge.
+
+     A SLOW PULSE, NOT A FLASH, when the caller has a clock to give it (`c.t`
+     -- item and machine-part contexts both do; a bare terrain cell does not,
+     and `glow()` with its base alpha is exactly what a still relic in a
+     screenshot-diffed baseline should be). Derived from `c.t` plus a hash of
+     the cell's own position so two relics on screen at once do not breathe in
+     lockstep -- never from a frame counter (CLAUDE.md invariant 7). */
   halo(g, c, p) {
-    glow(g, c.px + c.tile / 2, c.py + c.tile / 2, p.r || c.tile, colour(p.col), p.a ?? 0.3);
+    const base = p.a ?? 0.3;
+    const pulse = c.t != null
+      ? Math.sin(c.t * 1.1 + hash2(c.tx, c.ty) * 6.283) * (p.pulse ?? 0.08)
+      : 0;
+    glow(g, c.px + c.tile / 2, c.py + c.tile / 2, p.r || c.tile, colour(p.col), Math.max(0, base + pulse));
   },
 
   /* Horizontal courses, for brick and for bedded strata. */

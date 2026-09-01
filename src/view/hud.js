@@ -54,8 +54,10 @@ import {
   burdenFrac, burdenOf, hasPick, machineIdFor, placementCheck, run
 } from '../model/run.js';
 import { linkCheck, reachOf } from '../model/segments.js';
+import { beat } from '../model/tutorial.js';
 import { tileAt } from '../model/tiles.js';
 import { bandOf, worldY } from '../model/world.js';
+import { CALLOUTS } from '../data/callouts.js';
 import { banner, toasts } from './fx.js';
 import { resolveHover } from './hover.js';
 import { stats as paintStats } from './paint.js';
@@ -112,7 +114,7 @@ export function drawHUD(g, f) {
      it is open. `view/ui/mainPanel.js` no-ops when `main` is not on the
      panel stack. */
   drawMainPanel(g, f);
-  hint(g, W, H);
+  hint(g, f, W, H);
   if (f.flags.showDebug) debug(g, f, W, boonBottom);
   if (run.dead) deathScreen(g, W, H);
   else if (banner.fade > 0) title(g, W, H);
@@ -454,15 +456,39 @@ function buildGhost(g, f) {
   }
 }
 
-/* Transient text, drained out of the journal by `shell/notify.js`. */
-function hint(g, W, H) {
-  const t = toasts[toasts.length - 1];
-  if (!t) return;
-  const w = Math.min(textWidth(t.text) + 12, W - 4);
+/* A transient toast (`toasts`, drained out of the journal by
+   `shell/notify.js`) always wins -- it is a fact that just happened and it
+   is more urgent than standing guidance. With none showing, this falls back
+   to whichever SPEC §5 beat the player has not finished yet
+   (`model/tutorial.js#beat`, Phase 8a's read-only query, and
+   `data/callouts.js#CALLOUTS`, indexed by it). Beats 5-6 are `null` rows
+   (Phase 10's altar/furnace gift, not fired yet) and simply show nothing. */
+const CALLOUT_FADE_SECS = 0.4;
+const calloutFade = { beat: -1, since: 0 };
+
+function hint(g, f, W, H) {
+  const last = toasts[toasts.length - 1];
+  let text, fadeAlpha = 1;
+  if (last) {
+    text = last.text;
+  } else {
+    const b = beat(run);
+    text = CALLOUTS[b];
+    if (!text) return;
+    /* Queued, not overlapping: only one line is ever drawn, so a beat change
+       cannot show two instructions at once. The fade is purely cosmetic --
+       derived from `f.t` (== `clock.t`) plus the beat it last changed at,
+       never a frame counter or `rand()` (CLAUDE.md invariant 7). */
+    if (b !== calloutFade.beat) { calloutFade.beat = b; calloutFade.since = f.t; }
+    fadeAlpha = Math.min(1, Math.max(0, (f.t - calloutFade.since) / CALLOUT_FADE_SECS));
+  }
+  const w = Math.min(textWidth(text) + 12, W - 4);
   const x = Math.max(2, (W - w) >> 1);
   const y = H - 16;
-  panel(g, x, y, w, 12, 0.78);
-  drawText(g, t.text, x + 6, y + 3, UI.ink, 1, 1);
+  panel(g, x, y, w, 12, 0.78 * fadeAlpha);
+  g.globalAlpha = fadeAlpha;
+  drawText(g, text, x + 6, y + 3, UI.ink, 1, 1);
+  g.globalAlpha = 1;
 }
 
 function debug(g, f, W, top = 22) {

@@ -1526,3 +1526,22 @@ carrier slid ~0.9 px in 4 substeps, and every declared `load` was recomputed to
 0). Setting them after the substeps restores the matrix bit-exactly and keeps
 each test's own `expect(...t).toBe(t)` honest. The **moving** states are Phase
 8g's own matrix, per `docs/PLAN-gears-and-winches.md` §6.5.
+
+**10. Phase 8b's tutorial callout couples EVERY early-game screenshot to
+tutorial state, including scenes testing something else entirely.**
+`view/hud.js#hint` now falls back to `data/callouts.js#CALLOUTS[beat(run)]`
+whenever no toast is active, and a fresh `newRun()` starts at beat 0 — so
+`winch-hub`, `winch-*` (Phase 8e's whole matrix), `ui-crafting`, `an unlit
+shaft`, `debug overlays on`, and `the furnace build lifecycle` all picked up
+a "TAKE THE PICKAXE" (or similar) box at the bottom edge, purely because none
+of them advance `run.tutorialBeat` past 4 in their own setup. Re-baselined
+all of them (`npm run test:visual:update`) rather than editing scenes
+outside this phase's ownership; inspected `winch-hub` and `ui-crafting`
+directly and both render correctly, just with an out-of-place instruction
+line. Whoever next owns `tests/visual.spec.js` (Phase 8g/11) should consider
+either a shared `settle()`-adjacent helper that advances past beat 4 for
+scenes that aren't testing the tutorial, or accepting the coupling as
+intentional (a screenshot of "the game as it actually looks on a fresh run"
+is arguably more honest than one with the callout silently suppressed) —
+this is a real design call, not a bug, and not mine to make unilaterally by
+editing another phase's test file.

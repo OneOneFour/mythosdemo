@@ -32,6 +32,7 @@ import { CARRIER_H, CARRIER_W, carrierPos, segmentsAt } from '../model/segments.
 import { baseHardAt, formAt, rowAt, skyExposedAt, solidAt, subAt, tileAt } from '../model/tiles.js';
 import { bands, chunkPx, chunkVer, heightPx } from '../model/world.js';
 import { EXTENT, TREAT, seedAt, treat } from './treatments.js';
+import { SPRITE } from './sprites.js';
 
 /* Repaints per frame. A first paint is never budgeted — a chunk with no canvas
    has nothing stale to show — but a re-paint is, so walking a long tunnel while
@@ -461,19 +462,28 @@ function cavityColour(b) {
 /* ---------- live passes ---------- */
 
 /* A dropped unit: two colours off the substance's `look.item`, sized by the
-   form. `px`/`py` are screen pixels at the item's CENTRE. */
+   form — or, if the row names one, a dedicated `SPRITE`. Either way `px`/`py`
+   are screen pixels at the item's CENTRE, and `treat()` still runs after: a
+   sprite item can carry a `halo` treatment exactly like a generic square can
+   (see the relic glow below), because the two are additions to the same
+   `look`, not alternatives to each other. */
 export function paintItem(g, it, px, py, t) {
   const l = SUB[it.sub].look;
   if (!l?.item) return;
-  const s = sizeOf(it), h = s >> 1;
-  const a = colour(l.item[0]), bcol = colour(l.item[1] ?? l.item[0]);
-  R(g, px - h, py - h, s, s, a);
-  R(g, px - h, py + h - 1, s, 1, bcol);
-  R(g, px - h, py - h, 1, 1, mix(a, INK.white, 0.5));
-  treat(g, l, { px: px - h, py: py - h, tx: px | 0, ty: py | 0, tile: s });
+  const sprite = l.sprite && SPRITE[l.sprite];
+  const s = sprite ? sprite.size : sizeOf(it), h = s >> 1;
+  if (sprite) {
+    sprite.draw(g, px, py, t);
+  } else {
+    const a = colour(l.item[0]), bcol = colour(l.item[1] ?? l.item[0]);
+    R(g, px - h, py - h, s, s, a);
+    R(g, px - h, py + h - 1, s, 1, bcol);
+    R(g, px - h, py - h, 1, 1, mix(a, INK.white, 0.5));
+  }
+  treat(g, l, { px: px - h, py: py - h, tx: px | 0, ty: py | 0, tile: s, t });
   /* A shine that tracks the clock and the item's own position — never `rand()`,
      or two draws of the same frame would differ. */
-  if (l.item.length > 1 && ((t * 4 + px * 0.3) % 6) > 5.2)
+  if (!sprite && l.item.length > 1 && ((t * 4 + px * 0.3) % 6) > 5.2)
     R(g, px + h - 1, py - h, 1, 1, INK.spark);
 }
 

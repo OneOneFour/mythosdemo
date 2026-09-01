@@ -117,10 +117,13 @@ export const SUBSTANCES = [
            treatments:[ { fn:'banded', col:'irD', every:8 } ] } },
 
   /* ---- bellows: the trinket tier. See
-          docs/DEVELOPER_GUIDE.md#the-four-gift-tiers ---- */
+          docs/DEVELOPER_GUIDE.md#the-four-gift-tiers. Divine glow per the same
+          rule every relic/miracle substance carries -- see `pick` below and
+          `tools/content.mjs` assertion 17. ---- */
   { id:'bellows', name:'BELLOWS OF THE FORGE', short:'BELLOWS', tags:['relic'],
     item:{ mass:0.4, hud:{ order:5 } },
-    look:{ item:['ichor', 'vioHi'] } },
+    look:{ item:['ichor', 'vioHi'],
+           treatments:[ { fn:'halo', col:'ichor', r:7, a:0.22 } ] } },
 
   /* ---- pick: the first gift, same shape as any other relic. `model/run.js`'s
           `hasPick()` is `invCount(S.pick, F.relic) > 0` -- a capability GATE
@@ -137,12 +140,22 @@ export const SUBSTANCES = [
        the ground had a `glow()` halo in a warm gold, and section 4.3 records
        that it was dropped unported when `_old_src/` was deleted -- while every
        piece of machinery needed to have it back (`look.treatments`,
-       `TREAT.halo`, `core/pixels.js#glow`) survived intact and in use. So this
-       is the one line section 7 says it costs. `ichor` is the divine gold this
-       codebase already uses for "special, look here". The BOB is not restored:
-       `view/paint.js#paintItem` is generic by design (SPEC section 12) and a
-       per-item animation is a bigger question than this phase. */
-    look:{ item:['irB', 'woodC'],
+       `TREAT.halo`, `core/pixels.js#glow`) survived intact and in use. `ichor`
+       is the divine gold this codebase already uses for "special, look here".
+
+       THIS IS A RULE, NOT A ONE-OFF: `bellows`/`auger`/`chasm` below carry the
+       identical `treatments:[{fn:'halo',...}]` shape, and `tools/content.mjs`
+       assertion 17 enforces that every `relic`/`miracle`-tagged substance has
+       one and no `machine`-tagged substance does -- so a future trinket
+       `data/drops.js` produces fails the build the moment someone forgets it,
+       rather than silently reading as ordinary loot forever (Phase 8b).
+
+       `sprite:'pick'` (`view/sprites.js`) replaces the generic two-colour
+       square with an angled haft-and-head shape and its own slow bob, ported
+       freehand from the same `drawPickup()` this comment already cites --
+       `view/paint.js#paintItem` still runs `treat()` after either path, so the
+       sprite and the halo are independent additions, not alternatives. */
+    look:{ item:['irB', 'woodC'], sprite:'pick',
            treatments:[ { fn:'halo', col:'ichor', r:8, a:0.2 } ] } },
 
   /* ---- soil: the shallow cap `data/world.js`'s surface band wears over its
@@ -225,7 +238,8 @@ export const SUBSTANCES = [
           + 1 timber/log. */
   { id:'auger', name:'ADAMANT AUGER', short:'AUGER', tags:['relic'],
     item:{ mass:0.9, hud:{ order:10 }, tool:{ tier:2, power:1.8 } },
-    look:{ item:['adamantA', 'irB'] } },
+    look:{ item:['adamantA', 'irB'],
+           treatments:[ { fn:'halo', col:'ichor', r:9, a:0.2 } ] } },
 
   /* ---- chasm: the one miracle this phase ships (Phase 4,
           `docs/BUILD_PLAN.md`), same shape as `bellows`/`pick`/`auger`
@@ -239,7 +253,8 @@ export const SUBSTANCES = [
           trinket selector by accident. ---- */
   { id:'chasm', name:'RIFT OF HADES', tags:['miracle'],
     item:{ mass:0.2, hud:{ order:11 } },
-    look:{ item:['abyC', 'vioHi'] } },
+    look:{ item:['abyC', 'vioHi'],
+           treatments:[ { fn:'halo', col:'ichor', r:10, a:0.24, pulse:0.12 } ] } },
 
   /* ---- MACHINE SUBSTANCES: one row per machine.
           See docs/DEVELOPER_GUIDE.md#a-machine-is-a-held-item ---- */
