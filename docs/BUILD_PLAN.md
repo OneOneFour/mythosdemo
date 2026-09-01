@@ -1285,7 +1285,7 @@ corrections that changed a phase's shape, rather than just a section number:
 | the FAVOUR panel already masks Hades | no FAVOUR, TRIBUTE, SUSPICION or masking exists anywhere in `src/`. The predicate is written by the ruler phase and reused by the cycle phase. |
 | `test/**` | `tests/**`. There is no `test/` directory, and Phase 6 above already forbids creating one. |
 | `docs/ARCHITECTURE.md` | `ARCHITECTURE.md`, at the repo root. |
-| astral is merely "inset" at `x:128`, `tw:96` | it is worse than inset: the surface band is `tw:128` at `origin.x:0` (columns 0–128), and astral sits at `origin.x:128` (columns 128–224) — **the two ranges do not overlap at all.** No column on the surface has anything above it today. Decided: widen astral to `tw:128`, `origin.x:0` before Phase 10 builds the dock, rather than documenting the gap. See Phase 10 Step 1. |
+| astral is merely "inset" at `x:128`, `tw:96` | **corrected twice now.** First pass misread `origin.x` as a tile column (it is world PIXELS) and concluded astral (`x:[128,896)` px) and surface (`x:[0,1024)` px) don't overlap at all — false. Phase 6.5 recon executed `data/world.js` directly: astral's px range is a proper subset of surface's, and the two bands are exactly y-contiguous with no gap. In surface's own tile coordinates that's `tx ∈ [16,112)` — **96 of surface's 128 columns already have astral directly above them today.** Only the two 16-column edge strips (`tx 0-15` and `tx 112-127`) don't. Widening astral to full width is still worth doing (it closes a real 32-column gap), but Phase 10 must not reason from "no column connects" — most already do. See Phase 10 Step 1. |
 
 Two citations checked and **kept as drafted**, because they are right:
 `docs/SPEC.md` §12 really does state "no machine or substance name appears in
@@ -1699,6 +1699,15 @@ A `fn` that is not a TREAT key fails the content check at build time. So:
     model/mods.js would be. CLAUDE.md D7 says this explicitly.
   - Every colour is a NAMED palette entry (core/palette.js / data/palette.js).
     No inlined hex.
+  - WATCH FOR A THIRD TABLE HIDING AS AN `if`: `view/paint.js#paintTile`
+    already has two dispatch paths, not one — the generic `look.treatments`
+    array through `treat()`/`TREAT[fn]` (glint, banded, halo), AND two
+    top-level `look` keys, `canopy` and `grassCap`, checked BY NAME directly
+    in `paintTile`, bypassing `treat()` entirely (`paint.js:174-180`). Any
+    NEW generic per-substance switch you add belongs in the first path. If
+    you extend canopy/grassCap themselves that's fine — they're existing
+    exceptions — but a third hardcoded name check in `paintTile` is the same
+    failure as a parallel `paint:{}` table wearing a different disguise.
 
 If the live terrain reads flat, the cause is that look:{} carries ONE base
 tone where the old painter mixed three, and no speckle amount at all — a
@@ -1934,10 +1943,19 @@ note the distinction in your commit message.
 
 --- 3. THE TUTORIAL CALLOUT ---
 
-known-good.png shows a bordered centre-screen prompt: "TAKE THE PICKAXE".
-That widget is exactly what SPEC §5's beat sheet needs and it is gone.
+CORRECTED BY PHASE 6.6 ARCHAEOLOGY: the widget itself is NOT gone. `view/hud.js`'s
+bottom-centre bordered callout (`#hint`/`#panel`) is line-for-line unchanged
+since the earliest tile-grid prototype. known-good.png's "TAKE THE PICKAXE"
+prompt is described in the original plan draft as centre-screen, but every
+historical version of this widget found in history sits at the bottom edge —
+CHECK known-good.png DIRECTLY before assuming which is right; the discrepancy
+may be the plan's description, not the code. What is actually gone is the
+CONTENT: the SPEC §5 beat sheet (`sim/tutorial.js` in the old prototype) was
+deleted with no successor, which is exactly why Phase 8a exists.
 
-Rebuild it as a general one-line callout on top of Phase 5a's widget layer
+So: reuse the EXISTING callout widget rather than rebuilding one (adjust it
+only if known-good.png genuinely shows a different position/style, and say so
+if you do). On top of Phase 5a's widget layer if it needs rework
 (src/view/ui/panel.js and friends — reuse the panel frame and the 5x7 font,
 do not draw a new box from scratch): bordered box, bitmap font, anchored
 low-centre above the key-hint bar, fades in and out, queued so two beats never
@@ -2003,9 +2021,11 @@ fix that before adding anything.
 
   - default scale fits the world's WIDTH to the viewport width. Derive the
     width from the band union the way drawMap already does — do not hardcode
-    128 tiles. At the time this phase runs, astral is still tw:96 inset at
-    origin.x:128 (Phase 10 widens it to tw:128/origin.x:0 later); deriving
-    from the union means this code needs no change when that happens.
+    128 tiles. At the time this phase runs, astral is still tw:96 at
+    origin.x:128px (x:[128,896) of surface's x:[0,1024), i.e. mostly but not
+    fully overlapping — Phase 10 widens it to tw:128/origin.x:0 later);
+    deriving from the union means this code needs no change when that
+    happens.
   - the world is far taller than it is wide, so the vertical axis scrolls
   - +/- or wheel-with-modifier steps through discrete integer zoom levels only
     (SPEC §6: integer pixels, nearest-neighbour — no fractional scale, ever)
@@ -2128,16 +2148,22 @@ This is answered before you start, and AUDIT-2 §1 §3 should confirm it:
     typed arrays by world.write.allocate(cfg) in shell/boot.js. There is no
     single array, nothing to grow, and nothing to reindex.
 
-So the band EXISTS. But it is not merely inset — the surface band
-(BANDS[1]) is tw:128 at origin.x:0 (columns 0-128), and astral is tw:96 at
-origin.x:128 (columns 128-224). **THOSE RANGES DO NOT OVERLAP AT ALL.** No
-column on the surface has anything above it today; a winch built anywhere a
-player can actually stand connects to nothing. DECIDED: widen astral to
-tw:128, origin.x:0 so it shares the surface band's full column range, rather
-than documenting the gap and restricting where a lift chain may be built.
-Do this first, before the dock row. Re-run tests/visual.spec.js's
-astral-desktop-darwin.png baseline update in its own commit and say why the
-pixels moved.
+So the band EXISTS, and — CORRECTED after Phase 6.5 recon executed
+`data/world.js` directly, since `origin.x` is world PIXELS not a tile column
+— it is mostly NOT disjoint from the surface band. Real px ranges:
+astral `x:[128,896)`, surface `x:[0,1024)`, exactly y-contiguous (astral's
+floor at y:320 meets surface's origin at y:320, no gap). In surface's tile
+coordinates that overlap is `tx ∈ [16,112)`: **96 of surface's 128 columns
+already have astral directly above them.** Only the two 16-column edge
+strips (`tx 0-15`, `tx 112-127`) don't. Widen astral to tw:128, origin.x:0
+anyway, to close that real 32-column gap rather than leave two dead zones —
+but do NOT reason from "nothing connects today," and do NOT assume this
+widening is what makes a winch reach astral; whether a lift built in the
+already-overlapping 96 columns can reach astral is a placement/height
+question (does a stage's footprint clear the gap up to astral's floor)
+that Phase 6.5's recon flags as still open — verify it directly before
+writing the dock row. Re-run tests/visual.spec.js's astral-desktop-darwin.png
+baseline update in its own commit and say why the pixels moved.
 
 Per D9, 0 M STAYS THE SPAWN FLOOR regardless of the width change: the astral
 band is negative depth. Moving the datum would silently relocate
@@ -2176,8 +2202,12 @@ astral band, as a data/machines.js row like any other.
     entirely on him being the FIRST god who addresses you in person — do not
     spend that here.
   - Astral is widened to the surface's full column range by Step 1, so the
-    dock may be placed at any column with a completed lift chain beneath it —
-    do not reintroduce a positional restriction here.
+    dock may be placed at any column with a completed lift chain beneath it.
+    Per Step 1's correction, most of the surface (tx 16-112) already had
+    astral overlap before the widening — so if a lift chain built there
+    still can't reach astral, the cause is a placement/height check
+    (rules/lift.js#reaches, model/run.js#placementCheck), not band geometry.
+    Diagnose which before assuming the widening alone fixes reachability.
 
 --- STEP 4: THE CYCLE DIRECTOR ---
 
@@ -2187,6 +2217,16 @@ New: data/cycles.js (content) + rules/cycles.js (the director).
 
   Demand selectors go through data/forms.js#expand(sel) to prove they are not
   empty — the validator that already exists, per CLAUDE.md.
+
+  DEAD SCAFFOLDING TO REUSE, NOT DUPLICATE: model/run.js's RUN_SCHEMA already
+  has a `tribute` field (null, with a working setter `write.tribute()`,
+  currently zero callers) and a `cycle` field (starts at 1, never read or
+  incremented). Both were clearly staged for exactly this phase — use them
+  instead of adding new RUN_SCHEMA fields for the same concepts. Also:
+  data/drops.js already has a `tribute-bellows` row (`trigger:'tribute',
+  chance:1, give:'bellows'`) that nothing fires — this phase is what fires
+  it, on cycle completion, through whatever the existing `trigger:'mine'`
+  drop-roll call site in rules/mining.js does for that trigger.
 
   CYCLE 1 IS UNCHANGED AND UNMOVED (D6). SPEC §4/§5: altar on the SURFACE,
   10 raw copper, no clock, furnace as the reward. Every beat in §5's sheet
