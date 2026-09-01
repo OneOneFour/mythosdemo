@@ -1263,6 +1263,99 @@ function predictV(supply, mass, slope, demand = null) {
           `the full segDown x 10 s (${wantRider} px)`);
 }
 
+/* --- THE MOTION EXPRESSION, AS A TABLE. docs/SPEC.md 17.8 states three cases
+   and then measures five rows of one of them; this is that table plus the two
+   geometries it does not cover (a 45-degree span and a horizontal one) and the
+   unpowered column, every cell measured off the real `main.step()` and
+   compared against `predictV`'s independent transcription of the spec.
+
+   THE EXACT BOUNDARY IS A ROW OF ITS OWN. At 20 T aboard a vertical segment,
+   `need` is 1.5 and one crank supplies exactly 1.5, so `surplus` is exactly
+   zero and the carrier must HOLD STILL -- not creep, not jitter. That is the
+   only row in the table whose expected value is an exact 0, and it is the one
+   a sign error in the surplus test would move first.
+
+   A HORIZONTAL SEGMENT IS NOT A SPECIAL CASE AND IT IS NOT INERT EITHER: at
+   `slope = 0` the load term vanishes, so `need` is `segBase` whatever is
+   aboard and one crank has a surplus -- the carrier travels ALONG the cable,
+   which is horizontally, at the full unloaded rate. It gains no height, so
+   invariant 4 is untouched (ASCENT IS NEVER CHEAP below asserts that
+   separately, in world-y terms rather than along-cable ones), and the
+   unpowered horizontal row is the one the spec does call out: `segDown x 0`,
+   dead still. --- */
+{
+  const CRANK_T = D_mach.MACH[D_mach.M.crank].crank.torque * mods.eff('crankTorque', 'crank');
+
+  /* Three geometries. The 45-degree span is 113 px long and the base
+     `hub.reach` is 96, so it needs a real `segReach` row -- same as the
+     40-tile cable above, and for the same reason. */
+  const GEOM = {
+    vertical: { slope: 1, spec: {
+      room: { ty0: 100, h: 18 },
+      machines: [['hub', 20, 115], ['hub', 20, 105], ['crank', 19, 115], ['crank', 19, 113]],
+      links: [[0, 1]], player: [18, 115] } },
+    diagonal: { slope: Math.abs(-80) / Math.hypot(80, 80), spec: {
+      reachMul: 2,
+      room: { ty0: 100, h: 18, w: 16 },
+      machines: [['hub', 20, 115], ['hub', 30, 105], ['crank', 19, 115], ['crank', 19, 113]],
+      links: [[0, 1]], player: [18, 115] } },
+    horizontal: { slope: 0, spec: {
+      room: { ty0: 100, h: 18 },
+      machines: [['hub', 20, 115], ['hub', 28, 115], ['crank', 19, 115], ['crank', 19, 113]],
+      links: [[0, 1]], player: [18, 115] } }
+  };
+
+  /* `cranks` is how many of the two placed cranks are within reach and
+     therefore contributing; both are, so this only ever selects how many the
+     rig PLACES. */
+  const TABLE = [
+    ['vertical',   0, 1, 'SPEC 17.8: nothing aboard, climbs at 5.5'],
+    ['vertical',   4, 1, 'SPEC 17.8: 4 T of ore, climbs at 4.4'],
+    ['vertical',  20, 1, 'SPEC 17.8: the exact surplus == 0 boundary -- HOLDS STILL'],
+    ['vertical',  38, 1, 'SPEC 17.8: 38 T, runs backwards at 11.7'],
+    ['vertical',  40, 1, 'SPEC 17.8: the burden cap aboard, backwards at 13'],
+    ['vertical',   0, 0, 'unpowered: the full segDown'],
+    ['vertical',  40, 0, 'unpowered and loaded: still the full segDown'],
+    ['vertical',   0, 2, 'two cranks: capped at segUp, never past it'],
+    ['diagonal',   0, 1, '45 degrees, empty'],
+    ['diagonal',  40, 1, '45 degrees at the cap: slope scales the load term, so it reverses gently (-3.8, not -13)'],
+    ['diagonal',  40, 0, '45 degrees, unpowered: segDown x slope'],
+    ['horizontal', 0, 1, 'horizontal: no height, so no load term'],
+    ['horizontal', 40, 1, 'horizontal and loaded: the load term is slope-scaled to nothing'],
+    ['horizontal', 40, 0, 'horizontal, unpowered: segDown x 0 -- dead still']
+  ];
+
+  let bad = 0;
+  console.log('  ..  the motion expression (docs/SPEC.md 17.8), 1 s per row, measured px/s along the cable:');
+  for (const [geomId, mass, cranks, why] of TABLE) {
+    const g = GEOM[geomId];
+    const spec = { ...g.spec, seed: 8100 + bad, carriers: [[0, 0.5]] };
+    /* Only the cranks this row wants: the rig places both and the unused one
+       is dropped, rather than moved out of reach, so "in reach" stays a
+       property of the geometry and not of a fudge factor. */
+    spec.machines = spec.machines.filter((m, i) => i < 2 || i - 2 < cranks);
+    if (mass) spec.cargo = [[0, 'copper', 'ore', mass]];
+    const r = driveRig(spec);
+    const supply = cranks * CRANK_T;
+    const want = predictV(supply, mass, g.slope);
+    const got = measureV(r.seg, 1, 1 / 120, { turn: cranks > 0 });
+    const flag = Math.abs(got - want) > 1e-6 ? ' <-- MISMATCH' : '';
+    console.log(`        ${geomId.padEnd(10)} slope ${g.slope.toFixed(3)}  ${String(mass).padStart(2)} T  ` +
+                `${cranks} crank(s)  supply ${supply.toFixed(2)}  want ${want.toFixed(4).padStart(9)}  ` +
+                `got ${got.toFixed(4).padStart(9)}${flag}   ${why}`);
+    if (flag) {
+      fail(`MOTION: ${geomId} segment, ${mass} T aboard, ${cranks} crank(s) -- docs/SPEC.md 17.8 gives ` +
+           `${want.toFixed(4)} px/s along the cable, the simulation produced ${got.toFixed(4)} (${why})`);
+      bad++;
+    }
+    /* The SIGN is asserted separately from the magnitude, because it is the
+       half a reader of this table cares about: does weight reverse it. */
+    if (Math.sign(got) !== Math.sign(want)) bad++;
+  }
+  if (!bad) ok(`MOTION: all ${TABLE.length} rows of the motion expression match docs/SPEC.md 17.8 ` +
+               `exactly (three geometries x load x supply, including the surplus == 0 boundary)`);
+}
+
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +
             `journal ${journal.peek ? journal.peek().length : 0} undrained`);
