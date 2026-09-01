@@ -405,9 +405,11 @@ fixed in the same commit as the cycle director.
 
 ### D7 — non-interactive scenery is paint, never a substance row
 
-`docs/SPEC.md` §15 records exactly **two substance rows** left before the
-tile-id byte overflows (`src/data/forms.js`'s import-time guard). Spending one
-on foliage would be the worst trade available.
+`docs/SPEC.md` §15 records **12 tile-capable substance rows** left before the
+tile-id byte overflows (`src/data/forms.js`'s import-time guard, narrowed to
+the packable maximum in Phase 8c — was 2). Spending one on foliage would still
+be the worst trade available: headroom is not the argument for D7, paint
+already being the cheaper and more flexible mechanism is.
 
 So: **a trunk stays a `timber/log` tile** — felling is unchanged and §5's "fell
 the olive tree for a ladder" still works — and **canopy, grass fringe, cliff
