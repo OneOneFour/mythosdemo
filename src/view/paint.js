@@ -36,12 +36,25 @@ import { EXTENT, TREAT, seedAt, treat } from './treatments.js';
    has nothing stale to show — but a re-paint is, so walking a long tunnel while
    digging cannot stack forty bakes into one frame.
 
-   Left at 8 after the decoration margin below made a single tile write stale up
-   to nine chunks instead of one: a dig breaks roughly two tiles a second, so
-   that is under half a repaint per frame averaged, bursting to nine in the
-   frame a tile actually breaks. One chunk then shows a one-frame-stale canvas
-   rather than a blank one, which is the trade this budget already exists to
-   make. Raising it would buy that one frame at the cost of a worse spike. */
+   STILL 8, AND THAT WAS RE-EXAMINED RATHER THAN ASSUMED, because the decoration
+   margin below changed both sides of the trade at once: a tile write now makes
+   up to nine chunks stale instead of one to three, so the budget is genuinely
+   REACHED where it used to be approached, and a chunk repaint got dearer.
+   Measured on this machine, cold-baking the 23 chunks a 640x400 viewport holds
+   (a frame with nothing stale is 0.2 ms either way):
+
+     before Phase 8 (commit 0da2a06)   23.5 ms, 1.02 ms per chunk
+     after                             35.3 ms, 1.53 ms per chunk
+
+   So the worst case is 8 x 1.53 = 12.2 ms, in the one frame a tile breaks,
+   roughly twice a second while digging — inside a 16.7 ms frame, and the
+   simulation is a fixed 1/120 s step that does not care what the draw costs.
+   Five was tried and is worse: it caps the spike at 7.6 ms but the chunk being
+   dug is mid-raster-order among the nine, so it loses its turn and the shaft
+   visibly lags several tiles behind the pick (caught by `digging.png`, whose
+   diff was exactly the shaft column and nothing else). A skipped chunk shows its
+   own previous canvas, never a blank one — that is the trade this budget exists
+   to make, and paying it on the tile you are looking at is the wrong place. */
 const REPAINT_BUDGET = 8;
 
 /* HOW WIDE A NEIGHBOURHOOD A CHUNK'S APPEARANCE DEPENDS ON, in tiles. Taken
@@ -87,7 +100,11 @@ export function beginFrame() {
    The cost is stated at `REPAINT_BUDGET` above: one tile write now invalidates
    up to nine chunks rather than one. That is the price of a decoration wider
    than a tile, and the alternative — leaving it — is the silent permanent
-   pixel loss docs/AUDIT-2.md section 5 measured. */
+   pixel loss docs/AUDIT-2.md section 5 measured. The margin SCAN itself is
+   nearly free by comparison: forcing `DECO_MARGIN` to 0 takes a cold bake of
+   the visible viewport from 35.3 ms to 33.1 ms, about 0.1 ms of the 1.5 ms a
+   chunk costs. It is the extra invalidation, not the extra reading, that has to
+   be paid for. */
 function stackVer(b, cx, cy) {
   let v = 0;
   for (let dy = -1; dy <= 1; dy++)
