@@ -14,14 +14,20 @@
      in       { selector: units }. Selector grammar is in `data/forms.js`.
      from     which `data/sources.js` row the inputs come from. Default 'buffer'.
               With `units:'named'` the input KEYS are bare unit names, not
-              selectors -- that is how the lift burns hearts.
+              selectors. NO ROW USES EITHER TODAY: the only one that ever did
+              was the retired winch stage's heart-fuelled recipe, deleted in
+              Phase 8f with the rest of the staged winch
+              (docs/PLAN-gears-and-winches.md A5, rejected outright -- the
+              crank is manual only and there is no passive power source at
+              all). The mechanism stays because it is the only way a non-item
+              input can ever be expressed.
      needs    { field: { min, max } } gate on a scalar field value at the
               machine. Delete the line and the recipe runs cold. A temperature
               BAND is a `max` beside the `min`.
      secs     seconds per run at rate 1.0, before `servo` and the `rate` tunable.
      out      output clauses. `[]` means the machine consumes and produces
-              nothing liftable -- it banks a charge, which is what a lift stage
-              and a spoil sink both do.
+              nothing -- it banks a charge instead, which is what a belt, a
+              brazier and a spoil sink all do.
 
               { sub, form, n }         literal output.
               { subFrom, form, n }     DERIVED: the substance that satisfied the
@@ -44,8 +50,6 @@ export const RECIPES = Object.freeze({
      containment before this order was picked:
        furnace, brazier  -- both a strict superset of smelt (ore+fuel) /
                              peg_rungs / kindle (log alone) -- declared first.
-       lift              -- a strict superset of daedalan / auger (plate +
-                             log) -- declared before both.
        cyclops_maw       -- a strict superset of talos_head AND
                              press_machine (plate + ingot) -- declared before
                              both.
@@ -53,7 +57,7 @@ export const RECIPES = Object.freeze({
                              before it.
        hearth            -- the INVERSE case: its own 2 copper/plate is a
                              strict SUBSET of every other plate-consuming
-                             recipe here (lift, cyclops_maw, talos_head,
+                             recipe here (cyclops_maw, talos_head,
                              press_machine, belt_r, and the EXISTING
                              daedalan/auger), so `hearth` is declared LAST OF
                              ALL, or it would starve every one of them the
@@ -76,16 +80,18 @@ export const RECIPES = Object.freeze({
                              `brazier` and `crank`, so it is declared after
                              both, and before `peg_rungs`/`kindle` (whose
                              {2 log} / {1 log} are in turn subsets of IT).
-       hub               -- {3 plate, 1 ingot, 2 log} is a strict subset of
-                             `lift`'s {6 plate, 4 log, 2 ingot}, so it is
-                             declared after it. `hearth`'s {2 plate} is a
-                             subset of the hub, which `hearth` being last of
-                             all already covers.
-       axle              -- {2 ingot, 2 log} is a strict subset of `lift` too
-                             (2<=2 ingot, 2<=4 log), so likewise after it. It
-                             has no containment relation with `hub`: the hub
-                             needs plate the axle does not, and the axle needs
-                             two ingots to the hub's one. ---- */
+       hub               -- no containment with anything still in this file.
+                             `hearth`'s {2 plate} is a subset of the hub's
+                             {3 plate, 1 ingot, 2 log}, which `hearth` being
+                             last of all already covers.
+       axle              -- {2 ingot, 2 log}: no containment with anything
+                             either, including `hub` -- the hub needs plate the
+                             axle does not, and the axle needs two ingots to
+                             the hub's one.
+     (Both of these were originally placed after the retired WINCH STAGE row,
+     whose {6 plate, 4 log, 2 ingot} bill contained them both. That row is gone
+     as of Phase 8f; the positions are unchanged, since removing a superset can
+     only ever relax an ordering constraint.) ---- */
 
   furnace: Object.freeze({
     id:'furnace', name:'CRUDE FURNACE',
@@ -107,7 +113,7 @@ export const RECIPES = Object.freeze({
   }),
 
   /* ---- SEGMENT TRANSPORT, part 1 of 2: the two timber-and-gravel rows.
-     Declared HERE, between `brazier` and `lift`, for the containment reasons
+     Declared HERE, right after `brazier`, for the containment reasons
      spelled out in this block's own header -- `crank` after `brazier`, `gear`
      after both. See docs/PLAN-gears-and-winches.md section 4.1 and
      docs/SPEC.md section 17. ---- */
@@ -132,26 +138,20 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  lift: Object.freeze({
-    id:'lift', name:'WINCH STAGE',
-    in:{ 'copper/plate':6, 'timber/log':4, 'copper/ingot':2 },
-    out:[ { sub:'lift', form:'rig', n:1 } ],
-    /* 20.0s: `lift` is the game's own bottleneck (invariant 4), priced like
-       the investment it is. */
-    secs:20.0,
-    hand:true
-  }),
-
-  /* ---- SEGMENT TRANSPORT, part 2 of 2: the two refined rows, declared after
-     `lift` because both bills are strict subsets of its own. ---- */
+  /* ---- SEGMENT TRANSPORT, part 2 of 2: the two refined rows. Declared HERE,
+     where the retired WINCH STAGE row used to sit, because both bills
+     were strict subsets of its own and had to follow it. That row is gone as of
+     Phase 8f, so the containment it forced no longer exists -- but the position
+     is kept, since `hearth`'s {2 plate} is a strict subset of `hub`'s bill and
+     `hearth` being declared LAST OF ALL is what covers that. ---- */
 
   hub: Object.freeze({
     id:'hub', name:'WINCH HUB',
     in:{ 'copper/plate':3, 'copper/ingot':1, 'timber/log':2 },
     out:[ { sub:'hub', form:'rig', n:1 } ],
-    /* 10.0s, exactly half `lift`'s 20.0 for exactly half its mass -- a
-       segment's two endpoints together cost the same time and the same
-       talents as the one winch stage they replace. */
+    /* 10.0s, exactly half the retired WINCH STAGE's 20.0 for exactly half its
+       mass -- a segment's two endpoints together cost the same time and the
+       same talents as the one winch stage they replaced. */
     secs:10.0,
     hand:true
   }),
@@ -317,7 +317,7 @@ export const RECIPES = Object.freeze({
   /* ---- hearth: 2 copper/plate -> hearth/rig, DECLARED ABSOLUTE LAST, after
      even `auger` -- see the machine-recipe block's own header comment above
      for why: this bill (2 plate, nothing else) is a strict SUBSET of every
-     other plate-consuming recipe in this table (`lift`, `cyclops_maw`,
+     other plate-consuming recipe in this table (`cyclops_maw`,
      `talos_head`, `press_machine`, `belt_r`, and the pre-existing
      `daedalan`/`auger`), so declaring it any earlier would starve whichever
      of those came after it the moment a player held 2+ plate, the same

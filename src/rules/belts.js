@@ -10,20 +10,26 @@
    new interpreter key. See
    docs/DEVELOPER_GUIDE.md#when-a-machine-needs-its-own-rules-module
 
-   THE MECHANISM IS `rules/lift.js#carry()` TURNED NINETY DEGREES. Machines are
-   not solid — `model/tiles.js#solidAt` is the only thing item collision
+   THE MECHANISM IS `rules/drive.js#haul()` WITH ONE AXIS TAKEN AWAY. Machines
+   are not solid — `model/tiles.js#solidAt` is the only thing item collision
    consults, and a machine's footprint is a `model/machines.js` record, not a
    terrain tile (ARCHITECTURE invariant 1) — so an item resting inside a belt's
    footprint is resting on the actual floor beneath it, at exactly the height
-   `carry()` already grabs a resting item from a lift's deck at. Where `carry`
-   does `it.y += dy` while a stage is charged, this does `it.x += dx` while a
-   belt is: same shape, same idiom, rotated.
+   `haul()` grabs a resting item off a carrier at. Where `haul` does
+   `it.x += dx; it.y += dy` along a cable, this does `it.x += dx` alone while a
+   belt is charged: same shape, same idiom, flattened. (Both descend from the
+   retired staged winch's `carry()`, which is where the idiom was written and
+   which this comment used to name.)
 
-   POWER IS THE SAME CHARGE A LIFT STAGE BANKS, NOT A NEW CONCEPT
+   POWER IS A BANKED CHARGE, AND THIS IS NOW THE ONLY MOVER THAT USES ONE
    (docs/DEVELOPER_GUIDE.md#charges-and-honest-fuel). This file only ever
    SPENDS a charge, exactly one per item it actually delivers off the belt's
-   end; it cannot tell a charge bought with timber from one bought with
-   anything else, for the same reason the lift cannot.
+   end, and it cannot tell a charge bought with timber from one bought with
+   anything else. Vertical transport used to work the same way and no longer
+   does: `rules/drive.js` has no charge at all, only a crank the player is
+   holding. Whether a belt should take drivetrain torque instead is
+   docs/PLAN-gears-and-winches.md section 6.6, named and deliberately not
+   built.
 
    DELIBERATELY RARE. `docs/DESIGN.md`'s genre statement names flat, cheap
    horizontal logistics as the thing this project is not — so a belt is priced
@@ -38,7 +44,7 @@ import { eff } from '../model/mods.js';
 /* Vertical slack, in px, around the floor line a resting item settles at —
    the belt's box is exactly one tile tall standing on solid ground, so a
    resting item's centre sits within a couple of pixels of the box's own
-   bottom edge. Mirrors `rules/lift.js#DECK_GRAB`'s slack idiom, sized to
+   bottom edge. Mirrors `model/segments.js#CARRIER_GRAB`'s slack idiom, sized to
    straddle every item's half-size (up to 2 px) plus a little settling slop. */
 const GRAB = 4;
 

@@ -262,9 +262,19 @@ console.log('\n1. content resolves');
   for (const m of D_mach.MACHINES) {
     for (const r of m.recipes || []) {
       /* A recipe with `from:` draws from a NON-ITEM source, so its inputs are
-         that source's named units rather than substance x form selectors. This
-         is the blood-winch mechanism: `{ in:{heart:1}, from:'vital' }` spends
-         the player's health, and "heart" is a unit, not a substance. */
+         that source's named units rather than substance x form selectors.
+         NO ROW IN THE GAME DOES THIS TODAY, and the check is deliberately kept
+         anyway. The one that did was the retired winch stage's second recipe
+         -- `{ in:{heart:1}, from:'vital' }`, the "blood winch", which bought a
+         lift charge with the player's health once the timber ran out. Phase 8f
+         deleted the winch, and docs/PLAN-gears-and-winches.md A5 records the
+         user rejecting the trap outright rather than moving it to the hand
+         crank: the crank is manual only and there is no passive power source
+         of any kind. `data/sources.js#vital` went with it, so `NAMED_UNITS`
+         is currently empty -- which makes this branch assert "no recipe may
+         name a bare unit", exactly true right now, and makes it the guard for
+         whatever non-item source lands next. It is generic over the source
+         table and knows no name, so it needed no edit when `vital` went. */
       if (r.from) {
         if (!sourceIds.has(r.from))
           { fail(`machine ${m.id}: recipe from:"${r.from}" is not a source`); bad++; }
@@ -769,48 +779,93 @@ console.log('\n4. Phase 6 probes');
   }
 }
 
-/* --- BREAK-EVEN DEPTH: docs/DESIGN.md's "lift cost per item-slot = k x
-   depth" equation, computed against the LIVE numbers rather than restated as
-   prose. `k` is the lift's own honest-fuel mass (`timber/log`, the row every
-   staged machine shares) amortised over its span in tiles, per one
-   "item-slot" of cargo -- taken as one unit of raw ore, the design doc's own
-   reference unit. Each tier's break-even depth is `ratio / k`
-   (docs/SPEC.md section 8's locked ratios), so a MORE compressed tier
-   survives to a GREATER depth before the fuel bill exceeds what a single
-   item-slot is worth -- that ordering, not the exact depth figure, is the
-   game's central pressure, and is what actually gets asserted. The computed
-   raw-ore figure is printed for a human to compare against
-   docs/DESIGN.md's own "around depth 30" estimate (written before the lift
-   was implemented, so an exact match is not required), and is only asserted
-   to be finite, positive and within a broad, clearly-labelled sanity band --
-   loose enough not to fail on an honest retune, tight enough to catch a
-   broken one (a zero or negative k, an inverted ratio table).
+/* --- BREAK-EVEN DEPTH, REPRICED IN PLAYER SECONDS (Phase 8f).
+   docs/DESIGN.md's "lift cost per item-slot = k x depth" equation, computed
+   against the LIVE numbers rather than restated as prose -- but `k` is no
+   longer denominated in TALENTS OF FUEL, because there is no fuel at the way
+   up any more. The staged winch burned timber (or a heart) per haul; segment
+   transport burns nothing at all and is powered by a crank the player has to
+   stand at and hold. So the currency of ascent is now SECONDS OF PLAYER
+   CRANKING, which docs/PLAN-gears-and-winches.md section 4.2 argues is a
+   STRONGER statement of the same thesis: the one resource automation cannot
+   give you more of is your own standing there.
+
+   `k` = seconds of cranking per item-slot per tile, for ONE unit of a tier
+   riding alone on a vertical segment driven by ONE hand crank -- the honest
+   minimum build, and the one where the cargo's own mass still matters. It is
+   the real motion expression, read through the real `eff()`:
+
+     need    = segBase + segLoad * mass                 (slope 1: vertical)
+     surplus = crank.torque * eff('crankTorque') - need
+     drive   = min(1, supply / need)                    (one segment, so
+                                                         demand == need)
+     v       = segUp * min(1, surplus / segBase) * drive     px/s
+     k       = tile / v                                      s/tile/item-slot
+
+   THE DATUM ON THE OTHER SIDE OF THE EQUATION is what an item-slot is WORTH,
+   and it has to be in seconds too or there is no depth to solve for. Taken as
+   THE SECONDS IT COST TO MINE ITS CONTENTS: `tile.hard` for copper, through
+   the same `eff('hard', ...)` / `eff('pickPower')` / stock-pick-power formula
+   `rules/mining.js` uses, times docs/SPEC.md section 8's compression ratio.
+   That is the closest analogue to what the old section did -- it priced an
+   item-slot at its own mass in timber, equally a stated datum -- and it is
+   derived from live content rather than invented here.
+
+   Break-even depth is then `worth / k` TILES: how deep you can be before
+   cranking one item-slot up costs more of your life than mining its contents
+   did. A MORE COMPRESSED TIER MUST SURVIVE TO A GREATER DEPTH, and that
+   ordering -- not the exact figure -- is the game's central pressure and the
+   thing actually asserted. The raw-ore figure is printed for a human, as it
+   always was.
+
+   Read the printed ore figure as the headline it is: raw ore does not pay to
+   crank up even ONE tile. That is the compression thesis holding, not a bug.
    See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves --- */
 {
-  const liftDef = D_mach.MACH[D_mach.M.lift];
   const topsoil = world.bandOf('topsoil');
-  const fuelMass = items.massOfPair(D_sub.S.timber, D_form.F.log);
-  const spanTiles = liftDef.lift.span / topsoil.tile;
-  const refItemMass = items.massOfPair(D_sub.S.copper, D_form.F.ore);
-  const k = fuelMass / spanTiles / refItemMass;
-  const RATIOS = { ore: 1, ingot: 4, plate: 12 };        // docs/SPEC.md section 8
-  const breakEven = tier => RATIOS[tier] / k;
+  const crank = D_mach.MACH[D_mach.M.crank].crank;
+  const base = mods.eff('segBase'), load = mods.eff('segLoad'), up = mods.eff('segUp');
+  const supply = crank.torque * mods.eff('crankTorque', 'crank');
+
+  /* seconds of cranking per item-slot per tile, for one unit of `form` alone */
+  const kOf = form => {
+    const mass = items.massOfPair(D_sub.S.copper, form);
+    const need = base + load * mass;                       // vertical: slope 1
+    const surplus = supply - need;
+    const drive = Math.min(1, supply / need);
+    const v = surplus > 0 ? up * Math.min(1, surplus / base) * drive : 0;
+    return v > 0 ? topsoil.tile / v : Infinity;
+  };
+
+  /* seconds to mine one copper ore by hand with the stock pick -- the same
+     three numbers rules/mining.js multiplies, not a fourth copy of them */
+  const oreSecs = D_sub.SUB[D_sub.S.copper].tile.hard * mods.eff('hard', 'copper')
+                / (mods.eff('pickPower') * D_sub.SUB[D_sub.S.pick].item.tool.power);
+
+  const RATIOS = { ore: 1, ingot: 4, plate: 12 };           // docs/SPEC.md section 8
+  const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate };
+  const kTier = tier => kOf(FORMS[tier]);
+  const breakEven = tier => (RATIOS[tier] * oreSecs) / kTier(tier);
   const beOre = breakEven('ore'), beIngot = breakEven('ingot'), bePlate = breakEven('plate');
 
-  console.log(`  ..  break-even depth: ore ${beOre.toFixed(1)}, ingot ${beIngot.toFixed(1)}, ` +
-              `plate ${bePlate.toFixed(1)} tiles (k=${k.toFixed(4)} T/tile/item-slot; ` +
-              `docs/DESIGN.md's own pre-implementation estimate for raw ore was "around depth 30")`);
+  console.log(`  ..  break-even depth: ore ${beOre.toFixed(2)}, ingot ${beIngot.toFixed(2)}, ` +
+              `plate ${bePlate.toFixed(2)} tiles (k = ${kTier('ore').toFixed(3)}/` +
+              `${kTier('ingot').toFixed(3)}/${kTier('plate').toFixed(3)} s of cranking per ` +
+              `item-slot per tile, one crank, one vertical segment; an ore costs ` +
+              `${oreSecs.toFixed(2)} s to mine)`);
 
   if (!(Number.isFinite(beOre) && beOre > 0))
-    fail(`BREAK-EVEN DEPTH: raw ore break-even (${beOre}) is not a finite positive depth`);
+    fail(`BREAK-EVEN DEPTH: raw ore break-even (${beOre}) is not a finite positive depth -- ` +
+         `a single crank cannot raise a single ore at all, which means crank.torque no longer ` +
+         `exceeds segBase by enough to move anything`);
   else if (!(beIngot > beOre && bePlate > beIngot))
-    fail(`BREAK-EVEN DEPTH: compression should push the break-even DEEPER per tier -- got ore ${beOre.toFixed(1)}, ` +
-         `ingot ${beIngot.toFixed(1)}, plate ${bePlate.toFixed(1)}`);
-  else if (!(beOre > 2 && beOre < 400))
-    fail(`BREAK-EVEN DEPTH: raw ore break-even ${beOre.toFixed(1)} tiles is outside a plausible band -- ` +
-         `check the lift span/fuel or the compression ratios`);
-  else ok(`BREAK-EVEN DEPTH: ore ${beOre.toFixed(1)} < ingot ${beIngot.toFixed(1)} < plate ${bePlate.toFixed(1)} tiles -- ` +
-          `a deeper haul is only worth it once refined`);
+    fail(`BREAK-EVEN DEPTH: compression should push the break-even DEEPER per tier -- got ore ${beOre.toFixed(2)}, ` +
+         `ingot ${beIngot.toFixed(2)}, plate ${bePlate.toFixed(2)}`);
+  else if (!(beOre > 0.05 && beOre < 400))
+    fail(`BREAK-EVEN DEPTH: raw ore break-even ${beOre.toFixed(2)} tiles is outside a plausible band -- ` +
+         `check segUp/segBase/segLoad, crank.torque, or the compression ratios`);
+  else ok(`BREAK-EVEN DEPTH: ore ${beOre.toFixed(2)} < ingot ${beIngot.toFixed(2)} < plate ${bePlate.toFixed(2)} tiles ` +
+          `of cranking -- a deeper haul is only worth it once refined`);
 }
 
 /* --- BURDEN: walking and falling are IDENTICAL at 0% and 150% of the hard

@@ -3,7 +3,8 @@
 
    A machine instance is a plain record. `def` is an index into
    `data/machines.js`, so the ROW is the definition and the RECORD is only what
-   changes: buffer, progress, charges, fire, deck. Printing one in a debugger
+   changes: buffer, progress, charges, fire, torque, turn. Printing one in a
+   debugger
    tells you everything about that machine's state, and `JSON.stringify(machines)`
    is most of a save. See docs/DEVELOPER_GUIDE.md#adding-a-machine
 
@@ -45,13 +46,11 @@ export const write = {
          accumulated rotation, for the sprite. Present on EVERY machine, not
          only a crank/gear/hub, so `view/paint.js` can read them off any row
          with no key test -- the same reason `charges` is not conditional.
-         BOTH ARE ZERO THIS PHASE (8d): nothing writes a nonzero value until
-         Phase 8f's `rules/drive.js`. See docs/SPEC.md section 17. */
-      torque: 0, turn: 0,
-      /* One deck per stage, present only on rows carrying a `lift` block. Five
-         stages means five machine records, each with its own drum, deck and
-         counterweight -- never one continuous cage. */
-      deck: def.lift ? { y, dir: 0, load: 0 } : null
+         `rules/drive.js` is the ONLY writer of either, and it writes them for
+         every node of every drivetrain component every frame -- so a machine
+         that is not a crank, gear or hub keeps the 0 it was born with, and
+         `view` needs no key test to read them. See docs/SPEC.md section 17. */
+      torque: 0, turn: 0
     };
     machines.push(m);
     bump();
@@ -72,8 +71,6 @@ export const write = {
   },
 
   prog(m, v)        { m.prog = v; bump(); },
-  deck(m, y, dir)   { m.deck.y = y; m.deck.dir = dir; bump(); },
-  load(m, n)        { m.deck.load = n; bump(); },
   charge(m, n)      { m.charges += n; m.made += n; bump(); },
   spendCharge(m, n) { m.charges = Math.max(0, m.charges - n); bump(); },
   fire(m, v)        { m.fire = v; bump(); },

@@ -31,14 +31,9 @@
 
      recipes     names from `data/recipes.js`, or inline rows of the same shape.
                  Tried IN ORDER; the first whose inputs are all present runs, so
-                 order is a design decision -- see the lift.
-
-     lift        { span, toBand } marks the machine as one stage of the staged
-                 lift. Speeds come from the `liftUp` / `liftDown` tunables, so
-                 "down is free, up is expensive" is one place, not one per row.
-                 BEING REPLACED by `hub`/`crank`/`gear` below -- see
-                 docs/PLAN-gears-and-winches.md. Both mechanisms exist side by
-                 side until Phase 8f retires this one.
+                 order is a design decision -- see `data/recipes.js`'s own
+                 declaration-order block, which states every containment in
+                 the file and why each one is where it is.
 
      hub         { reach, carries } marks the machine as an ENDPOINT a segment
                  may be anchored to (CLAUDE.md D10: "hub"). `reach` is px, the
@@ -54,11 +49,12 @@
 
      crank       { torque, reach } the manual power source. `torque` is drive
                  units supplied while the player is turning it, denominated in
-                 `segBase` (1.0 raises one empty carrier at full speed);
-                 `reach` is px the player must stand within, the same shape
-                 and units `handFeed:{reach}` already uses, so "close enough
-                 to feed" and "close enough to turn" cannot disagree. Nothing
-                 reads this yet -- Phase 8f does.
+                 `segBase`; `reach` is px the player must stand within, the
+                 same shape and units `handFeed:{reach}` already uses, so
+                 "close enough to feed" and "close enough to turn" cannot
+                 disagree. THE ONLY POWER SOURCE IN THE GAME, and manual only
+                 (CLAUDE.md D10): read by `rules/drive.js` for exactly the
+                 frames the player is holding the turn key.
 
      gear        { loss } fraction of torque lost per hop along the drivetrain
                  graph. This is why a drivetrain is not free to sprawl, and
@@ -107,7 +103,14 @@
                  phase; refused with a reason, like every other placement
                  gate on this list.
 
-   Rows are append-only: the index is the id a save stores. */
+   Rows are APPEND-ONLY: the index is the id a save would store. ONE row has
+   ever been deleted -- the WINCH STAGE row, retired in Phase 8f and replaced
+   by the `hub`/`crank`/`gear`/`axle` rows at the foot of this table
+   (docs/PLAN-gears-and-winches.md, CLAUDE.md D10). It was safe only because
+   nothing persists an index yet: there is no save format, `localStorage` is
+   forbidden (CLAUDE.md), and every reader goes through `M[id]`. The day a save
+   format exists, deleting a row stops being free and this note becomes the
+   reason a retired row must be tombstoned instead. */
 
 import { colour } from './palette.js';
 
@@ -148,42 +151,6 @@ export const MACHINES = [
     look:{ body:'clayB', trim:'clayA', base:'clayC', fire:true, halo:'ichor',
            pips:[ { sel:'*/#ore', row:0 }, { sel:'*/#fuel', row:1 } ],
            sfx:{ accept:'ignite', produce:'divine' } } },
-
-  /* ---- LIFT STAGE ----------------------------------------------------------
-     One stage, one drum, one deck, one counterweight, pointed surface ->
-     astral. Five stages would be five of these records placed at five level
-     pairs; NEVER one continuous cage. The staged relay is a deliberate design
-     statement, and modelling it as a machine is what keeps it that way.
-
-     The recipes are inline rather than shared because no other machine ascends,
-     and THE ORDER IS THE DESIGN: timber first, so the winch behaves like an
-     ordinary fuelled lift for as long as you have timber, and only starts
-     eating hearts once you have run dry. That is the trap, expressed as row
-     order rather than as a special case in the interpreter.
-
-     `heart` is a bare unit, not a substance -- see
-     docs/DEVELOPER_GUIDE.md#non-item-inputs ---- */
-  { id:'lift', name:'WINCH STAGE',
-    tw:2, th:3, footing:2,
-
-    ports:[ { side:'top',    mode:'in', accepts:['*/#fuel'] },
-            { side:'bottom', mode:'out' } ],
-
-    buffer:{ cap:{ '*/#fuel':2 } },
-
-    catchBox:{ mouth:'top', slack:2 },
-    handFeed:{ reach:10, from:['*/#fuel'] },
-
-    lift:{ span:64, toBand:'astral' },
-
-    recipes:[
-      { in:{ '*/#fuel':1 }, out:[], secs:6.0 },                  // honest fuel
-      { in:{ heart:1 }, from:'vital', out:[], secs:6.0 }          // the terms
-    ],
-
-    look:{ body:'woodC', trim:'irB', base:'irD', fire:true,
-           pips:[ { sel:'*/#fuel', row:0 } ],
-           sfx:{ accept:'ignite', produce:'winch' } } },
 
   /* ---- PRESS: the second compression tier, `docs/DESIGN.md`'s 12:1 plate
      ratio. NOT a `variantOf:'furnace'` like `kiln_divine` -- a variant only
@@ -241,11 +208,14 @@ export const MACHINES = [
      the SAME substance and form throughout, which is a shape `out` clauses
      cannot express and should not be made to. `rules/belts.js` is the sibling
      module that reads `belt.dir` off this row and drags a resting item along
-     the footprint -- `rules/lift.js#carry()` turned ninety degrees, per its
-     own file header.
+     the footprint -- `rules/drive.js#haul()` turned ninety degrees and
+     stripped of its second axis, per that file's own header. (This used to name
+     the retired staged winch's own `carry()`; the idiom outlived the module.)
 
-     THE FUEL RECIPE IS THE LIFT'S HONEST-FUEL ROW, VERBATIM IN SHAPE -- see
-     docs/DEVELOPER_GUIDE.md#charges-and-honest-fuel
+     THE FUEL RECIPE IS AN HONEST-FUEL ROW: `out:[]` banks a charge, and a
+     belt spends exactly one per item it delivers off its end. The retired
+     winch used the same shape, and a belt is now the only machine that still
+     does -- see docs/DEVELOPER_GUIDE.md#charges-and-honest-fuel
 
      4 tiles long, 1 tall, `footing:4` -- a full solid floor under the whole
      span, not just the two end tiles a taller machine checks. `th:1` is why
@@ -295,8 +265,8 @@ export const MACHINES = [
     belt:{ dir:-1 } },
 
   /* ---- BRAZIER: the placed, fuel-powered light source. Prometheus carried
-     the fire; a brazier is where you put it down. Same honest-fuel recipe
-     shape the lift and the belt use, so
+     the fire; a brazier is where you put it down. The same honest-fuel recipe
+     shape the belt uses, so
      `light:{ level:12, whileRunning:true }` is "lit while fuelled" for free
      (docs/DEVELOPER_GUIDE.md#light-emitters): the moment the last
      charge is spent, `m.running` goes false and `rules/light.js`'s next
@@ -427,16 +397,16 @@ export const MACHINES = [
   { id:'cyclops_maw_l', name:'CYCLOPS MAW (LEFT)', variantOf:'cyclops_maw',
     mine:{ facing:-1, tier:3, tiles:3, secs:3.0 } },
 
-  /* ---- SEGMENT TRANSPORT (Phase 8d, docs/PLAN-gears-and-winches.md;
-     CLAUDE.md invariant 4 as reworded, and D10 for the five nouns).
-     APPENDED, not inserted: this table is append-only because the index is
-     the id a save stores.
+  /* ---- SEGMENT TRANSPORT (docs/PLAN-gears-and-winches.md; CLAUDE.md
+     invariant 4 as reworded, and D10 for the five nouns).
+     APPENDED, not inserted: this table is append-only, per this file's own
+     header note.
 
-     These four rows are the replacement for the `lift` row above. NOTHING
-     MOVES YET -- Phase 8d places them, links two hubs into a segment and
-     parks the carrier at the low end; Phase 8e draws them; Phase 8f gives
-     them torque and motion and deletes the winch. The old winch keeps
-     working, untouched, until then.
+     THESE FOUR ROWS REPLACED THE WINCH STAGE ROW, which is gone as of Phase 8f
+     along with its rules module, its two speed tunables and the
+     `'NO SHAFT TO SERVE'` placement branch. Phase 8d placed them and linked
+     them with nothing moving, 8e drew them, and 8f gave them torque and
+     motion: `rules/drive.js` is the only module that ticks any of it.
 
      WHY THE CABLE IS NOT PLACED TILE BY TILE (D10's reconciliation): power is
      physical -- a crank, a gear, an axle and the hub they feed all conduct

@@ -599,7 +599,7 @@ test('a fuelled belt drags a resting item across its footprint and releases it o
     /* Straight into the buffer -- the same effect standing in reach and
        hand-feeding would have, without needing the player's own position in
        this test. One fuel unit is one 6-second run of the honest-fuel recipe
-       this row shares with the lift, which banks exactly one charge. */
+       this row shares with the brazier, which banks exactly one charge. */
     mw.take(belt, S.timber, F.log, 1);
     __mf.frames(760);                    // > 6s at the fixed 1/120s step
     const charged = belt.charges;

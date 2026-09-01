@@ -494,7 +494,8 @@ export function paintMachine(g, m, px, py, t) {
   /* A ROW WITH `parts` DRAWS ITSELF OUT OF NAMED SHAPES; a row without one
      gets the generic catch box below, unchanged. This is one look key and a
      generic dispatch, NOT a third name check beside `canopy`/`grassCap`: the
-     four winch rows are the first machines in the game that are not boxes
+     four segment-transport rows are the first machines in the game that are
+     not boxes
      with mouths, and "hopper lips, so it reads as a catch box" is a lie on a
      gear. See docs/DEVELOPER_GUIDE.md#colour-and-appearance and CLAUDE.md D7. */
   if (l.parts) {
@@ -522,14 +523,6 @@ export function paintMachine(g, m, px, py, t) {
       const flick = hash2(m.tx * 31 + ((t * 18) | 0), m.ty * 17);
       R(g, px + 2, py + h - 2 - f, w - 4, f, flick < 0.5 ? INK.fireLo : INK.fireHi);
     }
-  }
-
-  /* The deck of a lift stage, and its cable. One drum, one deck — five stages
-     would be five of these records, never one continuous cage. */
-  if (m.deck) {
-    const dy = py + (m.deck.y - m.box.y);
-    R(g, px, dy, w, 1, colour(l.trim));
-    R(g, px + 1, dy + 1, w - 2, 2, colour(l.base));
   }
 
   /* Buffer readout as pips, so a machine's state is legible in-world. `look.pips`

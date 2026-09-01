@@ -33,7 +33,7 @@ const STATUS_WORDS = { running: 'RUNNING', 'no-fuel': 'NO FUEL', idle: 'IDLE' };
    input clause satisfied" test `rules/machines.js#choose` applies -- but
    display-only and deliberately narrower: only a recipe sourced from the
    ordinary buffer (no `from`, or `from:'buffer'`) is considered, since a bare
-   unit source (the lift's own hearts, `data/sources.js#vital`) has no
+   unit source (`data/sources.js`, `units:'named'` -- no row uses one today) has no
    buffered pair for a tooltip to name. `view` may not import `rules`, which
    is why this re-reads the buffer directly through `count` rather than
    calling `choose` itself.
@@ -48,7 +48,7 @@ function currentRecipe(m, def) {
 }
 
 /* A legible name for what a recipe makes. Most NAMED rows already carry one
-   (`RECIPES.smelt.name`); a machine's own INLINE recipe (the lift's honest-
+   (`RECIPES.smelt.name`); a machine's own INLINE recipe (a belt's honest-
    fuel row, the belt's, the brazier's) does not, so this falls back to
    naming the actual buffered pair satisfying each input clause -- never
    `undefined`, never a blank line, per this task's own requirement. */

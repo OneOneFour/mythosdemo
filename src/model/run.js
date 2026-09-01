@@ -22,7 +22,7 @@ import { machineAt } from './machines.js';
 import { eff } from './mods.js';
 import { player } from './player.js';
 import { solidAt, tileAt } from './tiles.js';
-import { bandAt, bandOf, inBounds, worldX, worldY } from './world.js';
+import { bandOf, inBounds, worldY } from './world.js';
 
 export const RUN_SCHEMA = Object.freeze({
   seed: 1337, t: 0,
@@ -151,9 +151,16 @@ export const write = {
     return true;
   },
 
-  /* Hearts are SPENT, not consumed as an item. The lift reaches this through
-     `data/sources.js`, never through `inv`, which is why the HUD keeps drawing
-     five hearts and nothing here changes shape. */
+  /* Hearts are SPENT, not consumed as an item -- never through `inv`, which is
+     why the HUD keeps drawing five hearts and nothing here changes shape.
+
+     NO CALLER TODAY. Its one consumer was `data/sources.js#vital`, which fed
+     the retired winch stage's heart-fuelled recipe and was deleted with it in
+     Phase 8f (docs/PLAN-gears-and-winches.md A5: the crank is manual only and
+     the blood-winch trap does not carry forward). Kept because THE RULE lives
+     here and nowhere else -- "a machine may not kill you", the line below --
+     and re-deriving that on the day something spends hearts again is how two
+     spenders end up disagreeing about whether the last one may go. */
   spendHearts(n) {
     if (run.hearts - n < 1) return false;     // a machine may not kill you
     run.hearts -= n;
@@ -262,9 +269,11 @@ export function machineIdFor(sub) {
    keeps a second copy of the checks.
 
    Checked in the SAME order `rules/placement.js` always has: footprint, then
-   footing, then depth, then (for a lift stage) the shaft it would need to
-   reach, then affordability LAST -- so a placement that cannot happen for a
-   structural reason never has to answer "and could you even pay for it". */
+   footing, then depth, then affordability LAST -- so a placement that cannot
+   happen for a structural reason never has to answer "and could you even pay
+   for it". (There used to be a fourth structural check between depth and
+   affordability, for the retired winch stage's own shaft; see below for why
+   nothing replaced it.) */
 export function placementCheck(band, machineId, tx, ty) {
   const defIdx = M[machineId];
   const def = MACH[defIdx];
@@ -291,22 +300,18 @@ export function placementCheck(band, machineId, tx, ty) {
     if (depth < def.minDepth) return { ok:false, why:'TOO SHALLOW' };
   }
 
-  /* THE WINCH IS THE STAGED LIFT AND THE GAME'S BOTTLENECK (invariant 4: five
-     independent stages, never one continuous cage). A stage whose `lift.span`
-     does not actually reach `lift.toBand` from where it is about to stand
-     would place, run, and never once deliver anything -- a machine that
-     silently cannot do its one job is worse than a refusal that says so up
-     front. Same arithmetic `rules/lift.js#reaches` uses on an already-placed
-     record (`m.box.x + m.box.w/2`, `m.box.y - def.lift.span`), computed here
-     from the footprint being proposed instead -- `rules/lift.js` is a `rules`
-     sibling and this file may not import it (rules do not import rules, and a
-     model query may not import rules at all), so the ONE arithmetic fact is
-     duplicated across a layer boundary rather than shared past it. */
-  if (def.lift) {
-    const cx = worldX(band, tx) + def.tw * band.tile / 2;
-    const topY = worldY(band, ty) - def.lift.span;
-    if (bandAt(cx, topY) !== bandOf(def.lift.toBand)) return { ok:false, why:'NO SHAFT TO SERVE' };
-  }
+  /* THERE IS NO 'NO SHAFT TO SERVE' CHECK ANY MORE, and its absence is the
+     point. The staged winch declared a destination band and a span on its own
+     row, so a stage could be placed where its span reached nothing -- a
+     machine that silently cannot do its one job -- and this function refused
+     it up front by duplicating `reaches()`'s arithmetic across the layer
+     boundary. Phase 8f deleted the winch. A HUB DECLARES NOTHING: whether it
+     can serve anything at all is a property of a SEGMENT, which is two hubs
+     and the space between them, and `model/segments.js#linkCheck` is where
+     that is decided -- reach, clear path and all. A lone machine no longer
+     has to guess about a band it might one day reach, so there is nothing
+     here to check and nothing duplicated across a boundary to keep in sync.
+     See docs/SPEC.md section 17.6. */
 
   /* A machine is a held item now, not a bill spent at this moment -- see
      `machineHeldSub`'s own header. `undefined` (a machine id with no
@@ -325,8 +330,9 @@ export function placementCheck(band, machineId, tx, ty) {
 /* Total carried mass, in TALENTS -- CLAUDE.md D3. A query on numbers, so it
    is `model`, not `rules`: the DECISION about what a burdened player may
    still do -- `rules/player.js`'s climb falloff and ladder/hop lockout,
-   `rules/items.js`'s pickup refusal, `rules/lift.js`'s boarding refusal --
-   all read this, but none of that decision lives here. */
+   `rules/items.js`'s pickup refusal, and `rules/drive.js`'s own arithmetic
+   for a rider's weight on a carrier (D4 as amended: boarding is never refused,
+   it is just heavy) -- all read this, but none of that decision lives here. */
 export function burdenOf() {
   let mass = 0;
   for (const k in run.inv) {

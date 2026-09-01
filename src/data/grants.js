@@ -23,12 +23,11 @@ export const GRANT = Object.freeze(Object.fromEntries(
 /* The machines a run may place before any grant is drafted. Everything else is
    granted. `rules/placement.js` reads this and nothing else.
 
-   `hub`/`crank`/`gear`/`axle` (Phase 8d, docs/PLAN-gears-and-winches.md) are
-   ungated for the same reason `lift` is: transport is the game's bottleneck,
+   `hub`/`crank`/`gear`/`axle` (docs/PLAN-gears-and-winches.md) are ungated for
+   the reason the retired winch stage was: transport is the game's bottleneck,
    not a reward, and gating the ONLY way up behind a draft would make a run's
-   viability a dice roll. `lift` stays on this list beside them until Phase 8f
-   retires it -- both mechanisms are buildable at once, on purpose, so the wave
-   is never in a half-broken state. */
+   viability a dice roll. The winch stage itself left this list in Phase 8f,
+   along with its machine row. */
 export const STARTING_MACHINES = Object.freeze(
-  ['furnace', 'lift', 'press', 'belt_r', 'belt_l', 'brazier', 'hearth',
+  ['furnace', 'press', 'belt_r', 'belt_l', 'brazier', 'hearth',
    'hub', 'crank', 'gear', 'axle']);

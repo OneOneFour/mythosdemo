@@ -7,7 +7,7 @@
    band record as its first argument.
 
    Threading `b` through every call is real noise -- about one extra parameter on
-   forty call sites. It buys three coexisting bands, a lift that travels between
+   forty call sites. It buys three coexisting bands, a carrier that travels between
    two of them, and a world size that `newRun()` gets a say in.
 
    COORDINATES. Two spaces, and only this file converts between them -- see
@@ -158,7 +158,7 @@ export const bandAt = (x, y) => bands.find(b =>
   x >= b.origin.x && x < b.origin.x + b.tw * b.tile &&
   y >= b.origin.y && y < b.origin.y + b.th * b.tile) || null;
 
-/* The band immediately below / above another in declaration order. A lift stage
+/* The band immediately below / above another in declaration order. A segment
    and a dig through a band floor both need this, and neither should compute it. */
 export const bandBelow = b => bands[b.ord + 1] || null;
 export const bandAbove = b => bands[b.ord - 1] || null;

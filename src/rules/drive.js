@@ -2,8 +2,11 @@
    carry it, segments move, and the player may ride one.
    Imports `core`, `data`, `model`. Imports no other `rules` module.
 
-   Replaces `rules/lift.js`. Read CLAUDE.md invariant 4 (as reworded), D4 (as
-   amended), D10, and docs/SPEC.md section 17 before changing anything here.
+   REPLACES THE STAGED WINCH, which was deleted -- module, machine row,
+   substance, recipe, grant, tunables and placement branch -- in the same commit
+   this file started moving anything. Read CLAUDE.md invariant 4 (as reworded),
+   D4 (as amended), D10, and docs/SPEC.md section 17 before changing anything
+   here.
 
    INVARIANT 4: A CARRIER RISES ONLY WHILE SOMETHING IS ACTIVELY TURNING IT AND
    SLIDES BACK DOWN UNDER ITS OWN WEIGHT FOR NOTHING. There is no object in this
@@ -263,12 +266,12 @@ function drive(s, dt) {
 const pick = (a, b) => (!a ? b : !b ? a : (b.supply > a.supply ? b : a));
 
 /* ---------- the haul ----------
-   `rules/lift.js#carry()` generalised to two axes: a segment runs at any
+   the retired winch's own `carry()` generalised to two axes: a segment runs at any
    angle, so `it.y += dy` becomes both. Items are world-positioned, so this is
    two additions per item -- no parenting and no transform stack.
 
    A BAND HANDOFF IS A RESPAWN AT THE SAME WORLD PIXEL, which is the only
-   sanctioned way to change an item's band (`rules/lift.js#deposit`, verbatim
+   sanctioned way to change an item's band (the retired `deposit()`, verbatim
    in shape). Done the moment the carrier's own band changes rather than only
    on arrival, because `it.band` is which band's tiles an item collides
    against and a resting item on the wrong side of a seam is a wake-up waiting

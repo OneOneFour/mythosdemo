@@ -506,7 +506,7 @@ function drawCraftingTooltip(g, f, grid, recipes) {
 /* State is a HEURISTIC over what `model/machines.js` already exposes, not a
    duplicate of `rules/machines.js`'s own decisions (`view` may not import
    `rules`, and should not want to: this tab is explicitly a stub).
-   RUNNING mirrors `m.running`, plus a banked lift/belt charge (`m.charges`)
+   RUNNING mirrors `m.running`, plus a banked belt/brazier charge (`m.charges`)
    reads as doing its job even on the frame it is not literally ticking.
    UNFUELLED fires only for a machine that actually HAS a fuel-accepting
    port and none buffered. Anything else with SOME buffer contents reads as

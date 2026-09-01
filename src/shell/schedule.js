@@ -101,15 +101,30 @@
                            belt-fed machine is one frame slower than a
                            hand-fed one for no reason a player could ever see.
                            `machines` is where that catch box is checked.
-     machines before lift   a charge banked this frame turns the drum now, so
-                           feeding the winch and it moving are one beat.
-     lift before drive      TRANSITIONAL, and gone by the end of Phase 8f: the
-                           old staged winch and the new segment drivetrain both
-                           run, on disjoint machine rows (`def.lift` vs.
-                           `def.hub`/`crank`/`gear`), so neither can see the
-                           other's state and the order between them carries no
-                           argument at all. `rules/lift.js` and this line go
-                           together.
+     machines before drive  a hub's own buffered state settles before the
+                           drivetrain is solved, so feeding a machine and
+                           turning a crank are one beat. (This pair used to
+                           read "a charge banked this frame turns the drum
+                           now": the staged winch spent a BANKED FUEL CHARGE
+                           to move, and `rules/machines.js` is what banked it.
+                           `rules/drive.js` has no charge and no fuel at all --
+                           the only power source is a crank the player is
+                           holding this very frame -- so the freshness this
+                           pair buys is now about a machine's buffer, not
+                           about the drivetrain's supply. The ORDER is
+                           unchanged; only the reason is.)
+
+                           IT IS ALSO WHY `player` IS FAR EARLIER IN THIS
+                           LIST, and that pair matters more than this one:
+                           `rules/drive.js` translates a RIDING player by the
+                           carrier's own delta with `pw.move`, which is only
+                           safe on a position collision has already resolved.
+                           `player` moves and resolves; `drive` then carries.
+                           Two writers of `player.y` in one frame, in an order
+                           stated here -- the identical freshness argument
+                           `items before belts` above already makes for an
+                           item and a belt, and the reason the ride branch
+                           needs no collision model of its own.
      drive before tutorial  `rules/tutorial.js` is a pure OBSERVER: every one of
                            docs/SPEC.md section 5's beat conditions is a READ of
                            state another step wrote, and the only things it
@@ -146,7 +161,6 @@ import * as drive from '../rules/drive.js';
 import * as fields from '../rules/fields.js';
 import * as grants from '../rules/grants.js';
 import * as items from '../rules/items.js';
-import * as lift from '../rules/lift.js';
 import * as light from '../rules/light.js';
 import * as machines from '../rules/machines.js';
 import * as mining from '../rules/mining.js';
@@ -169,7 +183,6 @@ export const STEPS = [
   { id: 'trinkets', step: () => trinkets.step() },
   { id: 'boons',    step: (dt) => boons.step(dt) },
   { id: 'machines', step: (dt) => machines.step(dt) },
-  { id: 'lift',     step: (dt) => lift.step(dt) },
   { id: 'drive',    step: (dt, cmd) => drive.step(dt, cmd) },
   { id: 'tutorial', step: () => tutorial.step() },
   { id: 'fields',   step: (dt) => fields.step(dt) }

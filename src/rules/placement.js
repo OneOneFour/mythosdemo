@@ -77,7 +77,7 @@ export function placeMachine(band, machineId, tx, ty) {
    "Empty" is `m.buf` having no keys and `m.charges === 0` -- the same two
    fields `rules/machines.js#produce`/`choose` already treat as "this machine
    is holding something": a buffered ore/fuel unit not yet spent, and a
-   banked lift/belt/brazier charge bought but not yet used. `m.made` (a
+   banked belt/brazier charge bought but not yet used. `m.made` (a
    lifetime counter) and `m.prog` (recipe progress, which cannot be nonzero
    with an empty buffer -- `choose` re-proves availability every frame) are
    deliberately not part of this test. */

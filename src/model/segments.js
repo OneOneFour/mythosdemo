@@ -26,10 +26,11 @@
    `rules/placement.js#deconstruct`, is that invalidation, and holding the
    record is what makes it a one-line identity test instead of a search.
 
-   NOTHING MOVES YET (Phase 8d). Every carrier parks at `t = 0` -- the LOW end
-   -- with `dir = 0` and `load = 0`. `write.carrier`/`write.load`/`write.band`
-   exist so the motion in Phase 8f's `rules/drive.js` has somewhere to write,
-   and nothing calls them with a moving value this phase. */
+   MOTION IS `rules/drive.js`'S, NOT THIS FILE'S. Everything here is storage
+   and questions: `t`, `dir`, `load` and `band` are written through the API
+   below and nothing in this file decides what they should be. A carrier still
+   PARKS at `t = 0` -- the low end -- because that is where a fresh link puts
+   it, not because anything here holds it there. */
 
 import { lerp, rect } from '../core/math.js';
 import { bump } from './epoch.js';
@@ -43,8 +44,8 @@ export const segments = [];
 
 /* Vertical slack, in px, within which something counts as ON the carrier
    rather than merely near it. The same number and the same idea as
-   `rules/lift.js`'s own `DECK_GRAB`, kept here because the BOX is a model
-   query (`view` draws it and `rules/drive.js` will read it) while the deck's
+   the retired staged winch's own `DECK_GRAB`, kept HERE because the BOX is a
+   model query (`view` draws it and `rules/drive.js` reads it) while the deck's
    was private to a rules module. */
 const CARRIER_GRAB = 3;
 
@@ -149,7 +150,7 @@ export function carrierPos(seg) {
   return { x, y };
 }
 
-/* The catch/stand box, the `rules/lift.js#deckBox` idiom sized by the
+/* The catch/stand box, the retired winch's own `deckBox` idiom sized by the
    carrier's own width instead of a footprint's. Centred on the carrier point,
    with `CARRIER_GRAB` of vertical slack on each side so material resting a
    pixel high still counts as aboard. */
@@ -227,7 +228,7 @@ export function linkCheck(a, b) {
    integer line algorithm to say so.
 
    `bandAt` PER SAMPLE is what makes a cross-band span work at all, and it is
-   the same call `rules/lift.js#ascend` already trusts for its band handoff.
+   the same call `rules/drive.js#haul` trusts for its own band handoff.
    The step is sized by the SMALLER of the two endpoint bands' tiles, so a
    future band with a finer grid cannot be sampled too coarsely. */
 function sweepSpan(pa, pb, len) {
@@ -289,7 +290,7 @@ export function chains() {
 }
 
 /* WHERE A CHAIN STOPS: every hub that anchors exactly ONE segment. A gap in a
-   lift chain is the space between two of these, which is what Phase 9's
+   chain is the space between two of these, which is what Phase 9's
    overview draws (docs/PLAN-gears-and-winches.md section 7.1) -- and WHICH
    pair of open ends constitutes a gap worth highlighting is that phase's
    DECISION, not this file's number. `model` owns the question; this is the

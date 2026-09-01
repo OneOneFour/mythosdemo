@@ -24,7 +24,7 @@ import { capOf, count, defOf, fill, firstMatching, machines, write as mw } from 
 import { write as digw } from '../model/mining.js';
 import { eff } from '../model/mods.js';
 import { playerBox } from '../model/player.js';
-import { hearts, run, write as rw } from '../model/run.js';
+import { run, write as rw } from '../model/run.js';
 import { baseHardAt, dropAt, subAt, tileAt, write as tw } from '../model/tiles.js';
 import { tileX, tileY, worldX, worldY } from '../model/world.js';
 
@@ -57,8 +57,13 @@ const api = {
     return pair;
   },
 
-  hearts: () => hearts(),
-  takeHearts: (n) => rw.spendHearts(n)
+  /* `hearts()`/`takeHearts()` USED TO BE HERE, for `data/sources.js#vital` and
+     the retired winch stage's heart-fuelled recipe. Both went in Phase 8f
+     (docs/PLAN-gears-and-winches.md A5: the crank is manual only), and this
+     list's own rule above -- "every entry has a caller today" -- is why they
+     did not stay behind as a convenience. `model/run.js#write.spendHearts` is
+     still there, holding the "a machine may not kill you" rule for whatever
+     spends hearts next. */
 };
 
 /* Largest single matching pair in a `{ 'sub/form': units }` ledger. Both the
@@ -176,9 +181,13 @@ function produce(m, def, dt) {
     }
   }
 
-  /* No liftable output at all — `out:[]`. The run banked a CHARGE instead: one
-     turn of a lift drum. `rules/lift.js` is the consumer, and it cannot tell a
-     charge bought with timber from one bought with a heart.
+  /* No output at all — `out:[]`. The run banked a CHARGE instead: one unit of
+     work a belt may later spend, one item delivered off its end
+     (`rules/belts.js`). A brazier's own `out:[]` recipe is the same shape and
+     is what keeps it lit while fuelled. NOTHING VERTICAL READS A CHARGE ANY
+     MORE: the staged winch spent one per haul and is gone as of Phase 8f, and
+     `rules/drive.js` has no charge at all -- its power is a crank the player
+     is holding this very frame.
      See docs/DEVELOPER_GUIDE.md#charges-and-honest-fuel */
   if (!made) mw.charge(m, 1);
 
@@ -186,13 +195,17 @@ function produce(m, def, dt) {
 }
 
 /* First recipe whose inputs are all present. ORDER IN THE ROW IS THE DESIGN —
-   see the winch, which lists timber before hearts so it behaves like an ordinary
-   fuelled lift right up until you run dry. */
-function choose(m, def) {
-  /* A stage holding an unspent haul does not burn more fuel: there is one deck
-     per stage, and five stages are five machines (invariant 4). */
-  if (def.lift && m.charges > 0) return null;
+   the clearest case was the retired winch stage, which listed timber before
+   hearts so it behaved like an ordinary fuelled winch right up until you ran
+   dry; `data/recipes.js`'s declaration-order block makes the same argument for
+   the hand recipes, which is where it still bites.
 
+   THE `charges > 0` GATE IS GONE. It stopped a winch stage
+   holding an unspent haul from burning more fuel, and both the row and the
+   rules module that read the charge went in Phase 8f. A belt is now the only
+   charge consumer, and it deliberately does NOT want that gate -- it banks
+   several and spends one per item delivered. */
+function choose(m, def) {
   for (const r of recipes(def, m.def)) {
     if (!gated(m, r)) continue;
     const src = SOURCES[r.from || 'buffer'];

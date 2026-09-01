@@ -43,35 +43,36 @@ export const TUNABLES = [
   { id:'fallHeart', kind:'value', base:32,   unit:'px/s',   note:'one heart per this much over fallSafe' },
   { id:'fallMax',   kind:'value', base:5,    unit:'hearts', note:'clamp; equals a full heart bar, so 20 tiles kills' },
 
-  /* ---- the staged lift. Down is free, up is expensive.
-     BEING RETIRED: `rules/lift.js` is the only reader of these two and Phase
-     8f deletes both along with it. They are NOT duplicates of `segUp`/
-     `segDown` below in any sense that matters -- the segment rows carry the
-     same BASES on purpose (a carrier is not faster than a deck was), and two
-     live readers of one number is exactly the drift CLAUDE.md warns about, so
-     the moment `rules/lift.js` goes these go with it. ---- */
-  { id:'liftUp',    kind:'value', base:11,   unit:'px/s',   note:'ascend. Only with a lit burner.' },
-  { id:'liftDown',  kind:'value', base:26,   unit:'px/s',   note:'descend. 2.4x faster, and free.' },
-
-  /* ---- SEGMENT TRANSPORT (Phase 8d, docs/PLAN-gears-and-winches.md section
-     4.7, docs/SPEC.md section 17). Eight rows, and the mechanic they price is
+  /* ---- SEGMENT TRANSPORT (docs/PLAN-gears-and-winches.md section 4.7,
+     docs/SPEC.md section 17). Eight rows, and the mechanic they price is
      invariant 4 as reworded: a carrier rises only while something is actively
      turning it and slides back down under its own weight for nothing.
 
-     Nothing reads the first five yet -- Phase 8f's `rules/drive.js` is the
-     reader, and the motion expression they parameterise is one line with three
-     cases:
+     `rules/drive.js` is the only reader, and the motion expression they
+     parameterise is one line with three cases:
 
-       need   = segBase + segLoad * mass * slope
-       surplus = supply - need
-       surplus > 0 -> ascend at segUp * min(1, surplus / segBase)
+       need    = segBase + segLoad * mass * slope
+       surplus = supply - need                      (supply is the DRIVETRAIN
+                                                     COMPONENT's own torque)
+       drive   = min(1, supply / demand)            (demand = the component's
+                                                     total `need`)
+       surplus > 0 -> ascend at segUp * min(1, surplus / segBase) * drive
        surplus = 0 -> hold still
        surplus < 0 -> descend at segDown * min(1, -surplus / segBase) * slope
 
      Weighted descent is what that expression ALREADY produces at zero supply,
-     which is why there is no separate "descend" number and no charge gate. ---- */
-  { id:'segUp',     kind:'value', base:11,    unit:'px/s',       note:'carrier ascent at full surplus. Same base as liftUp: a carrier is not faster than the deck it replaces.' },
-  { id:'segDown',   kind:'value', base:26,    unit:'px/s',       note:'free descent on a VERTICAL segment, scaled by slope. Same base as liftDown. 2.4x ascent, and free.' },
+     which is why there is no separate "descend" number and no charge gate. The
+     `* drive` factor on the ascent case is the ONE place the implementation
+     departs from the plan's section 4.3, and `rules/drive.js`'s header argues
+     it at length: it is what makes sharing one crank between two segments slow
+     both rather than stop both.
+
+     THESE REPLACED `liftUp`/`liftDown`, which carried the same bases (11 and
+     26) and were deleted with the staged winch in Phase 8f. Two live readers
+     of one number is exactly the drift CLAUDE.md warns about, which is why
+     they never coexisted for longer than the two phases it took. ---- */
+  { id:'segUp',     kind:'value', base:11,    unit:'px/s',       note:'carrier ascent at full surplus and full drive. The retired winch deck ascended at this exact number: a carrier is not faster than what it replaces.' },
+  { id:'segDown',   kind:'value', base:26,    unit:'px/s',       note:'free descent on a VERTICAL segment, scaled by slope. 2.4x ascent, and free. Also the retired deck\'s own number.' },
   { id:'segBase',   kind:'value', base:1.0,   unit:'drive',      note:'drive needed to raise an EMPTY carrier at full speed. The unit crank.torque is denominated in.' },
   { id:'segLoad',   kind:'value', base:0.025, unit:'drive/talent', note:'added drive per talent aboard, at full slope. 40 T -- the whole burden cap -- doubles the requirement.' },
   { id:'riderMass', kind:'value', base:8,     unit:'talents',    note:"the player's own body on a carrier, before their pockets. Boarding is never refused (D4 as amended); this is the load that makes it physics instead." },
@@ -89,7 +90,7 @@ export const TUNABLES = [
      expensive" applies directly -- the cost is paid up front, in `cost` on
      `data/machines.js`'s belt rows, and continuously, in the fuel that keeps
      `rules/belts.js` dragging at all. This number is deliberately closer to
-     `walk` than to either lift speed: a belt earns its keep by running
+     `walk` than to either carrier speed: a belt earns its keep by running
      unattended, not by outrunning the player. */
   { id:'beltSpeed', kind:'value', base:50,   unit:'px/s',   note:'drag speed while charged. See rules/belts.js.' },
 

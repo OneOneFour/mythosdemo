@@ -22,7 +22,7 @@ export const KIND_SFX = Object.freeze({
   accept:    'ignite',      // a machine swallowed an input
   produce:   'ingot',       // a machine finished a run
   divine:    'divine',      // a divine machine finished a run
-  winch:     'winch',       // a lift stage completed a haul
+  winch:     'winch',       // a carrier delivered a haul at the top of a segment
   place:     'ladder',      // a tile or machine was placed
   land:      'land',        // the player landed without damage
   hurt:      'hurt',        // hearts lost

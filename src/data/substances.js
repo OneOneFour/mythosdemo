@@ -252,11 +252,12 @@ export const SUBSTANCES = [
     item:{ mass:16.8, hud:{ order:12 } },
     look:{ item:['irC', 'irB'] } },
 
-  /* 6 copper/plate + 4 timber/log + 2 copper/ingot: 6x2.4 + 4x0.8 + 2x1.6 =
-     20.8 T, `docs/SPEC.md`'s own lift number, unchanged. */
-  { id:'lift', name:'WINCH STAGE', tags:['machine'],
-    item:{ mass:20.8, hud:{ order:13 } },
-    look:{ item:['woodC', 'irB'] } },
+  /* `hud.order` 13 IS DELIBERATELY VACANT. It belonged to the retired WINCH
+     STAGE machine substance (20.8 T), deleted in Phase 8f with the rest of the
+     staged winch -- see the `hub` row below, whose 10.4 T is half of it on
+     purpose. The gap is left rather than closed because `byHudOrder` only ever
+     SORTS by this number: renumbering nine rows to close a hole would be a
+     nine-row diff that changes nothing a player can see. */
 
   /* 4 copper/plate + 2 copper/ingot: 4x2.4 + 2x1.6 = 12.8 T, `docs/SPEC.md`'s
      own press number, unchanged. */
@@ -313,13 +314,13 @@ export const SUBSTANCES = [
      second sum.
 
      THE NUMBER THE FAMILY IS PRICED AROUND: a segment needs TWO hubs, so
-     2 x 10.4 = 20.8 T is the pair -- exactly what the one `lift` stage it
+     2 x 10.4 = 20.8 T is the pair -- exactly what the one WINCH STAGE it
      replaces weighs, to the decigram. A complete minimal segment (two hubs
      plus one crank) is 24.1 T, so it still fits inside one 40 T trip; adding a
      gear makes it 26.0 T and it still does (24.1 + 1.9). That is the reason the hub
      is HALF the retired winch rather than equal to it: pricing a hub at the
-     lift's own 20.8 T would have put a working segment at 44.9 T and made
-     "carry a lift down a shaft" a two-trip errand for no design gain.
+     stage's own 20.8 T would have put a working segment at 44.9 T and made
+     "carry the way up down a shaft" a two-trip errand for no design gain.
 
      These carry no `tile` block and their only tag is `machine`, so no
      tile-capable form crosses into them and none of them ever reaches the
