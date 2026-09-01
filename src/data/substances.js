@@ -96,10 +96,12 @@ export const SUBSTANCES = [
               a felled trunk's new top grows one the next time that tile
               repaints, with no code change, because the geometry test is
               "nothing solid above, all the way up" (`skyExposedAt`), not
-              "this is a trunk". Solid blocks, not a scatter: a chunky
-              Terraria-style canopy reads at this project's small viewport in a
-              way a stochastic dot-cloud did not. */
-           canopy:{ leaves:['vdB', 'vdA'], w:3, h:2 } } },
+              "this is a trunk". Three greens now, darkest first: shade, body,
+              sun-side highlight. `view/treatments.js#canopy` picks between them
+              per pixel from the one declared light direction -- the old two-tone
+              pair could only say "the top course is lighter", which is why it
+              read as a lit box rather than a lit crown. */
+           canopy:{ leaves:['vdC', 'vdB', 'vdA'], w:6, h:4 } } },
 
   /* ---- stone: the bulk of the world. Mines to gravel, never to ore, and has
           no ingot -- see docs/DEVELOPER_GUIDE.md#adding-a-form ---- */
