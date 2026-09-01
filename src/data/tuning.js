@@ -114,6 +114,17 @@ export const TUNABLES = [
   { id:'toolTier', kind:'scale', base:1.0, scope:'substance',
     note:'bends tile.tier gating in rules/mining.js; a boon could lend a tier' },
 
+  /* ---- worldgen (Phase 7, docs/SPEC.md section 16). Only ONE number from
+     that phase lives here, and the test is the one this file's header states:
+     `hollowOre` is what a hollow is WORTH, so a god who wants to make the dark
+     pay better bends it through `model/mods.js` like anything else. The
+     relief, contact and ore-shape numbers are purely generative — no boon
+     could sensibly move them mid-run, and worldgen has already run by the time
+     a boon exists — so they are named consts in `rules/generate.js` or keys on
+     a `data/world.js` strata row instead. */
+  { id:'hollowOre', kind:'value', base:0.25, unit:'fraction',
+    note:'chance a carved hollow has its walls lined with ore. Read once per hollow, at worldgen.' },
+
   { id:'tossUp',     kind:'value', base:50, unit:'px/s', note:'upward toss on a newly dropped item; drop verb only, see docs/FINDINGS.md' },
   { id:'tossSpread', kind:'value', base:12, unit:'px/s', note:'horizontal scatter on the same drop' }
 ];

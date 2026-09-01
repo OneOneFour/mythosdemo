@@ -59,6 +59,13 @@ export const BANDS = [
     floorTy:20, spawnTx:42, spawn:true,
     fields:['heat'],
     strata:[
+      /* THE HEIGHT MAP, and it must be the first row: every boundary below
+         offsets by it. Relief runs UPWARD from `floorTy` only, never below --
+         `rules/generate.js`'s own comment states why (an AIR tile at or below
+         `floorTy` is excavated rock as far as `view/paint.js` is concerned, so
+         a valley floor would fill its own sky with cave shading). The spawn
+         shelf is pinned flat at 0 and blended out either side. */
+      { kind:'relief', amp:6 },
       /* A shallow soil cap over the stone, so the exposed ground reads as
          dirt-with-grass (`soil`'s `hi` look) rather than bare rock. `lip:false`
          on the stone row is load-bearing: without it, `layer()`'s ragged-edge
@@ -67,19 +74,41 @@ export const BANDS = [
          nothing should ever look carved. */
       { kind:'layer', sub:'soil',   fromTy:20, toTy:27 },
       { kind:'layer', sub:'stone',  fromTy:27, toTy:56, lip:false },
-      /* `toTy` must reach past the layer's `fromTy:20` or a trunk's base scan
-         never finds solid ground -- it did not, for any seed, until this was
-         22: rows 16-19 are air, so `trees()`'s scan for the first solid tile
-         always fell through and every column was skipped. The extra row past
-         20 also covers a column whose row 20 happened to be carved by the
-         layer's ragged lip. `chance` raised alongside the fix, once trees
-         could exist at all, so 12ish logs is not a fistfight between the
-         first ladder and the first smelt (`log` is the only fuel). */
-      { kind:'trees', sub:'timber', fromTy:16, toTy:22, chance:0.06, height:[3, 5] },
+      /* THE CONTACT ZONE. The soil/stone seam is gradational, so it is the
+         thick one: 4 tiles of interdigitated fingers. `at` is the same row the
+         stone layer declares as its `fromTy`, and the two cannot drift because
+         both resolve it through the identical height-map shift. A sharp
+         contact (a granite/adamant seam, when one exists as two LAYERS rather
+         than as ore fields) is the same row with `thick:1`. */
+      { kind:'contact', upper:'soil', lower:'stone', at:27, thick:4 },
+      /* Hollows, declared between the layers and the ore so the ore pass can
+         line their walls. Shallow and few in this band -- there are only 29
+         rows of rock under the soil here, and `SAFE_R` around spawn already
+         forbids most of them; the deep rooms are `topsoil`'s job. */
+      { kind:'hollows', fromTy:38, toTy:56, count:16, r:[1.4, 2.6], steps:[2, 3], bias:1 },
+      /* `toTy` must reach past the ground line or a trunk's base scan never
+         finds solid ground -- it did not, for any seed, until this was 22:
+         rows 16-19 were air, so `trees()`'s scan for the first solid tile
+         always fell through and every column was skipped. The window now has
+         to span every height the relief row can produce (`floorTy - amp` at a
+         hilltop, `floorTy` in a valley) PLUS the row a ragged lip may have
+         carved, hence 10..28 rather than 16..22. `chance` raised alongside the
+         original fix, once trees could exist at all, so 12ish logs is not a
+         fistfight between the first ladder and the first smelt (`log` is the
+         only fuel). */
+      { kind:'trees', sub:'timber', fromTy:10, toTy:28, chance:0.06, height:[3, 5] },
+      /* `count` is up from 14 and `r` slightly wider because a cruciform
+         cluster is roughly half the cells a same-radius disc was: the total
+         copper in the band is held near where it was, deliberately, since
+         docs/SPEC.md section 5's first trial asks for 10 raw copper and
+         section 15's furnace bill for 12 more. */
+      { kind:'blobs', sub:'copper', fromTy:26, toTy:56, count:26, r:[1.6, 3.4], line:true },
       /* The guaranteed first vein, so the first two minutes cannot fail to
-         find copper. `near:'spawn'` is resolved by worldgen, not here. */
-      { kind:'blobs', sub:'copper', fromTy:26, toTy:56, count:14, r:[1.6, 3.2] },
-      { kind:'vein',  sub:'copper', near:'spawn', dy:8, r:3.1 }
+         find copper. `near:'spawn'` is resolved by worldgen, not here. `dy:6`
+         with `n:3` overlapping stars puts the vein's top at row 25 even on the
+         unluckiest arm roll -- a 5-tile dig, which is the beat docs/SPEC.md
+         section 5 promises -- and makes it a body rather than a plus sign. */
+      { kind:'vein',  sub:'copper', near:'spawn', dy:6, r:3.6, n:3 }
     ],
     look:{ sky:'skyLo', tint:'soilA', ambient:0.95 } },
 
@@ -93,15 +122,38 @@ export const BANDS = [
     floorTy:0,
     fields:['heat'],
     strata:[
+      /* No `relief` row: this band's own row 0 is buried under the surface
+         band's rock, so there is no ground line here to make undulate. */
       { kind:'layer', sub:'stone',  fromTy:0,  toTy:320 },
-      { kind:'blobs', sub:'copper', fromTy:4,  toTy:180, count:80, r:[1.6, 3.8] },
-      { kind:'blobs', sub:'tin',    fromTy:60, toTy:320, count:60, r:[1.6, 3.8] },
+      /* THE HIDDEN HOLLOWS, and the reason this band is worth digging into
+         sideways rather than only downward. `bias` < 1 skews the centre draw
+         toward `toTy`, so density rises with depth -- 0.85 makes the deepest
+         rows about 1.7x as dense as row 20 while still putting rooms within
+         reach of a shaft that has only just crossed the band seam. A harsher
+         bias (0.55 was tried) empties the first 30 rows entirely, which is
+         the depth a player first digs sideways at.
+
+         `fromTy:4` is the seam margin, not the "top 8 rows below topsoil"
+         exclusion -- that rule is about the SOIL (this band has none; its
+         ceiling is the surface band's rock) and it is the surface band's own
+         hollow row, at `fromTy:38`, 11 rows under the soil, that honours it.
+         The 2-row ceiling rule in `rules/generate.js` is what actually keeps a
+         hollow off this band's own top rows. */
+      { kind:'hollows', fromTy:4, toTy:320, count:180, r:[1.6, 3.8], steps:[2, 4], bias:0.85 },
+      /* `count` up across the board because a cruciform cluster is about half
+         the cells the same-radius disc was; see the surface band's copper row.
+         `line:true` opts a row into hollow-wall lining, and the DEEPEST such
+         row whose window holds a hollow claims it -- so the jackpot behind a
+         fall in the dark is graded by depth: copper shallow, then tin, then
+         granite, then adamant. */
+      { kind:'blobs', sub:'copper', fromTy:4,  toTy:180, count:160, r:[1.6, 3.8], line:true },
+      { kind:'blobs', sub:'tin',    fromTy:60, toTy:320, count:126, r:[1.6, 3.8], line:true },
       /* Deeper strata for Phase 2c's pick-tier gate: granite uncommon below
          the copper/tin bands, adamant rarer still and deeper again, so the
          tier gate has somewhere meaningful to bite once a bronze pickaxe
          cannot break either. */
-      { kind:'blobs', sub:'granite', fromTy:120, toTy:320, count:40, r:[1.4, 3.0] },
-      { kind:'blobs', sub:'adamant', fromTy:220, toTy:320, count:20, r:[1.2, 2.4] }
+      { kind:'blobs', sub:'granite', fromTy:120, toTy:320, count:78, r:[1.4, 3.0], line:true },
+      { kind:'blobs', sub:'adamant', fromTy:220, toTy:320, count:40, r:[1.2, 2.4], line:true }
     ],
     look:{ sky:'abyB', tint:'irD', ambient:0.6 } }
 ];

@@ -1227,3 +1227,43 @@ lint` (oxlint, clean — confirms no dead import survived any of the above),
 and the full `npm run test` (build + all 48 Playwright specs, one fewer
 than before now that a retired mechanism's own test is gone rather than
 rewritten) all pass.
+
+---
+
+## Phase 7 (worldgen relief/contacts/hollows) — three things parked
+
+**1. `view/paint.js#paintChunk` is why surface relief only goes UP.**
+`paint.js:104-106` paints an AIR tile as excavated cavity (dark, grained,
+floor-lipped) whenever `ty >= b.cfg.floorTy`, and as transparent sky
+otherwise. That test is a per-BAND constant, so a valley floor *below*
+`floorTy` fills its own open sky with cave shading. Phase 7 therefore
+anchors the height map at `floorTy` and lets relief run 0..-6 (hilltops
+above the base row) rather than ±6 — the total relief is the same 48 px
+BUILD_PLAN asks for, and `floorTy` keeps meaning what `shell/boot.js`'s
+spawn and the depth datum assume. If Phase 8 (which owns painting) wants
+terrain that dips below the declared ground line, the fix is for that test
+to consult the column's own ground row rather than the band's `floorTy` —
+worldgen already computes exactly that array, but it dies with the
+`generate()` call and nothing in `model` stores it. Not worth storing until
+somebody wants the valleys.
+
+**2. `topsoil`'s own stone layer still carves its default one-row LIP at band
+row 0** (`data/world.js`: `{ kind:'layer', sub:'stone', fromTy:0, toTy:320 }`,
+no `lip:false`), i.e. ~45 AIR tiles along the very top row of the band, on
+every seed, and this predates Phase 7. Harmless today (that row is buried
+under the surface band's rock, and stone has no `grassCap`/`canopy` to
+mis-place), but it does mean `skyExposedAt` is true for the tile under any
+one of those holes, and it makes the hollow ceiling rule's `firstSolid` scan
+return 1 rather than 0 in those columns. Either `lip:false` there or a
+deliberate decision that the seam is meant to be ragged; nobody has chosen.
+
+**3. `tests/visual.spec.js`'s `'the furnace build lifecycle'` assumed the
+ground beside spawn was flat.** It walks ~5 tiles right of spawn and places a
+3x2 furnace at the keyboard aim reticle, which the old dead-flat surface
+always allowed. With relief it landed in a hillside and returned `NEEDS CLEAR
+SPACE`. Phase 7 fixed it by widening the guaranteed shelf to `SPAWN_TX ± 9`
+(the flat prototype's own number, `docs/ARCHAEOLOGY.md` §2.2) rather than by
+editing the test — a 3x2 machine placeable at arm's length on the spawn shelf
+is a real requirement of `docs/SPEC.md` §5 beat 6. Other tests in that file
+carve their own patch first (`visual.spec.js:539`'s own comment says why);
+this one did not, and still does not.

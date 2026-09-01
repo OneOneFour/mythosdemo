@@ -550,3 +550,168 @@ eight machine substances (19 total) leaves 2 more substances before the tile
 id byte overflows — down from the pre-reversal headroom, since a new FORM
 costs disproportionately (every substance's stride grows by one). Verified
 by `npm run check`'s own guard at import time.
+
+## 16. Worldgen: relief, contacts and hollows (Phase 7)
+
+Locked with `docs/BUILD_PLAN.md` Phase 7. The surface is a landscape and the
+rock below has natural voids in it. Three new strata kinds and one new
+tunable; no new substance, no band `tw` moved (SPEC §1 still fixes the world
+at 128 tiles), and every draw is `rand()` so a run is still bit-reproducible
+from its seed (invariant 7). All of it lives in `src/rules/generate.js` plus
+`src/data/world.js` rows.
+
+### 16.1 The height map (`kind:'relief'`)
+
+One row per band, declared FIRST; a band without one is flat (`astral`,
+`topsoil`). Three octaves of value noise over a lattice drawn from `rand()`,
+summed, then clamped, then pinned, then step-limited, in that order.
+
+| number | value | where | meaning |
+|---|---|---|---|
+| octaves | `[48, 2] [16, 1] [5, 0.5]` | `OCT`, `generate.js` | `[period tiles, amplitude tiles]`: landform, hills, roughness |
+| `amp` | 6 | strata row (`RELIEF` is the default) | total relief, 48 px at an 8 px tile |
+| `FADE` | 36 rows | `generate.js` | depth at which a boundary's relief offset reaches 0 |
+| `BLEND` | 3 columns | `generate.js` | the fade-in either side of the spawn shelf |
+| `LIP` | 0.35 | `generate.js` (unchanged) | fraction of columns dipped one row — see below |
+
+**Relief runs UP from `floorTy`, never below it.** Offsets are `-amp..0` (plus
+the one-row lip dip), so the declared ground row is the *lowest* ground and a
+hilltop is up to 6 rows above it. This is not cosmetic: `view/paint.js#
+paintChunk` treats an AIR tile at `ty >= floorTy` as excavated and paints it
+dark cavity texture, so a valley floor *below* `floorTy` would fill its own
+open sky with cave shading. Keeping the base row as the valley floor also
+keeps `floorTy` meaning exactly what `shell/boot.js`'s spawn, the depth datum
+(`view/hud.js`, `model/run.js`) and that sky test already assume.
+
+**The ragged lip moved into the map.** `KINDS.layer` still carves `LIP` of its
+own top row in a band with no relief row, but in a band WITH one the same
+probability and the same one-row depth are applied to the height map instead
+(`heightmap()`), and `layer` skips its carve. A random one-tile carve laid on
+top of a height map is a two-tile face, and the hop clears one; folding it in
+means the step pass below can see it. The rendered result is identical — that
+column's top tile is still air over soil.
+
+**Strata follow the surface.** A boundary declared at row `ty` sits at
+`ty + round(off[tx] * max(0, 1 - (ty - floorTy) / FADE))`. Both sides of a
+seam resolve the *declared* row, so two adjacent layers can never part
+company, and the offset is 0 by 36 rows down — the adamant band at topsoil row
+220 inherits no surface wobble.
+
+### 16.2 Traversability (BUILD_PLAN C4/C5/C6)
+
+| number | value | meaning |
+|---|---|---|
+| `SHELF` | 9 tiles half-width | the guaranteed flat shelf, 19 columns, pinned to `floorTy` |
+| `STEP_BIG` | 2 tiles | the only step larger than 1, and only descending away from spawn |
+| `STEP_GAP` | 12 columns | minimum spacing between two big steps |
+| `SAFE_R` | 24 tiles | radius around the spawn tile where no step exceeds 1 and no hollow may reach |
+
+`SHELF` was 6 while the whole surface was flat. 9 is a port of the flat
+prototype's own `SPAWN_TX ± 9` "guaranteed level ground"
+(`docs/ARCHAEOLOGY.md` §2.2): once the ground either side undulates, 13
+columns is not enough to stand on and place a 3x2 furnace at arm's length
+(the aim reticle reaches 3.2 tiles), which is §5's beat 6.
+
+The step pass sweeps OUTWARD from the shelf in both directions, so the shelf
+and its blend are its fixed point. A rise away from spawn is capped at 1 tile
+always; a DESCENT away from spawn may take `STEP_BIG` where both its columns
+are outside `SAFE_R + 1` and the last big step was `STEP_GAP` columns ago.
+Down is free, so walking out is never blocked — measured at roughly 0.5
+two-tile drops per seed. Walking back up one wants a dig or a ladder, which is
+the premise, not a bug.
+
+### 16.3 The contact zone (`kind:'contact'`)
+
+A boundary is a band `thick` tiles deep where the two materials interdigitate.
+Ported in effect from the flat prototype's `hash2` flip windows
+(`docs/ARCHAEOLOGY.md` §2.2, the one real casualty that file identifies),
+re-expressed as the new strata kind §7 of that file recommends.
+
+| number | value | where |
+|---|---|---|
+| `thick` | 4 tiles (soil/stone) | strata row — content decides, per boundary |
+| `CONTACT_BIAS` | 0.45 | `generate.js` |
+
+Across the band the chance a cell is the UPPER material falls from 1 to ~0
+with depth, pushed either way by a per-column bias (one `rand()` per column,
+smoothed against its neighbours) — which is what makes the result fingers
+rather than TV static. The consequence is deliberate: a shaft through a
+contact hits alternating hardness, so the dig slows and speeds unpredictably.
+
+Only one contact row exists today (`surface`: soil over stone at row 27, the
+gradational one). A sharp seam is the same row with `thick:1`; granite and
+adamant are ore FIELDS rather than layers, so they have no boundary to grade
+yet.
+
+### 16.4 Hidden hollows (`kind:'hollows'`)
+
+Air carved out of the rock after the strata and before the ore.
+
+| row | `fromTy..toTy` | `count` | `r` | `steps` | `bias` |
+|---|---|---|---|---|---|
+| `surface` | 38..56 | 16 | 1.4..2.6 | 2..3 | 1 |
+| `topsoil` | 4..320 | 180 | 1.6..3.8 | 2..4 | 0.85 |
+
+| number | value | meaning |
+|---|---|---|
+| `HOLLOW_ROOF` | 2 rows | minimum rock between a hollow's ceiling and the top of the solid column |
+| `HOLLOW_ASPECT` | 1.5 | width over height of each stamped disc — a room, not a chimney |
+| `HOLLOW_VEIN` | 0.14 | fraction of a lined hollow's wall cells that get an ore cluster |
+| `hollowOre` | 0.25 | **the one tunable**, `data/tuning.js`, read through `eff()` — chance a hollow is lined |
+
+Shape is a short random walk of `steps` positions stamping a squashed disc of
+radius `r` at each. `bias` < 1 skews the centre draw toward `toTy`, so density
+rises with depth. Measured over 40 seeds: 139 rooms per seed, 3..13 tiles
+across, at most 8 ROWS of internal height — a drop of at most 7 tiles, which
+is 0 hearts on §3's table (1 heart starts at 8 tiles) — and nothing stacks
+higher than that, because of the one-room rule below.
+
+Every reason a candidate is discarded whole ("backfilled entirely" is
+"never carved", which is the same world and one pass fewer):
+
+- any cell out of bounds or outside the row's own window;
+- any cell in the spawn shelf's columns, or within `SAFE_R` of the spawn tile
+  — the shelf columns carry the tutorial shaft and (via `near:'spawn'`) the
+  guaranteed vein, and §3 promises the first two minutes cannot kill;
+- any cell whose ceiling is within `HOLLOW_ROOF` of the top of its own solid
+  column — a hollow that breaches the surface is a hole, and a hole is not a
+  secret. This is also what keeps `model/tiles.js#skyExposedAt` honest;
+- any cell, or any 4-neighbour of one, that is already air. ONE HOLLOW IS ONE
+  ROOM: two merged hollows would be a room twice as tall as either, i.e. a
+  fall twice as long as the row's own size key admits.
+
+**Hiddenness is not a flag.** No `hidden` key, no discovery event, no reveal
+trigger. A hollow is unseen because `b.seen` is false, dark because
+`rules/light.js` says so, and un-flooded because §11's `passB` will not
+enqueue past its first ring without `lightAt() >= 1`. Verified, on 16 seeds:
+a room 6 tiles from a lit shaft, with no air path to it, stays unseen.
+
+**Lining pays for the fall.** `eff('hollowOre')` of hollows have their walls
+lined during the ore pass: `line:true` opts a `blobs` row in, and the DEEPEST
+such row whose window holds the hollow claims it, so the jackpot is graded by
+depth (copper, then tin, then granite, then adamant). Clusters are stamped
+into SOLID cells only, so the ore is embedded in the wall and the room stays a
+room. Worth about 155 extra ore cells per seed in `topsoil`.
+
+### 16.5 Ore body shape
+
+Cruciform, not round. A centre cell plus 4-8 arms of length 1-2, orthogonals
+first, so a small cluster is a plus sign and a big one a star: `arms =
+clamp(round(r * 2), 4, 8)`, an arm may be two cells long above `ORE_LONG`
+(2.4) and grows one shoulder above `ORE_FAT` (2.8). `r` is the same
+`r:[min,max]` draw per strata row the round disc used, so tier sizing stayed
+content.
+
+This is NEW generation, not a port: `docs/ARCHAEOLOGY.md` §2.4 establishes
+that cruciform ore never existed here — the round ragged-rim disc was the
+shape from the mockup onward. Because a cruciform cluster is roughly half the
+cells a same-radius disc was, every `count` in `data/world.js` rose to hold
+total ore near where it was (measured over 5 seeds: surface copper 225 -> 232,
+topsoil copper 1355 -> 1246, tin 1067 -> 1010, granite 464 -> 538, adamant
+173 -> 223; the shortfalls are the ~9% of `topsoil` that is now open room).
+
+`blobs` writes into SOLID cells only, so a field never fills a hollow.
+`vein` (the guaranteed first copper, `near:'spawn'`) writes into air as well,
+because the guarantee is the whole point of the row, and is now `dy:6, r:3.6,
+n:3` — three overlapping stars, which puts its top at row 25 even on the
+unluckiest arm roll. That is the 5-tile dig §5's beat 3 promises.
