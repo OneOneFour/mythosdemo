@@ -1470,6 +1470,118 @@ function predictV(supply, mass, slope, demand = null) {
                `with the crank provably turning -- and says 'TOO HEAVY TO LIFT' once a second, only then`);
 }
 
+/* --- NOTHING MAKES ASCENT CHEAP (CLAUDE.md invariant 4, and the premise the
+   whole project is one sentence of). A seeded property test over 2,000 random
+   (slope x mass x supply) triples, measured off the real `main.step()` one
+   substep at a time, asserting two things no combination may ever break:
+
+     1. no triple ascends faster than `eff('segUp')` ALONG THE CABLE, and none
+        gains height faster than that in world y either. `segUp` is 11 px/s,
+        which is under half the 26 px/s a carrier falls at for free, and the
+        `min(1, surplus / segBase)` clamp and the `drive` fraction are what
+        hold the line -- neither of which is obvious from the expression, and
+        both of which a "helpful" simplification would remove.
+     2. NO UNPOWERED SEGMENT EVER ASCENDS. Not slowly, not at slope 0, not
+        under any load: with no crank turned, `surplus` is `-need`, which is at
+        least `segBase`, so the sign is negative or the motion is zero.
+
+   Supply is swept through a REAL `crankTorque` modifier row (0x to 6x, i.e.
+   0 to 9 units of torque against a `segBase` of 1) rather than by editing the
+   frozen `data/machines.js` row, so the sweep is exactly the range a stack of
+   boons could actually produce. Mass is swept with real items resting on the
+   deck, respawned per triple. Slope is the one parameter that is geometry, so
+   it is four rigs rather than a number: vertical, 45 degrees, shallow, and
+   flat. --- */
+{
+  const GEOMS = [
+    ['vertical', 1, { room: { ty0: 100, h: 18 },
+      machines: [['hub', 20, 115], ['hub', 20, 105], ['crank', 19, 115]] }],
+    ['45deg', 0, { reachMul: 2, room: { ty0: 100, h: 18, w: 16 },
+      machines: [['hub', 20, 115], ['hub', 30, 105], ['crank', 19, 115]] }],
+    ['shallow', 0, { room: { ty0: 100, h: 18, w: 16 },
+      machines: [['hub', 20, 115], ['hub', 30, 112], ['crank', 19, 115]] }],
+    ['flat', 0, { room: { ty0: 100, h: 18 },
+      machines: [['hub', 20, 115], ['hub', 28, 115], ['crank', 19, 115]] }]
+  ];
+
+  const ctl = rng.mulberry(0xA5CE47);
+  const PER = 500;
+  let tried = 0, worstV = -Infinity, worstRise = -Infinity, unpoweredUp = 0, mismatch = 0;
+  let overCable = 0, overRise = 0, worstAt = '';
+
+  for (const [name, , spec] of GEOMS) {
+    const r = driveRig({ ...spec, seed: 8300, links: [[0, 1]], player: [18, 115] });
+    const seg = r.seg;
+    const slope = seg.slope;
+    const cargo = [];
+
+    for (let i = 0; i < PER; i++) {
+      /* Half the triples are unpowered, which is assertion 2's whole
+         population; `mul` of 0 with the key held down is a third case (a god
+         who has taken all your torque away) and must behave identically. */
+      const powered = ctl() < 0.5;
+      const mul = Math.round(ctl() * 60) / 10;                 // 0.0 .. 6.0
+      const units = Math.round(ctl() * 60);                    // 0 .. 60 T of ore
+      const half = ctl() < 0.5;
+
+      mods.write.removeBySource('rig-torque');
+      mods.write.add('rig-torque', [{ key: 'crankTorque', mul }]);
+
+      for (const it of cargo) items.write.remove(it);
+      cargo.length = 0;
+      const p0 = segs.carrierPos(seg);
+      for (let k = 0; k < units; k++) {
+        const it = items.write.spawn(r.band, p0.x, p0.y, D_sub.S.copper, D_form.F.ore, 0, 0);
+        if (it) { it.rest = 1; cargo.push(it); }
+      }
+      if (half) {
+        const it = items.write.spawn(r.band, p0.x, p0.y, D_sub.S.copper, D_form.F.gravel, 0, 0);
+        if (it) { it.rest = 1; cargo.push(it); }
+      }
+      const mass = units + (half ? 0.5 : 0);
+
+      segs.write.carrier(seg, 0.5, 0);
+      const before = segs.carrierPos(seg), t0 = seg.t;
+      stepReal(1 / 120, { turn: powered, hasMouse: false });
+      const after = segs.carrierPos(seg);
+      const v = (seg.t - t0) * seg.len * 120;                  // px/s along the cable
+      const rise = (before.y - after.y) * 120;                 // px/s of world height GAINED
+      tried++;
+
+      if (v > worstV) { worstV = v; worstAt = `${name}, ${mass} T, supply ${(mul * 1.5).toFixed(2)}`; }
+      if (rise > worstRise) worstRise = rise;
+      if (v > mods.eff('segUp') + 1e-6) overCable++;
+      if (rise > mods.eff('segUp') + 1e-6) overRise++;
+      if (!powered && v > 1e-9) unpoweredUp++;
+      if (mul === 0 && v > 1e-9) unpoweredUp++;
+
+      const supply = powered
+        ? D_mach.MACH[D_mach.M.crank].crank.torque * mods.eff('crankTorque', 'crank') : 0;
+      if (Math.abs(v - predictV(supply, mass, slope)) > 1e-6) mismatch++;
+    }
+  }
+
+  console.log(`  ..  ascent sweep: ${tried} seeded (slope x mass x supply) triples, fastest ascent ` +
+              `${worstV.toFixed(4)} px/s along the cable (${worstAt}), fastest height gain ` +
+              `${worstRise.toFixed(4)} px/s, segUp = ${mods.eff('segUp')}`);
+
+  if (overCable) fail(`ASCENT: ${overCable}/${tried} triples ascended FASTER than eff('segUp') along the cable ` +
+                      `(worst ${worstV.toFixed(4)} px/s at ${worstAt}) -- something makes ascent cheap`);
+  else if (overRise) fail(`ASCENT: ${overRise}/${tried} triples GAINED HEIGHT faster than eff('segUp') ` +
+                          `(worst ${worstRise.toFixed(4)} px/s) -- something makes ascent cheap`);
+  else ok(`ASCENT IS NEVER CHEAP: ${tried} seeded triples, none faster than eff('segUp') ` +
+          `(${mods.eff('segUp')} px/s) along the cable OR in world height`);
+
+  if (unpoweredUp) fail(`ASCENT: ${unpoweredUp} unpowered (or zero-torque) triples ASCENDED -- ` +
+                        `a segment with nothing turning it must never rise`);
+  else ok(`ASCENT: no unpowered segment ever ascends, over ${tried} triples (half of them unpowered, ` +
+          `plus every zero-torque one)`);
+
+  if (mismatch) fail(`ASCENT: ${mismatch}/${tried} triples disagreed with docs/SPEC.md 17.8's expression ` +
+                     `-- the sweep found a combination the motion table above does not cover`);
+  else ok(`ASCENT: all ${tried} triples also match docs/SPEC.md 17.8 exactly, not merely the bound`);
+}
+
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +
             `journal ${journal.peek ? journal.peek().length : 0} undrained`);
