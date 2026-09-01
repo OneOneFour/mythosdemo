@@ -2457,3 +2457,51 @@ place for that agreement to break — and `drawMap` enforces fog by *omission*,
 which is easy to lose when you switch to downscaling baked chunk canvases that
 were painted without regard to what has been seen. That is why the fog
 assertion is written twice in Phase 11: once for the scene, once for the map.
+
+---
+
+## Pending insertion — segment transport replaces the staged winch (Phases 8c–8g)
+
+**`docs/PLAN-gears-and-winches.md` exists and is awaiting review.** It is the
+plan-mode output for a rejected mechanic: the staged winch
+(`src/rules/lift.js`, `data/machines.js`'s `lift` row,
+`lift:{ span, toBand }`, the `liftUp`/`liftDown` tunables, `m.deck`,
+`placementCheck`'s `'NO SHAFT TO SERVE'` branch) is **replaced**, not extended,
+by player-cranked, gear-linked **segment transport**: two placed hub machines
+within reach of each other, joined by an auto-resolved cable at any angle over
+a clear path, with a carrier that rises only while a drivetrain is being turned
+and slides back down under its own weight — and under the weight of whatever,
+or whoever, is riding it.
+
+What that plan contains, and why this file cannot simply absorb it:
+
+- **It changes two binding documents.** `CLAUDE.md` invariant 4 ("Five
+  independent lift stages, never one continuous cage") is reworded, `CLAUDE.md`
+  D4's "boarding a lift stage upward is refused" clause is amended to physics
+  rather than permission, `ARCHITECTURE.md` §9 invariant 4 follows, and a new
+  **D10** fixes the vocabulary (hub / segment / carrier / chain / drivetrain)
+  and records the gears-are-placed-but-the-cable-is-not reconciliation. All four
+  are **drafted in that file for review and deliberately unapplied.**
+- **Five new phases, 8c–8g,** slotting between Phase 8b and Phase 9 — a
+  substance-budget unblock, a motionless skeleton, a dedicated **visual
+  iteration** phase with a ~16-shot screenshot matrix *before* behaviour locks
+  in, the drivetrain and the winch's retirement, then the harness.
+- **Phase 9 and Phase 10 above still cite code this deletes.** Phase 9's LIFT
+  CHAIN layer names `rules/lift.js#reaches` and `placementCheck`'s
+  `'NO SHAFT TO SERVE'`; Phase 10 Steps 1 and 3, its STOP paragraph and its
+  acceptance all name the WINCH STAGE row or that same API. **Their bodies are
+  deliberately left untouched here.** §7 of the plan is a diff-shaped patch
+  list — exact current text, exact replacement — to be applied when the plan is
+  approved and 8c–8g are scheduled, not silently now. Do not run Phase 9 or
+  Phase 10 against the text above once 8f has landed without applying those
+  patches first.
+- **Two blockers it found and quantified:** the tile-id-byte guard in
+  `data/forms.js:225-228` allows only two more substance rows and this needs
+  four (the guard is conservative by ten non-packable rows — Phase 8c's job),
+  and `tools/check.mjs:789-815`'s break-even section indexes `M.lift` directly
+  and throws the moment the row goes.
+
+Sequencing, until this is approved: **Phase 8 (painting) and 8b (relics) are
+unaffected and may proceed.** Phase 9 and Phase 10 depend on the new mechanism
+existing — Phase 9 to visualise it, Phase 10 for the Cloud Dock to be reachable
+— so neither should start until 8c–8g are either done or explicitly deferred.

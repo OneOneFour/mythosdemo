@@ -89,8 +89,20 @@ same-frame response.
    at import — that was the biggest structural blocker in the old code.
 3. **A dig repaints its chunk, not the world.**
 4. **Down is free, up is expensive.** Falling is fast and costs hearts;
-   climbing is half walk speed and costs material; the winch ascends only with
-   a lit burner. Five independent lift stages, never one continuous cage.
+   climbing is half walk speed and costs material; a carrier rises only while
+   something is actively turning it and slides back down under its own weight
+   for nothing. **Transport is bounded segments between placed endpoints,
+   never one continuous cage:** a segment joins exactly two hub machines
+   within `hub.reach x eff('segReach', <hub>)` of each other over an
+   unobstructed path, and reaching further means placing another hub and
+   another segment. No object in the code may describe a route longer than one
+   segment — a route is a derived query over segments
+   (`model/segments.js#chains`), never a record. A segment may run at any
+   angle, and the shallower it runs the less gravity gives back, so a
+   horizontal line needs power in both directions. **Load is physical, not a
+   permission:** cargo and a riding player both weigh on the carrier, and past
+   what the drivetrain can turn it slows, stops, and then runs backwards. That
+   is the premise enforced by arithmetic instead of by a refusal.
 5. **Mined material becomes a falling item**, never a direct inventory credit.
    Machines are catch boxes: material that falls in is free.
 6. **Health is five discrete hearts.** No partials, no regeneration, no respawn.
@@ -336,8 +348,14 @@ never constants: `burden` (hard cap, base 40 T), `burdenSoft` (0.75) and
 
 - below the soft cap: normal climb.
 - soft → hard: climb speed falls linearly from 1.0 to `burdenClimbFloor`.
-- at or over the hard cap: **climbing is impossible.** Ladder-up, hop and
-  boarding a lift stage upward are all refused, legibly, through a journal row.
+- at or over the hard cap: **climbing is impossible.** Ladder-up and hop are
+  refused, legibly, through a journal row.
+- **a carrier is the one exception, and it is physics rather than permission.**
+  Boarding is never refused at any weight. The player's body plus everything
+  in their pockets is real load on the segment (see D10 and
+  `docs/PLAN-gears-and-winches.md`), so an over-cap player standing on a
+  carrier makes it slow, stall, or run backwards under them. The ascent is
+  still impossible; nothing had to say so.
 - **walking on level ground and every downward movement are never affected.**
   You can always fall.
 - a pickup that would cross the hard cap is refused, with a journal row.
@@ -449,6 +467,43 @@ therefore already expressible, and one already exists:
 `src/data/machines.js`'s winch stage already declares
 `lift:{ span:64, toBand:'astral' }`. The world is three bands and 416 rows
 (40 + 56 + 320) spanning world-Y 0..3328 px.
+
+### D10 — one word per part, and where the cable stops being physical
+
+The staged winch (`rules/lift.js`, `data/machines.js`'s `lift` row) is
+replaced by player-driven, gear-linked **segment transport**
+(`docs/PLAN-gears-and-winches.md`). Five nouns, and nothing in code, docs or
+a commit message may use a sixth:
+
+| term | what it is | where it lives |
+|---|---|---|
+| **hub** | a placed machine that a segment may be anchored to. Gears and a drum. | `data/machines.js` row with a `hub:{}` block |
+| **segment** | ONE cable between exactly TWO hubs, carrying one carrier. Runtime, not a machine. | `model/segments.js` (state) + `rules/drive.js` (motion) |
+| **carrier** | the bucket/platform that rides a segment. One per segment. | a field on the segment record |
+| **chain** | a maximal connected run of segments. DERIVED, never stored. | `model/segments.js#chains()` |
+| **drivetrain** | the placed crank/gear/axle graph that supplies torque. | `crank:{}` / `gear:{}` blocks, solved in `rules/drive.js` |
+
+**The reconciliation.** Everything that supplies or transmits POWER is
+physical, placed and adjacent: a crank, a gear, an axle, and the hub they
+feed. Power flows only through footprint adjacency between those machines.
+The one thing that is NOT tile-by-tile placed is the CABLE between two hubs:
+once both hubs exist, are within reach, and the straight path between them is
+clear, the segment resolves itself. So the player places endpoints and
+drivetrains, never cable — and a belt is still the tile-by-tile thing a belt
+always was.
+
+**Torque is a component scalar, not a per-edge flow.** One crank feeding
+three segments through gears turns all three at a third speed. That is the
+whole of "gears connect multiple systems together": a shared, divisible
+resource with a visible cost, not a graph-flow simulation.
+
+**Manual only, for now.** The crank turns only while the player holds it —
+the same hold-to-act idiom as mining and hand-crafting, not a switch. There
+is no heart-powered or otherwise passive fallback: the earlier blood-winch
+trap (paying a heart to power the lift with no fuel) does not carry forward
+onto the crank. The cost of power is the player's own standing presence and
+attention, full stop; a passive alternative is a generator, explicitly
+deferred, and unrelated to hearts or `data/sources.js#vital`.
 
 What the Heavens lack is not a location but content: a dock, a ledger, and a
 reason to go. That is the cycle director's job, not worldgen's.

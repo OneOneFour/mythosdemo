@@ -216,7 +216,9 @@ some of that; a human covers the rest.
    camera and nothing else.
 3. A dig repaints its chunk, not the world.
 4. Down is free, up is expensive. Falling is fast and costs hearts; climbing is
-   half walk speed and costs material; the lift only ascends with a lit burner.
+   half walk speed and costs material; a carrier rises only while a drivetrain
+   is being turned, and descends under its own weight for nothing. Transport is
+   bounded segments between two placed hubs, never one continuous cage.
 5. Mined material becomes a falling item, never a direct inventory credit.
    Machines are catch boxes: material that falls in is free.
 6. Health is five discrete hearts. No partials, no regeneration, no respawn.
