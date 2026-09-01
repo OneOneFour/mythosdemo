@@ -103,7 +103,14 @@
                            `machines` is where that catch box is checked.
      machines before lift   a charge banked this frame turns the drum now, so
                            feeding the winch and it moving are one beat.
-     lift before tutorial   `rules/tutorial.js` is a pure OBSERVER: every one of
+     lift before drive      TRANSITIONAL, and gone by the end of Phase 8f: the
+                           old staged winch and the new segment drivetrain both
+                           run, on disjoint machine rows (`def.lift` vs.
+                           `def.hub`/`crank`/`gear`), so neither can see the
+                           other's state and the order between them carries no
+                           argument at all. `rules/lift.js` and this line go
+                           together.
+     drive before tutorial  `rules/tutorial.js` is a pure OBSERVER: every one of
                            docs/SPEC.md section 5's beat conditions is a READ of
                            state another step wrote, and the only things it
                            writes — `run.tutorialBeat` and a `tutorial` journal
@@ -135,6 +142,7 @@ import { write as rw } from '../model/run.js';
 import * as belts from '../rules/belts.js';
 import * as boons from '../rules/boons.js';
 import * as crafting from '../rules/crafting.js';
+import * as drive from '../rules/drive.js';
 import * as fields from '../rules/fields.js';
 import * as grants from '../rules/grants.js';
 import * as items from '../rules/items.js';
@@ -162,6 +170,7 @@ export const STEPS = [
   { id: 'boons',    step: (dt) => boons.step(dt) },
   { id: 'machines', step: (dt) => machines.step(dt) },
   { id: 'lift',     step: (dt) => lift.step(dt) },
+  { id: 'drive',    step: (dt, cmd) => drive.step(dt, cmd) },
   { id: 'tutorial', step: () => tutorial.step() },
   { id: 'fields',   step: (dt) => fields.step(dt) }
 ];

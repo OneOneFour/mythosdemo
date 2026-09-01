@@ -97,6 +97,12 @@ export function step(dt) {
   const c = {
     left: cmd.left, right: cmd.right, up: cmd.up, down: cmd.down,
     hop: cmd.hop, dig: digging, place: cmd.place, craft: cmd.craft,
+    /* `turn` is a HOLD, like `craft` and `dig` above: `rules/drive.js` reads
+       it every substep and supplies torque for exactly the substeps it is
+       down. It has to be on THIS object and not read off `cmd` inside the
+       rule, because this narrowed set is the whole of what `rules` may see of
+       the input device (Phase 8f). */
+    turn: cmd.turn,
     hasMouse: cmd.hasMouse, mx: cmd.mx, my: cmd.my
   };
 

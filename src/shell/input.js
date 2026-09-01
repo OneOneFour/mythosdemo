@@ -36,7 +36,7 @@ import { armPlace, clearArmedPlace, clearLink, closeTop, isOpen, setSearch, setS
 export const cmd = {
   left: false, right: false, up: false, down: false,
   hop: false, dig: false, place: false, craft: false, drop: false,
-  deconstruct: false, miracle: false, equip: false, link: false,
+  deconstruct: false, miracle: false, equip: false, link: false, turn: false,
   mouse: false, mx: 0, my: 0, hasMouse: false,
 
   /* UI pointer intents -- see docs/DEVELOPER_GUIDE.md#input-intents.
@@ -93,6 +93,18 @@ function set(k, down) {
   if (key === 'x' || key === 'j')   cmd.dig = down;
   if (key === 'e')                  { if (down && !placeHeld) cmd.place = true; placeHeld = down; }
   if (key === 'u')                  cmd.craft = down;
+  /* 'f' to TURN a crank within reach (Phase 8f,
+     docs/PLAN-gears-and-winches.md section 4.2) -- a HOLD, exactly like
+     `craft` above and `dig` before it, and deliberately NOT an edge: the whole
+     design is that the player must stand there holding it, so this file's
+     "a held key must not repeat-fire" warning does not apply. There is nothing
+     to fire; there is only a key that is either down or not, and
+     `rules/drive.js` supplies torque for exactly the frames it is down.
+     `f` is free: the live binding set is wasd/arrows, space, x/j, e, u, q,
+     backspace, v, p, l, g, c, h, i, escape, o, m, r, the digits, and t/b/k/y
+     behind `flags.showDebug`. Released on blur with the other holds below;
+     NOT listed in `clearEdges()`, which would turn a hold into an edge. */
+  if (key === 'f')                  cmd.turn = down;
   /* 'q' for the drop verb -- EDGE-TRIGGERED, same `*Held` latch idiom as
      `hop`/`place` above: this file's own header already records that a held
      key emptying the pockets into a wall in half a second is a bug, and a held
@@ -243,7 +255,7 @@ export function installInput() {
      changed stays down forever otherwise, and the player returns to a character
      walking into a wall. */
   addEventListener('blur', () => {
-    for (const k of ['left', 'right', 'up', 'down', 'dig', 'place', 'craft', 'mouse', 'uiClick', 'uiRight', 'uiDown'])
+    for (const k of ['left', 'right', 'up', 'down', 'dig', 'place', 'craft', 'turn', 'mouse', 'uiClick', 'uiRight', 'uiDown'])
       cmd[k] = false;
     cmd.uiCtrl = false; cmd.uiShift = false; cmd.uiWheel = 0;
     hopHeld = false; placeHeld = false; dropHeld = false; deconHeld = false;

@@ -31,10 +31,11 @@
    exist so the motion in Phase 8f's `rules/drive.js` has somewhere to write,
    and nothing calls them with a moving value this phase. */
 
-import { lerp, overlaps, rect } from '../core/math.js';
+import { lerp, rect } from '../core/math.js';
 import { bump } from './epoch.js';
 import { defOf } from './machines.js';
 import { eff } from './mods.js';
+import { player, playerBox } from './player.js';
 import { solidAt } from './tiles.js';
 import { bandAt, tileX, tileY } from './world.js';
 
@@ -304,19 +305,67 @@ export function breaks() {
   return out;
 }
 
-/* The segment whose carrier box overlaps this box in this band, or null -- the
-   one query `rules/player.js` needs in Phase 8f to decide the ride branch, in
-   exactly the shape `model/tiles.js#climbAt` already answers the ladder
-   branch. A CARRIER IS NOT TERRAIN (invariant 1: the tile grid is the only
-   source of truth), so this is how it holds the player up: a model query, not
-   a second collision model, and nothing here writes to any band's `mat`.
+/* WHAT A CARRIER MAY BEAR, off `hub.carries` on BOTH anchors' rows. Data, not
+   code (docs/PLAN section 4.1): a cheap material-only hub tier is a
+   `variantOf` row with a shorter `carries` list and needs no engine edit.
+   BOTH ends must agree -- a cable is one object and the weaker end governs,
+   the same rule `linkCheck`'s `'TOO FAR APART'` already applies to reach. */
+export function carries(seg, what) {
+  const a = defOf(seg.a).hub, b = defOf(seg.b).hub;
+  return !!a && !!b && a.carries.includes(what) && b.carries.includes(what);
+}
 
-   `segments` order is the tiebreak when two carriers overlap, which is link
+/* The DECK LINE in world px: the top edge of the drawn carrier, which is what
+   `view/paint.js#paintCarriers` draws its bright plank on. The one number
+   `rules/player.js` needs to stand a rider flush, so what LOOKS standable and
+   what IS standable are the same pixels rather than two guesses. */
+export const carrierTop = seg => carrierPos(seg).y - CARRIER_H / 2;
+
+/* The segment whose carrier is under this box in this band, or null -- the one
+   query `rules/player.js` needs to decide the ride branch, in exactly the
+   shape `model/tiles.js#climbAt` already answers the ladder branch. A CARRIER
+   IS NOT TERRAIN (invariant 1: the tile grid is the only source of truth), so
+   this is how it holds the player up: a model query, not a second collision
+   model, and nothing here writes to any band's `mat`.
+
+   "UNDER", AND THE WORD IS LOAD-BEARING. A bare `overlaps` against
+   `carrierBox` would also be true of a player standing on real rock with a
+   parked bucket at head height, and the ride branch would then float them off
+   the floor. So: horizontal overlap, AND the box's FEET inside the carrier's
+   own vertical grab band. That band is `CARRIER_GRAB` either side of a 4 px
+   deck (10 px total), which at the fixed 1/120 s step is three times the
+   furthest a body falling at `terminal` can travel in one substep -- so a fall
+   cannot tunnel through it (invariant 10; the same half-tile-sweep reasoning
+   `rules/items.js` states, applied to a window instead of a step).
+
+   `segments` order is the tiebreak when two carriers qualify, which is link
    order, which is deterministic. */
 export function carrierUnder(band, box) {
+  const feet = box.y + box.h;
   for (const seg of segments) {
     if (seg.band !== band) continue;
-    if (overlaps(box, carrierBox(seg))) return seg;
+    const cb = carrierBox(seg);
+    if (box.x >= cb.x + cb.w || box.x + box.w <= cb.x) continue;
+    if (feet < cb.y || feet > cb.y + cb.h) continue;
+    return seg;
   }
   return null;
+}
+
+/* IS THE PLAYER RIDING, AND WHAT. ONE PREDICATE, TWO RULES MODULES:
+   `rules/player.js` reads it to treat a carrier top as ground and
+   `rules/drive.js` reads it to translate the rider and to count their mass.
+   `rules` siblings may not import each other, so a shared predicate has to
+   live in `model` -- and it must be shared, because two copies of "is this a
+   ride" would eventually disagree about a frame and either float the player or
+   drop them.
+
+   `vy < 0` IS A ONE-WAY PLATFORM, and it is the same reasoning every
+   pass-through platform in every game uses: a player hopping UP past a carrier
+   should pass it, not be caught on top of it mid-jump. Rising means not
+   riding; falling or at rest means the deck catches you. */
+export function riddenSegment() {
+  if (!player.band || player.vy < 0) return null;
+  const seg = carrierUnder(player.band, playerBox());
+  return seg && carries(seg, 'player') ? seg : null;
 }

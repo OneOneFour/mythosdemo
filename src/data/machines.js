@@ -467,8 +467,23 @@ export const MACHINES = [
      D10's "manual only", and A5 explicitly rejects a heart-powered
      fallback). ---- */
 
-  /* WINCH HUB: the endpoint, and the investment. 2x2 with a footing of 2, the
-     same shape as the press and the hearth.
+  /* WINCH HUB: the endpoint, and the investment. 2x2, the same footprint as
+     the press and the hearth.
+
+     `footing:1`, AND THAT ONE IS LOAD-BEARING (changed from 2 in Phase 8f,
+     docs/SPEC.md section 17.2). A HEADFRAME STRADDLES THE SHAFT MOUTH: one
+     column on solid ground, one over the void. At `footing:2` both columns
+     had to stand on rock, and then the cable -- which leaves from the
+     footprint's own CENTRE, i.e. down the right-hand column -- ran straight
+     into the hub's own footing tile one row below and `linkCheck` refused it
+     with 'THE PATH IS BLOCKED'. The arithmetic is unforgiving: with both
+     columns supported, no span steeper than 45 degrees can leave an upper hub
+     at all, so "a hub at the surface and a hub at the shaft floor" -- the
+     whole mechanic -- was unbuildable through `rules/placement.js`. Phase 8e's
+     baselines never caught it because a screenshot scene places machines
+     directly through `model/machines.js#write.place`, which asks nothing about
+     footing. Found by physically performing this phase's own acceptance
+     walkthrough; recorded in docs/FINDINGS.md.
 
      `reach:96` is 12 tiles at the 8 px tile every band ships with today.
      THE SMALLER OF THE TWO HUBS GOVERNS a span (`linkCheck`'s 'TOO FAR
@@ -482,7 +497,7 @@ export const MACHINES = [
      carrier arrive at it, which is `rules/drive.js`'s job in Phase 8f, not a
      buffer's. */
   { id:'hub', name:'WINCH HUB',
-    tw:2, th:2, footing:2,
+    tw:2, th:2, footing:1,
 
     hub:{ reach:96, carries:['material', 'player'] },
 
@@ -523,9 +538,25 @@ export const MACHINES = [
      footing 1 -- a post with a handle on it, standing beside the hub it
      turns, not a structure.
 
-     `torque:1.0` is exactly `segBase`: one crank raises one EMPTY carrier at
-     full `segUp`. A rider plus a load needs more drivetrain, which is the
-     whole of "nothing makes ascent cheap".
+     `torque:1.5` is one and a half `segBase`, and the half is what makes the
+     mechanic work at all (Phase 8f, docs/SPEC.md section 17.8). At exactly
+     1.0 the motion expression's three cases put a single crank on the KNIFE
+     EDGE of an empty vertical carrier -- `surplus` is exactly zero, which is
+     the "hold still" case, so one crank would raise nothing at all while
+     an unpowered carrier still needs a full `segBase` of deficit to slide
+     back down at full `segDown`. Those two facts together require
+     `crank.torque > segBase`, and 1.5 is the value that keeps every one of
+     the design's stated behaviours true at once:
+
+       empty, or a few ore aboard   one crank climbs
+       ~20 T aboard                 one crank exactly holds it
+       over 20 T aboard             one crank RUNS BACKWARDS under it
+       40 T (the whole burden cap)  needs 2.0, i.e. more drivetrain
+
+     20 T is half the burden cap, which is the honest statement of the trade:
+     you may ride up with half a load, or crank a full one up empty-handed.
+     A rider plus a full load needs more drivetrain, which is the whole of
+     "nothing makes ascent cheap".
 
      `reach:12` is `handFeed`'s own 10 plus a little, deliberately: standing
      close enough to turn a crank and standing close enough to feed a machine
@@ -533,7 +564,7 @@ export const MACHINES = [
   { id:'crank', name:'HAND CRANK',
     tw:1, th:2, footing:1,
 
-    crank:{ torque:1.0, reach:12 },
+    crank:{ torque:1.5, reach:12 },
 
     /* A POST WITH A HANDLE ON IT. The handle is swept by `m.turn` and is the
        machine's whole turning state -- there is no second indicator, because

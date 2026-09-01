@@ -34,6 +34,7 @@ import { push } from '../model/journal.js';
 import { eff } from '../model/mods.js';
 import { PH, PW, fallHearts, player, write as pw } from '../model/player.js';
 import { burdenFrac, run, write as rw } from '../model/run.js';
+import { carrierTop, riddenSegment } from '../model/segments.js';
 import { climbAt, formAt, solidAt } from '../model/tiles.js';
 import { bandAbove, bandBelow, bands, heightPx, tileX, tileY, widthPx, worldX, worldY } from '../model/world.js';
 
@@ -60,12 +61,30 @@ export function step(dt, cmd) {
   let onLadder = boxClimb(b, player.x, player.y);
   pw.set('onLadder', onLadder);
 
+  /* ---- THE RIDE BRANCH (docs/PLAN-gears-and-winches.md section 4.6) ----
+     A CARRIER IS NOT TERRAIN AND MUST NOT BECOME TERRAIN (invariant 1: the
+     tile grid is the only source of truth, and there is never a second
+     collision model). It holds the player up the exact way a LADDER does:
+     through a model query, `model/segments.js#riddenSegment`, which is also
+     what `rules/drive.js` reads to translate the rider -- one predicate, two
+     rules modules, because siblings may not import each other and two copies
+     would eventually disagree about a frame.
+
+     A ladder WINS over a carrier: the player pressing up/down on a rung has
+     said which mechanic they mean, and a shaft with both in it is a shaft
+     they can always climb by hand.
+
+     Burden is NOT read here at all. Boarding is never refused at any weight
+     (CLAUDE.md D4 as amended) -- an over-cap rider is mass in
+     `rules/drive.js`'s own arithmetic, and the carrier runs backwards under
+     them instead of a refusal saying so. */
+  const riding = onLadder ? null : riddenSegment();
+
   /* CLAUDE.md D4: encumbrance gates ASCENT, and nothing else. `frac` is the
      fraction of the hard cap currently carried; `overCap` is the lockout at
-     or over it -- ladder-up, hop and (`rules/lift.js`) boarding a lift stage
-     upward are all refused there, legibly, through a journal row. Walking
-     on level ground and every downward movement below never read either
-     value: you can always fall. */
+     or over it -- ladder-up and hop are refused there, legibly, through a
+     journal row. Walking on level ground and every downward movement below
+     never read either value: you can always fall. */
   const frac = burdenFrac(), overCap = frac >= 1;
 
   /* ---- horizontal: no acceleration, on purpose. This is a digging game and a
@@ -105,9 +124,26 @@ export function step(dt, cmd) {
       if (overCap) push('refused', { x: player.x, y: player.y }, { why: 'TOO HEAVY TO CLIMB' });
       else { vy = -hop; onLadder = false; pw.set('onLadder', false); }
     }
+  } else if (riding && !cmd.hop) {
+    /* STANDING ON A CARRIER IS STANDING ON GROUND. Gravity is not integrated
+       and the deck is snapped to flush, exactly the way `moveY` snaps to a
+       tile boundary -- flush is what makes the rider's own translation in
+       `rules/drive.js` land them on the deck and not a pixel above or below
+       it. The snap is refused if the destination is solid, for the reason bug
+       2 in this file's header records: a height change that can wedge a
+       player is a height change that eventually will. */
+    vy = 0;
+    const ny = carrierTop(riding) - PH;
+    if (ny !== player.y && !boxSolid(b, player.x, ny)) pw.move(player.x, ny);
   } else {
-    if ((player.onGround || player.coyote > 0) && cmd.hop) {
-      if (overCap) {
+    if ((player.onGround || player.coyote > 0 || riding) && cmd.hop) {
+      /* HOPPING OFF A CARRIER IS NOT BURDEN-GATED, and that is deliberate
+         (docs/PLAN section 4.6): a hop is a hop, and an over-cap player
+         standing on a sinking bucket must be able to step off it onto the
+         ledge beside them -- the same argument exception 1 in CLAUDE.md D4
+         already makes for the one-tile auto-step. Off the ground it is
+         refused as it always was. */
+      if (overCap && !riding) {
         push('refused', { x: player.x, y: player.y }, { why: 'TOO HEAVY TO CLIMB' });
       } else {
         vy = -hop;
@@ -124,6 +160,25 @@ export function step(dt, cmd) {
   moveX(b, vx * dt);
   const hitFloor = moveY(b, player.vy * dt);
 
+  /* A CARRIER'S DECK IS A FLOOR, resolved AFTER `moveY` because `moveY` only
+     ever consults the tile grid and would otherwise report standing over open
+     air. `onGround` true is what pins `fallFrom` at line 137 below, which is
+     the whole of "no fall damage accrues while riding" -- no new code in
+     `land()`, and the very next frame after stepping off, gravity and the
+     fall-damage curve resume with none either.
+
+     `land()` still fires for the frame the player ARRIVES on a deck out of a
+     fall, so dropping onto a bucket costs exactly what dropping onto rock from
+     the same height costs. A carrier is a surface, not a safety net.
+
+     RE-QUERIED after the move, not trusted from the top of the frame: `moveX`
+     may have walked the player straight off the deck's edge, and the whole
+     promise of "walking off resumes gravity on the very next frame" is that
+     nothing keeps holding them up once they are not over it. Same query, same
+     answer `rules/drive.js` will get one step later. */
+  const landed = !!riding && !cmd.hop && riddenSegment() === riding;
+  if (landed) pw.set('onGround', true);
+
   pw.set('coyote', player.onGround ? eff('coyote') : Math.max(0, player.coyote - dt));
 
   /* `fallFrom` is the APEX of the current airborne arc, not the launch point.
@@ -133,7 +188,7 @@ export function step(dt, cmd) {
   if (!player.onGround && !player.onLadder && player.y < player.fallFrom)
     pw.set('fallFrom', player.y);
 
-  if (hitFloor && !wasGround) land(b, term, grav);
+  if ((hitFloor || landed) && !wasGround) land(b, term, grav);
   if (player.onGround || player.onLadder) pw.set('fallFrom', player.y);
 
   if (Math.abs(vx) > 1 && player.onGround) pw.set('walkPhase', player.walkPhase + dt * 7);
