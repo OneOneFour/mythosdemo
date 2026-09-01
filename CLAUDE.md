@@ -352,3 +352,103 @@ Two deliberate exceptions, both for reasons already recorded in this file:
    material down today. Shipping the lockout without one is a soft-lock, so
    `rules/items.js` gains a drop before `rules/player.js` gains the gate. This
    is called out again in `docs/BUILD_PLAN.md` Phase 2a.
+
+### D5 — cargo ascends to the Heavens; the player is not walled out of them
+
+`docs/DESIGN.md`'s "The Hades act" is explicit that the sky gods "shout demands
+from clouds you cannot reach and never address you directly", and that Hades'
+whole characterisation is that he walks up to you underground, in person, and
+asks politely. A walkable cloud level with rooms in it spends the best reveal in
+the game to buy a space with nothing in it.
+
+So: **cargo ascends, the player does not — and gravity is the gate, not a
+wall.** The topmost lift stage terminates at a 2-tile Cloud Dock in the
+`astral` band. The player *can* ride up and stand on it. Step off and you fall
+the full world height, which `docs/SPEC.md` §3's table already makes lethal at
+20 tiles. No invisible wall, no "you cannot go here" message, no new mechanic:
+the existing fall-damage curve is the fence, and the myth it evokes is the
+correct one. You watch hands take your cargo and you go back down.
+
+The gods are never drawn as figures and never speak to the player directly in
+the Heavens. That first-person address is Hades', and it is not spent here.
+
+### D6 — the First Trial does not move
+
+`docs/SPEC.md` §4 and §5 lock cycle 1 as an altar **on the surface**, 10 raw
+copper, no clock, the furnace as the reward. Changing it breaks a beat sheet
+where every beat teaches exactly one thing. The Heavens become the
+**cycle-2-and-later** delivery target, which is what makes the lift chain the
+actual win condition rather than a convenience. Cycle 1 teaches "the gods ask";
+cycle 2 teaches "and they are not where you are."
+
+`docs/DESIGN.md`'s "Run structure" still says "Cycle 1: 20 copper plates",
+which contradicts §4. **`docs/SPEC.md` wins**; DESIGN.md is stale there and is
+fixed in the same commit as the cycle director.
+
+### D7 — non-interactive scenery is paint, never a substance row
+
+`docs/SPEC.md` §15 records exactly **two substance rows** left before the
+tile-id byte overflows (`src/data/forms.js`'s import-time guard). Spending one
+on foliage would be the worst trade available.
+
+So: **a trunk stays a `timber/log` tile** — felling is unchanged and §5's "fell
+the olive tree for a ladder" still works — and **canopy, grass fringe, cliff
+moss and every other non-interactive detail are render-only decoration**, baked
+into the chunk canvas and deterministic from tile coordinates through `hash2`.
+Zero tile cost, zero collision, zero byte budget.
+
+This is not new machinery: `view/treatments.js#TREAT` is already that table,
+already reached by name from a `look:{ treatments:[...] }` row, and already
+holds a `canopy` entry. **Extend `look:{}` and `TREAT`; do not add a second
+paint pipeline.** A parallel `paint:{}` block beside `look:{}` would be the same
+mistake a second stat pipeline beside `model/mods.js` would be.
+
+### D8 — HUD real estate is anchored, never hardcoded
+
+The screen edges are already contended. Today `view/hud.js` draws the depth
+gauge top-right (`depth(g, W, 6)`) and the Phase 4 boon timer stack **below**
+it; the mockup wants FAVOUR top-right as well. The map:
+
+| anchor | panel | state |
+|---|---|---|
+| top-left | hearts, burden bar | exists |
+| under top-left | TRIBUTE — demand list, progress, deadline | new |
+| top-right | depth readout, then the BOON timer stack under it | exists |
+| under the boons, right | FAVOUR — per-god bars, masked ids | new |
+| right edge, vertical | DEPTH band ruler | new, shared with overview |
+| bottom-right | SUSPICION | hidden until Hades exists |
+| bottom-left | journal | exists |
+
+And a rule the mockup itself argues for: in the mockup, FAVOUR's "HEPHAESTUS"
+overruns its frame, the boon cards clip off the bottom edge, and TRIBUTE's rows
+are cut mid-word. **Panels are positioned by an anchored layout pass over
+measured text, never by hardcoded pixel origins.** The mockup is a target for
+density and framing, not for its overflow bugs. `view/hud.js`'s existing clamp
+comments (line ~23) are the same argument, made once already.
+
+**The masked-id predicate is created once and shared.** Nothing in `src/` masks
+anything today — there is no FAVOUR panel, no TRIBUTE state and no `????????`
+rule yet. Whichever phase lands the band ruler writes that predicate, and the
+FAVOUR panel reuses it. Not the other way round.
+
+### D9 — the depth datum does not move, and the Heavens already exist
+
+`docs/SPEC.md` §12 anchors `cyclops_maw`'s `minDepth:200` and the HUD gauge to
+the **same** datum — `worldY` of the spawn band's own `floorTy` — specifically
+so the gauge and placement legality can never disagree. **0 M stays the spawn
+floor.** The Heavens are negative depth, displayed as `ABOVE` or `-32 M`, never
+as a new zero.
+
+There is no array to grow upward, and nothing to reindex. `src/model/world.js`
+holds `bands` as separate records, each with its own absolute `origin` and its
+own typed arrays, allocated per band by `world.write.allocate(cfg)` at boot —
+which is the whole point of ARCHITECTURE §6. A band above the surface is
+therefore already expressible, and one already exists:
+`src/data/world.js#BANDS[0]` is `astral` / **"THE MINOR HEAVENS"** (`tw:96`,
+`th:40`, `tile:8`, `origin:{x:128, y:0}`, `floorTy:30`), and
+`src/data/machines.js`'s winch stage already declares
+`lift:{ span:64, toBand:'astral' }`. The world is three bands and 416 rows
+(40 + 56 + 320) spanning world-Y 0..3328 px.
+
+What the Heavens lack is not a location but content: a dock, a ledger, and a
+reason to go. That is the cycle director's job, not worldgen's.
