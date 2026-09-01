@@ -1175,6 +1175,17 @@ function measureV(seg, secs, dt, want = { turn: true }) {
   return ((seg.t - t0) * seg.len) / (n * dt);
 }
 
+/* THE TORQUE ONE CRANK SUPPLIES, READ AT CALL TIME AND NEVER CACHED. It is
+   `crank.torque` through `eff('crankTorque', 'crank')`, and the ascent sweep
+   below deliberately bends that modifier -- so a `const` hoisted to the top of
+   a block would capture whatever the PREVIOUS block left in `model/mods.js`.
+   It did, on the first draft of the torque-conservation section (2.4 instead
+   of 1.5), and CLAUDE.md's "a harness can be wrong about correct code" is
+   exactly that failure. Call it after the rig is built: `driveRig` runs
+   `newRun`, which clears every modifier row. */
+const crankTorque = () =>
+  D_mach.MACH[D_mach.M.crank].crank.torque * mods.eff('crankTorque', 'crank');
+
 /* DOCS/SPEC.MD 17.8, TRANSCRIBED. A second implementation on purpose: the
    assertions below compare the simulation against THIS, so a change to
    `rules/drive.js` has to disagree with the spec to pass unnoticed. */
@@ -1284,8 +1295,6 @@ function predictV(supply, mass, slope, demand = null) {
    unpowered horizontal row is the one the spec does call out: `segDown x 0`,
    dead still. --- */
 {
-  const CRANK_T = D_mach.MACH[D_mach.M.crank].crank.torque * mods.eff('crankTorque', 'crank');
-
   /* Three geometries. The 45-degree span is 113 px long and the base
      `hub.reach` is 96, so it needs a real `segReach` row -- same as the
      40-tile cable above, and for the same reason. */
@@ -1336,7 +1345,7 @@ function predictV(supply, mass, slope, demand = null) {
     spec.machines = spec.machines.filter((m, i) => i < 2 || i - 2 < cranks);
     if (mass) spec.cargo = [[0, 'copper', 'ore', mass]];
     const r = driveRig(spec);
-    const supply = cranks * CRANK_T;
+    const supply = cranks * crankTorque();
     const want = predictV(supply, mass, g.slope);
     const got = measureV(r.seg, 1, 1 / 120, { turn: cranks > 0 });
     const flag = Math.abs(got - want) > 1e-6 ? ' <-- MISMATCH' : '';
@@ -1580,6 +1589,174 @@ function predictV(supply, mass, slope, demand = null) {
   if (mismatch) fail(`ASCENT: ${mismatch}/${tried} triples disagreed with docs/SPEC.md 17.8's expression ` +
                      `-- the sweep found a combination the motion table above does not cover`);
   else ok(`ASCENT: all ${tried} triples also match docs/SPEC.md 17.8 exactly, not merely the bound`);
+}
+
+/* --- TORQUE CONSERVATION: one crank driving N segments delivers, in total, no
+   more than its own torque. docs/SPEC.md 17.9's `drive = min(1, supply /
+   demand)` is the whole mechanism, and `drive x demand <= supply` is the
+   statement of it that does not depend on the formula's shape -- if a future
+   change apportioned supply differently, THIS is the line that must still
+   hold, because a drivetrain that delivers more than it is given is a
+   perpetual-motion machine and CLAUDE.md's premise is that up costs.
+
+   N ROWS OF HUBS, ONE COMPONENT. Bottom hubs are footprint-adjacent along the
+   floor, so they flood into one component with the crank; the top hubs form a
+   second, unpowered one; each segment joins one of each. `pick()` takes the
+   GREATER of the two supplies, never the sum, which is the other half of the
+   same conservation claim (docs/SPEC.md 17.9's "two half-fed drivetrains at
+   opposite ends of one cable do not add up to a free ride").
+
+   `drive` is read off `m.torque`, which `rules/drive.js` writes for every node
+   -- so this measures what the drivetrain actually delivered, not a
+   recomputation of it. --- */
+{
+  let bad = 0;
+  for (const N of [1, 2, 5]) {
+    const machines = [];
+    for (let i = 0; i < N; i++) machines.push(['hub', 20 + i * 2, 115]);
+    for (let i = 0; i < N; i++) machines.push(['hub', 20 + i * 2, 105]);
+    machines.push(['crank', 19, 115]);
+    const links = [];
+    for (let i = 0; i < N; i++) links.push([i, N + i]);
+
+    const r = driveRig({
+      seed: 8400 + N, room: { ty0: 100, h: 18, w: 14 },
+      machines, links, player: [18, 115],
+      carriers: links.map((_, i) => [i, 0.5])
+    });
+    const crank = r.placed[2 * N];
+    const CRANK_T = crankTorque();
+
+    const t0 = r.segs.map(s => s.t);
+    stepReal(1 / 120, { turn: true, hasMouse: false });
+    const vs = r.segs.map((s, i) => (s.t - t0[i]) * s.len * 120);
+
+    const demand = N * mods.eff('segBase');            // nothing aboard: need == segBase
+    const drive = crank.torque;
+    const delivered = drive * demand;
+    const wantDrive = Math.min(1, CRANK_T / demand);
+    const wantV = predictV(CRANK_T, 0, 1, demand);
+
+    if (delivered > CRANK_T + 1e-9) {
+      fail(`TORQUE CONSERVATION: one crank (torque ${CRANK_T}) driving ${N} segment(s) delivered ` +
+           `drive ${drive.toFixed(4)} x demand ${demand.toFixed(2)} = ${delivered.toFixed(4)} -- ` +
+           `more than it has`);
+      bad++;
+    }
+    if (Math.abs(drive - wantDrive) > 1e-9) {
+      fail(`TORQUE CONSERVATION: ${N} segment(s) on one crank -- m.torque is ${drive.toFixed(6)}, ` +
+           `docs/SPEC.md 17.9's min(1, supply/demand) is ${wantDrive.toFixed(6)}`);
+      bad++;
+    }
+    if (vs.some(v => Math.abs(v - wantV) > 1e-6)) {
+      fail(`TORQUE CONSERVATION: ${N} segment(s) sharing one crank climb at ` +
+           `[${vs.map(v => v.toFixed(4)).join(', ')}] px/s; the shared expression gives ${wantV.toFixed(4)} ` +
+           `-- sharing must SLOW every segment equally, not stop some and speed others`);
+      bad++;
+    }
+    /* The top hubs are in the unpowered component and must read a delivered
+       drive of exactly 0 -- a segment is driven by the greater end, never by
+       both. */
+    const topDrive = r.placed.slice(N, 2 * N).map(m => m.torque);
+    if (topDrive.some(d => d !== 0)) {
+      fail(`TORQUE CONSERVATION: the unpowered top hubs read m.torque ` +
+           `[${topDrive.join(', ')}] -- an undriven drivetrain delivers nothing`);
+      bad++;
+    }
+    console.log(`  ..  torque: 1 crank (${CRANK_T} T-units) x ${N} segment(s): drive ${drive.toFixed(4)}, ` +
+                `demand ${demand.toFixed(2)}, delivered ${delivered.toFixed(4)} <= ${CRANK_T}, ` +
+                `each segment ${vs[0].toFixed(4)} px/s`);
+  }
+  if (!bad) ok('TORQUE CONSERVATION: one crank driving 1, 2 and 5 segments never delivers more drive ' +
+               'than its own torque, and every shared segment slows by the same fraction');
+}
+
+/* --- GEAR LOSS IS MONOTONIC, AND A DIAGONAL DELIVERS ZERO
+   (docs/PLAN-gears-and-winches.md A3, confirmed; docs/SPEC.md 17.9).
+
+   A train of K gears laid along the floor between a crank and a hub: supply is
+   `1.5 x 0.94^K`, so the carrier's climb rate must fall STRICTLY with every
+   hop added, and past enough hops the crank can no longer lift an empty
+   carrier at all. Monotonic is the assertion; the exact figures are printed.
+
+   THE DIAGONAL IS THE OTHER HALF AND IT IS A ZERO, not a small number: a crank
+   whose footprint only touches a hub's CORNER is in a component with no hub in
+   it, contributes nothing, and the carrier sinks at the full `segDown`. Put a
+   gear in the corner and the same crank drives it. Phase 8e's art is what
+   teaches this to a player; this is what stops it drifting. --- */
+{
+  const LOSS = D_mach.MACH[D_mach.M.gear].gear.loss;
+  const HOPS = [0, 1, 2, 3, 4, 6];
+  const rows = [];
+  let bad = 0;
+
+  for (const K of HOPS) {
+    /* crank at 12, K gears rightward along the floor, hub at 13+K. */
+    const machines = [['crank', 12, 115]];
+    for (let i = 0; i < K; i++) machines.push(['gear', 13 + i, 116]);
+    machines.push(['hub', 13 + K, 115], ['hub', 13 + K, 105]);
+    const r = driveRig({
+      seed: 8500 + K, room: { tx0: 10, ty0: 100, h: 18, w: 14 },
+      machines, links: [[K + 1, K + 2]], carriers: [[0, 0.5]], player: [11, 115]
+    });
+    const v = measureV(r.seg, 1, 1 / 120, { turn: true });
+    const supply = crankTorque() * Math.pow(1 - LOSS * mods.eff('torqueLoss', 'gear'), K);
+    const want = predictV(supply, 0, 1);
+    rows.push({ K, v, supply, want, drive: r.placed[K + 1].torque });
+    if (Math.abs(v - want) > 1e-6) {
+      fail(`GEAR LOSS: ${K} hop(s) of gear between crank and hub -- supply should be ` +
+           `${supply.toFixed(4)} and the climb ${want.toFixed(4)} px/s, measured ${v.toFixed(4)}`);
+      bad++;
+    }
+  }
+
+  console.log('  ..  gear loss: ' + rows.map(r => `${r.K} hop(s) ${r.v.toFixed(3)} px/s`).join(', ') +
+              ` (loss ${LOSS} per gear, crank ${crankTorque()})`);
+
+  for (let i = 1; i < rows.length; i++)
+    if (!(rows[i].v < rows[i - 1].v - 1e-9)) {
+      fail(`GEAR LOSS IS MONOTONIC: ${rows[i].K} hops climbs at ${rows[i].v.toFixed(4)} px/s, ` +
+           `not slower than ${rows[i - 1].K} hops at ${rows[i - 1].v.toFixed(4)} -- torque must fall ` +
+           `with every hop`);
+      bad++;
+    }
+  if (!bad) ok(`GEAR LOSS IS MONOTONIC: the climb falls strictly with every gear hop ` +
+               `(${rows[0].v.toFixed(2)} -> ${rows[rows.length - 1].v.toFixed(2)} px/s over ` +
+               `${HOPS[HOPS.length - 1]} hops), matching 17.9's loss product exactly`);
+
+  /* THE DIAGONAL. Crank footprint (19, 113..114) touches hub footprint
+     (20..21, 115..116) at ONE CORNER and nowhere else. */
+  {
+    const r = driveRig({
+      seed: 8590, room: { ty0: 100, h: 18 },
+      machines: [['hub', 20, 115], ['hub', 20, 105], ['crank', 19, 113]],
+      links: [[0, 1]], carriers: [[0, 0.5]], player: [18, 115]
+    });
+    const v = measureV(r.seg, 1, 1 / 120, { turn: true });
+    const want = predictV(0, 0, 1);
+    if (Math.abs(v - want) > 1e-6 || r.placed[2].torque !== 0)
+      fail(`DIAGONAL DELIVERS ZERO: a crank touching a hub at the corner only drove the carrier at ` +
+           `${v.toFixed(4)} px/s (m.torque ${r.placed[2].torque}); a diagonal does not conduct, so the ` +
+           `carrier must sink at the full segDown (${want.toFixed(4)} px/s)`);
+    else {
+      /* And the contrast, or the assertion above would pass for a crank that
+         had simply stopped working: put a GEAR in the corner and the same
+         crank drives the same segment. */
+      const g = driveRig({
+        seed: 8591, room: { ty0: 100, h: 18 },
+        machines: [['hub', 20, 115], ['hub', 20, 105], ['crank', 19, 113], ['gear', 19, 115]],
+        links: [[0, 1]], carriers: [[0, 0.5]], player: [18, 115]
+      });
+      const gv = measureV(g.seg, 1, 1 / 120, { turn: true });
+      const gWant = predictV(crankTorque() * (1 - LOSS * mods.eff('torqueLoss', 'gear')), 0, 1);
+      if (Math.abs(gv - gWant) > 1e-6)
+        fail(`DIAGONAL DELIVERS ZERO: with a GEAR in the corner the same crank should drive the same ` +
+             `segment at ${gWant.toFixed(4)} px/s, measured ${gv.toFixed(4)} -- the zero above may be ` +
+             `a broken crank rather than a broken diagonal`);
+      else ok(`DIAGONAL DELIVERS ZERO: a corner-touching crank drives nothing (carrier sinks at ` +
+              `${v.toFixed(1)} px/s); a gear in that corner drives it at ${gv.toFixed(2)} px/s`);
+    }
+  }
 }
 
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
