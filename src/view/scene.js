@@ -19,7 +19,7 @@
    See docs/DEVELOPER_GUIDE.md#pass-order-and-darkness */
 
 import { drawText } from '../core/font.js';
-import { mix } from '../core/palette.js';
+import { blend, mix } from '../core/palette.js';
 import { R, glow, lineTo } from '../core/pixels.js';
 import { hash2 } from '../core/rng.js';
 import { colour } from '../data/palette.js';
@@ -40,6 +40,16 @@ const INK = {
   void:   colour('abyC'),
   cloud:  colour('cloudA'),
   cloudLo: colour('cloudC'),
+  /* The far cumulus layer sits IN the haze, so its body is the cloud tone
+     already pulled toward the sky's pale end -- distance desaturates, and the
+     alternative (the same white at a lower alpha) reads as a hole. */
+  cloudFar: mix(colour('cloudB'), colour('skyHi'), 0.35),
+  cloudUnder: colour('cloudB'),
+  /* The two ends the sky ramp reaches for beyond a band's own `look.sky`: a
+     deeper blue overhead, a pale dust at the horizon. Both named palette
+     entries, mixed rather than inlined, per the palette convention. */
+  zenith: colour('aquA'),
+  haze:   colour('cloudB'),
   skin:   '#d8a878',
   tunicA: '#b8433a',
   tunicB: '#8d2f29',
@@ -184,44 +194,167 @@ const visible = (b, cam, W, H) =>
 
 /* ---------- sky ----------
    A band's `look.sky` is the colour above its ground line and `look.tint` is
-   what the rock below is made of; the gradient between them is what makes a
-   horizon. A band whose `floorTy` is 0 (the deep ones) has no sky region at all
-   and this costs nothing. */
+   what the rock below is made of. A band whose `floorTy` is 0 (the deep ones)
+   has no sky region at all and every function below costs it nothing.
+
+   QUANTISED, NOT INTERPOLATED. This was one `createLinearGradient` from `sky`
+   to `sky`-mixed-with-`tint`, which is a smooth 24-bit ramp in a game whose
+   every other pixel comes off a named palette (SPEC section 6). It is now a
+   fixed number of discrete bands, so the sky is a stack of tones you could name
+   rather than a continuous blend, and it gains the two things a two-stop ramp
+   cannot express: a DEEPER ZENITH (the sky's own colour pushed toward `aquA`,
+   because the top of the sky is further from the sun than the horizon is) and a
+   PALE HAZE where it meets the ground.
+
+   The haze is anchored in PIXELS above the horizon rather than as a fraction of
+   the sky, because what it has to sit behind is the terrain silhouette: Phase 7
+   gives the surface band relief of `amp` tiles, so the hilltops stand well above
+   `floorTy` and the haze has to reach up past them or it only ever shows in the
+   valleys. It reaches as far as `HAZE_PX` and no further, so a tall sky is not
+   all haze.
+
+   THE RAMP IS BUILT ONCE PER BAND, not per frame: it depends on nothing but the
+   band's own two colour names and its own sky height, all three constant for the
+   life of a run. */
+const SKY_STEPS = 14;
+const HAZE_PX = 56;
+const skyRamps = new Map();
+
+function skyRamp(b) {
+  let ramp = skyRamps.get(b.cfg.id);
+  if (!ramp) {
+    const l = b.cfg.look || {};
+    const sky = colour(l.sky ?? 'abyB');
+    const zenith = blend(sky, INK.zenith, 0.42);
+    const dust = blend(sky, colour(l.tint ?? 'abyC'), 0.34);
+    const haze = blend(dust, INK.haze, 0.45);
+    const skyPx = Math.max(1, (b.cfg.floorTy ?? 0) * b.tile);
+    /* Where zenith->sky becomes sky->haze. */
+    const brk = 1 - Math.min(0.6, HAZE_PX / skyPx);
+    ramp = [];
+    for (let i = 0; i < SKY_STEPS; i++) {
+      const u = i / (SKY_STEPS - 1);
+      ramp.push(u < brk ? blend(zenith, sky, u / brk)
+                        : blend(sky, haze, (u - brk) / Math.max(0.001, 1 - brk)));
+    }
+    skyRamps.set(b.cfg.id, ramp);
+  }
+  return ramp;
+}
+
 function drawSky(g, b, f) {
   const { cam, W, H } = f;
-  const l = b.cfg.look || {};
   const top = b.origin.y - cam.y;
   const horizon = b.origin.y + (b.cfg.floorTy ?? 0) * b.tile - cam.y;
   const y0 = Math.max(0, top), y1 = Math.min(H, horizon);
   if (y1 <= y0) return;
 
-  const grd = g.createLinearGradient(0, top, 0, horizon + 40);
-  grd.addColorStop(0, colour(l.sky ?? 'abyB'));
-  grd.addColorStop(1, mix(colour(l.sky ?? 'abyB'), colour(l.tint ?? 'abyC'), 0.5));
-  g.fillStyle = grd;
-  g.fillRect(0, y0, W, y1 - y0);
+  const ramp = skyRamp(b);
+  const step = (horizon - top) / SKY_STEPS;
+  for (let i = 0; i < SKY_STEPS; i++) {
+    const ya = Math.max(y0, Math.round(top + step * i));
+    const yb = i === SKY_STEPS - 1 ? y1 : Math.min(y1, Math.round(top + step * (i + 1)));
+    if (yb > ya) R(g, 0, ya, W, yb - ya, ramp[i]);
+  }
 
-  /* Drifting cloud puffs, from a positional hash plus the clock. The drift is
-     `f.t`, never `rand()`: a repaint must not advance anything. */
-  const span = widthPx(b) + 260;
-  for (let i = 0; i < 14; i++) {
-    const sp = 2 + (i % 4) * 1.6;
-    const x = ((hash2(i, 2001 + b.ord) * span + f.t * sp) % span) - 130
-            + b.origin.x - cam.x * 0.35;
-    const y = top + 14 + hash2(i, 2003 + b.ord) * Math.max(1, horizon - top - 20);
-    if (y < y0 - 30 || y > y1 || x < -60 || x > W + 60) continue;
-    g.globalAlpha = 0.55;
-    puff(g, x | 0, y | 0, (14 + hash2(i, 2007 + b.ord) * 26) | 0);
+  drawClouds(g, b, f, top, horizon, y0, y1);
+}
+
+/* ---------- clouds ----------
+   THREE LAYERS, AND WHAT MAKES THEM READ AS THREE IS THAT EVERYTHING VARIES
+   TOGETHER. A single layer of same-sized puffs at one parallax factor is a
+   texture; depth needs size, speed, parallax and opacity to agree. So: large
+   slow cumulus far back, hazy and barely moving with the camera; a middle band;
+   small fast wisps near the ground, opaque and sliding past.
+
+   `par` is how much of the CAMERA's HORIZONTAL motion the layer does not take:
+   1 pins a cloud to the screen (infinitely far), 0 pins it to the world (in the
+   same plane as the rock). Horizontal only, and that is deliberate rather than
+   unfinished — walking is where parallax is legible, while the camera's vertical
+   motion is falling and climbing, and a cloud that lagged DOWNWARD out of its
+   band's own sky region would either pop out at the edge or, worse, draw over
+   the band above's rock. Clouds are world-anchored in y. `y` is the layer's
+   vertical band as a fraction of the sky region, which is what keeps the big
+   slow ones up top.
+
+   DETERMINISTIC, and the drift is `f.t` and never `rand()`: two draws of one
+   frame must be identical (ARCHITECTURE invariant 7). Every shape parameter
+   comes from a per-cloud positional hash, so a cloud keeps its own silhouette as
+   it crosses the sky instead of reshuffling every frame. */
+const CLOUDS = [
+  { n: 7,  par: 0.74, w: [40, 80], speed: 1.4, alpha: 0.42, y: [0.04, 0.40] },
+  { n: 10, par: 0.52, w: [22, 44], speed: 3.2, alpha: 0.62, y: [0.18, 0.66] },
+  { n: 12, par: 0.30, w: [10, 22], speed: 6.4, alpha: 0.85, y: [0.40, 0.94] }
+];
+
+function drawClouds(g, b, f, top, horizon, y0, y1) {
+  const { cam, W } = f;
+  const span = widthPx(b) + 400;
+  const skyH = Math.max(1, horizon - top);
+
+  for (let k = 0; k < CLOUDS.length; k++) {
+    const L = CLOUDS[k];
+    const drift = 1 - L.par;
+    g.globalAlpha = L.alpha;
+    for (let i = 0; i < L.n; i++) {
+      const s = i * 7 + k * 101 + b.ord * 977;
+      const w = (L.w[0] + hash2(s, 31) * (L.w[1] - L.w[0])) | 0;
+      const x = (((hash2(s, 11) * span + f.t * L.speed) % span) - 200
+                 + (b.origin.x - cam.x) * drift) | 0;
+      /* The base line is placed in the room LEFT OVER after the cloud's own
+         height, so a tall cumulus cannot poke out of the top of its band's sky
+         and over the rock of the band above. `y` then selects within that room
+         rather than within the whole region. */
+      const tall = cloudHeight(w);
+      const room = Math.max(1, skyH - tall);
+      const yb = top + tall
+               + (L.y[0] + hash2(s, 17) * (L.y[1] - L.y[0])) * room;
+      if (yb < y0 || yb > y1 || x < -w - 8 || x > W + 8) continue;
+      cloud(g, x, yb | 0, w, s, k);
+    }
     g.globalAlpha = 1;
   }
 }
 
-function puff(g, x, y, w) {
-  const h = Math.max(3, (w * 0.34) | 0);
-  R(g, x, y, w, h, INK.cloud);
-  R(g, x + ((w * 0.2) | 0), y - ((h * 0.6) | 0), (w * 0.5) | 0, h, INK.cloud);
-  R(g, x + ((w * 0.55) | 0), y - ((h * 0.3) | 0), (w * 0.3) | 0, h,
-    mix(INK.cloud, INK.cloudLo, 0.3));
+/* A FLAT BASE AND A LUMPY TOP, in two tones, which is the whole silhouette of a
+   fair-weather cumulus and the reason the old three-rect puff read as a stack of
+   bricks: it had neither. `y` is the cloud's BASE line and the shape grows
+   upward from it, so a layer's vertical band means "how high the bases sit".
+   The underside takes the darker tone because `LIGHT` comes from above; there is
+   no second decision about that here.
+
+   The lumps are DOMES rather than rectangles. A rectangle on a slab is what the
+   first attempt drew and it read as a step, not a cloud -- and a cumulus is
+   mostly defined by the roundness of its top against the flatness of its base. */
+const cloudHeight = w => Math.max(4, (w * 0.26) | 0) * 2;
+
+function cloud(g, x, y, w, s, layer) {
+  const h = Math.max(3, (w * 0.26) | 0);
+  const body = layer === 0 ? INK.cloudFar : INK.cloud;
+  const under = layer === 0 ? INK.cloudLo : INK.cloudUnder;
+
+  R(g, x, y - h, w, h, body);
+
+  const lumps = Math.max(2, Math.min(5, Math.round(w / 15)));
+  for (let i = 0; i < lumps; i++) {
+    const lw = Math.max(4, ((w / lumps) * (0.95 + hash2(s + i, 9) * 0.55)) | 0);
+    const lx = x + (((w - lw) * (i / (lumps - 1))) | 0);
+    dome(g, lx, y - h, lw, 2 + ((hash2(s + i, 13) * h) | 0), body);
+  }
+
+  const u = Math.max(1, (h / 3) | 0);
+  R(g, x, y - u, w, u, under);
+}
+
+/* A stepped half-ellipse, one integer row at a time. No `arc`, no fill path: a
+   canvas curve would antialias its own edge, which is the one thing SPEC
+   section 6 forbids outright. */
+function dome(g, x, yb, w, h, col) {
+  for (let j = 0; j < h; j++) {
+    const k = (j + 0.5) / h;
+    const cw = Math.max(2, Math.round(w * Math.sqrt(Math.max(0, 1 - k * k))));
+    R(g, x + ((w - cw) >> 1), yb - 1 - j, cw, 1, col);
+  }
 }
 
 /* ---------- terrain ---------- */
