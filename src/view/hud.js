@@ -37,7 +37,7 @@
    ============================================================================ */
 
 import { drawText, textWidth } from '../core/font.js';
-import { R } from '../core/pixels.js';
+import { R, lineTo } from '../core/pixels.js';
 import { mix } from '../core/palette.js';
 import { AIR, F, FORM, labelOf } from '../data/forms.js';
 import { M, MACH } from '../data/machines.js';
@@ -49,9 +49,11 @@ import { aim } from '../model/aim.js';
 import { boons } from '../model/boons.js';
 import { eff, mods } from '../model/mods.js';
 import { player } from '../model/player.js';
+import { machineAt } from '../model/machines.js';
 import {
   burdenFrac, burdenOf, hasPick, machineIdFor, placementCheck, run
 } from '../model/run.js';
+import { linkCheck, reachOf } from '../model/segments.js';
 import { tileAt } from '../model/tiles.js';
 import { bandOf, worldY } from '../model/world.js';
 import { banner, toasts } from './fx.js';
@@ -324,8 +326,109 @@ function drawFootprintGhost(g, f, band, tx, ty, tw, th, ok, why) {
   }
 }
 
+/* ---------- the cable ghost ----------
+   THE THIRD BRANCH OF `buildGhost`, and the same "one decision, two readers"
+   arrangement the footprint ghost above already is: with a hub armed by the
+   first `l` press (`shell/ui.js#ui.linkFrom`, handed over on the frame
+   context because `view` may not import `shell`), this draws the cable the
+   second press would create, tinted by `model/segments.js#linkCheck` -- THE
+   SAME query `rules/placement.js#linkSegment` calls before it mutates
+   anything. `view` may not import `rules`; `linkCheck` is a model query and
+   reading it is what stops the ghost and the verb from ever disagreeing.
+
+   FOUR THINGS ARE DRAWN, and each answers a different question:
+     the armed end       WHICH hub is the gesture anchored to
+     the cable           WHERE would it run, and is it legal (good/red)
+     the reach limit     HOW FAR can this hub reach, when the answer is "not
+                         that far" -- the cable is clipped there rather than
+                         drawn to a point it could never reach
+     the blocked sample  WHICH tile is in the way, from `linkCheck`'s own
+                         `at` field, because "THE PATH IS BLOCKED" without a
+                         position is a puzzle rather than an answer
+
+   AIMING AT NOTHING IS A THIRD STATE, not a refusal. With no machine under
+   the reticle there is no pair to check, so the cable is drawn DIM and no
+   `why` is printed: this file states only refusals `linkCheck` actually
+   returned, and inventing 'TOO FAR APART' for a bare point would be a second
+   implementation of the rule. The reach clip still shows, because reach is a
+   fact about the armed hub alone. */
+function cableGhost(g, f) {
+  const from = f.ui.linkFrom;
+  /* THE FOOTPRINT CENTRE, which must stay the same point
+     `model/segments.js#anchorOf` picks -- a ghost anchored anywhere else would
+     preview a cable at an offset from the one the link actually creates. It is
+     re-derived here rather than imported because it is two additions on a box
+     `view` already holds, and `anchorOf` is private to the model's own
+     geometry. */
+  const ax = from.box.x + from.box.w / 2, ay = from.box.y + from.box.h / 2;
+
+  const to = machineAt(aim.band, aim.tx, aim.ty);
+  const t = aim.band.tile;
+  const bx = to ? to.box.x + to.box.w / 2 : aim.band.origin.x + aim.tx * t + t / 2;
+  const by = to ? to.box.y + to.box.h / 2 : aim.band.origin.y + aim.ty * t + t / 2;
+
+  const check = to && to !== from ? linkCheck(from, to) : null;
+  const col = !check ? UI.dim : check.ok ? UI.good : UI.heart;
+
+  /* Clipped at the SMALLER of the two reaches, exactly as `linkCheck` refuses
+     on it -- so the clip point and the refusal are one number. */
+  const reach = Math.min(reachOf(from), to ? reachOf(to) : Infinity);
+  const len = Math.hypot(bx - ax, by - ay);
+  const clipped = reach > 0 && len > reach;
+  const k = clipped ? reach / len : 1;
+
+  const x0 = (ax - f.cam.x) | 0, y0 = (ay - f.cam.y) | 0;
+  const x1 = (ax + (bx - ax) * k - f.cam.x) | 0;
+  const y1 = (ay + (by - ay) * k - f.cam.y) | 0;
+
+  g.globalAlpha = 0.85;
+  lineTo(g, x0, y0, x1, y1, col);
+  g.globalAlpha = 1;
+
+  /* The armed end: FOUR CORNER BRACKETS, not a fill, so the hub's own art
+     stays visible under the marker that says "this end is spoken for". */
+  const lx = x0 - from.box.w / 2, rx = x0 + from.box.w / 2 - 1;
+  const ty = y0 - from.box.h / 2, byy = y0 + from.box.h / 2 - 1;
+  for (const [cx, sx] of [[lx, 1], [rx, -1]])
+    for (const [cy, sy] of [[ty, 1], [byy, -1]]) {
+      R(g, sx > 0 ? cx : cx - 2, cy, 3, 1, UI.good);
+      R(g, cx, sy > 0 ? cy : cy - 2, 1, 3, UI.good);
+    }
+
+  if (clipped) {                                    // where the reach runs out
+    R(g, x1 - 2, y1 - 2, 5, 1, UI.heart);
+    R(g, x1 - 2, y1 + 2, 5, 1, UI.heart);
+    R(g, x1 - 2, y1 - 1, 1, 3, UI.heart);
+    R(g, x1 + 2, y1 - 1, 1, 3, UI.heart);
+  }
+
+  if (check?.at) {                                  // the FIRST blocked sample
+    const sx = (check.at.x - f.cam.x) | 0, sy = (check.at.y - f.cam.y) | 0;
+    g.globalAlpha = 0.55;
+    R(g, sx - 3, sy - 3, 7, 7, UI.heart);
+    g.globalAlpha = 1;
+    R(g, sx - 1, sy - 1, 3, 3, UI.hi);
+  }
+
+  /* CLAMPED TO THE VIEWPORT, per D8: a refusal drawn off the right edge at a
+     narrow base buffer is a refusal nobody reads, and the same clamp the
+     tooltip and the panels already apply is the one to reuse rather than a
+     hardcoded origin. */
+  if (check && !check.ok) {
+    const w = textWidth(check.why);
+    drawText(g, check.why, Math.max(2, Math.min(x1 + 5, f.W - w - 2)),
+             Math.max(2, Math.min(y1 - 4, f.H - 10)), UI.heart, 1, 1);
+  }
+}
+
 function buildGhost(g, f) {
   if (!aim.valid || !aim.band) return;
+
+  /* A LINK IN PROGRESS OUTRANKS AN ARMED PLACEMENT, because the two gestures
+     use the same reticle and only one of them can be what the next press
+     means. `l` armed a hub, so the next press links; whatever is armed in the
+     quickbar is not what the player is doing. */
+  if (f.ui.linkFrom) { cableGhost(g, f); return; }
 
   /* Preview the ARMED pair, if any, at the aim reticle -- the same
      footprint-tint idiom above, generalised to a

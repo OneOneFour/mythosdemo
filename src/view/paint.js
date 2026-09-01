@@ -18,16 +18,17 @@
 import { offscreen } from '../core/canvas.js';
 import { drawText } from '../core/font.js';
 import { blend, mix } from '../core/palette.js';
-import { LIGHT, R, noiseFill } from '../core/pixels.js';
+import { LIGHT, R, lineTo, noiseFill } from '../core/pixels.js';
 import { hash2 } from '../core/rng.js';
 import { AIR, NATIVE } from '../data/forms.js';
 import { MACH } from '../data/machines.js';
 import { colour } from '../data/palette.js';
 import { SUB } from '../data/substances.js';
-import { fill, statusOf } from '../model/machines.js';
+import { fill, machines, statusOf } from '../model/machines.js';
 import { progressAt } from '../model/mining.js';
 import { sizeOf } from '../model/items.js';
 import { eff } from '../model/mods.js';
+import { CARRIER_H, CARRIER_W, carrierPos, segmentsAt } from '../model/segments.js';
 import { baseHardAt, formAt, rowAt, skyExposedAt, solidAt, subAt, tileAt } from '../model/tiles.js';
 import { bands, chunkPx, chunkVer, heightPx } from '../model/world.js';
 import { EXTENT, TREAT, seedAt, treat } from './treatments.js';
@@ -483,12 +484,34 @@ export function paintMachine(g, m, px, py, t) {
   const l = def.look;
   const w = m.box.w, h = m.box.h;
 
-  R(g, px, py, w, h, colour(l.body));
-  R(g, px, py, w, 2, colour(l.trim));
-  R(g, px + 1, py + 1, w - 2, 2, INK.mouth);              // the mouth
-  R(g, px, py + h - 2, w, 2, colour(l.base));
-  R(g, px - 2, py - 1, 2, 3, colour(l.trim));           // hopper lips, so it
-  R(g, px + w, py - 1, 2, 3, colour(l.trim));           // reads as a catch box
+  /* THE CABLE PASS RUNS FIRST, BEFORE THE MACHINE IT IS ANCHORED TO, so a
+     span and its bucket chain pass BEHIND the drum they run over instead of
+     being drawn across the front of it. The carrier is the other way round
+     (`paintCarriers` at the foot of this function) because a bucket parked at
+     a hub has to be visible in it, not swallowed by it. */
+  if (l.cable) paintCables(g, m, px, py, l);
+
+  /* A ROW WITH `parts` DRAWS ITSELF OUT OF NAMED SHAPES; a row without one
+     gets the generic catch box below, unchanged. This is one look key and a
+     generic dispatch, NOT a third name check beside `canopy`/`grassCap`: the
+     four winch rows are the first machines in the game that are not boxes
+     with mouths, and "hopper lips, so it reads as a catch box" is a lie on a
+     gear. See docs/DEVELOPER_GUIDE.md#colour-and-appearance and CLAUDE.md D7. */
+  if (l.parts) {
+    const cell = { px, py, w, h, tx: m.tx, ty: m.ty,
+                   tile: m.band?.tile ?? 8, turn: m.turn, t };
+    for (const p of l.parts) {
+      const fn = TREAT[p.fn];
+      if (fn) fn(g, cell, p);
+    }
+  } else {
+    R(g, px, py, w, h, colour(l.body));
+    R(g, px, py, w, 2, colour(l.trim));
+    R(g, px + 1, py + 1, w - 2, 2, INK.mouth);              // the mouth
+    R(g, px, py + h - 2, w, 2, colour(l.base));
+    R(g, px - 2, py - 1, 2, 3, colour(l.trim));           // hopper lips, so it
+    R(g, px + w, py - 1, 2, 3, colour(l.trim));           // reads as a catch box
+  }
 
   if (l.fire) {
     const fire = Math.max(m.fire, m.running ? 0.5 : 0);
@@ -526,5 +549,206 @@ export function paintMachine(g, m, px, py, t) {
      the same "one rect, one glyph" placeholder convention
      `view/ui/mainPanel.js#glyphOf` already uses for an unresolved identity. */
   if (statusOf(m) === 'no-fuel') drawText(g, '!', px + w - 6, py + 1, INK.warn, 1, 1);
+
+  /* LAST, over the hub's own body: see `paintCables` above. */
+  if (l.carrier) paintCarriers(g, m, px, py, l);
+}
+
+/* ---------- segments: the cable, its bucket chain, and the carrier ----------
+   WHY THIS IS DRAWN FROM `paintMachine` AND NOT FROM A PASS OF ITS OWN.
+   A segment has no footprint and is not a machine (`model/segments.js`'s own
+   header), so it has no natural place in `view/scene.js`'s pass order -- but
+   it does have exactly two anchors, both of which ARE machines that already
+   get a draw call at a known screen position. Hanging the cable off the hub
+   that anchors it therefore costs no new pass, no new import in `scene.js`,
+   and -- the part that actually matters -- puts the cable INSIDE the machine
+   pass, which runs before `drawDarkness` and `drawFog`. A cable in an unlit
+   shaft is dark and a cable behind fog is hidden, for free, with nothing
+   said about either. Drawn from the HUD instead it would glow through both.
+
+   EXACTLY ONE HUB DRAWS EACH PART OF A SEGMENT, so a span is not painted twice
+   with the far hub's own colours on the second pass -- but WHICH hub differs
+   between the cable and the carrier, and that is a z-order fact rather than a
+   preference. `view/scene.js` paints machines in `machines` order, so anything
+   drawn during the EARLIER hub's call is overpainted by the LATER hub's body:
+
+     the CABLE and its chain must pass BEHIND both drums  -> the earlier hub
+     the CARRIER must sit IN FRONT of both                -> the later hub
+
+   The second half was found by looking at the matrix, not by reasoning: at
+   `t = 1` the carrier sits exactly on the upper hub's own anchor, and drawn
+   from `seg.a` (which was the lower hub) it vanished completely behind the
+   upper one. `winch-vertical-top.png` is the baseline that caught it.
+
+   `machines.indexOf` over a list that is tens long, twice per segment per
+   frame. Placement order is deterministic (invariant 7), so which end draws
+   what is reproducible from the seed and the build order.
+
+   WORLD PX TO SCREEN PX WITHOUT THE CAMERA: `paintMachine` is handed `px`/`py`
+   for a machine whose world position it also holds, so the camera offset is
+   `px - m.box.x`. `view` never needs to be told where the camera is to draw
+   something anchored to something it is already drawing. */
+function screenOffset(m, px, py) {
+  return { ox: px - m.box.x, oy: py - m.box.y };
+}
+
+const aFirst = seg => machines.indexOf(seg.a) <= machines.indexOf(seg.b);
+const firstHub = seg => (aFirst(seg) ? seg.a : seg.b);
+const lastHub  = seg => (aFirst(seg) ? seg.b : seg.a);
+
+/* THE LOW END OF A SPAN, which is where `t = 0` is and therefore where the
+   bucket chain's phase is measured from. `seg.hi` is 'a' when A is the UPPER
+   anchor, so the low end is the other one -- read off the model's own field
+   rather than re-derived from y, or a horizontal span (where the model breaks
+   the tie by argument order) would disagree with it. */
+function ends(seg) {
+  const up = seg.hi === 'a';
+  return { lox: up ? seg.bx : seg.ax, loy: up ? seg.by : seg.ay,
+           hix: up ? seg.ax : seg.bx, hiy: up ? seg.ay : seg.by };
+}
+
+/* HOW A LINE AT AN ARBITRARY ANGLE STAYS INTEGRAL, which is a question this
+   project has not had to answer before.
+
+   Both strands are the SAME Bresenham run (`core/pixels.js#lineTo`, which
+   floors its own four coordinates) translated by exactly ONE WHOLE PIXEL
+   along the axis the line varies LEAST in: vertical-ish spans separate
+   horizontally, horizontal-ish spans separate vertically. That is not an
+   approximation of a perpendicular offset, it is the only offset that keeps
+   the two strands stair-step for stair-step parallel -- a true perpendicular
+   would be fractional at every angle except 0, 45 and 90 degrees, and
+   rounding it per pixel is exactly how a two-tone cable develops a moire
+   along its length. The cost is that a 45-degree span's strands sit 1.41 px
+   apart rather than 1, which reads as slightly fatter and is invisible.
+   The `1.5 px` of a real perpendicular is not available at this scale, and
+   pretending otherwise is what the integer-pixels rule forbids. */
+function strandNormal(dx, dy) {
+  return Math.abs(dx) >= Math.abs(dy) ? { nx: 0, ny: 1 } : { nx: 1, ny: 0 };
+}
+
+function paintCables(g, m, px, py, l) {
+  const { ox, oy } = screenOffset(m, px, py);
+  const p = l.cable;
+  const hi = colour(p.hi ?? p.body), lo = colour(p.lo ?? p.body);
+  const bucketA = colour(p.col ?? p.body);            // the lit rim
+  const bucketB = colour(p.low ?? p.col ?? p.body);   // the stave body
+  const bucketC = colour(p.dark ?? p.lo ?? p.body);   // the shaded foot and link
+
+  for (const seg of segmentsAt(m)) {
+    if (firstHub(seg) !== m) continue;
+
+    const x0 = (seg.ax + ox) | 0, y0 = (seg.ay + oy) | 0;
+    const x1 = (seg.bx + ox) | 0, y1 = (seg.by + oy) | 0;
+    const { nx, ny } = strandNormal(x1 - x0, y1 - y0);
+
+    /* TWO TONES SO IT READS AS A LOOP, not a wire: the lit strand is the one
+       coming up out of the shaft and the shaded one is going back down, which
+       is the whole reason the reference image's chain reads as a mechanism
+       rather than as a rope.
+
+       ADJACENT, NOT SPACED. The first attempt separated them by two pixels
+       with the background showing between, and in an unlit shaft the shaded
+       strand vanished into the rock and the lit one read as a taut white
+       thread. Side by side they are one two-pixel cable with a lit edge and a
+       shaded edge, which is what a rope or a chain actually looks like. */
+    lineTo(g, x0, y0, x1, y1, hi);
+    lineTo(g, x0 + nx, y0 + ny, x1 + nx, y1 + ny, lo);
+
+    /* THE BUCKET CHAIN. Evenly spaced along the span and PHASE-LOCKED to the
+       carrier: the chain has travelled exactly as far as the carrier has, so
+       the offset of the whole ladder of buckets is `t * len` reduced modulo
+       the spacing. One mechanism, one number, and it is a model number -- no
+       frame counter and no `rand()` (invariant 7). */
+    const { lox, loy, hix, hiy } = ends(seg);
+    const gap = Math.max(4, p.spacing ?? 11);
+    const phase = ((seg.t * seg.len) % gap + gap) % gap;
+    for (let d = phase; d <= seg.len; d += gap) {
+      const f = seg.len > 0 ? d / seg.len : 0;
+      const bx = (lerpPx(lox, hix, f) + ox) | 0;
+      const by = (lerpPx(loy, hiy, f) + oy) | 0;
+      /* A BUCKET HANGS OFF THE SHADED STRAND on a one-pixel link, clear of
+         the cable so the two strands stay readable through the chain.
+
+         IT IS TAPERED, and that is the difference between a bucket chain and
+         a ladder. Two earlier attempts (3x2, then a flat 4x3 with a lit top
+         row) both read as RUNGS: evenly spaced rectangles beside a vertical
+         line is a ladder, whatever colour it is. A lit rim over a body that
+         is a pixel narrower at the foot reads as a vessel with a mouth, which
+         is what the reference image's chain is made of. */
+      /* TALLER THAN IT IS WIDE, with a dark mouth under a lit rim. That is
+         the third shape tried here and the first that is not a rung: 3x2 and
+         then 5x4-with-a-bright-top-row both read as ladder rungs, because a
+         horizontal bar beside a vertical line IS a rung no matter what colour
+         it is. A vessel is 4 wide, 5 tall, open at the top, and hangs off a
+         one-pixel link -- the link being one pixel matters too, since a 3 px
+         link is itself a little horizontal bar. */
+      const lx = bx + nx * 3, ly = by + ny * 3;
+      R(g, bx + nx, by + ny, 1, 1, bucketC);                     // the link
+      R(g, bx + nx * 2, by + ny * 2, 1, 1, bucketC);
+      R(g, lx - 1, ly, 4, 1, bucketA);                           // the lit rim
+      R(g, lx - 1, ly + 1, 4, 1, bucketC);                       // the mouth, in shadow
+      R(g, lx - 1, ly + 2, 4, 2, bucketB);                       // the staves
+      R(g, lx, ly + 4, 2, 1, bucketC);                           // tapered foot
+    }
+  }
+}
+
+const lerpPx = (a, b, f) => a + (b - a) * f;
+
+/* THE CARRIER. It has to read as STANDABLE, because in Phase 8f the player
+   stands on it: so a bright lit deck plank a pixel wider than the body, a
+   dark body under it, and two hangers up to the cable. The deck line is the
+   thing the eye reads as a surface, and it is the top of
+   `model/segments.js#carrierBox` -- the same rectangle the ride branch will
+   test against, so what looks standable and what IS standable are the same
+   pixels rather than two guesses.
+
+   LOAD IS HOW FULL THE BUCKET LOOKS, never a number (this phase's brief): the
+   body fills from the bottom up with the cargo tone, over `look.carrier.full`
+   talents. `full` is APPEARANCE, not a tunable -- it says "this many talents
+   is a brimming bucket", which is a drawing decision, and a god's trinket has
+   no business changing how full a bucket looks. */
+function paintCarriers(g, m, px, py, l) {
+  const { ox, oy } = screenOffset(m, px, py);
+  const p = l.carrier;
+  const body = colour(p.body), hi = colour(p.hi ?? p.body), lo = colour(p.lo ?? p.body);
+  const cargo = colour(p.col ?? p.body), rope = colour(p.trim ?? p.hi ?? p.body);
+
+  for (const seg of segmentsAt(m)) {
+    if (lastHub(seg) !== m) continue;
+    const c = carrierPos(seg);
+    const x = (c.x + ox - CARRIER_W / 2) | 0;
+    const y = (c.y + oy - CARRIER_H / 2) | 0;
+
+    /* THE DECK IS THE TOP OF `carrierBox` AND THE BUCKET HANGS BELOW IT.
+       `CARRIER_W`/`CARRIER_H` are the model's collision-free stand box (10x4)
+       and are not a drawing budget: a 10x4 plank was the first attempt and it
+       read as a splinter, with no room for cargo to be visible in. So the
+       deck line is drawn exactly on the box's top edge -- the pixels the ride
+       branch will actually stand the player on -- and the bucket's body hangs
+       DOWN from it, which costs the collision model nothing and gives the
+       cargo somewhere to be. */
+    const depth = Math.max(CARRIER_H, p.depth ?? 7);
+
+    R(g, x + 1, y - 4, 1, 4, rope);                       // the two hangers
+    R(g, x + CARRIER_W - 2, y - 4, 1, 4, rope);
+    R(g, x + 1, y - 4, CARRIER_W - 2, 1, rope);           // and the yoke across them
+
+    R(g, x, y + 1, CARRIER_W, depth - 1, body);           // the bucket body
+    R(g, x, y + 1, 1, depth - 1, hi);                     // sun-side stave
+    R(g, x + CARRIER_W - 1, y + 1, 1, depth - 1, lo);
+    R(g, x, y + depth - 1, CARRIER_W, 1, lo);             // and its floor
+
+    /* HOW FULL THE BUCKET LOOKS, filling from the floor up. Inset a pixel on
+       each side so the staves still read as staves with a brimming load. */
+    const full = Math.max(1, p.full ?? 40);
+    const frac = Math.max(0, Math.min(1, seg.load / full));
+    const fillH = Math.round(frac * (depth - 3));
+    if (fillH > 0) R(g, x + 1, y + depth - 2 - fillH, CARRIER_W - 2, fillH, cargo);
+
+    R(g, x - 1, y, CARRIER_W + 2, 1, hi);                 // the deck, drawn last
+    R(g, x - 1, y, 1, 2, lo);                             // deck ends, so the
+    R(g, x + CARRIER_W, y, 1, 2, lo);                     //   plank has a thickness
+  }
 }
 

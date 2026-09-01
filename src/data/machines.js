@@ -446,14 +446,26 @@ export const MACHINES = [
      (`model/segments.js#linkCheck`). So the player places endpoints and
      drivetrains, never cable.
 
-     THE `look` BLOCKS BELOW ARE PLACEHOLDERS. `view/paint.js#paintMachine`
-     reads `look.body`/`trim`/`base` off every row unconditionally, so a row
-     with no `look` at all throws the first time one is painted -- these exist
-     so the rows are placeable TODAY, in the existing generic style, and are
-     Phase 8e's to replace with real machinery. No `fire:true` on any of them:
-     none of these four burns anything, ever (the crank's cost is the player's
-     own standing there -- D10's "manual only", and A5 explicitly rejects a
-     heart-powered fallback). ---- */
+     THESE FOUR ARE THE FIRST ROWS IN THE TABLE THAT ARE NOT CATCH BOXES, and
+     their `look` blocks say so with a `parts:[...]` list (Phase 8e). Every
+     other row gets `view/paint.js#paintMachine`'s generic body-trim-mouth-
+     base-with-hopper-lips box, which is the right picture for a furnace and a
+     lie on a gear; a row carrying `parts` draws itself out of named shapes
+     from `view/treatments.js#TREAT` instead, dispatched exactly as a terrain
+     `treatments:[{fn}]` list already is, so `tools/content.mjs` assertion 15
+     validates these `fn` names and colour names for free. NO MACHINE NAME IS
+     INVOLVED AT ANY POINT -- see docs/SPEC.md section 12.
+
+     `body`/`trim`/`base` stay on every row even though `parts` supersedes
+     them: they are what `view/ui/` and any future generic reader falls back
+     to, and a row with no `look.body` at all throws the first time something
+     asks for it.
+
+     Only the hub carries `cable` and `carrier`, because only a hub anchors a
+     segment. No `fire:true` on any of them: none of these four burns
+     anything, ever (the crank's cost is the player's own standing there --
+     D10's "manual only", and A5 explicitly rejects a heart-powered
+     fallback). ---- */
 
   /* WINCH HUB: the endpoint, and the investment. 2x2 with a footing of 2, the
      same shape as the press and the hearth.
@@ -474,7 +486,38 @@ export const MACHINES = [
 
     hub:{ reach:96, carries:['material', 'player'] },
 
-    look:{ body:'irC', trim:'irA', base:'irD' } },
+    /* THE HEADFRAME: a timber post-and-beam frame, a winding drum, and one
+       large toothed drive gear -- the reference image's own silhouette at
+       2x2 tiles. `parts` is an ORDERED list and the order is the z-order, so
+       the frame goes down first and the wheels sit in it.
+
+       `cable` and `carrier` are read by `view/paint.js`'s segment pass rather
+       than dispatched as parts, for the same reason `pips` and `fire` are read
+       directly: they describe something that is not inside this footprint and
+       has no `fn` to name. Only the hub carries them -- a crank or a gear has
+       no cable of its own -- which is what stops a span being painted twice. */
+    look:{ body:'irC', trim:'irA', base:'irD',
+           parts:[
+             /* THE FRAME RECEDES AND THE MOVING PARTS COME FORWARD, which is
+                the one tonal decision the whole family rests on. Everything
+                was in the same dark register at first -- dark rock, dark
+                timber, dark iron -- and the hub read as a stain on the wall.
+                So: the structure is the DARKEST timber, the drum is bright
+                ochre, and the gear is pale iron with a bronze boss. What
+                turns is what you see. */
+             { fn:'frame', body:'woodC', hi:'woodB', lo:'woodD', post:2, beam:2 },
+             /* THE DRUM SITS CLEAR OF THE GEAR, in rows 2-6, because when the
+                two overlapped the drum was invisible and the hub read as one
+                indistinct wheel in a picture frame. A drum and a gear are two
+                objects and they have to occupy two places. */
+             { fn:'drum',  body:'woodA', hi:'ochreA', lo:'woodC', trim:'irB',
+               w:12, h:5, dx:2, dy:2 },
+             { fn:'gearWheel', d:9, teeth:8, rt:5, dy:4,
+               body:'irA', hi:'snA', lo:'irC', col:'irA', dark:'cuC' }
+           ],
+           cable:{ hi:'snB', lo:'irC', col:'ochreA', low:'woodB', dark:'woodD', spacing:12 },
+           carrier:{ body:'woodD', hi:'ochreA', lo:'irD', trim:'irA',
+                     col:'cuA', full:40, depth:7 } } },
 
   /* HAND CRANK: the only power source in the game, and manual only. 1x2 and
      footing 1 -- a post with a handle on it, standing beside the hub it
@@ -492,7 +535,31 @@ export const MACHINES = [
 
     crank:{ torque:1.0, reach:12 },
 
-    look:{ body:'woodC', trim:'irA', base:'irD' } },
+    /* A POST WITH A HANDLE ON IT. The handle is swept by `m.turn` and is the
+       machine's whole turning state -- there is no second indicator, because
+       a crank whose handle is at the top and a crank whose handle is at the
+       bottom is already the clearest possible statement of "this is moving".
+       The small boss gear at the foot is what meshes with an adjacent gear
+       or hub, so the crank's teeth reach the footprint edge exactly as a
+       gear's do. */
+    look:{ body:'woodC', trim:'irA', base:'irD',
+           parts:[
+             /* POST ON THE LEFT, WHEEL AND HANDLE ON THE RIGHT. They shared
+                the middle at first and the wheel swallowed the post, so the
+                crank read as a lone cog with a hook floating over it. Eight
+                pixels of width is enough for two things only if they are told
+                which side each is on. */
+             { fn:'shaft', body:'woodA', hi:'ochreA', lo:'woodC', trim:'irB',
+               thick:4, inset:1, collars:2, dx:-2 },
+             { fn:'gearWheel', d:7, teeth:8, rt:4, dx:2, dy:5,
+               body:'irA', hi:'snA', lo:'irC', col:'irA', dark:'cuC' },
+             /* THE ARM COMES OFF THE POST, not out of the middle of the tile:
+                `cx:2` puts the bearing on the post itself, and `a0` swings the
+                handle up and out so the resting crank reads as caught
+                mid-turn rather than as a lever bolted on sideways. */
+             { fn:'crankArm', body:'irB', col:'ochreA', hi:'veinA', dark:'irD',
+               cx:2, cy:6, r:5, a0:-0.6 }
+           ] } },
 
   /* GEAR: the linkage primitive, 1x1. `loss:0.06` per hop is what stops a
      drivetrain sprawling for free.
@@ -505,7 +572,19 @@ export const MACHINES = [
 
     gear:{ loss:0.06 },
 
-    look:{ body:'cuB', trim:'cuA', base:'cuD' } },
+    /* ONE WHEEL, AND ITS TEETH REACH THE FOOTPRINT EDGE. `rt` (the tooth
+       radius) is 5 in an 8 px tile, so two gears in orthogonally adjacent
+       tiles overlap their teeth across the gap and read as MESHED, while two
+       in diagonally adjacent tiles sit 11 px apart and leave an obvious hole
+       between them. `teeth:8` keeps one tooth on each of the four axes at
+       phase 0, which is what makes a resting train look engaged rather than
+       accidentally aligned. That is docs/PLAN A3 taught by geometry instead
+       of by a tooltip. */
+    look:{ body:'cuB', trim:'cuA', base:'cuD',
+           parts:[
+             { fn:'gearWheel', d:8, teeth:8, rt:4,
+               body:'irA', hi:'snA', lo:'irC', col:'irA', dark:'cuC' }
+           ] } },
 
   /* AXLE: three tiles of reach for a third of the loss. A `variantOf:'gear'`,
      so it is CONTENT and not code -- the same near-free variant `kiln_divine`
@@ -517,7 +596,22 @@ export const MACHINES = [
 
     gear:{ loss:0.02 },
 
-    look:{ body:'woodB', trim:'cuA', base:'woodD' } }
+    /* A BEAM WITH A WHEEL AT EACH END, which is the whole of what an axle is:
+       three tiles of reach for a third of the loss. The two end wheels use
+       the SAME `gearWheel` the 1x1 gear does, at the same tooth radius, so an
+       axle meshing with a gear and two gears meshing with each other are the
+       same picture -- a train reads as continuous across a mixture of the
+       two. The middle of the span is bare timber, which is also the honest
+       statement that nothing meshes with an axle's middle. */
+    look:{ body:'woodB', trim:'cuA', base:'woodD',
+           parts:[
+             { fn:'shaft', body:'woodB', hi:'woodA', lo:'woodD', trim:'irB',
+               thick:4, inset:3, collars:2 },
+             { fn:'gearWheel', d:8, teeth:8, rt:4, dx:-8,
+               body:'irA', hi:'snA', lo:'irC', col:'irA', dark:'cuC' },
+             { fn:'gearWheel', d:8, teeth:8, rt:4, dx:8,
+               body:'irA', hi:'snA', lo:'irC', col:'irA', dark:'cuC' }
+           ] } }
 ];
 
 /* ---- variant expansion, then derived indices, built once, frozen ------------

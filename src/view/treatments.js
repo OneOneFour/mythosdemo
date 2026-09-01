@@ -18,6 +18,24 @@
    `{ px, py, tx, ty, tile }` in destination pixels and band tiles, and `p` is
    the row's own parameter object.
 
+   A MACHINE PART GETS FOUR MORE CELL FIELDS, and they are additions to the
+   same contract rather than a second one: `w`/`h` (the footprint's own pixel
+   size, so a part can centre itself in a 2x2 hub or a 3x1 axle without the
+   row restating it), `turn` (`model/machines.js#m.turn`, accumulated rotation
+   phase in radians -- a MODEL number, never a frame counter and never
+   `rand()`) and `t` (the clock, for anything that has to breathe). A terrain
+   treatment reads none of them and a machine part reads no `tile`; both go
+   through the SAME `TREAT` table and the same `look` list, which is what
+   makes `tools/content.mjs` assertion 15 validate a machine part's `fn` and
+   its colour names for free.
+
+   COLOUR PARAMS MUST USE THE NAMES `tools/content.mjs#COLOUR_KEYS` KNOWS
+   (`body`, `trim`, `base`, `hi`, `lo`, `col`, `low`, `dark`, `face`,
+   `contact`, ...). A colour under any other key is not a syntax error, it is
+   an UNCHECKED colour -- it would throw from `colour()` the first time the
+   part painted, at whatever depth that happened to be, which is the exact
+   failure assertion 15 exists to move to import time.
+
    THEY MAY USE `hash2` AND MUST NOT USE `rand`. Rendering consumes no
    randomness (ARCHITECTURE invariant 7): a repaint must not be a mutation of
    anything, not even of an RNG cursor, or a screenshot would depend on how many
@@ -25,7 +43,7 @@
    hash, never from the stream. */
 
 import { colour } from '../data/palette.js';
-import { LIGHT, R, glow, noiseFill } from '../core/pixels.js';
+import { LIGHT, R, glow, lineTo, noiseFill } from '../core/pixels.js';
 import { hash2 } from '../core/rng.js';
 
 /* ---------- HOW FAR A DECORATION REACHES, IN TILES ----------
@@ -193,6 +211,201 @@ export const TREAT = {
     const drape = Math.min(p.drape ?? 4, EXTENT.grassCap * t);
     if (c.openL) lip(g, c.px, c.py + t, drape, c.tx, c.ty, low, dark, false);
     if (c.openR) lip(g, c.px + t, c.py + t, drape, c.tx, c.ty, low, dark, true);
+  },
+
+  /* ==================== MACHINERY ====================
+     The parts a machine row's `look.parts` list may name. `EXTENT` does NOT
+     apply to any of them: a machine is drawn live into the frame by
+     `view/paint.js#paintMachine`, never baked into a chunk canvas, so there
+     is no seam to be clipped at and nothing to declare a reach for. What
+     bounds a part is its own footprint, and a part that draws outside it
+     (the hub's cable lugs, an axle's end teeth) is drawing over the world,
+     on purpose, exactly as the existing hopper lips already do.
+
+     ROTATION IS `c.turn` AND NOTHING ELSE. Phase 8f writes it; until then it
+     is 0 and every wheel below draws at phase 0, which is correct rather than
+     a placeholder. */
+
+  /* A TOOTHED WHEEL, which is the one shape this whole machine family is
+     built out of: the hub's big drive gear, a 1x1 gear, an axle's two end
+     gears, and the crank's own boss are all this function at four sizes.
+
+     TEETH REACH PAST THE FOOTPRINT ON THE FOUR ORTHOGONAL AXES, and that is
+     the entire art-teaches-the-rule requirement (docs/PLAN A3: diagonals do
+     not conduct). `rt` defaults to half the tile past the wheel's own rim, so
+     two gears in ORTHOGONALLY adjacent tiles have teeth that overlap in the
+     gap between them and visibly interlock, while two in DIAGONALLY adjacent
+     tiles are 1.41 tiles apart centre to centre and leave a plain gap with
+     nothing bridging it. Nothing declares "these mesh"; the geometry does.
+
+     TOOTH COUNT IS TIED TO THE ANGLE GRID, not to size: `teeth` multiples of
+     4 keep one tooth on each axis at phase 0, which is what makes an
+     unpowered train read as meshed rather than as coincidentally close. */
+  gearWheel(g, c, p) {
+    const bw = c.w ?? c.tile, bh = c.h ?? c.tile;
+    const d = p.d ?? Math.min(bw, bh);
+    const x = c.px + ((bw - d) >> 1) + (p.dx | 0);
+    const y = c.py + ((bh - d) >> 1) + (p.dy | 0);
+    const cx = x + d / 2, cy = y + d / 2;
+    const n = p.teeth ?? 8;
+    /* A TOOTH SITS ON THE RIM, NOT ON A SPIKE. `rt` defaults to the wheel's
+       own radius, which puts the 2x2 tooth block astride the rim and so
+       protrudes about a pixel -- exactly far enough that two wheels one tile
+       apart abut. The first attempt used `d/2 + 2` and every gear read as an
+       orange sunburst: at 8 px to the tile a two-pixel spike is a quarter of
+       the whole wheel, and eight of them swamped the disc they were attached
+       to. Nothing about the meshing argument needed the extra reach. */
+    const rt = p.rt ?? (d / 2);
+    const turn = c.turn || 0;
+
+    /* Teeth first: the rim's dark outline overpaints their inner ends, so a
+       tooth reads as something growing OUT of the wheel rather than a block
+       sitting on it. ONE FLAT TONE PER TOOTH, and that tone is the wheel's
+       BODY rather than its highlight -- teeth drawn in the highlight tone
+       merged into the lit rim and the whole gear read as a blob. */
+    const tcol = colour(p.col ?? p.body);
+    for (let i = 0; i < n; i++) {
+      const a = turn + i * (Math.PI * 2 / n);
+      R(g, Math.round(cx + Math.cos(a) * rt - 1),
+           Math.round(cy + Math.sin(a) * rt - 1), 2, 2, tcol);
+    }
+
+    discShaded(g, x, y, d, colour(p.body), colour(p.hi ?? p.body), colour(p.lo ?? p.body));
+
+    /* SPOKES ARE WHAT MAKES ROTATION LEGIBLE. Teeth on a small wheel move
+       barely a pixel per step; a spoke sweeps the whole radius, so a turning
+       gear reads as turning even at 8 px.
+
+       NOT BELOW 12 PX, and that floor was measured by looking rather than
+       guessed: four spokes in an 11 px wheel leave a 9 px interior, and four
+       dark radii across 9 px is most of the disc -- the hub read as a black
+       blob with a bronze dot. A wheel that small says "turning" with its
+       teeth alone. */
+    if (d >= 12 && (p.spokes ?? 0) > 0) {
+      /* IN THE OUTLINE TONE, so a spoke reads as a slot cut through the
+         wheel. Drawn in the boss tone first, they read as a painted star. */
+      const slot = colour(p.lo ?? p.body);
+      for (let i = 0; i < p.spokes; i++) {
+        const a = turn + i * (Math.PI * 2 / p.spokes);
+        lineTo(g, Math.round(cx), Math.round(cy),
+               Math.round(cx + Math.cos(a) * (d / 2 - 2)),
+               Math.round(cy + Math.sin(a) * (d / 2 - 2)), slot);
+      }
+    }
+
+    /* The boss, always: a wheel with no centre reads as a ring. One warm
+       bronze dot at the middle of every iron wheel in the drivetrain, which
+       is also what makes a train of them read as one family from across a
+       cavern. */
+    const hd = p.hd ?? Math.max(2, (d / 3.5) | 0);
+    disc(g, Math.round(cx - hd / 2), Math.round(cy - hd / 2), hd,
+         colour(p.dark ?? p.lo ?? p.body));
+  },
+
+  /* A WINDING DRUM, seen end-on down its own axis: a squat cylinder with two
+     iron hoops and a lit top course. Sits beside the drive gear on a hub and
+     is what makes the pair read as a winch rather than as clockwork. */
+  drum(g, c, p) {
+    const bw = c.w ?? c.tile;
+    const w = p.w ?? Math.max(4, (bw / 2) | 0), h = p.h ?? 5;
+    const x = c.px + (p.dx | 0), y = c.py + (p.dy | 0);
+    const body = colour(p.body), hi = colour(p.hi ?? p.body), lo = colour(p.lo ?? p.body);
+
+    R(g, x, y, w, h, body);
+    R(g, x, y, w, 1, hi);
+    R(g, x, y + h - 1, w, 1, lo);
+    /* Hoops: two vertical bands in the trim colour, inset one pixel from each
+       end, so the drum reads as banded staves. */
+    const band = colour(p.trim ?? p.lo ?? p.body);
+    R(g, x + 1, y, 1, h, band);
+    R(g, x + w - 2, y, 1, h, band);
+  },
+
+  /* THE POST-AND-BEAM FRAME every one of these machines is bolted into --
+     two uprights and a lintel, in the Greco-Roman timber-and-iron register
+     the reference image is in. Drawn UNDER the wheels (list it first), so the
+     wheels sit in the frame rather than beside it. */
+  frame(g, c, p) {
+    const bw = c.w ?? c.tile, bh = c.h ?? c.tile;
+    const x = c.px, y = c.py;
+    const post = p.post ?? 2;
+    const body = colour(p.body), hi = colour(p.hi ?? p.body), lo = colour(p.lo ?? p.body);
+
+    R(g, x, y, post, bh, body);                        // left upright
+    R(g, x + bw - post, y, post, bh, body);            // right upright
+    R(g, x, y, bw, p.beam ?? 2, body);                 // lintel
+    R(g, x, y, bw, 1, hi);                             // the sun is up
+    R(g, x, y, 1, bh, hi);                             // and to the left
+    R(g, x + bw - 1, y, 1, bh, lo);
+    if (p.sill) R(g, x, y + bh - 1, bw, 1, lo);
+  },
+
+  /* THE CRANK HANDLE: a boss, an arm, and a knob, swept by `c.turn`. The arm
+     is drawn to the FULL radius with `lineTo` and the knob capped on its end,
+     so "which way is it pointing" is legible at 8 px wide -- the one thing a
+     hand crank has to communicate.
+
+     The arm's own length does not change with phase, which is deliberately
+     NOT foreshortened: a handle that shortened as it swung would read as
+     broken at this resolution, and the game does not need the third
+     dimension. */
+  crankArm(g, c, p) {
+    const bw = c.w ?? c.tile, bh = c.h ?? c.tile;
+    const cx = Math.round(c.px + (p.cx ?? (bw / 2)) + (p.dx | 0));
+    const cy = Math.round(c.py + (p.cy ?? (bh / 3)) + (p.dy | 0));
+    const r = p.r ?? Math.max(3, (bw / 2) + 1);
+    /* `a0` IS THE RESTING ANGLE, and it exists because a handle pointing dead
+       right at phase 0 reads as a lever or a little flag rather than as a
+       crank. Offset a third of a turn and the same handle reads as caught
+       mid-swing. Appearance only, and still a pure function of `c.turn`. */
+    const a = (c.turn || 0) + (p.a0 ?? 0);
+    const ex = Math.round(cx + Math.cos(a) * r), ey = Math.round(cy + Math.sin(a) * r);
+
+    /* THE BEARING, THE ARM AND THE GRIP, and all three are needed. A 1 px arm
+       with a 2x2 knob was the first attempt and it read as a stray scratch
+       over the post: at this scale a hand crank is three pixels of arm and a
+       fat wooden grip, or it is nothing. `thick:2` on the arm is the whole
+       difference between a scratch and a handle. */
+    R(g, cx - 2, cy - 2, 4, 4, colour(p.dark ?? p.body));             // bearing block
+    R(g, cx - 1, cy - 1, 2, 2, colour(p.body));
+    lineTo(g, cx, cy, ex, ey, colour(p.body), 2);
+    R(g, ex - 1, ey - 2, 3, 4, colour(p.col ?? p.hi ?? p.body));      // the grip
+    R(g, ex - 1, ey - 2, 3, 1, colour(p.hi ?? p.col ?? p.body));
+  },
+
+  /* A SQUARED TIMBER SHAFT WITH IRON COLLARS, running along the FOOTPRINT'S
+     OWN LONG AXIS -- a 3x1 axle gets a beam, a 1x2 crank gets a post, from
+     one function and no orientation flag in the data. The footprint already
+     knows which way the machine is turned, and a row that had to say so as
+     well is a second place for the two to disagree.
+
+     `thick` is the shaft's own cross-section and `inset` how far short of the
+     footprint's ends it stops. Any wheels are separate `gearWheel` entries in
+     the same `parts` list, positioned by `dx`/`dy`, which is what lets the
+     3x1 axle, the 1x2 crank and the 1x1 gear share one wheel function. */
+  shaft(g, c, p) {
+    const bw = c.w ?? c.tile, bh = c.h ?? c.tile;
+    const vert = p.vert ?? (bh > bw);
+    const along = vert ? bh : bw, across = vert ? bw : bh;
+    const thick = p.thick ?? Math.max(2, (across / 2) | 0);
+    const run = Math.max(1, (p.len ?? along) - (p.inset ?? 0) * 2);
+
+    /* `a` is the coordinate along the shaft, `b` across it. One pair of
+        expressions, applied twice, rather than two copies of the geometry. */
+    const a0 = (vert ? c.py : c.px) + (p.inset ?? 0) + (vert ? (p.dy | 0) : (p.dx | 0));
+    const b0 = (vert ? c.px : c.py) + ((across - thick) >> 1)
+             + (vert ? (p.dx | 0) : (p.dy | 0));
+    const box = (bo, bs, ao, as, col) =>
+      vert ? R(g, bo, ao, bs, as, col) : R(g, ao, bo, as, bs, col);
+
+    box(b0, thick, a0, run, colour(p.body));
+    box(b0, 1, a0, run, colour(p.hi ?? p.body));                  // sun-side edge
+    box(b0 + thick - 1, 1, a0, run, colour(p.lo ?? p.body));
+
+    const collar = colour(p.trim ?? p.lo ?? p.body);
+    const nc = p.collars ?? 2;
+    for (let k = 0; k < nc; k++)
+      box(b0 - 1, thick + 2, a0 + (((run - 1) * (nc > 1 ? k / (nc - 1) : 0.5)) | 0), 1, collar);
   }
 };
 
@@ -263,6 +476,66 @@ function lip(g, x, y, depth, tx, ty, near, far, right) {
     if (k > 0 && hash2(tx * 7 + k, ty * 3 + (right ? 11 : 5)) < 0.28) break;
     const w = 1 + ((hash2(tx * 17 + k, ty * 29 + (right ? 5 : 1)) * 2) | 0);
     R(g, right ? x - w : x, y + k, w, 1, k < depth - 2 ? near : far);
+  }
+}
+
+/* ---------- discs ----------
+   A CIRCLE, ONE INTEGER ROW AT A TIME. No `arc`, no fill path, for the same
+   reason `view/scene.js#dome` refuses one: a canvas curve antialiases its own
+   edge, and SPEC section 6 forbids that outright. `d` is the DIAMETER and the
+   disc exactly fills the `d x d` box at `(x, y)`, so a caller that has already
+   floored `x`/`y` cannot produce a half-pixel edge no matter what `d` is.
+
+   The row width comes from the circle equation sampled at each row's CENTRE
+   ((j + 0.5) normalised to -1..1), which is what stops an even diameter from
+   drawing a flat-topped disc one row taller than it is wide. */
+export function disc(g, x, y, d, col) {
+  for (let j = 0; j < d; j++) {
+    const k = ((j + 0.5) / d) * 2 - 1;
+    const w = Math.max(1, Math.round(d * Math.sqrt(Math.max(0, 1 - k * k))));
+    R(g, x + ((d - w) >> 1), y + j, w, 1, col);
+  }
+}
+
+/* THE SAME DISC AS A MACHINED WHEEL: a 1 px DARK OUTLINE all the way round, a
+   mid-tone interior, and a lit crescent on the sun side of the rim. Three
+   tones, and the outline is the one that matters.
+
+   THE OUTLINE IS THE WHOLE FIX, and it was arrived at by looking. The first
+   version shaded the disc symmetrically -- a lit arc up-left, a shaded arc
+   down-right, mid tone between -- and at 11 px in an unlit shaft the result
+   was a grey amoeba: the lit arc ran into the teeth (drawn in the same
+   highlight tone), the shaded arc ran into the background, and nothing said
+   where the wheel ENDED. A dark ring says it in one pixel, and it is also
+   what makes a tooth read as a tooth: a body-toned block sitting outside the
+   ring rather than a lump of the same crescent.
+
+   `RIM_R2` is in squared normalised radius, so the highlight test costs no
+   square root. Runs are coalesced per row exactly as the canopy's are. */
+const RIM_R2 = 0.30;
+const DISC_LIT = 0.35;
+
+export function discShaded(g, x, y, d, body, hi, lo) {
+  disc(g, x, y, d, lo);                       // the outline, as a full disc
+  const di = d - 2;
+  if (di < 1) return;
+
+  const r = di / 2;
+  for (let j = 0; j < di; j++) {
+    const ny = ((j + 0.5) - r) / r;
+    let runX = 0, runCol = null;
+    for (let i = 0; i <= di; i++) {
+      const nx = ((i + 0.5) - r) / r;
+      const r2 = nx * nx + ny * ny;
+      let col = null;
+      if (i < di && r2 <= 1) {
+        col = body;
+        if (r2 > RIM_R2 && -(nx * LIGHT.x + ny * LIGHT.y) / 1.42 > DISC_LIT) col = hi;
+      }
+      if (col === runCol) continue;
+      if (runCol) R(g, x + 1 + runX, y + 1 + j, i - runX, 1, runCol);
+      runX = i; runCol = col;
+    }
   }
 }
 
