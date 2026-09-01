@@ -38,7 +38,7 @@ import { defOf } from './machines.js';
 import { eff } from './mods.js';
 import { player, playerBox } from './player.js';
 import { solidAt } from './tiles.js';
-import { bandAt, tileX, tileY } from './world.js';
+import { bandAt } from './world.js';
 
 export const segments = [];
 
@@ -221,6 +221,29 @@ export function linkCheck(a, b) {
   return { ok: true, why: null, at: null };
 }
 
+/* A hub's own anchor is `box.x + w/2` -- exactly on a tile-column (or, for a
+   horizontal span, tile-row) boundary for any EVEN footing, which every hub
+   today is. So a straight vertical or horizontal link between two same-
+   footing hubs samples its whole length exactly astride a grid line, and
+   `Math.floor()` inside `tileX`/`tileY` has to pick one of the two tiles that
+   share it -- consistently, which means the OTHER one is never sampled at
+   all. Confirmed live (Phase 8g's cross-band harness): a solid tile placed in
+   the column the floor happened not to pick was invisible to every sample
+   the whole sweep took. Both tiles sharing an exact boundary are equally
+   "on" the line a player would see the cable drawn along, so both must be
+   checked -- never just whichever one `Math.floor` favours. `EPS` is world
+   px, far below anything a seeded RNG or a real placement could land on by
+   coincidence, so this only ever fires for a genuinely boundary-exact
+   sample, not a near miss. */
+const EPS = 1e-6;
+function solidNear(band, wx, wy) {
+  const fx = (wx - band.origin.x) / band.tile, fy = (wy - band.origin.y) / band.tile;
+  const xs = Math.abs(fx - Math.round(fx)) < EPS ? [Math.round(fx) - 1, Math.round(fx)] : [Math.floor(fx)];
+  const ys = Math.abs(fy - Math.round(fy)) < EPS ? [Math.round(fy) - 1, Math.round(fy)] : [Math.floor(fy)];
+  for (const tx of xs) for (const ty of ys) if (solidAt(band, tx, ty)) return true;
+  return false;
+}
+
 /* THE HALF-TILE SWEEP, not a Bresenham. `rules/items.js` already states the
    rule this reuses -- "no substep longer than half a tile, in either axis" --
    and it is the right one here for the same reason: a sample every half tile
@@ -243,7 +266,7 @@ function sweepSpan(pa, pb, len) {
     const x = lerp(pa.x, pb.x, f), y = lerp(pa.y, pb.y, f);
     const band = bandAt(x, y);
     if (!band) { offWorld = offWorld || { x, y }; continue; }
-    if (solidAt(band, tileX(band, x), tileY(band, y)))
+    if (solidNear(band, x, y))
       blocked = blocked || { x, y };
   }
   return { blocked, offWorld };
