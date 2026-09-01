@@ -2507,3 +2507,430 @@ test('parity: the built artifact renders identically to dev', async ({ page }) =
   expect(built.h2).toBe(dev.h2);
   expect(built.hash).toBe(dev.hash);
 });
+
+/* ============================================================
+   PHASE 8e — THE WINCH MATRIX
+
+   Hubs, cables, bucket chains, carriers, cranks, gears and the cable ghost.
+   Twenty-one baselines, because the machinery is a family of shapes that only
+   read correctly in relation to each other: a gear train that MESHES is only
+   legible next to one that does not, a loaded carrier only next to an empty
+   one, and a lit segment only next to the same segment in the dark.
+
+   EVERY SCENE IS BUILT THROUGH THE MODEL AND NOT ONE CLICK COORDINATE
+   APPEARS. `winchScene` takes a serialisable spec, carves the room, places
+   the machines, links the segments, parks the carriers and the camera, and
+   returns what it actually built so a test can ASSERT the scene it is about
+   to photograph before photographing it. That matters here more than usual:
+   a link that silently refused would produce a perfectly stable screenshot of
+   two hubs and no cable, and CLAUDE.md's "a test can silently test nothing"
+   is exactly that failure. So every segment scene asserts its own segment
+   count, and the two ghost-refusal scenes assert the `why` they are named
+   after.
+
+   NOTHING MOVES YET. Phase 8f writes `m.turn` and the carrier's `t`; this
+   phase reads them. `winch-turned.png` sets a nonzero phase through the model
+   on purpose, so the day motion lands there is a baseline that already knows
+   what a turned gear looks like.
+   ============================================================ */
+
+async function winchScene(page, spec) {
+  return page.evaluate(async (spec) => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { M } = await import('/src/data/machines.js');
+    const { write: mw } = await import('/src/model/machines.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { write: pw } = await import('/src/model/player.js');
+    const { write: segw, linkCheck, segments } = await import('/src/model/segments.js');
+    const { write: aimw } = await import('/src/model/aim.js');
+    const { bandOf, worldX, worldY, write: ww } = await import('/src/model/world.js');
+    const { armLink, clearLink } = await import('/src/shell/ui.js');
+    const { banner } = await import('/src/view/fx.js');
+
+    const band = bandOf(spec.band || 'surface');
+    const { tx0, ty0, w, h } = spec.room;
+
+    /* Carved from ROW 0 unless `sealed`, so the shaft is sky-exposed and
+       `rules/light.js` floods it at `lightMax`. A sealed room is the unlit
+       half of the lit/unlit pair, and is the reason that flag exists. */
+    for (let ty = spec.sealed ? ty0 : 0; ty < ty0 + h; ty++)
+      for (let tx = tx0; tx < tx0 + w; tx++) tw.clear(band, tx, ty);
+    for (let tx = tx0; tx < tx0 + w; tx++) tw.set(band, tx, ty0 + h - 1, S.stone);
+    for (const [tx, ty, n] of spec.rock || [])
+      for (let i = 0; i < (n || 1); i++) tw.set(band, tx + i, ty, S.stone);
+
+    const placed = (spec.machines || []).map(([id, tx, ty]) => mw.place(band, M[id], tx, ty));
+
+    const refusals = [];
+    for (const [i, j] of spec.links || []) {
+      const c = linkCheck(placed[i], placed[j]);
+      if (c.ok) segw.link(placed[i], placed[j]);
+      else refusals.push(c.why);
+    }
+    for (const [i, t, load] of spec.carriers || []) {
+      segw.carrier(segments[i], t, 0);
+      segw.load(segments[i], load || 0);
+    }
+    for (const [i, phase] of spec.turns || []) mw.turn(placed[i], phase);
+    for (const [i, sub, form, n] of spec.feed || []) mw.take(placed[i], S[sub], F[form], n);
+
+    pw.band(band);
+    pw.move(worldX(band, spec.player[0]), worldY(band, spec.player[1]));
+    ww.revealAll(band);
+    banner.fade = 0;
+    clearLink();
+    __mf.cmd.hasMouse = false;
+    __mf.frames(spec.frames ?? 4);
+
+    /* ARMED AND AIMED LAST, and both through the model. `aim` is clamped to
+       the player's own `eff('reach')` by `rules/mining.js#aimAtWorld` -- 3.2
+       tiles -- so a ghost stretched to a hub twelve tiles away cannot be
+       produced by moving a pointer at all, and the reach clip could never be
+       photographed that way. Setting `aim` directly is the model's own
+       statement of where the reticle is. */
+    if (spec.arm !== undefined) {
+      armLink(placed[spec.arm]);
+      aimw.set(band, spec.aimAt[0], spec.aimAt[1], true);
+    }
+
+    /* THE ROOM IS CENTRED IN THE VIEWPORT, not pinned to its top-left corner.
+       Pinned was the first attempt and every shot in the matrix put the
+       machinery in the top-left sixth of a 640x400 frame with five sixths of
+       black rock beside it -- unreviewable, which for a baseline whose whole
+       purpose is a human looking at it is a defect. `VIEW` is read rather
+       than assumed because the base buffer is a function of the window
+       (`core/canvas.js#resize`), and a hardcoded 640x400 here is the same
+       mistake as a hardcoded click coordinate.
+
+       Parked AFTER the substeps and drawn without another one, because
+       `step()` re-centres the camera on the player. */
+    const { VIEW } = await import('/src/core/canvas.js');
+    __mf.cam.x = Math.round(worldX(band, tx0) + w * band.tile / 2 - VIEW.w / 2)
+               + (spec.offset?.[0] ?? 0);
+    __mf.cam.y = Math.round(worldY(band, ty0) + h * band.tile / 2 - VIEW.h / 2)
+               + (spec.offset?.[1] ?? 0);
+    __mf.draw();
+
+    return {
+      machines: placed.length, segments: segments.length, refusals,
+      seg: segments.map(s => ({
+        t: s.t, load: s.load, len: Math.round(s.len), slope: +s.slope.toFixed(2)
+      }))
+    };
+  }, spec);
+}
+
+/* A vertical shaft four tiles wide with rock either side, used by the chain
+   shots so the mid-chain hubs read as bracketed to a wall rather than
+   floating. `tx0+1 .. tx0+4` is carved; the cable runs inside it. */
+const SHAFT = { tx0: 41, ty0: 24, w: 6, h: 23 };
+const ROOM  = { tx0: 40, ty0: 28, w: 15, h: 18 };
+const TALL  = { tx0: 40, ty0: 24, w: 16, h: 22 };
+
+test('winch: a hub alone', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await winchScene(page, {
+    room: ROOM, machines: [['hub', 44, 43]], player: [41, 43]
+  });
+  expect(r.machines).toBe(1);
+  await shot(page, 'winch-hub.png');
+});
+
+test('winch: two hubs, not linked', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await winchScene(page, {
+    room: ROOM, machines: [['hub', 44, 43], ['hub', 44, 33]], player: [41, 43]
+  });
+  expect(r.segments).toBe(0);
+  await shot(page, 'winch-hubs-unlinked.png');
+});
+
+/* THE SAME VERTICAL SEGMENT AT THREE CARRIER POSITIONS. Three baselines and
+   not one, because the bucket chain is PHASE-LOCKED to the carrier: every
+   bucket on the cable moves with it, so `t` changes the whole picture and not
+   just one sprite's position. If a future change broke the phase lock, the
+   bottom shot would still pass and the middle one would not. */
+const VERTICAL = {
+  room: ROOM, machines: [['hub', 44, 43], ['hub', 44, 33]], links: [[0, 1]],
+  player: [41, 43]
+};
+
+for (const [name, t] of [['bottom', 0], ['middle', 0.5], ['top', 1]]) {
+  test(`winch: a vertical segment, carrier at the ${name}`, async ({ page }) => {
+    await boot(page);
+    await settle(page);
+    const r = await winchScene(page, { ...VERTICAL, carriers: [[0, t, 0]] });
+    expect(r.segments).toBe(1);
+    expect(r.seg[0].slope).toBe(1);
+    expect(r.seg[0].t).toBe(t);
+    await shot(page, `winch-vertical-${name}.png`);
+  });
+}
+
+test('winch: a loaded carrier', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await winchScene(page, { ...VERTICAL, carriers: [[0, 0.5, 34]] });
+  expect(r.seg[0].load).toBe(34);
+  await shot(page, 'winch-carrier-loaded.png');
+});
+
+/* THREE ANGLES AND A HORIZONTAL, and the angle is asserted rather than
+   trusted: `slope` is the number `rules/drive.js` will divide gravity by in
+   Phase 8f, so a shot named "45 degrees" whose slope had drifted would be a
+   baseline of the wrong mechanic. */
+const ANGLES = [
+  ['30', ['hub', 52, 37], 0.51],
+  ['45', ['hub', 50, 35], 0.71],
+  ['60', ['hub', 47, 34], 0.87],
+  ['horizontal', ['hub', 53, 43], 0]
+];
+
+for (const [name, far, slope] of ANGLES) {
+  test(`winch: a segment at ${name}`, async ({ page }) => {
+    await boot(page);
+    await settle(page);
+    const r = await winchScene(page, {
+      room: TALL, machines: [['hub', 42, 43], far], links: [[0, 1]],
+      carriers: [[0, 0.55, 12]], player: [41, 43]
+    });
+    expect(r.segments).toBe(1);
+    expect(r.seg[0].slope).toBe(slope);
+    await shot(page, `winch-${name}.png`);
+  });
+}
+
+test('winch: a crank alone', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await winchScene(page, {
+    room: ROOM, machines: [['crank', 44, 43]], player: [41, 43]
+  });
+  expect(r.machines).toBe(1);
+  await shot(page, 'winch-crank.png');
+});
+
+/* A CRANK, TWO GEARS AND A HUB, all orthogonally adjacent -- the drivetrain
+   Phase 8f will actually solve, drawn so it reads as one continuous run of
+   meshed teeth. Every footprint here shares a full edge with the next. */
+test('winch: a crank, a two-gear train and a hub', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await winchScene(page, {
+    room: ROOM,
+    machines: [['crank', 44, 43], ['gear', 45, 44], ['gear', 46, 44], ['hub', 47, 43]],
+    player: [41, 43]
+  });
+  expect(r.machines).toBe(4);
+  await shot(page, 'winch-train.png');
+});
+
+/* THE ONE SHOT THAT HAS TO TEACH A RULE. docs/PLAN A3: diagonals do not
+   conduct torque, a corner needs a gear IN it. Left, a diagonal pair with
+   nothing bridging the corner; right, the same corner done properly with a
+   third gear in it. A human looking at this baseline should be able to say
+   which one turns without being told. */
+test('winch: a diagonal gear pair does not mesh, and a cornered one does', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await winchScene(page, {
+    room: ROOM,
+    rock: [[44, 43], [46, 44], [50, 43], [52, 43]],
+    machines: [['gear', 44, 42], ['gear', 45, 43],
+               ['gear', 50, 42], ['gear', 51, 42], ['gear', 51, 43], ['gear', 52, 42]],
+    player: [41, 43]
+  });
+  expect(r.machines).toBe(6);
+  await shot(page, 'winch-gears-diagonal.png');
+});
+
+/* A THREE-SEGMENT CHAIN, AND THE SAME CHAIN WITH THE MIDDLE ONE MISSING.
+   `model/segments.js#chains()` is derived and never stored, so what a human
+   has to be able to see here is that a complete chain reads as continuous and
+   a broken one reads as broken -- which is the whole of what Phase 9's
+   overview will draw from the same query. */
+const CHAIN = {
+  room: SHAFT,
+  machines: [['hub', 42, 44], ['hub', 44, 38], ['hub', 42, 32], ['hub', 44, 26]],
+  player: [42, 44]
+};
+
+test('winch: a three-segment chain that connects', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await winchScene(page, {
+    ...CHAIN, links: [[0, 1], [1, 2], [2, 3]],
+    carriers: [[0, 0.35, 20], [1, 0.6, 0], [2, 0.15, 8]]
+  });
+  expect(r.segments).toBe(3);
+  expect(r.refusals).toEqual([]);
+  await shot(page, 'winch-chain.png');
+});
+
+test('winch: the same chain with the middle segment missing', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await winchScene(page, {
+    ...CHAIN, links: [[0, 1], [2, 3]],
+    carriers: [[0, 0.35, 20], [1, 0.15, 8]]
+  });
+  expect(r.segments).toBe(2);
+  await shot(page, 'winch-chain-gap.png');
+});
+
+/* A NONZERO ROTATION PHASE, written through `model/machines.js#write.turn`.
+   Nothing in the game writes it until Phase 8f; this is the baseline that
+   says what a turning train is supposed to look like when it does, and it is
+   also the proof that the phase comes from a MODEL number rather than from a
+   frame counter -- the same spec drawn twice at the same phase is the same
+   pixels, which is what `maxDiffPixels: 0` is asserting for every shot here. */
+test('winch: a gear train at a nonzero rotation phase', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await winchScene(page, {
+    room: ROOM,
+    machines: [['crank', 44, 43], ['gear', 45, 44], ['axle', 46, 44], ['hub', 49, 43]],
+    turns: [[0, 0.9], [1, 0.9], [2, 0.9], [3, 0.9]],
+    player: [41, 43]
+  });
+  expect(r.machines).toBe(4);
+  await shot(page, 'winch-turned.png');
+});
+
+/* ---------- the cable ghost ----------
+   THE PAIR RULE APPLIES HERE MORE THAN ANYWHERE (CLAUDE.md: "a test can
+   silently test nothing"). `winch-ghost-none.png` is the SAME scene as
+   `winch-ghost-ok.png` with nothing armed, and the test below it reads both
+   canvases back and asserts they actually differ -- so a change that made the
+   ghost draw nothing at all would fail on the comparison rather than quietly
+   re-baselining a picture of two hubs. */
+const GHOST = {
+  room: TALL, machines: [['hub', 44, 43], ['hub', 44, 35]], player: [42, 43]
+};
+
+test('winch: the cable ghost, OK', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await winchScene(page, { ...GHOST, arm: 0, aimAt: [44, 35] });
+  expect(await page.evaluate(() => __mf.ui.linkFrom !== null)).toBe(true);
+  await shot(page, 'winch-ghost-ok.png');
+});
+
+test('winch: the same scene with nothing armed draws no ghost', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await winchScene(page, GHOST);
+  expect(await page.evaluate(() => __mf.ui.linkFrom)).toBe(null);
+  await shot(page, 'winch-ghost-none.png');
+});
+
+test('winch: the cable ghost is not a no-op -- armed and unarmed differ', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const hashOf = () => page.evaluate(() => {
+    const c = document.getElementById('stage');
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let n = 0, h = 2166136261;
+    for (let i = 0; i < d.length; i += 4) {
+      h ^= d[i] | (d[i + 1] << 8) | (d[i + 2] << 16);
+      h = Math.imul(h, 16777619);
+      n++;
+    }
+    return { hash: h >>> 0, n };
+  });
+
+  await winchScene(page, GHOST);
+  const bare = await hashOf();
+  await winchScene(page, { ...GHOST, arm: 0, aimAt: [44, 35] });
+  const armed = await hashOf();
+
+  expect(armed.n).toBe(bare.n);
+  expect(armed.hash).not.toBe(bare.hash);
+});
+
+test('winch: the cable ghost, TOO FAR APART', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await winchScene(page, {
+    room: TALL, machines: [['hub', 44, 43], ['hub', 44, 25]],
+    links: [[0, 1]], arm: 0, aimAt: [44, 25], player: [42, 43]
+  });
+  expect(r.refusals).toEqual(['TOO FAR APART']);
+  expect(r.segments).toBe(0);
+  await shot(page, 'winch-ghost-far.png');
+});
+
+test('winch: the cable ghost, THE PATH IS BLOCKED', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await winchScene(page, {
+    ...GHOST, rock: [[44, 40, 2]], links: [[0, 1]], arm: 0, aimAt: [44, 35]
+  });
+  expect(r.refusals).toEqual(['THE PATH IS BLOCKED']);
+  expect(r.segments).toBe(0);
+  await shot(page, 'winch-ghost-blocked.png');
+});
+
+/* ---------- the lit / unlit pair ----------
+   A segment emits no light of its own and no row says it should, so a cable
+   in a sealed shaft is as dark as the rock around it. Two baselines, for the
+   reason the existing shaft pair states: a regression that made the darkness
+   pass skip live-drawn machinery would have to move one of these against its
+   OWN accepted baseline, not merely look plausible beside the other. */
+const DARK_SHAFT = {
+  room: { tx0: 40, ty0: 30, w: 10, h: 16 }, sealed: true,
+  machines: [['hub', 42, 43], ['hub', 42, 33]], links: [[0, 1]],
+  carriers: [[0, 0.5, 20]], player: [41, 43]
+};
+
+test('winch: a segment in an unlit shaft', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await winchScene(page, DARK_SHAFT);
+  expect(r.segments).toBe(1);
+  await shot(page, 'winch-unlit.png');
+});
+
+test('winch: the same segment lit by a brazier', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await winchScene(page, {
+    ...DARK_SHAFT,
+    machines: [...DARK_SHAFT.machines, ['brazier', 44, 44]],
+    feed: [[2, 'timber', 'log', 4]],
+    frames: 700
+  });
+  expect(r.segments).toBe(1);
+  await shot(page, 'winch-lit.png');
+});
+
+/* RENDER PURITY OVER EVERY NEW DRAW PATH (invariant 9 and the acceptance
+   criterion in docs/PLAN-gears-and-winches.md section 6.3): a cable, a bucket
+   chain, a carrier with cargo, a turned gear train and the cable ghost, all
+   on screen at once, drawn twice -- and `model/epoch.js` must not move. The
+   headless harness in `tools/check.mjs` asserts the same thing over the
+   default scene, which contains none of this. */
+test('winch: drawing the whole family writes nothing to the model', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await winchScene(page, {
+    room: TALL,
+    machines: [['hub', 44, 43], ['hub', 44, 35], ['crank', 46, 43],
+               ['gear', 47, 44], ['axle', 48, 44]],
+    links: [[0, 1]], carriers: [[0, 0.4, 25]],
+    turns: [[2, 0.7], [3, 0.7], [4, 0.7]],
+    arm: 0, aimAt: [44, 35], player: [42, 43]
+  });
+
+  const moved = await page.evaluate(async () => {
+    const { epoch } = await import('/src/model/epoch.js');
+    const before = epoch.n;
+    __mf.draw();
+    __mf.draw();
+    return epoch.n - before;
+  });
+  expect(moved).toBe(0);
+});
