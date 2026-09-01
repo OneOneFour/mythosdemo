@@ -190,8 +190,10 @@ Encumbrance (D3/D4) gates ASCENT only: on a ladder, descending is always
 `eff('climb') x climbK`, at any burden. Ascending is that same speed, scaled
 by burden fraction (1.0 up to `burdenSoft`, linear down to
 `burdenClimbFloor` at the hard cap), refused outright at/over the hard cap
-(`rules/player.js`) — the same refusal covers a ground/ladder hop and
-(`rules/lift.js`) boarding a lift stage going up. A pickup that would cross
+(`rules/player.js`) — the same refusal covers a ground/ladder hop. **Boarding
+a carrier is the one exception and is never refused at any weight** (`CLAUDE.md`
+D4 as amended, §17.10): an over-cap rider is real load on the segment, so it
+slows, stalls and runs backwards under them instead. A pickup that would cross
 the hard cap is refused and the item stays on the ground (`rules/items.js`).
 A new drop verb (`Q`, `rules/items.js#dropHeaviest`) spends exactly one unit
 of the heaviest held pair, tossed with `eff('tossUp')`/`eff('tossSpread')` —
@@ -219,7 +221,7 @@ whileRunning}` interpreter key:
 
 | machine | footprint | cost | light | notes |
 |---|---|---|---|---|
-| `brazier` | 1x1 | 4 `timber/log` + 2 `stone/gravel` | level 12, `whileRunning:true` | honest-fuel recipe (`out:[]`, banks a charge), same shape the lift and belt already use; lit for as long as the buffer holds fuel |
+| `brazier` | 1x1 | 4 `timber/log` + 2 `stone/gravel` | level 12, `whileRunning:true` | honest-fuel recipe (`out:[]`, banks a charge), the same shape the belt uses; lit for as long as the buffer holds fuel |
 | `hearth` | 2x2 | 2 `copper/plate` (**provisional** — design wants this in the essence tier, which does not exist yet; reprice when it lands) | level `'max'` (tracks `eff('lightMax')`) | no fuel, never expires; an `in:{}, secs:Infinity` recipe keeps `m.running` true purely so the existing fire-glow look renders, no interpreter change |
 
 Both are in `STARTING_MACHINES` (`src/data/machines.js`... `src/data/boons.js`)
@@ -332,7 +334,8 @@ is gone, reversed on direct post-launch feedback. See section 15 for the
 current mechanic: a machine is now a held `<id>/rig` item, crafted like any
 other recipe and spent at placement, not a bill charged there.
 
-Locked with `docs/BUILD_PLAN.md` Phase 3: `furnace` and `lift` were free and
+Locked with `docs/BUILD_PLAN.md` Phase 3: `furnace` and the (since-retired)
+`lift` were free and
 `F`/`L` spawned either from nothing. Both are now priced in talents against
 the 40 T `burden` cap (section 9), so the haul itself is the decision the
 design wants, and neither key places anything unconditionally any more.
@@ -350,7 +353,7 @@ machine-item form.
 | machine | footprint | cost | mass | notes |
 |---|---|---|---|---|
 | `furnace` | 3x2 | 12 `copper/ore` + 6 `timber/log` | 16.8 T | raw, unrefined material — exactly what the first two minutes (section 5) already teach a player to dig |
-| `lift` (winch stage) | 2x3 | 6 `copper/plate` + 4 `timber/log` + 2 `copper/ingot` | 20.8 T | refined, not raw — the game's own bottleneck (invariant 4) priced like the investment it is |
+| ~~`lift` (winch stage)~~ | ~~2x3~~ | ~~6 `copper/plate` + 4 `timber/log` + 2 `copper/ingot`~~ | ~~20.8 T~~ | **SUPERSEDED by section 17.** The staged winch was retired in Phase 8f — row, substance, recipe, grant, tunables and rules module all deleted. Its replacement is a pair of `hub` machines at 10.4 T each: exactly the same 20.8 T and the same 20.0 s, spent on two endpoints instead of one stage (§17.3) |
 | `press` | 2x2 | 4 `copper/plate` + 2 `copper/ingot` | 12.8 T | no longer the one free-provisional row `data/boons.js#STARTING_MACHINES`'s own comment named; a player may still hand-press (`data/recipes.js#press`, `hand:true`) toward this bill without owning one |
 | `belt_r` / `belt_l` | 4x1 | 2 `copper/plate` + 4 `stone/gravel` | unchanged (priced since the belts commit) | — |
 
@@ -361,9 +364,10 @@ disagree.
 
 **`placementCheck(band, machineId, tx, ty)`** (`src/model/run.js`) is the
 single decision every reader of a placement's legality now calls: footprint
-clear, footing satisfied, granted, depth allowed (`minDepth`), a lift's own
+clear, footing satisfied, granted, depth allowed (`minDepth`), ~~a lift's own
 `lift.span` actually reaching `lift.toBand` from the exact footprint proposed
-(new this phase — see below), and affordability LAST, in that order — the
+(new this phase — see below)~~ **[deleted in Phase 8f — see §17.6]**, and
+affordability LAST, in that order — the
 same order `rules/placement.js#placeMachine` always checked in, now read from
 one place instead of copied into it. `rules/placement.js#placeMachine` calls
 it and turns a refusal into a journal row; `view/hud.js`'s new build-menu
@@ -372,18 +376,25 @@ tint a footprint preview at the aim reticle and print the same one-word
 reason beside it — `view` may not import `rules`, so this is the same move
 `canAfford`'s own greyed-out BUILD row already made, generalised.
 
-**The winch shaft check.** A stage whose `lift.span` does not reach
-`lift.toBand` from where it is about to stand would place, run, and never
-once deliver a haul — `placementCheck` refuses it with `'NO SHAFT TO SERVE'`
-before it ever costs a talent, using the identical arithmetic
-`rules/lift.js#reaches` already applies to an already-placed stage
-(`box.x + box.w/2`, `box.y - lift.span`, tested against `bandAt(...)`),
-computed here from the proposed footprint instead. `rules/lift.js` is a
-`rules` sibling `model/run.js` may not import (rules do not import rules, and
-a model query may not import `rules` at all), so this one fact is duplicated
-across the layer boundary rather than shared past it — the same trade
-`rules/machines.js`'s own `HARD_BREAK` mirror already accepted for the
-identical reason.
+**The winch shaft check — SUPERSEDED by section 17.6, and DELETED in Phase
+8f.** Kept here as the record of what it was and why it went, in the same style
+§13 already uses for its own superseded material.
+
+*What it was:* a stage whose `lift.span` did not reach `lift.toBand` from where
+it was about to stand would place, run, and never once deliver a haul, so
+`placementCheck` refused it with `'NO SHAFT TO SERVE'` before it cost a talent
+— duplicating, across the layer boundary, the arithmetic the winch's own
+`reaches()` applied to an already-placed stage.
+
+*Why it went:* the check existed because a lone machine DECLARED a destination
+it might not reach. A `hub` declares nothing at all. Whether transport can
+serve anything is a property of a **segment** — two hubs and the space between
+them — and that decision now lives in `model/segments.js#linkCheck`, which
+answers reach (`'TOO FAR APART'`), obstruction (`'THE PATH IS BLOCKED'`) and
+band coverage (`'OUTSIDE THE WORLD'`) about a real pair rather than a guess
+about one machine. There is nothing left to declare, and therefore nothing
+duplicated across a boundary to keep in sync. The `HARD_BREAK`-style mirror
+this paragraph used to justify is simply gone.
 
 **Deconstruct** (`rules/placement.js#deconstruct`, new intent on `Backspace`,
 `shell/input.js`/`shell/main.js`) returns a machine's FULL cost, as falling
@@ -483,7 +494,7 @@ costs, not a second copy of the same numbers.
 | machine | held substance | recipe secs | item mass |
 |---|---|---|---|
 | `furnace` | `furnace` | 8.0 | 16.8 T |
-| `lift` | `lift` | 20.0 | 20.8 T |
+| ~~`lift`~~ | ~~`lift`~~ | ~~20.0~~ | ~~20.8 T~~ — **SUPERSEDED by §17.3** (retired in Phase 8f; `hub` x2 is the same 20.0 s and the same 20.8 T) |
 | `press` | `press` (recipe key `press_machine`, distinct from the ingot->plate `press` recipe) | 12.0 | 12.8 T |
 | `belt_r` / `belt_l` | `belt_r` (ONE shared substance — see below) | 10.0 | 6.0 T |
 | `brazier` | `brazier` | 5.0 | 3.8 T |
@@ -763,9 +774,11 @@ the motion half is filled in by Phase 8f, and every row below marked
 *(8f)* is a number this file locks before any code reads it, per this file's
 own header rule.
 
-Until Phase 8f the `lift` row and `rules/lift.js` are **still live and still
-work** — §13's winch material is therefore *not* superseded yet. Phase 8f is
-the commit that supersedes it.
+As of Phase 8f the staged winch is **gone** — machine row, substance, build
+recipe, `STARTING_MACHINES` entry, `liftUp`/`liftDown`, the
+`'NO SHAFT TO SERVE'` placement branch, the machine record's `deck` field and
+the whole `rules/lift.js` module. §13's winch material and §15's `lift` recipe
+row are superseded by this section and marked so in place.
 
 ### 17.1 The five nouns
 
@@ -777,8 +790,8 @@ A chain is DERIVED (`model/segments.js#chains()`), never stored.
 
 | machine | footprint | footing | block | held substance | mass |
 |---|---|---|---|---|---|
-| `hub` | 2x2 | 2 | `hub:{ reach:96, carries:['material','player'] }` | `hub` | 10.4 T |
-| `crank` | 1x2 | 1 | `crank:{ torque:1.0, reach:12 }` | `crank` | 3.3 T |
+| `hub` | 2x2 | **1** | `hub:{ reach:96, carries:['material','player'] }` | `hub` | 10.4 T |
+| `crank` | 1x2 | 1 | `crank:{ torque:**1.5**, reach:12 }` | `crank` | 3.3 T |
 | `gear` | 1x1 | 1 | `gear:{ loss:0.06 }` | `gear` | 1.9 T |
 | `axle` | 3x1 | 1 | `variantOf:'gear'`, `gear:{ loss:0.02 }` | `axle` | 4.8 T |
 
@@ -786,8 +799,24 @@ A chain is DERIVED (`model/segments.js#chains()`), never stored.
 the crank is `handFeed`'s own 10 plus a little, deliberately: "close enough to
 turn" and "close enough to feed" must read as one distance.
 
+**`hub.footing` is 1, not 2, and it was 2 until Phase 8f.** A headframe
+straddles the shaft mouth: one column on solid ground, one over the void. At
+`footing:2` both columns had to stand on rock, and the cable — which leaves
+from the footprint's own **centre**, i.e. down the right-hand column — then ran
+straight into the hub's own footing tile one row below, so `linkCheck` refused
+every span steeper than 45° with `'THE PATH IS BLOCKED'`. "A hub at the surface
+and a hub at the shaft floor" was therefore unbuildable through
+`rules/placement.js` at all. Found by physically performing Phase 8f's
+acceptance walkthrough; Phase 8e never saw it because a screenshot scene places
+machines through `model/machines.js#write.place`, which asks nothing about
+footing.
+
+**`crank.torque` is 1.5, not 1.0, and the half is load-bearing** — see §17.8
+for the arithmetic that forces it.
+
 All four are in `data/grants.js#STARTING_MACHINES`, ungated, for the same
-reason `lift` is: transport is the bottleneck, not a reward.
+reason the retired winch stage was: transport is the bottleneck, not a
+reward.
 
 ### 17.3 Build bills
 
@@ -803,11 +832,11 @@ Same `hand:true`-recipe mechanism §15 locks for every other machine. Mass is
 | `axle` | 2 `copper/ingot` + 2 `timber/log` | 4.8 T | 6.0 |
 
 **The number the family is priced around.** A segment needs TWO hubs, so the
-pair is `2 x 10.4 = 20.8 T` — *exactly* what the one `lift` stage it replaces
-weighs (§13, §15), and `2 x 10.0 = 20.0 s` of crafting, exactly the lift's own
-`secs`. A complete minimal segment (two hubs + one crank) is **24.1 T**, and
+pair is `2 x 10.4 = 20.8 T` — *exactly* what the one winch stage it replaced
+weighed (§13, §15), and `2 x 10.0 = 20.0 s` of crafting, exactly that stage's
+own `secs`. A complete minimal segment (two hubs + one crank) is **24.1 T**, and
 with a gear **26.0 T**, so both still fit inside one 40 T trip (§9). Pricing a
-hub at the lift's full 20.8 T would have put a working segment at 44.9 T and
+hub at the stage's full 20.8 T would have put a working segment at 44.9 T and
 made carrying one down a shaft a two-trip errand for no design gain.
 
 `crank`'s bill is 3 gravel and not 2 on purpose: `{3 log, 2 gravel}` is a
@@ -823,25 +852,31 @@ Eight rows in `data/tuning.js`, read only through `eff()`.
 
 | id | kind | base | unit | meaning |
 |---|---|---|---|---|
-| `segUp` | value | 11 | px/s | carrier ascent at full surplus *(8f)* |
-| `segDown` | value | 26 | px/s | free descent on a vertical segment *(8f)* |
-| `segBase` | value | 1.0 | drive | drive to raise an EMPTY carrier at full speed *(8f)* |
-| `segLoad` | value | 0.025 | drive/talent | added drive per talent aboard, at full slope *(8f)* |
-| `riderMass` | value | 8 | talents | the player's own body on a carrier *(8f)* |
-| `segReach` | scale | 1.0 | x, scope `machine` | multiplies `hub.reach` — **read now**, by `linkCheck` |
-| `crankTorque` | scale | 1.0 | x, scope `machine` | multiplies `crank.torque` *(8f)* |
-| `torqueLoss` | scale | 1.0 | x, scope `machine` | multiplies `gear.loss` *(8f)* |
+| `segUp` | value | 11 | px/s | carrier ascent at full surplus and full drive |
+| `segDown` | value | 26 | px/s | free descent on a vertical segment, scaled by slope |
+| `segBase` | value | 1.0 | drive | the unit `crank.torque` is denominated in, and the divisor both speed ramps use |
+| `segLoad` | value | 0.025 | drive/talent | added drive per talent aboard, at full slope |
+| `riderMass` | value | 8 | talents | the player's own body on a carrier |
+| `segReach` | scale | 1.0 | x, scope `machine` | multiplies `hub.reach` (`linkCheck`) |
+| `crankTorque` | scale | 1.0 | x, scope `machine` | multiplies `crank.torque` |
+| `torqueLoss` | scale | 1.0 | x, scope `machine` | multiplies `gear.loss` |
 
-`segUp`/`segDown` carry `liftUp`/`liftDown`'s **exact** bases (11 and 26): a
-carrier is not faster than the deck it replaces. `liftUp`/`liftDown` survive
-only until `rules/lift.js` is deleted, and go in the same commit — two live
-readers of one number is the drift `CLAUDE.md` warns about.
+All eight are live as of Phase 8f; `rules/drive.js` is the only reader of the
+first five and of the last two.
+
+`segUp`/`segDown` carry the retired `liftUp`/`liftDown`'s **exact** bases (11
+and 26): a carrier is not faster than the deck it replaced. Those two tunables
+were deleted in Phase 8f, in the same commit as the module that read them — two
+live readers of one number is the drift `CLAUDE.md` warns about, and they never
+coexisted for longer than the two phases it took to make the new ones move.
 
 At `segLoad` 0.025, the whole 40 T burden cap doubles the drive requirement on
 a vertical segment (`1.0 + 0.025 x 40 x 1.0 = 2.0`), which is the arithmetic
 that makes D4's "boarding is never refused" honest: an over-cap rider is load a
-single 1.0-torque crank cannot lift, so the carrier runs backwards under them
-and nothing had to say so.
+single 1.5-torque crank cannot lift, so the carrier runs backwards under them
+and nothing had to say so. The break-even is **20 T aboard** — half the burden
+cap — which is the whole trade in one number: ride up with half a load, or
+crank a full one up empty-handed.
 
 ### 17.5 The segment record
 
@@ -864,9 +899,10 @@ two machines rather than placed.
 ```
 
 An anchor is the hub footprint's own **centre**, so the geometry is symmetric
-and does not depend on which end was armed first. Phase 8d parks every carrier
-at `t = 0` (the low end) with `dir = 0` and `load = 0`; nothing writes a
-nonzero `dir` or a nonzero `m.torque`/`m.turn` until Phase 8f.
+and does not depend on which end was armed first. A fresh link parks its
+carrier at `t = 0` (the low end) with `dir = 0` and `load = 0`; from there
+`rules/drive.js` owns all four of `t`, `dir`, `load` and `band`, and is the
+only writer of `m.torque` and `m.turn`.
 
 ### 17.6 Linking: one decision, two readers
 
@@ -932,3 +968,170 @@ already use. Two presses with the aim reticle over a machine:
 Shell does **not** pre-filter for hubs: the first press arms any machine and
 `linkCheck` produces `'NOT A HUB'` on the second. The decision stays in one
 place.
+
+### 17.8 Motion: one expression, three cases *(Phase 8f)*
+
+Per frame, per segment, in `rules/drive.js`. Every number through `eff()`.
+
+```
+mass    = Σ massOf(item) for items in carrierBox        (model/items.js)
+        + rider ? eff('riderMass') + burdenOf() : 0     (model/run.js)
+
+need    = eff('segBase') + eff('segLoad') * mass * seg.slope
+supply  = the DRIVETRAIN COMPONENT's torque (§17.9)
+demand  = Σ need over every segment anchored in that component
+drive   = demand > 0 ? min(1, supply / demand) : 0
+surplus = supply - need
+
+surplus > 0   ->  ascend  at eff('segUp')   * min(1, surplus / segBase) * drive
+surplus == 0  ->  hold still
+surplus < 0   ->  descend at eff('segDown') * min(1, -surplus / segBase) * seg.slope
+```
+
+**There is no `descend()` and no charge gate.** Weighted descent is what the
+same expression produces at zero supply: `surplus` is then `-need`, which is at
+least `segBase`, so an unpowered vertical segment descends at the full
+`segDown`. A horizontal segment gets that same descent times `slope = 0` and
+therefore sits still — no horizontal special case exists anywhere.
+
+**The `* drive` factor on the ascent case is a deliberate deviation from
+`docs/PLAN-gears-and-winches.md` §4.3**, and it is there because §4.3 and §4.4
+of that document cannot both be implemented literally:
+
+- §4.3 apportions `supply` across a component's segments in proportion to their
+  own `need`, which makes `surplus` identically `need × (supply/demand − 1)`.
+  Its **sign is then uniform across the component**, so two identical segments
+  sharing one crank do not slow down, they *stop* — contradicting §4.4's own
+  worked example ("one crank feeding three segments turns all three at a third
+  speed") and Phase 8f's acceptance step 6.
+- §4.4's `drive` alone can never run a loaded carrier **backwards**, which is
+  the load-bearing correction in the brief.
+
+So `surplus`, computed against the **whole** component supply, decides the
+direction and the descent magnitude; `drive` decides how much of the
+drivetrain's capacity an ascending segment gets. Nothing can exceed
+`eff('segUp')` under any combination. `rules/drive.js`'s header states the same
+argument at the code.
+
+**`crank.torque` must exceed `segBase`, and that is why it is 1.5.** Two
+requirements collide at 1.0: an unpowered empty carrier must slide back down at
+the *full* `segDown`, which needs a whole `segBase` of deficit, and one crank
+must be able to raise that same empty carrier, which needs a positive surplus.
+At `torque == segBase` the surplus is exactly zero — the hold-still case — so a
+single crank would raise nothing. Measured at 1.5, one crank on one vertical
+segment:
+
+| aboard | need | result |
+|---|---|---|
+| nothing | 1.00 | climbs at 5.5 px/s |
+| 4 T of ore | 1.10 | climbs at 4.4 px/s |
+| 20 T | 1.50 | **holds still** (the exact `surplus == 0` boundary) |
+| 38 T (8 T body + 30 T pockets) | 1.95 | runs backwards at 11.7 px/s |
+| 40 T (the burden cap) | 2.00 | runs backwards at 13 px/s |
+
+### 17.9 The drivetrain solve *(Phase 8f)*
+
+**Nodes** are every placed machine whose row carries `crank`, `gear` or `hub`.
+**Edges** are **orthogonal footprint adjacency in the same band** — two
+footprints sharing an edge, computed from `m.tx/m.ty` + `def.tw/th`.
+**Diagonals do not conduct**; a corner needs a gear in it (`docs/PLAN` A3,
+confirmed), and Phase 8e's art is what teaches it.
+
+```
+supply = Σ over ACTIVE cranks c in the component:
+             crank.torque(c) × eff('crankTorque', c.id)
+                             × Π (1 - gear.loss(n) × eff('torqueLoss', n.id))
+                               over the nodes n strictly BETWEEN c and its
+                               nearest hub
+demand = Σ need(seg) over segments anchored in the component
+drive  = demand > 0 ? min(1, supply / demand) : 0
+```
+
+A crank in a component with no hub contributes nothing. A node with no `gear`
+block (another crank mid-train) conducts losslessly — it is a shaft with a
+handle on it, not a gearbox. "Nearest" is fewest nodes, by a BFS in `machines`
+order, so it is deterministic (invariant 7).
+
+**A segment whose two hubs sit in different components** — the ordinary case
+for a cross-band span — is driven by whichever supplies **more** torque, `a`'s
+on a tie. The greater, never the sum: two half-fed drivetrains at opposite ends
+of one cable do not add up to a free ride.
+
+`m.torque` is set to the component's `drive` for every node, and `m.turn`
+advances by `spin × TURN_RATE × dt`, where `spin` is `drive` when there is
+demand and 1.0 when there is none — a drivetrain with nothing to lift
+free-spins, and drawing it stopped would be a lie.
+
+**Caching.** The component partition and each crank's path to its nearest hub
+are cached per band in a module-local `WeakMap`, invalidated by a signature over
+the node set (count, position, definition), exactly as `rules/light.js` does and
+for the identical reason: `newRun()` hands out fresh band records, so a stale
+entry can never be read back into a live run and there is no reset call to wire
+up or forget. Only the **topology** is cached; every number is still read
+through `eff()` per frame. **A crank's own activity is deliberately not cached
+at all** — it changes on the frame a key goes down and on the frame the player
+walks a pixel out of reach, and a cache keyed on something that changes every
+frame is a slower way to compute the same number.
+
+### 17.10 Riding *(Phase 8f)*
+
+A carrier is **not** terrain and does not become terrain (invariant 1). It holds
+the player up through a model query, exactly the way a ladder does:
+`model/segments.js#riddenSegment()` — one predicate, read by both
+`rules/player.js` and `rules/drive.js`, because `rules` siblings may not import
+each other and two copies would eventually disagree about a frame.
+
+- **A ladder wins over a carrier.** Pressing up or down on a rung says which
+  mechanic you mean.
+- **`vy < 0` is not riding.** A one-way platform: hopping up past a carrier
+  passes it rather than being caught on top of it mid-jump.
+- `carrierUnder(band, box)` requires horizontal overlap **and** the box's feet
+  inside the carrier's own 10 px vertical grab band (`CARRIER_GRAB` either side
+  of a 4 px deck). At the fixed 1/120 s step that window is three times the
+  furthest a body at `terminal` can travel in one substep, so a fall cannot
+  tunnel through it.
+- `rules/player.js` snaps the rider **flush** to `carrierTop(seg)` and sets
+  `onGround`, which pins `fallFrom` on the existing line — so **no fall damage
+  accrues while riding**, with no new code in `land()`. `land()` still fires on
+  the frame the player *arrives* on a deck out of a fall: a carrier is a
+  surface, not a safety net.
+- `rules/drive.js` then translates the rider by the carrier's own delta, after
+  collision has resolved (`shell/schedule.js`: `player before drive`). The
+  translation is **refused** if it would put the hitbox inside rock — the
+  carrier keeps going, the rider does not, and gravity has them next frame.
+- **Boarding is never refused at any weight** (D4 as amended). Hopping off is
+  not burden-gated either: a hop is a hop, and an over-cap player on a sinking
+  bucket must be able to step onto the ledge beside them.
+- The one thing said out loud is a rate-limited `'TOO HEAVY TO LIFT'` journal
+  row, pushed only when a crank **is** being turned and the carrier is
+  descending anyway — the one state that is otherwise baffling.
+
+Measured: 80 px ridden down costs **0 hearts**; the same 80 px costs **2** the
+moment the deck is not under you, which is §3's table exactly.
+
+### 17.11 The crank verb, and arrival *(Phase 8f)*
+
+**`f`, a HOLD**, in `cmd.craft`'s shape and not an edge — the same hold-to-act
+idiom as mining and hand-crafting. A crank is active while
+`cmd.turn && overlaps(playerBox(), m.box, def.crank.reach)`, the same
+`core/math.js` call `rules/machines.js#handFeed` makes, so reach-to-turn and
+reach-to-feed cannot disagree. Every crank within reach turns; holding one key
+at a junction of two turns both, and each contributes only its own torque.
+
+**Nothing is spent but the player's presence.** No fuel, no charge, no item, no
+hearts. `docs/DESIGN.md`'s cost-of-ascension equation is therefore repriced from
+talents-of-fuel to **seconds of attention**, and `tools/check.mjs`'s break-even
+section measures it in that currency.
+
+**Arrival.** At the high end the haul is released (`it.rest = 0`, the
+`rules/items.js` wake idiom) so it falls the last pixel onto whatever the upper
+hub stands on, and the existing **`'winch'`** journal kind is pushed — so
+`shell/notify.js`'s `"<n> DELIVERED TO <BAND>"` line and `data/sfx.js`'s sound
+both work unedited. Only the high end is an arrival; a bucket coming to rest at
+the bottom of its own shaft is not news.
+
+**Band handoff** happens the moment the carrier's own band changes, not only on
+arrival, by `iw.spawn` + `iw.remove` at the same world pixel — the only
+sanctioned way to change an item's band. A cross-band chain therefore delivers
+into whichever band `bandAt()` puts the carrier in; nothing declares a
+destination.

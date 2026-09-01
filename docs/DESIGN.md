@@ -20,8 +20,8 @@ compact goods are worth lifting.
 
 ## The cost of ascension — the core equation
 
-Not flavour, a number. Lift cost per item-slot = `k × depth`, with fuel burned
-at the lifter rather than the source. Then fix compression ratios per tier:
+Not flavour, a number. Transport cost per item-slot = `k × depth`, paid **at the
+lifter rather than at the source**. Then fix compression ratios per tier:
 
 | tier | ratio |
 |---|---|
@@ -30,6 +30,26 @@ at the lifter rather than the source. Then fix compression ratios per tier:
 | plate | 12:1 |
 | essence | 60:1 |
 | ambrosia | ~400:1 |
+
+**REPRICED FROM FUEL TO PLAYER TIME (Phase 8f).** `k` was originally denominated
+in *talents of fuel*, because the staged winch burned timber (or, in the trap
+recipe, a heart) per haul. That winch is retired: segment transport
+(`docs/SPEC.md` §17, `CLAUDE.md` D10) burns nothing at all and is powered only
+by a hand crank the player has to stand at and hold. So `k` is now **seconds of
+player cranking per item-slot per tile**, and the equation is otherwise
+untouched.
+
+That is a *stronger* statement of this section's own thesis, not a weaker one:
+the one resource automation cannot give you more of is your own standing there,
+and it cannot be stockpiled, boon-ed or bought. `tools/check.mjs`'s BREAK-EVEN
+DEPTH section measures it against live numbers, with what an item-slot is worth
+taken as the seconds it cost to mine its contents by hand. Measured at the
+shipped tuning: raw ore breaks even at **0.62 tiles**, ingot at **2.40**, plate
+at **6.90**. Read the first figure as the headline it is — raw ore does not pay
+to crank up even *one* tile — which is this table holding, not a bug.
+
+The compression ratios themselves are unchanged and are not up for retuning
+here (`docs/SPEC.md` §8).
 
 Every item now has a computable break-even depth. Around depth 30 raw ore
 silently becomes net-negative to ship. You never tell the player this — the
@@ -126,9 +146,16 @@ hostile.** Poseidon's aquifer tap floods the strata Hephaestus's kilns need
 dry. Dionysus's vats want the exact temperature band your smelters ruin. Two
 hostile gifts must not silently co-exist, so a row carries `conflictsWith`: the
 later gift either suppresses or *inverts* the earlier one, and the HUD says
-which. And some gifts are traps — a lifter that runs on blood instead of fuel,
-offered on cycle 3 when you are desperate. Prometheus's whole story is that
-divine gifts come with terms.
+which. And some gifts are traps. The original example was a *lifter that runs on blood
+instead of fuel*, offered on cycle 3 when you are desperate — and it was built,
+as the staged winch's second recipe. It is **gone**, deliberately and by the
+designer's own instruction, with the winch itself in Phase 8f
+(`docs/PLAN-gears-and-winches.md` A5): the hand crank is manual only, and there
+is no passive or heart-powered power source of any kind. The *tier* is
+unaffected and the trap idea is not withdrawn — `data/sources.js` still carries
+the mechanism a non-item input would use — but the blood winch specifically is
+not the shape it will take. Prometheus's whole story is that divine gifts come
+with terms; nothing about that needed a lift stage.
 
 *All four tiers exist and reach numbers/the world through the one stat
 pipeline and the tile grid, per `docs/BUILD_PLAN.md` Phase 4.* The
@@ -230,7 +257,7 @@ says *planned*, `docs/BUILD_PLAN.md` names the phase.
 | gravity-fed material flow, piles, backpressure | yes | yes |
 | refinement ratios | yes (`perOut`) | yes (`smelt` 4:1, `press` 12:1) |
 | hand-craft matching the machine's own rate | no | yes (`rules/crafting.js`) |
-| staged lift as the bottleneck | yes | yes (`lift` machine, one stage) |
+| staged lift as the bottleneck | yes | yes, and rebuilt: **player-driven segment transport** (`hub` / `crank` / `gear` / `axle` machines, runtime segments in `model/segments.js`, motion in `rules/drive.js` — Phase 8d–8f). The one-stage `lift` machine it replaced is deleted. A carrier rises only while a crank is being held and slides back down for nothing, and a rider is real load that can reverse it |
 | belts, priced to be rare | no | yes (`belt_r` / `belt_l`) |
 | fog of war, permanent, plus a map overview | no | yes (`rules/reveal.js`) |
 | mining rigs, breakout, haulage | yes | yes (`talos_head` / `cyclops_maw`, `rules/machines.js`'s `mine` recipes — Phase 2c) |

@@ -1420,3 +1420,109 @@ four new build recipes are four new slots and the existing ones shift right.
 bit-identical. Re-accepted with that reason. Worth noting for Phase 8e: the row
 now holds **13** slots and looks close to the panel's width, so the next
 machine added may be the one that forces the RAW grid to wrap or scroll.
+
+---
+
+## Phase 8f — the drivetrain, motion, riding, and the winch's retirement
+
+**1. `docs/PLAN-gears-and-winches.md` §4.3 and §4.4 are mutually
+inconsistent, and one of them had to give.** §4.3 says to apportion `supply`
+across a component's segments in proportion to their own `need`; do that and
+`surplus` becomes identically `need × (supply/demand − 1)`, whose **sign is
+uniform across the component**. Two identical segments sharing one crank then do
+not halve, they *stop* — which contradicts §4.4's own worked example ("one crank
+feeding three segments turns all three at a third speed") and this phase's
+acceptance step 6. Conversely §4.4's `drive` alone can never make a loaded
+carrier run **backwards**, which is the brief's load-bearing correction. There
+is no value of `crank.torque` that satisfies both readings: step 4 needs
+`torque < 1.95` and step 6 (under apportionment) needs `torque > 2`.
+**Resolved** by making `surplus` — computed against the *whole* component supply,
+unapportioned — decide direction and descent magnitude, and `drive` throttle
+ascent. Argued at the code in `rules/drive.js`'s header and locked in
+`docs/SPEC.md` §17.8. Anyone re-litigating this should start from the six
+behaviours the acceptance walkthrough demands, all of which are now measured,
+rather than from either section alone.
+
+**2. `hub.footing` had to drop from 2 to 1 or the mechanic was unbuildable.**
+A cable leaves a hub from its footprint's own **centre**, i.e. down the
+right-hand column. At `footing:2` both columns had to stand on rock, so the
+first sample below the anchor was always the hub's own footing tile and
+`linkCheck` refused every span steeper than 45° with `'THE PATH IS BLOCKED'`.
+"A hub at the surface and a hub at the shaft floor" — the entire mechanic — was
+therefore impossible to build through `rules/placement.js`. Phase 8e never saw
+it because a screenshot scene places machines through
+`model/machines.js#write.place`, which asks nothing about footing, so **every
+static winch baseline depicts an arrangement the real placement path could not
+produce**. That is still true of the *upper* hub in several of them (it floats
+in carved air); the scenes are synthetic and the shots are appearance tests, so
+this is noted rather than fixed. A harness that builds a scene through
+`rules/placement.js` instead would be worth having, and is a natural Phase 8g
+item.
+
+**3. A rider cannot descend a 1-tile shaft, and the geometry says why.** A 2x2
+hub's anchor sits on a tile boundary, so the carrier straddles two columns and
+so does a player centred on it. With `footing:1` one of those two columns is
+solid at `ty+2` — that is what holds the hub up — so a rider centred on the deck
+is blocked one tile down. Standing on the **clear half** of the deck works and
+travels the whole shaft (verified: 80 px down, 0 hearts). This is fiddly rather
+than broken, and the honest fix is level design (a 2-wide shaft) or a wider
+`CARRIER_W`, not code. `rules/drive.js#ride` refuses a translation that would
+embed the hitbox in rock rather than resolving it — without that guard this
+phase would have broken the 7,200-frame "never inside rock" fuzz.
+
+**4. Riding UP under your own cranking is limited to about 1.5 tiles, and the
+acceptance walkthrough's step 4 overstates it.** A crank's `reach` is 12 px. A
+player standing on the carrier rises out of that reach after ~12 px, the supply
+drops to zero, and the carrier slides back. Everything step 4 is actually
+*testing* is verified — an empty rider rises, a 38 T rider runs backwards with a
+`'TOO HEAVY TO LIFT'` toast, unloading lets it climb again — but "ride the shaft
+by cranking" is not a thing the mechanic does, and arguably should not be: you
+cannot pull yourself up by your own bootstraps. The brief's own framing supports
+this ("the player can i guess ride the pulley if they wish but it will be
+weighted right, so if they get on a platform it will want to go down!") — riding
+is a **descent** mechanic, which is free, fast and takes no fall damage. Riding
+up needs a power source you are not holding, i.e. the deferred generator. Worth
+a design decision before anyone "fixes" it.
+
+**5. `'<n> DELIVERED TO <BAND>'` can fire more than once for the same haul.**
+Material released at the top of a segment sits within the carrier's own grab box
+for the few frames it is falling clear, so if the carrier leaves and re-arrives
+in that window the arrival row fires again. Observed in the three-segment chain
+walkthrough (four topsoil toasts for one 4-unit haul). **No items are
+duplicated** — the count is of what is aboard, and the chain delivered exactly 4
+ore into `surface`. Cosmetic, and a natural assertion for Phase 8g: "one arrival
+row per haul".
+
+**6. The drop verb is self-defeating while standing still, which is
+pre-existing.** `q` drops one unit at the player's feet and `rules/items.js`
+re-pockets it 0.35 s later unless the player is over the hard cap or has moved
+away. It only "sticks" when it matters (over-cap, D4's soft-lock case), so this
+is consistent with why the verb exists — but acceptance step 4's "drop the ore
+and it climbs again" requires stepping aside first, which is not obvious. Not
+this phase's to change.
+
+**7. Docs outside this phase's ownership still name `rules/lift.js`.**
+`grep -rn "rules/lift" src/ tests/ tools/` is empty, but these remain, all of
+them deliberately left alone: `docs/DEVELOPER_GUIDE.md` (the live developer doc
+— its `#charges-and-honest-fuel` and `#the-rules-order` sections describe the
+staged winch as current, and **should be updated by whoever owns that file
+next**); `docs/BUILD_PLAN.md` Phases 2a/9/10 (the patches
+`docs/PLAN-gears-and-winches.md` §7 already specifies, explicitly "not applied
+by this document"); and `docs/AUDIT.md`, `docs/AUDIT-2.md`,
+`docs/COMMENT_AUDIT.md`, `docs/rfc/*` (dated records of a past state, correct as
+history).
+
+**8. `model/run.js#write.spendHearts` has no caller.** Its only consumer was
+`data/sources.js#vital`, deleted with the blood winch. Kept deliberately, with a
+comment saying so: the rule it holds — *a machine may not kill you* — lives
+nowhere else, and re-deriving it on the day something spends hearts again is how
+two spenders end up disagreeing about whether the last heart may go.
+
+**9. `tests/visual.spec.js#winchScene` had to move its carrier/load/turn writes
+to AFTER `__mf.frames()`.** Phase 8e set them first, which was safe only while
+nothing wrote them. `rules/drive.js` now owns `t`, `load`, `dir` and `turn` and
+overwrites all four every substep, so seven baselines drifted (an unpowered
+carrier slid ~0.9 px in 4 substeps, and every declared `load` was recomputed to
+0). Setting them after the substeps restores the matrix bit-exactly and keeps
+each test's own `expect(...t).toBe(t)` honest. The **moving** states are Phase
+8g's own matrix, per `docs/PLAN-gears-and-winches.md` §6.5.

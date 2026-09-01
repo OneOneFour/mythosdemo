@@ -2568,11 +2568,6 @@ async function winchScene(page, spec) {
       if (c.ok) segw.link(placed[i], placed[j]);
       else refusals.push(c.why);
     }
-    for (const [i, t, load] of spec.carriers || []) {
-      segw.carrier(segments[i], t, 0);
-      segw.load(segments[i], load || 0);
-    }
-    for (const [i, phase] of spec.turns || []) mw.turn(placed[i], phase);
     for (const [i, sub, form, n] of spec.feed || []) mw.take(placed[i], S[sub], F[form], n);
 
     pw.band(band);
@@ -2582,6 +2577,25 @@ async function winchScene(page, spec) {
     clearLink();
     __mf.cmd.hasMouse = false;
     __mf.frames(spec.frames ?? 4);
+
+    /* CARRIER POSITION, LOAD AND ROTATION PHASE ARE SET *AFTER* THE SUBSTEPS,
+       AND THAT MOVED IN PHASE 8F. It used to be safe to set them first,
+       because nothing wrote them: this whole matrix was baselined against a
+       world where a carrier parked at `t = 0` for ever. `rules/drive.js` now
+       owns all three -- it slides an unpowered carrier down the cable every
+       substep, recomputes `load` from what is actually aboard, and advances
+       `turn` for every drivetrain node -- so a value written before
+       `frames()` is a value the simulation immediately overwrites. Set here,
+       the shot photographs the state the spec DECLARES, which is what an
+       appearance baseline is for, and the assertions each test makes about
+       its own `t`/`load` stay true. The MOVING states are Phase 8g's own
+       matrix (docs/PLAN-gears-and-winches.md section 6.5); this one is still
+       deliberately static. */
+    for (const [i, t, load] of spec.carriers || []) {
+      segw.carrier(segments[i], t, 0);
+      segw.load(segments[i], load || 0);
+    }
+    for (const [i, phase] of spec.turns || []) mw.turn(placed[i], phase);
 
     /* ARMED AND AIMED LAST, and both through the model. `aim` is clamped to
        the player's own `eff('reach')` by `rules/mining.js#aimAtWorld` -- 3.2
