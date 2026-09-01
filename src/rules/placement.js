@@ -37,6 +37,7 @@ import { write as iw } from '../model/items.js';
 import { machineAt, write as mw } from '../model/machines.js';
 import { eff } from '../model/mods.js';
 import { invCount, machineHeldSub, placementCheck, write as rw } from '../model/run.js';
+import { linkCheck, write as segw } from '../model/segments.js';
 import { climbAt, solidAt, tileAt, write as tw } from '../model/tiles.js';
 import { inBounds, worldX, worldY } from '../model/world.js';
 
@@ -104,8 +105,70 @@ export function deconstruct(band, tx, ty) {
   if (heldSub !== undefined)
     iw.spawn(band, cx, cy, heldSub, F.rig, (rand() - 0.5) * 2 * spread, -up);
 
+  /* A REMOVED HUB CANNOT LEAVE A DANGLING SEGMENT. A segment holds the two hub
+     RECORDS (`model/segments.js`'s own header on why ids would be worse), so
+     the instant one of them stops being in `machines` every query over it is
+     reading a ghost. Cut them here, after the empty-check above and before
+     `mw.remove` below, so the order reads as "prove it is empty, pay the
+     refund, cut the cables, then remove".
+
+     A rider aboard a cut segment simply falls, and deconstruct does NOT refuse
+     while one is aboard (docs/PLAN-gears-and-winches.md A6, confirmed:
+     allow). Invariant 4's whole argument is that gravity is the answer, and
+     docs/SPEC.md section 3's fall curve already exists to be the consequence.
+     No journal row: the `'place'` row below already reports the removal, and
+     "and its cables went with it" is not news about a different event. */
+  segw.unlinkAll(m);
+
   mw.remove(m);
   push('place', { x: m.box.x, y: m.box.y }, { machine: def.id });
+  return true;
+}
+
+/* ---------- segments ----------
+   THE DECISION LIVES IN `model/segments.js#linkCheck`, NOT HERE, for exactly
+   the reason `placeMachine` above states for `placementCheck`: `view`'s cable
+   ghost needs the identical yes/no this function enforces and `view` may not
+   import `rules`. This function's own job is "call the query, and turn a
+   `false` into a journal row plus the actual mutation".
+   See docs/DEVELOPER_GUIDE.md#one-decision-two-readers and docs/SPEC.md
+   section 17.6, which locks the refusal strings and their order.
+
+   THE CABLE IS FREE (docs/PLAN-gears-and-winches.md A7, confirmed): the hubs
+   are priced and the span between them costs nothing but reach. So unlike
+   `placeMachine` there is nothing to spend and no ordering question about
+   when to spend it. */
+export function linkSegment(a, b) {
+  const at = a ? { x: a.box.x + a.box.w / 2, y: a.box.y + a.box.h / 2 } : null;
+  const check = linkCheck(a, b);
+  if (!check.ok) {
+    /* `check.at` is the first blocked sample when there is one, so the toast
+       and the chips land WHERE the problem is rather than at the hub the
+       player armed. Falls back to the armed hub for a refusal with no place
+       on the span to point at ('NOT A HUB', 'TOO FAR APART'). */
+    push('refused', check.at || at, { why: check.why });
+    return null;
+  }
+
+  const seg = segw.link(a, b);
+  /* A NEW JOURNAL KIND, deliberately unmapped in `shell/notify.js` for now:
+     `data/sfx.js` decides what is audible and `shell/notify.js#TEXT` decides
+     what is legible, neither file is this phase's to edit, and a kind with no
+     entry in either is SILENT ON PURPOSE (that file's own words) rather than
+     broken. Recorded in docs/FINDINGS.md so 8e/8f wires the text and the
+     sound rather than rediscovering it. */
+  push('link', { x: seg.ax, y: seg.ay }, { len: Math.round(seg.len) });
+  return seg;
+}
+
+/* Cut a cable. Not a refusal and not a failure -- the player asked. Same
+   deliberately-unmapped journal kind as `linkSegment` above; the message
+   docs/PLAN-gears-and-winches.md section 4.5 names for it travels as data so
+   that whichever phase wires `shell/notify.js#TEXT` needs no second copy. */
+export function unlinkSegment(seg) {
+  if (!seg) return false;
+  segw.unlink(seg);
+  push('unlink', { x: seg.ax, y: seg.ay }, { why: 'THE CABLE IS CUT' });
   return true;
 }
 

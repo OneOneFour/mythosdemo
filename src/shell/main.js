@@ -19,12 +19,13 @@ import { RECIPES } from '../data/recipes.js';
 import { aim } from '../model/aim.js';
 import { items } from '../model/items.js';
 import { peek as journalPeek, push as journalPush } from '../model/journal.js';
-import { machines } from '../model/machines.js';
+import { machineAt, machines } from '../model/machines.js';
 import { PH, PW, player, write as playerw } from '../model/player.js';
 import { canCraft, invCount, isKnown, machineIdFor, pocketRows, run, write as runw } from '../model/run.js';
+import { linkedTo, segments } from '../model/segments.js';
 import { bands, heightPx, widthPx, write as worldw } from '../model/world.js';
 import { dropHeaviest } from '../rules/items.js';
-import { deconstruct, placeMachine, placeTile, placeableFromPockets } from '../rules/placement.js';
+import { deconstruct, linkSegment, placeMachine, placeTile, placeableFromPockets, unlinkSegment } from '../rules/placement.js';
 import { step as stepFx } from '../view/fx.js';
 import { render } from '../view/scene.js';
 import { boot, newRun } from './boot.js';
@@ -32,7 +33,8 @@ import { clearEdges, cmd, flags, pointer, wants } from './input.js';
 import { drainJournal } from './notify.js';
 import { boons, grants, miracles, stepAll, trinkets } from './schedule.js';
 import {
-  armPlace, assignQuickbar, cancelQueued, clearArmedPlace, clearDrag, close as closePanel, closeTop, isOpen,
+  armLink, armPlace, assignQuickbar, cancelQueued, clearArmedPlace, clearDrag, clearLink,
+  close as closePanel, closeTop, isOpen,
   queueCraft, scrollBy, setDrag, setSearchFocus, setTab, toggleHints, ui
 } from './ui.js';
 import { hoverInfo } from '../view/hud.js';
@@ -143,6 +145,15 @@ function applyIntents() {
      triggers (a successful placement, Escape). */
   if (ui.armedPlace && invCount(ui.armedPlace.sub, ui.armedPlace.form) <= 0) clearArmedPlace();
 
+  /* THE ARMED LINK ENDPOINT TRACKS THE PLACED MACHINES, the exact same sweep
+     one line up, applied to the other armed thing: a hub deconstructed
+     between the first `l` press and the second leaves `ui.linkFrom` holding a
+     record nothing else does, and `model/segments.js#linkCheck` would happily
+     validate a span between a live hub and a ghost. `machines` is the
+     authority on what exists, and `linkFrom` is a RECORD (see
+     `shell/ui.js#ui.linkFrom`), so this is one identity test. */
+  if (ui.linkFrom && !machines.includes(ui.linkFrom)) clearLink();
+
   /* POLISH: auto-hide the panel when placement starts. Opening the menu and
      then trying to place/deconstruct something used to leave the player
      aiming at the world from BEHIND their own window -- the panel draws over
@@ -202,6 +213,41 @@ function applyIntents() {
   if (cmd.deconstruct && aim.valid && aim.band) {
     deconstruct(aim.band, aim.tx, aim.ty);
     cmd.deconstruct = false;
+  }
+
+  /* LINK two hubs into a segment (Phase 8d, docs/PLAN-gears-and-winches.md
+     section 4.5), gated on `aim.valid && aim.band` for the same reason
+     `cmd.place` and `cmd.deconstruct` above are: you point at the machine you
+     mean. TWO PRESSES, ONE KEY, and the whole branch mirrors the `cmd.place`
+     shape -- arm on the first, act on the second, self-clear the flag.
+
+     Aiming at open ground with nothing armed does nothing at all: no arm, no
+     journal row, no error, exactly what a `cmd.place` with nothing placeable
+     in the pockets already does.
+
+     THE FOUR SECOND-PRESS CASES, and why each is what it is:
+       a DIFFERENT machine, not yet joined -> link it. The arm clears on
+         SUCCESS only, so a mis-aimed second press ('NOT A HUB', 'TOO FAR
+         APART') costs one retry rather than the whole gesture.
+       a machine ALREADY joined to the armed one -> cut that cable. One key,
+         both directions, which is what makes the verb learnable.
+       the SAME machine -> cancel the arm, silently. There is no A-to-A cable,
+         so claiming one was cut would be a lie; this is the second Escape.
+       nothing armed -> arm it.
+     `linkedTo` is a `model` query read here rather than a `rules` call
+     because "is there already a cable between these two" is a question, not a
+     decision -- `rules/placement.js#unlinkSegment` is the consequence. */
+  if (cmd.link && aim.valid && aim.band) {
+    const m = machineAt(aim.band, aim.tx, aim.ty);
+    const from = ui.linkFrom;
+    if (m && !from) armLink(m);
+    else if (m && m === from) clearLink();
+    else if (m && from) {
+      const existing = linkedTo(from, m);
+      if (existing) { unlinkSegment(existing); clearLink(); }
+      else if (linkSegment(from, m)) clearLink();
+    }
+    cmd.link = false;
   }
 
   /* USE a held miracle (Phase 4 STEP 3, docs/BUILD_PLAN.md): the ONE-SHOT
@@ -607,6 +653,16 @@ function installTestHook() {
     newRun, step, draw, resize,
     clock, cam, player, run, aim, items, machines, cmd, flags,
 
+    /* THE LIVE SEGMENT LIST (Phase 8d), exposed exactly as `items` and
+       `machines` already are -- the array itself, not a copy, so a test reads
+       whatever is true right now. Phases 8e and 8f drive their scenes through
+       this and through `ui.linkFrom` below, so neither needs a hardcoded click
+       coordinate (CLAUDE.md: a click at (400, 300) fails at a different base
+       buffer). Records hold live band and machine references, so a Playwright
+       test must project the fields it wants INSIDE `page.evaluate` rather than
+       returning a record across the boundary. */
+    segments,
+
     /* Read-back of `view/hud.js`'s own last-frame output: what a WORLD-hover
        tooltip (a bare tile, a falling item, a machine) would show right now.
        A panel's OWN tooltip (hovering a slot inside the Character/Crafting
@@ -633,6 +689,16 @@ function installTestHook() {
         searchFocus: ui.searchFocus,
         /* The pair, if any, a slot click has armed for the next `cmd.place`. */
         armedPlace: ui.armedPlace ? { ...ui.armedPlace } : null,
+        /* The machine, if any, a first `l` press has armed as one end of the
+           next cable. SERIALISED to `{tx, ty, def}` rather than handed over as
+           the record: `ui.linkFrom` holds a live machine (which holds a live
+           band, which holds typed arrays), and this getter's whole contract is
+           that everything it returns survives `page.evaluate`'s structured
+           clone. A projection of real state, never a copy of it -- the same
+           rule the rest of this getter follows. */
+        linkFrom: ui.linkFrom
+          ? { tx: ui.linkFrom.tx, ty: ui.linkFrom.ty, def: ui.linkFrom.def }
+          : null,
         /* The craft queue (recipe ids, FIFO) and the quickbar assignment
            (`{sub,form}|null` per slot). */
         craftQueue: ui.craftQueue.slice(),

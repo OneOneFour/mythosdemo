@@ -27,7 +27,7 @@ import { invCount } from '../model/run.js';
 import { drawn as uiDrawn } from '../view/ui/state.js';
 import { slotForDigit } from '../view/ui/quickbar.js';
 import { audio, unlockAudio } from './audio.js';
-import { armPlace, clearArmedPlace, closeTop, isOpen, setSearch, setSearchFocus, top, toggle, ui } from './ui.js';
+import { armPlace, clearArmedPlace, clearLink, closeTop, isOpen, setSearch, setSearchFocus, top, toggle, ui } from './ui.js';
 
 /* The command set the rules read. One object, mutated by property, per
    docs/DEVELOPER_GUIDE.md#cross-module-mutable-state. `craft` is a HOLD, like
@@ -36,7 +36,7 @@ import { armPlace, clearArmedPlace, closeTop, isOpen, setSearch, setSearchFocus,
 export const cmd = {
   left: false, right: false, up: false, down: false,
   hop: false, dig: false, place: false, craft: false, drop: false,
-  deconstruct: false, miracle: false, equip: false,
+  deconstruct: false, miracle: false, equip: false, link: false,
   mouse: false, mx: 0, my: 0, hasMouse: false,
 
   /* UI pointer intents -- see docs/DEVELOPER_GUIDE.md#input-intents.
@@ -84,7 +84,7 @@ const KEYS = {
 };
 
 let hopHeld = false, placeHeld = false, dropHeld = false, deconHeld = false,
-    miracleHeld = false, equipHeld = false;
+    miracleHeld = false, equipHeld = false, linkHeld = false;
 
 function set(k, down) {
   const key = k.toLowerCase();
@@ -113,6 +113,16 @@ function set(k, down) {
      slot -- "put on". A real action like 'v' above, not a debug spawn, so
      also ungated. */
   if (key === 'p')                  { if (down && !equipHeld) cmd.equip = true; equipHeld = down; }
+  /* 'l' to LINK two hubs into a segment (Phase 8d,
+     docs/PLAN-gears-and-winches.md section 4.5) -- EDGE-TRIGGERED, the same
+     `*Held` latch every other real verb on this list uses, and for the same
+     reason this file's header already records: a held key that laid and cut
+     the same cable sixty times a second would be the identical bug as a held
+     place key emptying the pockets into a wall. TWO PRESSES ARE ONE GESTURE
+     (arm an endpoint, then choose the other), which is exactly why the second
+     press must be a second physical press and not frame 2 of the first.
+     `l` is free -- the old `L` machine-spawn key was retired in `66ad0e7`. */
+  if (key === 'l')                  { if (down && !linkHeld) cmd.link = true; linkHeld = down; }
 }
 
 export function installInput() {
@@ -150,6 +160,7 @@ export function installInput() {
         setSearchFocus(false);
         if (isOpen(top())) closeTop();
         clearArmedPlace();
+        clearLink();
         e.preventDefault();
         return;
       }
@@ -174,7 +185,10 @@ export function installInput() {
     /* Escape also cancels an armed placement (Part 1, click-to-arm), whether
        or not a panel happens to be open -- a player who armed a pair, then
        closed the panel to go aim, still has one visible "cancel" key. */
-    if (k === 'escape') clearArmedPlace();
+    /* ...and an armed link endpoint, on the same line and for the same
+       reason: a player who armed one hub, then thought better of it, needs one
+       visible cancel key rather than two verbs with different escapes. */
+    if (k === 'escape') { clearArmedPlace(); clearLink(); }
     /* Same edge-triggered boolean-flip idiom as `showGrid`/`showChunks`/
        `showDebug` -- a held key does not matter here, since the map is a
        mode you sit in, not an action you repeat. */
@@ -233,7 +247,7 @@ export function installInput() {
       cmd[k] = false;
     cmd.uiCtrl = false; cmd.uiShift = false; cmd.uiWheel = 0;
     hopHeld = false; placeHeld = false; dropHeld = false; deconHeld = false;
-    miracleHeld = false; equipHeld = false;
+    miracleHeld = false; equipHeld = false; linkHeld = false;
   });
 
   const cv = stage.cv;
@@ -326,6 +340,7 @@ export function clearEdges() {
   cmd.deconstruct = false;
   cmd.miracle = false;
   cmd.equip = false;
+  cmd.link = false;
   /* Same one-shot-per-physical-click trick `place` already relies on above:
      a pointer held down fires no repeat event, so clearing these every
      frame regardless of button state still leaves exactly one true frame

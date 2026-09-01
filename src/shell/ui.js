@@ -64,7 +64,28 @@ export const ui = {
      reaches for first. Cleared by `shell/main.js` the instant it stops
      being true -- placed successfully, no longer held (spent by a craft,
      dropped, picked clean), or Escape (`shell/input.js`). */
-  armedPlace: null
+  armedPlace: null,
+
+  /* THE ARMED LINK ENDPOINT (Phase 8d, docs/PLAN-gears-and-winches.md section
+     4.5): the machine RECORD a first `l` press has selected as "one end of the
+     next cable", or null. Which endpoint is armed is a fact about the SESSION,
+     exactly like `armedPlace` above -- arming one touches no `model` state at
+     all, only which pair `shell/main.js#applyIntents`'s `cmd.link` branch
+     passes to `rules/placement.js#linkSegment` on the SECOND press. Handed to
+     `view` through `frameCtx` for the cable ghost (Phase 8e); `view` may not
+     import `shell`.
+
+     A RECORD, not a `{tx, ty}` pair: `linkCheck` needs the machine itself,
+     machines never move, and holding the record is what makes the stale test
+     in `shell/main.js` a one-line identity check against `machines` rather
+     than a coordinate search. The `__mf` projection serialises it to
+     `{tx, ty, def}` at the boundary instead -- a projection of real state,
+     never a copy of it (CLAUDE.md D2).
+
+     Cleared by `shell/main.js` the instant it stops being true: linked
+     successfully, cut, aimed at the same machine again, the machine
+     deconstructed out from under it, or Escape (`shell/input.js`). */
+  linkFrom: null
 };
 
 export function isOpen(id) { return ui.stack.includes(id); }
@@ -193,3 +214,15 @@ export function toggleHints() { ui.hintsOpen = !ui.hintsOpen; }
    header above for what clears it and why. */
 export function armPlace(sub, form) { ui.armedPlace = { sub, form }; }
 export function clearArmedPlace() { ui.armedPlace = null; }
+
+/* ---------- the armed link endpoint (Phase 8d) ----------
+   `armLink` takes the machine RECORD, not ordinals, for the reason
+   `ui.linkFrom`'s own header above gives. Deliberately NOT filtered for a
+   `hub` block here: whether two machines may be joined is
+   `model/segments.js#linkCheck`'s single decision, and pre-screening it in
+   `shell` would be a second copy of half of it -- the one thing the
+   one-decision-two-readers rule exists to prevent. Arming a press and then
+   pressing `l` on a furnace refuses with 'NOT A HUB', from the same function
+   the cable ghost reads. */
+export function armLink(m) { ui.linkFrom = m; }
+export function clearLink() { ui.linkFrom = null; }

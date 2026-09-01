@@ -38,6 +38,16 @@ export const write = {
         right:  rect(x + def.tw * t - 2, y, 4, def.th * t)
       },
       buf: {}, prog: 0, made: 0, charges: 0, fire: 0, running: false,
+      /* DRIVETRAIN STATE LIVES ON THE MACHINE RECORD, not in a new module,
+         for the reason `running` and `fire` already set the precedent for:
+         `view` must draw a turning gear and `view` may not import `rules`.
+         `torque` is the 0..1 drive actually delivered this frame; `turn` is
+         accumulated rotation, for the sprite. Present on EVERY machine, not
+         only a crank/gear/hub, so `view/paint.js` can read them off any row
+         with no key test -- the same reason `charges` is not conditional.
+         BOTH ARE ZERO THIS PHASE (8d): nothing writes a nonzero value until
+         Phase 8f's `rules/drive.js`. See docs/SPEC.md section 17. */
+      torque: 0, turn: 0,
       /* One deck per stage, present only on rows carrying a `lift` block. Five
          stages means five machine records, each with its own drum, deck and
          counterweight -- never one continuous cage. */
@@ -68,6 +78,13 @@ export const write = {
   spendCharge(m, n) { m.charges = Math.max(0, m.charges - n); bump(); },
   fire(m, v)        { m.fire = v; bump(); },
   running(m, v)     { m.running = v; bump(); },
+
+  /* Drivetrain, Phase 8f's writers, declared here in Phase 8d so the two
+     numbers `view` reads live in one place from the start. `turn` ACCUMULATES
+     from `dt` alone and never from `rand()` (invariant 7), so a gear sprite is
+     reproducible from the seed and the frame count. */
+  torque(m, v)      { m.torque = v; bump(); },
+  turn(m, phase)    { m.turn = phase; bump(); },
 
   remove(m) {
     const i = machines.indexOf(m);

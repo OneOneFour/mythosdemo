@@ -1342,3 +1342,81 @@ under the §6.1 probe, the first only via the harder gate (`data/forms.js`
 throws at import before the lint can run) with three appended substance rows.
 Recorded because the same "specify the probe, then check the probe's own
 arithmetic" step is worth repeating in later phases of that plan.
+
+---
+
+## Phase 8d (segment skeleton) — six things parked
+
+**1. `shell/notify.js` has no text and `data/sfx.js` no sound for the two new
+journal kinds.** `rules/placement.js#linkSegment` pushes `'link'` and
+`#unlinkSegment` pushes `'unlink'` with `data.why = 'THE CABLE IS CUT'` — the
+message `docs/PLAN-gears-and-winches.md` §4.5 names for a cut. Neither file
+was in this phase's ownership, and an unmapped kind is *silent on purpose*
+(`shell/notify.js`'s own words), so nothing is broken — but the cut message
+currently travels as data and nobody reads it. Two lines in
+`shell/notify.js#TEXT` (`link`, `unlink`) and one or two rows in
+`data/sfx.js#KIND_SFX` would finish it. **Refusals already work**: they use the
+existing `'refused'` kind, and all five `linkCheck` strings were observed
+reaching `view/fx.js#toasts` through the real dispatch.
+
+**2. `tools/check.mjs#snapshotModel` does not include `segments`, so the
+`newRun()` reset probe cannot see one.** Section 4's "every exported model
+object fingerprints identically across two fresh calls" is the assertion
+invariant 8 rests on, and a segment surviving a restart would pass it today.
+`shell/boot.js` *does* call `segw.clear()` and this phase verified the reset by
+hand (a linked pair, `newRun(1337)`, `__mf.segments.length === 0`), but the
+harness does not. `tools/` was outside this phase's ownership; **Phase 8g owns
+this** and its own brief already names the newRun fingerprint probe as the
+thing to extend rather than duplicate.
+
+**3. TWO VERTICALLY STACKED HUBS CANNOT LINK UNTIL THE UPPER ONE'S FLOOR IS
+MINED OUT.** A hub is `footing:2`, so both tiles under a 2-wide footprint must
+be solid to place it — and those two tiles sit directly on the span, so
+`linkCheck` correctly answers `'THE PATH IS BLOCKED'`. Observed, and it is not
+a bug: footing is a placement check and is never re-tested (the same as every
+other machine), so the fix is the one a player would reach for anyway — dig
+the shaft. Mining the two tiles out leaves the hub standing and the link
+succeeds immediately. **Recorded because it is a real usability edge Phase
+8f's playtest will hit within a minute**, and because the honest answer might
+instead be an `axle`-style narrower hub variant, or anchoring the cable at the
+footprint's TOP centre rather than its middle (which does *not* fix it on its
+own — the blocking floor is between the two hubs either way). A design call,
+not a defect; `docs/SPEC.md` §17.5 states the anchor rule so whichever way it
+goes is one edit in one place.
+
+**4. The craft queue cannot actually choose a recipe, which makes the new rows
+awkward to obtain by hand.** Pre-existing and documented in
+`shell/ui.js#ui.craftQueue`'s own header, but worth naming here because this
+phase adds four recipes to a first-match-wins list: `ui.craftQueue` holds
+recipe *ids*, `shell/main.js#step` turns a non-empty queue into a bare
+`cmd.craft = true`, and `rules/crafting.js#choose()` then runs the first
+`HAND_RECIPES` row the player can afford — which may not be the queued one. So
+queueing GEAR while holding 4 logs and 2 gravel builds a BRAZIER. Every
+containment in `data/recipes.js` was re-derived pairwise and the new rows are
+ordered so none of them shadows an existing recipe (and `crank`'s bill was
+raised from 2 gravel to 3 specifically to break one), but overlaps that are not
+containments still resolve by declaration order. The real fix is the queue
+passing its chosen id down to `rules/crafting.js`, which is a change to that
+file's one-pair-of-hands scalar and belongs to whoever owns the crafting UI
+next.
+
+**5. Three PRE-EXISTING hand-recipe shadowings, none of them this phase's.**
+Mechanically checked over `HAND_RECIPES` in declaration order: `peg_rungs`
+`{2 log}` and `kindle` `{1 log}` are both strict subsets of `daedalan`
+`{2 plate, 4 log}`, and `kindle` is a strict subset of `auger`
+`{2 plate, 1 log}` — so `daedalan` and `auger` are unreachable by hand for any
+player holding a log, which is most of them. `data/recipes.js`'s own
+`peg_rungs` and `auger` comments discuss the *pairs they were ordered against*
+and did not catch these. Both would be fixed by moving `daedalan` and `auger`
+above `peg_rungs`/`kindle`, which is a content-order change with a real
+gameplay effect and so was deliberately not made inside this phase's diff.
+
+**6. Two screenshot baselines moved, and the cause is data, not `view/`.**
+`ui-crafting.png` and `furnace-lifecycle-1-crafting-ui.png` both shoot the
+CRAFTING tab's default RAW category, whose grid is `HAND_RECIPES` filtered by
+`view/ui/mainPanel.js#categoryOf` — and a `<id>/rig` output falls in `raw`, so
+four new build recipes are four new slots and the existing ones shift right.
+1,092 px of a 1,280x800 frame, confined to that one row; the other 47 shots are
+bit-identical. Re-accepted with that reason. Worth noting for Phase 8e: the row
+now holds **13** slots and looks close to the panel's width, so the next
+machine added may be the one that forces the RAW grid to wrap or scroll.

@@ -45,6 +45,7 @@ import { write as digw } from '../model/mining.js';
 import { write as modw } from '../model/mods.js';
 import { player, write as playerw } from '../model/player.js';
 import { write as runw } from '../model/run.js';
+import { write as segw } from '../model/segments.js';
 import { bandOf, worldX, worldY, write as worldw } from '../model/world.js';
 import { generate } from '../rules/generate.js';
 import { reset as resetFx, title } from '../view/fx.js';
@@ -70,6 +71,10 @@ export function newRun(seed = (Math.random() * 1e9) | 0) {
   /* --- tear down, before anything reads a stale array --- */
   worldw.clear();
   machw.clear();
+  segw.clear();        // Phase 8d: a segment holds two MACHINE RECORDS, so it
+                       // must go with the machines it points at -- and a
+                       // segment surviving a restart is exactly the
+                       // determinism bug invariant 8 exists to name
   itemw.clear();
   digw.clearAll();
   modw.clear();
