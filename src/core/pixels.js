@@ -11,6 +11,22 @@
 
 import { mulberry } from './rng.js';
 
+/* ---------- THE ONE LIGHT DIRECTION ----------
+   Nothing reads as amateur faster than a scene lit from two directions, and a
+   painter with no shared answer to "where is the sun" grows one per function.
+   So: the sun is UP AND TO THE LEFT, as a unit-ish direction pointing the way
+   the light TRAVELS. A surface whose outward normal opposes this is lit; one
+   that agrees with it is in shadow.
+
+   This is not a new decision, it is the existing one written down. `view/paint.js`
+   already tinted a tile's left face toward `hi` and its right face toward `lo`,
+   and highlighted exposed TOP faces — light from up-left. Every painting
+   function that shades anything reads this rather than re-deciding.
+
+   Integer components on purpose: shading is a comparison, never a multiply
+   against a fractional normal, so there is no path from here to a sub-pixel. */
+export const LIGHT = Object.freeze({ x: 1, y: 1, fromX: -1, fromY: -1 });
+
 /* Minimum size 1: a rect rounded to zero width is a silent missing pixel. */
 export const R = (g, x, y, w, h, c) => {
   g.fillStyle = c;

@@ -18,7 +18,7 @@
 import { offscreen } from '../core/canvas.js';
 import { drawText } from '../core/font.js';
 import { mix } from '../core/palette.js';
-import { R } from '../core/pixels.js';
+import { R, noiseFill } from '../core/pixels.js';
 import { hash2 } from '../core/rng.js';
 import { AIR, NATIVE } from '../data/forms.js';
 import { MACH } from '../data/machines.js';
@@ -30,7 +30,7 @@ import { sizeOf } from '../model/items.js';
 import { eff } from '../model/mods.js';
 import { baseHardAt, formAt, rowAt, skyExposedAt, solidAt, subAt, tileAt } from '../model/tiles.js';
 import { chunkPx, chunkVer } from '../model/world.js';
-import { EXTENT, TREAT, treat } from './treatments.js';
+import { EXTENT, TREAT, seedAt, treat } from './treatments.js';
 
 /* Repaints per frame. A first paint is never budgeted — a chunk with no canvas
    has nothing stale to show — but a re-paint is, so walking a long tunnel while
@@ -241,13 +241,7 @@ function paintTile(g, b, tx, ty, dx, dy) {
   if (!L) return;
 
   R(g, dx, dy, t, t, L.base);
-
-  for (let y = 0; y < t; y++)
-    for (let x = 0; x < t; x++) {
-      const h = hash2(tx * t + x, ty * t + y);
-      if (h < 0.16)      R(g, dx + x, dy + y, 1, 1, L.lo);
-      else if (h > 0.90) R(g, dx + x, dy + y, 1, 1, L.hi);
-    }
+  grain(g, dx, dy, tx, ty, t, L);
 
   /* Exposed faces catch light; buried faces do not. This is most of what makes
      a dug corridor legible -- any open neighbour qualifies, a cave ceiling
@@ -270,6 +264,34 @@ function paintTile(g, b, tx, ty, dx, dy) {
   const hard = baseHardAt(b, tx, ty) * (sub < 0 ? 1 : eff('hard', SUB[sub].id));
   const d = progressAt(b, tx, ty, hard);
   if (d > 0.05) cracks(g, dx, dy, tx, ty, d, t);
+}
+
+/* ---------- grain ----------
+   HOW ROUGH A MATERIAL LOOKS IS THE ROW'S OWN BUSINESS. This used to be a fixed
+   pair of thresholds on a per-pixel `hash2` — 16% of pixels toward the dark
+   tone, 10% toward the light — identical for soil and for adamant, which is a
+   large part of why every stratum read as the same texture in a different
+   colour. `look.speckle` is now the FRACTION of a tile's pixels that get a
+   grain dot at all: soil is noisy, adamant is nearly smooth.
+
+   Drawn with `core/pixels.js#noiseFill`, which was ported from the mockup with
+   the rest of `core/` and then called by nothing at all for the whole life of
+   the layered rewrite (docs/AUDIT-2.md section 4 grepped it: zero call sites).
+   Its seed is positional, never `rand()` — a repaint may not advance anything
+   (ARCHITECTURE invariant 7) and, just as importantly, the same tile has to
+   speckle identically when a neighbouring chunk redraws it.
+
+   TWO passes rather than one array of two colours, because the ratio matters:
+   dark grain reads as pitting and light grain as a facet catching the light,
+   and an even mix of the two looks like static. 62/38 is the ratio the old
+   16/10 thresholds had. */
+const SPECKLE = 0.26;                      // default, and exactly the old density
+const GRAIN_LO = 0.62, GRAIN_HI = 0.38;
+
+function grain(g, dx, dy, tx, ty, t, L) {
+  const blk = L.grainBlk;
+  noiseFill(g, dx, dy, t, t, L.grainLo, L.speckle * GRAIN_LO, seedAt(tx, ty, 0x51ed), blk);
+  noiseFill(g, dx, dy, t, t, L.grainHi, L.speckle * GRAIN_HI, seedAt(tx, ty, 0x2f9d), blk);
 }
 
 /* Cracks come from the tile's own hash, so they grow in place rather than
@@ -322,7 +344,9 @@ function look(b, tx, ty) {
   let e = looks.get(row.id);
   if (!e) {
     const base = colour(l.base), hi = colour(l.hi ?? l.base), lo = colour(l.lo ?? l.base);
-    e = { row, base, hi, lo, edgeL: mix(base, hi, 0.45), edgeR: mix(base, lo, 0.5) };
+    e = { row, base, hi, lo, edgeL: mix(base, hi, 0.45), edgeR: mix(base, lo, 0.5),
+          speckle: l.speckle ?? SPECKLE, grainBlk: l.grainBlk ?? 1,
+          grainLo: [lo], grainHi: [hi] };
     looks.set(row.id, e);
   }
   return e;

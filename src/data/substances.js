@@ -42,6 +42,12 @@
             `item` are keys into `data/palette.js`. `treatments` name pure
             functions in `view/treatments.js`, which is how "this glows" is
             added without editing a paint function.
+            speckle -> OPTIONAL. Fraction of a tile's pixels that get a grain
+                       dot, 0..1. Absent means 0.26, which is exactly the fixed
+                       density every substance used to share. Soil is noisy,
+                       adamant is nearly smooth; that difference is most of
+                       what makes two strata read as two materials rather than
+                       as one material in two colours.
 
    ROWS ARE APPEND-ONLY; see docs/DEVELOPER_GUIDE.md#adding-a-substance. */
 
@@ -57,7 +63,7 @@ export const SUBSTANCES = [
 
     item:{ mass:1.0, hud:{ order:1, always:true } },
 
-    look:{ base:'cuB', hi:'cuA', lo:'cuD',
+    look:{ base:'cuB', hi:'cuA', lo:'cuD', speckle:0.30,
            item:['cuA', 'cuC'],
            treatments:[ { fn:'glint', col:'veinA', n:2 } ] } },
 
@@ -65,7 +71,7 @@ export const SUBSTANCES = [
   { id:'tin', name:'TIN', tags:['metal', 'mineable'],
     tile:{ solid:true, hard:1.10, drops:'ore' },
     item:{ mass:1.0, hud:{ order:2 } },
-    look:{ base:'snC', hi:'snA', lo:'snD',
+    look:{ base:'snC', hi:'snA', lo:'snD', speckle:0.28,
            item:['snA', 'snC'],
            treatments:[ { fn:'glint', col:'snA', n:2 } ] } },
 
@@ -75,7 +81,7 @@ export const SUBSTANCES = [
   { id:'timber', name:'TIMBER', short:'WOOD', tags:['organic', 'mineable'],
     tile:{ solid:true, hard:0.35, drops:'log' },
     item:{ mass:0.8, hud:{ order:3, always:true } },
-    look:{ base:'woodB', hi:'woodA', lo:'woodD',
+    look:{ base:'woodB', hi:'woodA', lo:'woodD', speckle:0.34,
            item:['woodA', 'woodC'],
            /* `view/paint.js` grows this on a timber column's TOP tile only --
               a felled trunk's new top grows one the next time that tile
@@ -91,7 +97,7 @@ export const SUBSTANCES = [
   { id:'stone', name:'STONE', tags:['rock', 'mineable', 'spoil'],
     tile:{ solid:true, hard:1.60, drops:'gravel' },
     item:{ mass:0.6, hud:{ order:4 } },
-    look:{ base:'irC', hi:'irB', lo:'irD',
+    look:{ base:'irC', hi:'irB', lo:'irD', speckle:0.24,
            item:['limeB', 'limeD'],
            /* Bedding planes: free once `banded` exists, per docs/ART_DESIGN.md
               -- a stratum that used to be a flat noise field now reads as
@@ -114,7 +120,18 @@ export const SUBSTANCES = [
           one tool the game hands you rather than one you find. ---- */
   { id:'pick', name:'STOCK PICKAXE', short:'PICK', tags:['relic'],
     item:{ mass:0.5, hud:{ order:6 }, tool:{ tier:1, power:1.0 } },
-    look:{ item:['irB', 'woodC'] } },
+    /* THE GLOW IS A RECOVERY, and a content-only one. docs/ARCHAEOLOGY.md
+       section 4.2 quotes the flat prototype's own `drawPickup()`: the relic on
+       the ground had a `glow()` halo in a warm gold, and section 4.3 records
+       that it was dropped unported when `_old_src/` was deleted -- while every
+       piece of machinery needed to have it back (`look.treatments`,
+       `TREAT.halo`, `core/pixels.js#glow`) survived intact and in use. So this
+       is the one line section 7 says it costs. `ichor` is the divine gold this
+       codebase already uses for "special, look here". The BOB is not restored:
+       `view/paint.js#paintItem` is generic by design (SPEC section 12) and a
+       per-item animation is a bigger question than this phase. */
+    look:{ item:['irB', 'woodC'],
+           treatments:[ { fn:'halo', col:'ichor', r:9, a:0.34 } ] } },
 
   /* ---- soil: the shallow cap `data/world.js`'s surface band wears over its
           stone, so the first few dug tiles read as dirt rather than rock. Its
@@ -128,16 +145,25 @@ export const SUBSTANCES = [
   { id:'soil', name:'SOIL', tags:['rock', 'mineable'],
     tile:{ solid:true, hard:0.50, drops:'gravel' },
     item:{ mass:0.5, hud:{ order:7 } },
-    look:{ base:'soilA', hi:'soilA', lo:'soilC',
+    look:{ base:'soilA', hi:'soilA', lo:'soilC', speckle:0.44,
            item:['soilA', 'soilC'],
            treatments:[ { fn:'banded', col:'soilC', every:5 } ],
-           /* A green cap, drawn only where `skyExposedAt` says this tile has
+           /* A TURF CAP, drawn only where `skyExposedAt` says this tile has
               an open shot straight up to the top of the band -- true sky, not
               a dug-out ceiling. `hi` above is a plain soil tone rather than
               green FOR EXACTLY THIS REASON: `paintTile`'s generic "exposed
               face" highlight fires for ANY open neighbour, tunnels included,
-              and painting it green was grass appearing on cave ceilings. */
-           grassCap:{ col:'grassA', h:2 } } },
+              and painting it green was grass appearing on cave ceilings.
+
+              Three greens, not one, and a whole tile rather than two pixels:
+              docs/ARCHAEOLOGY.md section 1a records the older look this
+              recovers -- a full band of `grassA` over a lower edge of `grassB`
+              with a `noiseFill` speckle of `grassC` across both. `drape` is
+              the part that is new rather than recovered: turf spilling a few
+              pixels down an exposed vertical face, so Phase 7's relief reads
+              as banks of earth instead of a stack of cut cubes. */
+           grassCap:{ col:'grassA', low:'grassB', dark:'grassC',
+                      lowH:3, drape:4, grain:0.16 } } },
 
   /* ---- granite: the first ROCK harder than stone, for the deep strata pick
           tiers Phase 2c gates against. `tile.tier:2` is the new optional key
@@ -148,7 +174,7 @@ export const SUBSTANCES = [
   { id:'granite', name:'GRANITE', short:'GRNT', tags:['rock', 'mineable'],
     tile:{ solid:true, hard:2.4, drops:'gravel', tier:2 },
     item:{ mass:0.9, hud:{ order:8 } },
-    look:{ base:'graniteB', hi:'graniteA', lo:'graniteD',
+    look:{ base:'graniteB', hi:'graniteA', lo:'graniteD', speckle:0.17,
            item:['graniteA', 'graniteC'],
            treatments:[ { fn:'banded', col:'graniteD', every:8 } ] } },
 
@@ -163,7 +189,7 @@ export const SUBSTANCES = [
   { id:'adamant', name:'ADAMANT', short:'ADMT', tags:['rock', 'metal', 'mineable'],
     tile:{ solid:true, hard:5.0, drops:'gravel', tier:3 },
     item:{ mass:1.4, hud:{ order:9 } },
-    look:{ base:'adamantB', hi:'adamantA', lo:'adamantD',
+    look:{ base:'adamantB', hi:'adamantA', lo:'adamantD', speckle:0.07,
            item:['adamantA', 'adamantC'],
            treatments:[ { fn:'glint', col:'adamantA', n:2 } ] } },
 

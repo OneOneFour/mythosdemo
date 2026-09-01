@@ -21,7 +21,7 @@
    hash, never from the stream. */
 
 import { colour } from '../data/palette.js';
-import { R, glow } from '../core/pixels.js';
+import { R, glow, noiseFill } from '../core/pixels.js';
 import { hash2 } from '../core/rng.js';
 
 /* ---------- HOW FAR A DECORATION REACHES, IN TILES ----------
@@ -87,19 +87,66 @@ export const TREAT = {
     R(g, bx, by, w, Math.max(1, (c.tile / 4) | 0), hi);
   },
 
-  /* A green cap on the top few pixels of a tile, plus a few tufts poking one
-     pixel higher -- the mockup's grass-tuft look
-     (`reference/mockup/src/world/strata.js#drawSurface`), ported to a single
-     tile rather than a screen-wide pass. `paint.js` only calls this when
-     `skyExposedAt` is true, which is what keeps grass off a tunnel ceiling. */
+  /* A TURF CAP, and the emphasis is on cap rather than fringe. What this used
+     to draw was two pixels of green on a tile's top edge, which reads as a line
+     ruled along the ground rather than as ground; docs/ARCHAEOLOGY.md section 1a
+     has the older look it is recovered from, and that look was a FULL band --
+     `R(g, 0, SURFACE_Y - 6, W, 8, P.grassA)` then `R(g, 0, SURFACE_Y + 2, W, 4,
+     P.grassB)`, i.e. a whole tile of bright green over a darker green lower
+     edge, with a `noiseFill` speckle pass over both and 1 px tufts above. Same
+     three parts here, per tile instead of screen-wide, so it steps with Phase
+     7's relief instead of running flat.
+
+     AND IT DRAPES OVER A LIP. A hillside is otherwise a stack of cut cubes: the
+     turf stops dead at the top face and the vertical face below it is bare
+     subsoil. So where this tile has an open side and solid rock beneath it, the
+     turf runs a few pixels down that face, ragged, which is the one detail that
+     makes a step read as a bank of earth rather than as a block. That drape is
+     why `EXTENT.grassCap` is 1 tile and not 0.
+
+     `paint.js` calls this only when `skyExposedAt` is true. Read the soil row's
+     own comment in `data/substances.js` before widening anything here: a
+     generic "any air above" test painted grass on cave ceilings. */
   grassCap(g, c, p) {
-    const col = colour(p.col || 'grassA'), h = p.h || 2;
-    R(g, c.px, c.py, c.tile, h, col);
-    for (let x = 0; x < c.tile; x++)
-      if (hash2(c.tx * c.tile + x, c.ty * 13 + 5) < 0.35)
+    const t = c.tile;
+    const col = colour(p.col || 'grassA');
+    const low = colour(p.low || p.col || 'grassA');
+    const dark = colour(p.dark || p.low || 'grassC');
+    const lowH = Math.max(1, p.lowH ?? ((t / 3) | 0));
+
+    R(g, c.px, c.py, t, t, col);
+    R(g, c.px, c.py + t - lowH, t, lowH, low);
+    noiseFill(g, c.px, c.py, t, t, [dark, low], p.grain ?? 0.14, seedAt(c.tx, c.ty, 991));
+
+    for (let x = 0; x < t; x++)
+      if (hash2(c.tx * t + x, c.ty * 13 + 5) < 0.35)
         R(g, c.px + x, c.py - 1, 1, 1, col);
+
+    if (!c.solidBelow) return;
+    const drape = Math.min(p.drape ?? 4, EXTENT.grassCap * t);
+    if (c.openL) lip(g, c.px, c.py + t, drape, c.tx, c.ty, low, dark, false);
+    if (c.openR) lip(g, c.px + t, c.py + t, drape, c.tx, c.ty, low, dark, true);
   }
 };
+
+/* Turf spilling over the edge of a cliff, down the face of the tile below.
+   Ragged by construction: each row down is one or two pixels wide and the run
+   stops early on its own hash, so no two lips are the same length and none is a
+   ruled vertical line. `x` is the FACE's own edge — the left face's own column
+   for a left lip, one past the right face's for a right one. */
+function lip(g, x, y, depth, tx, ty, near, far, right) {
+  for (let k = 0; k < depth; k++) {
+    if (k > 0 && hash2(tx * 7 + k, ty * 3 + (right ? 11 : 5)) < 0.28) break;
+    const w = 1 + ((hash2(tx * 17 + k, ty * 29 + (right ? 5 : 1)) * 2) | 0);
+    R(g, right ? x - w : x, y + k, w, 1, k < depth - 2 ? near : far);
+  }
+}
+
+/* A stable local seed for a `noiseFill` pass over one tile. Positional, so the
+   same tile speckles identically on every repaint and from either side of a
+   chunk seam — the same reason every other function here uses `hash2`. */
+export const seedAt = (tx, ty, salt) =>
+  (Math.imul(tx, 73856093) ^ Math.imul(ty, 19349663) ^ salt) | 0;
 
 /* Apply a row's treatment list. One call site in `view/paint.js`, but exported
    so the item and machine passes share the exact same semantics. */

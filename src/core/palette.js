@@ -53,3 +53,20 @@ export function mix(a, b, t) {
   t = t < 0 ? 0 : t > 1 ? 1 : t;
   return `rgb(${(A[0] + (B[0] - A[0]) * t) | 0},${(A[1] + (B[1] - A[1]) * t) | 0},${(A[2] + (B[2] - A[2]) * t) | 0})`;
 }
+
+/* `mix`, but the result is HEX and can therefore be mixed AGAIN. `mix` returns
+   an `rgb(...)` string, which `hex2rgb` cannot read back — feeding one to the
+   other yields NaN channels and a silently black fill. Depth shading needs two
+   stages (darken the row's own tone, then derive an edge from the darkened
+   tone), so it needs this one. Two functions rather than one because every
+   existing call site takes a single mix and a canvas fillStyle is happy with
+   either form; changing `mix`'s return type would be a wider edit for no gain. */
+const hex2 = v => (v < 0 ? 0 : v > 255 ? 255 : v | 0).toString(16).padStart(2, '0');
+
+export function blend(a, b, t) {
+  const A = hex2rgb(a), B = hex2rgb(b);
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  return '#' + hex2(A[0] + (B[0] - A[0]) * t)
+             + hex2(A[1] + (B[1] - A[1]) * t)
+             + hex2(A[2] + (B[2] - A[2]) * t);
+}
