@@ -7,8 +7,12 @@
      view/paint.js says        for (const t of look.treatments) TREAT[t.fn](g, cell, t)
 
    and no substance name appears anywhere in `view/`. A `fn` name that is not a
-   key here fails `tools/resolve.mjs` at build time rather than drawing nothing
-   at depth 300. See docs/DEVELOPER_GUIDE.md#colour-and-appearance
+   key here, and any colour name a `look` block gets wrong, fails
+   `npm run check:content` (`tools/content.mjs` assertion 15) rather than drawing
+   nothing at depth 300 — which is what actually used to happen, `treat()`'s
+   `if (fn)` swallowing an unknown name in silence. The `tools/resolve.mjs` this
+   header used to cite has never existed.
+   See docs/DEVELOPER_GUIDE.md#colour-and-appearance
 
    CONTRACT. Every function takes `(g, cell, p)` where `cell` is
    `{ px, py, tx, ty, tile }` in destination pixels and band tiles, and `p` is

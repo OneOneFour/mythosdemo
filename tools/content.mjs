@@ -25,6 +25,8 @@ import { BOONS, BOON } from '../src/data/boons.js';
 import { MIRACLES } from '../src/data/miracles.js';
 import { DROPS } from '../src/data/drops.js';
 import { BANDS, SPAWN_BAND } from '../src/data/world.js';
+import { hasColour } from '../src/data/palette.js';
+import { TREAT } from '../src/view/treatments.js';
 import { holdable, massOfPair } from '../src/model/items.js';
 
 const EPS = 1e-6;
@@ -485,6 +487,57 @@ export function checkContent({ quiet = false } = {}) {
              `until depth ${need.toFixed(0)} -- nothing could ever build the first one`);
     }
   }
+
+  /* ---- 15. EVERY `look` BLOCK RESOLVES: every colour name is in
+     `data/palette.js` and every treatment `fn` is a key in
+     `view/treatments.js#TREAT`.
+
+     THIS WAS NOT CHECKED ANYWHERE. Three separate file headers claim
+     `tools/resolve.mjs` fails an unknown `fn` "at build time rather than
+     drawing nothing at depth 300" -- there is no `tools/resolve.mjs`, and
+     grepping `check.mjs` for `colour`, `palette`, `treat` or `fn` returns
+     nothing. The real behaviour was: a typo'd colour threw from `colour()` the
+     first time that tile painted, and a typo'd `fn` drew nothing at all,
+     forever, in silence (`treat()` does `if (fn) fn(...)`). Phase 8 adds
+     several new colour keys and a treatment, so the claim is made true here
+     rather than left as a comment.
+
+     Both halves are generic and structural, not a list of the keys that happen
+     to exist today: a colour is any string under a key in `COLOUR_KEYS`
+     (scalar or array), and the walk recurses, so a colour named inside a
+     future treatment's params is covered the day it is written.
+
+     `view/treatments.js` imports `core` and `data` only and touches no
+     `document`, so importing it here costs nothing and asserts against the
+     REAL table rather than a copy of its key list. ---- */
+  const COLOUR_KEYS = new Set([
+    'base', 'hi', 'lo', 'face', 'contact', 'col', 'low', 'dark',
+    'leaves', 'item', 'sky', 'tint', 'body', 'trim', 'halo'
+  ]);
+
+  const walkLook = (where, node) => {
+    if (!node || typeof node !== 'object') return;
+    for (const [k, v] of Object.entries(node)) {
+      if (k === 'fn' && typeof v === 'string') {
+        checks++;
+        if (!TREAT[v]) fail(`${where}: look treatment fn "${v}" is not in view/treatments.js#TREAT`);
+        continue;
+      }
+      if (COLOUR_KEYS.has(k)) {
+        for (const name of Array.isArray(v) ? v : [v]) {
+          if (typeof name !== 'string') continue;
+          checks++;
+          if (!hasColour(name)) fail(`${where}: look colour "${name}" (key "${k}") is not in data/palette.js`);
+        }
+        continue;
+      }
+      if (v && typeof v === 'object') walkLook(where, v);
+    }
+  };
+
+  for (const s of SUB) walkLook(`substance "${s.id}"`, s.look);
+  for (const m of MACH) walkLook(`machine "${m.id}"`, m.look);
+  for (const b of BANDS) walkLook(`band "${b.id}"`, b.look);
 
   if (!quiet) {
     for (const v of violations) console.error(`  FAIL ${v}`);
