@@ -103,6 +103,28 @@
                            `machines` is where that catch box is checked.
      machines before lift   a charge banked this frame turns the drum now, so
                            feeding the winch and it moving are one beat.
+     lift before tutorial   `rules/tutorial.js` is a pure OBSERVER: every one of
+                           docs/SPEC.md section 5's beat conditions is a READ of
+                           state another step wrote, and the only things it
+                           writes — `run.tutorialBeat` and a `tutorial` journal
+                           row — are read by no other step in this array. So it
+                           goes as LATE as it can, where every fact of the frame
+                           has settled: the walking step `player` recorded
+                           (beat 1), the pick `items` just caught (beat 2), the
+                           ore `mining` just dropped and `items` just moved
+                           (beat 3), and the `run.deepest` `player` just updated
+                           (beat 4). Judging a beat mid-frame would mean a
+                           callout could name something the player has not
+                           finished doing yet.
+     tutorial before fields  ONLY so `fields last` below stays literally true.
+                           The two are unrelated ledgers — a beat predicate
+                           reads no field and emits none — so this pair is the
+                           one adjacency in this list that carries no freshness
+                           argument at all, and it is stated rather than left
+                           implied precisely because there isn't one:
+                           `fields`'s position is a statement about the NEXT
+                           frame, and nothing may be appended after it without
+                           re-arguing that.
      fields last            emissions made this frame decay from NEXT frame, so a
                            recipe gate sees the heat that was just poured in.
 
@@ -124,6 +146,7 @@ import * as miracles from '../rules/miracles.js';
 import * as player from '../rules/player.js';
 import * as reveal from '../rules/reveal.js';
 import * as trinkets from '../rules/trinkets.js';
+import * as tutorial from '../rules/tutorial.js';
 
 export const STEPS = [
   { id: 'clock',    step: (dt) => rw.tick(dt) },
@@ -139,6 +162,7 @@ export const STEPS = [
   { id: 'boons',    step: (dt) => boons.step(dt) },
   { id: 'machines', step: (dt) => machines.step(dt) },
   { id: 'lift',     step: (dt) => lift.step(dt) },
+  { id: 'tutorial', step: () => tutorial.step() },
   { id: 'fields',   step: (dt) => fields.step(dt) }
 ];
 

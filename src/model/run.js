@@ -69,7 +69,22 @@ export const RUN_SCHEMA = Object.freeze({
      with everything else (invariant 8) for free. Written and ticked by
      `rules/light.js`; the alternative was module-scoped state there with no
      `newRun()` hook to clear it, which invariant 8 exists to forbid. */
-  brandLeft: 0
+  brandLeft: 0,
+
+  /* Which beat of docs/SPEC.md section 5's first-two-minutes sheet the player
+     has already passed. 0 is "nothing yet"; N means beats 1..N have fired.
+     A COUNTER AND NOT A SET OF FLAGS, because the sheet is a sequence: beat
+     N+1's condition is only ever asked once beat N has fired, so a player
+     who happens to satisfy a later beat early does not skip the lesson
+     before it. Advanced by `rules/tutorial.js` (the decision), read through
+     `model/tutorial.js#beat` (the query). Beat indices 5 and 6 are RESERVED
+     -- the altar and the furnace gift do not exist in code yet, so nothing
+     advances into them until Phase 10's cycle director does. Here rather
+     than in a module of its own for the same reason `craftProgress` and
+     `brandLeft` above are: it resets with everything else (invariant 8) for
+     free, and a beat sheet surviving a restart is exactly the determinism
+     bug that invariant names. */
+  tutorialBeat: 0
 });
 
 export const META_SCHEMA = Object.freeze({
@@ -174,7 +189,14 @@ export const write = {
   craft(progress, recipe) { run.craftProgress = progress; run.craftRecipe = recipe; bump(); },
 
   /* The one lit brand's remaining burn time. See `RUN_SCHEMA.brandLeft`. */
-  brand(secsLeft) { run.brandLeft = Math.max(0, secsLeft); bump(); }
+  brand(secsLeft) { run.brandLeft = Math.max(0, secsLeft); bump(); },
+
+  /* One step along docs/SPEC.md section 5's beat sheet. TAKES NO ARGUMENT ON
+     PURPOSE: the field is monotonic and one-way (see
+     `RUN_SCHEMA.tutorialBeat`), and a writer that cannot be handed a number
+     cannot be handed a smaller one. The DECISION about whether a beat's
+     condition holds is `rules/tutorial.js`'s; this is only the increment. */
+  advanceBeat() { run.tutorialBeat++; bump(); }
 };
 
 /* ---- queries ---- */
