@@ -85,7 +85,52 @@ export const ui = {
      Cleared by `shell/main.js` the instant it stops being true: linked
      successfully, cut, aimed at the same machine again, the machine
      deconstructed out from under it, or Escape (`shell/input.js`). */
-  linkFrom: null
+  linkFrom: null,
+
+  /* ---- THE OVERVIEW'S SCROLL, ZOOM AND LAYER TOGGLES (Phase 9) ----
+     Where the map is looking, how far in, whether it is following the player
+     and which metadata layers are on. All of it is a fact about the SESSION,
+     exactly like every other field in this file: opening the map, scrolling
+     it and turning the ORE layer off touch no `model` state at all. Handed to
+     `view` through `shell/main.js#frameCtx`; `view` may not import `shell`
+     (CLAUDE.md D2).
+
+     `x`/`y` are WORLD PIXELS of the map viewport's top-left corner, not tiles
+     and not screen px -- a tile offset is meaningless between two bands whose
+     `tile` sizes differ (`data/world.js`'s own reasoning for `origin` being in
+     pixels), and a screen offset would change meaning on every zoom step.
+     They are stored UNCLAMPED and `view/overview.js#transform` clamps them to
+     the band union every frame, reading that union exactly the way
+     `shell/main.js#clampCam` does -- so there is one clamp, it cannot be
+     bypassed, and a stale offset from before a `newRun()` reallocated the
+     world simply lands back inside it.
+
+     `zoom` is 0 for "the default this viewport width implies" and otherwise
+     one of `view/overview.js#MAP_ZOOM`'s integer levels. Stored rather than
+     derived so a chosen zoom survives a window resize; 0 rather than a
+     concrete number so the default can be a function of the viewport, which
+     `shell` has no business computing.
+
+     `follow` defaults TRUE and ANY manual scroll turns it off -- opening the
+     map should show you where you are, and then get out of the way.
+
+     `drag` is `{ sx, sy, x, y } | null`: the screen point a press started at
+     plus the world offset at that moment, which is what makes a drag absolute
+     (no accumulated rounding) rather than incremental. */
+  map: {
+    zoom: 0,
+    x: 0, y: 0,
+    follow: true,
+    drag: null,
+    /* Every layer is individually toggleable (docs/BUILD_PLAN.md Phase 9
+       section 4). LIGHT is the one that starts OFF: it is a shading overlay
+       over the whole map rather than a marker on top of it, so it changes how
+       everything else reads and is better asked for than imposed. */
+    layers: {
+      chain: true, machines: true, piles: true, ore: true,
+      light: false, bands: true, hover: true
+    }
+  }
 };
 
 export function isOpen(id) { return ui.stack.includes(id); }
@@ -226,3 +271,52 @@ export function clearArmedPlace() { ui.armedPlace = null; }
    the cable ghost reads. */
 export function armLink(m) { ui.linkFrom = m; }
 export function clearLink() { ui.linkFrom = null; }
+
+/* ---------- the overview: scroll, zoom, layers (Phase 9) ----------
+   Plain mutators over `ui.map`, in the shape every other function in this file
+   already has. NOTHING HERE CLAMPS: the clamp is `view/overview.js`'s, once,
+   against the band union it is already deriving to draw with -- a second copy
+   in `shell` would be a second answer to "where does the world end", which is
+   exactly the drift `clampCam`'s own bug history warns about. */
+
+/* A manual scroll is the ONE thing that turns FOLLOW off, and it is turned off
+   HERE rather than by each caller, so no input path can forget to. */
+export function mapScroll(dx, dy) {
+  ui.map.follow = false;
+  ui.map.x += dx;
+  ui.map.y += dy;
+}
+
+/* Jump so a world point sits at the map viewport's top-left. Used by a click
+   on a band ruler segment; `view` reports the rect, `shell` decides what a
+   click on it means. */
+export function mapMoveTo(x, y) {
+  ui.map.follow = false;
+  ui.map.x = x;
+  ui.map.y = y;
+}
+
+export function setMapZoom(k) { ui.map.zoom = k; }
+export function toggleMapFollow() { ui.map.follow = !ui.map.follow; }
+export function setMapFollow(v) { ui.map.follow = !!v; }
+
+export function toggleMapLayer(id) {
+  if (Object.prototype.hasOwnProperty.call(ui.map.layers, id))
+    ui.map.layers[id] = !ui.map.layers[id];
+}
+
+/* A DRAG IS ABSOLUTE, NOT INCREMENTAL: `mapDragStart` remembers both the
+   screen point pressed and the world offset at that moment, and `mapDragTo`
+   sets the offset from the total distance travelled since. Accumulating
+   per-frame deltas instead would drift, because the offset is clamped every
+   frame by `view` and a clamped frame would silently eat part of the motion. */
+export function mapDragStart(sx, sy, x, y) { ui.map.drag = { sx, sy, x, y }; }
+export function mapDragEnd() { ui.map.drag = null; }
+
+export function mapDragTo(sx, sy, scale) {
+  const d = ui.map.drag;
+  if (!d || !(scale > 0)) return;
+  ui.map.follow = false;
+  ui.map.x = d.x - (sx - d.sx) / scale;
+  ui.map.y = d.y - (sy - d.sy) / scale;
+}

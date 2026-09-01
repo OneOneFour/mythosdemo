@@ -28,12 +28,12 @@ import { fieldAt, hasField } from '../model/fields.js';
 import { items } from '../model/items.js';
 import { machines } from '../model/machines.js';
 import { eff } from '../model/mods.js';
-import { PH, PW, player, playerCentre } from '../model/player.js';
+import { PH, PW, player } from '../model/player.js';
 import { hasPick, run } from '../model/run.js';
-import { rowAt } from '../model/tiles.js';
 import { bandAt, bands, chunkPx, heightPx, lightAt, seenAt, widthPx } from '../model/world.js';
 import { chips, drawChips } from './fx.js';
 import { drawHUD } from './hud.js';
+import { drawOverview } from './overview.js';
 import { beginFrame, chunkCanvas, paintItem, paintMachine } from './paint.js';
 
 const INK = {
@@ -61,13 +61,7 @@ const INK = {
   heat:   colour('hot'),
   grid:   colour('watB'),
   chunk:  '#ff7fd0',
-  fog:    colour('abyA'),
-  /* The map overview's player marker. `ichor` is the same divine-gold this
-     codebase already uses for anything meant to read as "special, look here"
-     (a relic's own colour, a trinket halo, an item's spark) -- reused rather
-     than inventing a colour, per the palette convention, and gold reads
-     against soil, stone and abyssal rock alike, none of which are gold. */
-  mapMark: colour('ichor')
+  fog:    colour('abyA')
 };
 
 export const stats = { chunksDrawn: 0, bandsDrawn: 0 };
@@ -85,17 +79,15 @@ export function render(g, f) {
   R(g, 0, 0, W, H, INK.void);
   stats.chunksDrawn = 0; stats.bandsDrawn = 0;
 
-  /* THE MAP OVERVIEW IS A DIFFERENT RENDER PATH, NOT A CAMERA TRICK. Normal
-     play draws cached per-chunk canvases at native tile resolution
-     (`view/paint.js#chunkCanvas`) because that is cheap for a viewport a few
-     hundred pixels wide; the overview draws the WHOLE world at roughly one
-     screen pixel per tile, which no chunk bitmap is the right resolution for,
-     so `drawMap` reads the tile grid directly, once per tile, and returns
-     before any of the normal per-band passes below it run. Nothing past this
-     point (sky, chunks, machines, items, the walking player sprite, fields,
-     fog, atmosphere, the HUD) executes while the map is open -- the map is a
-     full substitute frame, not an overlay on top of the ordinary one. */
-  if (f.flags.showMap) { drawMap(g, f); return; }
+  /* THE MAP OVERVIEW IS A DIFFERENT RENDER PATH, NOT A CAMERA TRICK, and as of
+     Phase 9 it is a different FILE: `view/overview.js`, which owns its own
+     scale, scroll, zoom, band ruler and metadata layers. It used to be
+     `drawMap`, thirty-seven lines in this file; the extraction is recorded in
+     that file's own header. Nothing past this point (sky, chunks, machines,
+     items, the walking player sprite, fields, fog, atmosphere, the HUD)
+     executes while the map is open -- the map is a full substitute frame, not
+     an overlay on top of the ordinary one. */
+  if (f.flags.showMap) { drawOverview(g, f); return; }
 
   for (const b of bands) {
     if (!visible(b, cam, W, H)) continue;
@@ -119,73 +111,6 @@ export function render(g, f) {
   if (f.flags.showChunks) overlay(g, cam, W, H, player.band ? chunkPx(player.band) : 128, INK.chunk, 0.5);
 
   drawHUD(g, f);
-}
-
-/* ---------- map overview ----------
-   `flags.showMap` freezes the run (`shell/main.js#step()` no-ops while it is
-   true) and swaps this in for the whole normal draw. It answers one question
-   -- "what does the shaft look like so far" -- at the cost of everything the
-   normal path draws: no sky, no machines, no items, no walking sprite, no
-   field glow. The player still needs a mark, drawn separately below.
-
-   FOG RULES HERE EXACTLY AS IT DOES IN PLAY: `seenAt` is read per tile and an
-   unrevealed one draws NOTHING, leaving the void fill already painted above
-   showing through -- the same "hidden regardless of what is actually there"
-   rule `drawFog` enforces for the normal path, just applied by omission
-   instead of an opaque rect, because there is no terrain painted underneath
-   to cover here. A revealed AIR tile also draws nothing: `model/tiles.js`'s
-   `VOID_SUB` row has no `look.base` (`rowAt` returns it for the AIR byte), so
-   a dug tunnel reads as empty space on the map exactly as it does in a chunk
-   canvas, which needs no special case -- the same `if (!base) skip` that
-   already keeps `view/paint.js#look()` from painting open air handles it.
-
-   ONE SHARED SCALE, DERIVED, NOT ASSUMED. Bands can in principle disagree on
-   `tile` (`data/world.js` says so even though all three currently agree on 8),
-   so this does not hardcode "8 px = 1 map px". It reads the SMALLEST `tile`
-   any band declares and treats that as "one screen pixel" -- the brief's
-   "roughly one screen pixel per game tile" -- then shrinks the whole map by
-   one further factor, if needed, so the deepest band (topsoil, 320 tiles
-   tall) still fits the viewport height along with the two bands above it.
-   Bands stack in one CONTIGUOUS world-pixel column already (`data/world.js`:
-   each origin.y is the previous band's bottom edge) and this reads that union
-   the identical way `shell/main.js#clampCam` does, so three bands lay out top
-   to bottom with no seam logic of their own. */
-function drawMap(g, f) {
-  const { W, H } = f;
-  const top = bands[0].origin.y;
-  const bottomBand = bands[bands.length - 1];
-  const worldH = bottomBand.origin.y + heightPx(bottomBand) - top;
-  const left = Math.min(...bands.map(b => b.origin.x));
-  const worldW = Math.max(...bands.map(b => b.origin.x + widthPx(b))) - left;
-
-  const base = 1 / Math.min(...bands.map(b => b.tile));
-  const scale = Math.min(base, W / worldW, H / worldH);
-  const ox = (W - worldW * scale) / 2;
-  const oy = (H - worldH * scale) / 2;
-
-  for (const b of bands) {
-    const t = b.tile;
-    const sz = Math.max(1, Math.round(t * scale));
-    for (let ty = 0; ty < b.th; ty++) {
-      const py = (oy + (b.origin.y - top + ty * t) * scale) | 0;
-      for (let tx = 0; tx < b.tw; tx++) {
-        if (!seenAt(b, tx, ty)) continue;
-        const look = rowAt(b, tx, ty).look;
-        if (!look?.base) continue;                 // open air: nothing to draw
-        const px = (ox + (b.origin.x - left + tx * t) * scale) | 0;
-        R(g, px, py, sz, sz, colour(look.base));
-      }
-    }
-  }
-
-  if (player.band) {
-    const c = playerCentre();
-    const px = (ox + (c.x - left) * scale) | 0;
-    const py = (oy + (c.y - top) * scale) | 0;
-    /* A fixed 3x3, not `sz`-scaled: terrain draws at ~1 px/tile, and a marker
-       that shrank to match would be as easy to lose as any other pixel. */
-    R(g, px - 1, py - 1, 3, 3, INK.mapMark);
-  }
 }
 
 const visible = (b, cam, W, H) =>

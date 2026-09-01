@@ -987,8 +987,7 @@ test('the map overview shows explored terrain and leaves unexplored terrain undr
   await boot(page);
   await settle(page);
   const info = await page.evaluate(async () => {
-    const { bandOf, bands, widthPx, heightPx, seenAt, worldX, worldY } =
-      await import('/src/model/world.js');
+    const { bandOf, seenAt, worldX, worldY } = await import('/src/model/world.js');
     const { write: tw } = await import('/src/model/tiles.js');
     const { write: pw } = await import('/src/model/player.js');
     const { step: revealStep } = await import('/src/rules/reveal.js');
@@ -1007,28 +1006,30 @@ test('the map overview shows explored terrain and leaves unexplored terrain undr
     pw.move(worldX(surface, 0), worldY(surface, 0));   // clear of the probed tile
     revealStep();
 
+    /* PARKED, NOT FOLLOWING. The overview follows the player by default
+       (Phase 9), and the player has just been moved to the top-left corner --
+       so without this the probed surface tile would be scrolled off screen and
+       the "revealed stone paints its own colour" sample would read void, which
+       is a test failing for the wrong reason. `mapMoveTo` also turns FOLLOW
+       off, which is the whole point. */
+    const { mapMoveTo } = await import('/src/shell/ui.js');
+    mapMoveTo(0, 0);
     __mf.flags.showMap = true;
     __mf.draw();
 
-    /* The exact scale/offset `drawMap` derives -- documented in `view/scene.js`
-       as "one screen pixel per the smallest band tile, shrunk further only if
-       the full world would not otherwise fit the viewport". Recomputed here
-       from the same public band data the renderer reads, not asserted as a
-       magic constant. */
+    /* THE TRANSFORM IS READ BACK, NOT RE-DERIVED. `view/overview.js#mapView`
+       is that file's own record of what the last draw actually used -- the
+       `view/paint.js#stats` idiom -- so this test cannot drift from the
+       renderer's scale, zoom, scroll offset or reserved-edge arithmetic the
+       way a hand-copied formula did. (It did: this block used to re-implement
+       `drawMap`'s `min(1/minTile, W/worldW, H/worldH)` by hand.) */
+    const { mapView } = await import('/src/view/overview.js');
     const c = document.getElementById('stage');
-    const top = bands[0].origin.y;
-    const bottomBand = bands[bands.length - 1];
-    const worldH = bottomBand.origin.y + heightPx(bottomBand) - top;
-    const left = Math.min(...bands.map(b => b.origin.x));
-    const worldW = Math.max(...bands.map(b => b.origin.x + widthPx(b))) - left;
-    const base = 1 / Math.min(...bands.map(b => b.tile));
-    const scale = Math.min(base, c.width / worldW, c.height / worldH);
-    const ox = (c.width - worldW * scale) / 2;
-    const oy = (c.height - worldH * scale) / 2;
-
     const mapPx = (wx, wy) => ({
-      x: Math.min(c.width - 1, Math.max(0, Math.round(ox + (wx - left) * scale))),
-      y: Math.min(c.height - 1, Math.max(0, Math.round(oy + (wy - top) * scale)))
+      x: Math.min(c.width - 1, Math.max(0,
+        Math.round(mapView.vx + (wx - mapView.wx) * mapView.scale))),
+      y: Math.min(c.height - 1, Math.max(0,
+        Math.round(mapView.vy + (wy - mapView.wy) * mapView.scale)))
     });
     const revealed = mapPx(worldX(surface, sx) + surface.tile / 2, worldY(surface, sy) + surface.tile / 2);
     const hidden = mapPx(worldX(topsoil, hx) + topsoil.tile / 2, worldY(topsoil, hy) + topsoil.tile / 2);
