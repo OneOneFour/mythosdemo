@@ -48,6 +48,15 @@
                        adamant is nearly smooth; that difference is most of
                        what makes two strata read as two materials rather than
                        as one material in two colours.
+            face    -> OPTIONAL palette name for an EXPOSED VERTICAL FACE --
+                       a cliff, a shaft wall. Freshly broken rock, and it need
+                       not be the tone of the weathered top. Absent means
+                       `base`. `view/paint.js` lights or shades it from the one
+                       declared light direction, so a row names the material,
+                       never the side.
+            contact -> OPTIONAL palette name for the 1 px line along a strata
+                       boundary: this substance's top edge, where the substance
+                       ABOVE it is a different one. Absent means `lo`.
 
    ROWS ARE APPEND-ONLY; see docs/DEVELOPER_GUIDE.md#adding-a-substance. */
 
@@ -98,6 +107,7 @@ export const SUBSTANCES = [
     tile:{ solid:true, hard:1.60, drops:'gravel' },
     item:{ mass:0.6, hud:{ order:4 } },
     look:{ base:'irC', hi:'irB', lo:'irD', speckle:0.24,
+           face:'irB', contact:'irD',
            item:['limeB', 'limeD'],
            /* Bedding planes: free once `banded` exists, per docs/ART_DESIGN.md
               -- a stratum that used to be a flat noise field now reads as
@@ -131,7 +141,7 @@ export const SUBSTANCES = [
        `view/paint.js#paintItem` is generic by design (SPEC section 12) and a
        per-item animation is a bigger question than this phase. */
     look:{ item:['irB', 'woodC'],
-           treatments:[ { fn:'halo', col:'ichor', r:9, a:0.34 } ] } },
+           treatments:[ { fn:'halo', col:'ichor', r:8, a:0.2 } ] } },
 
   /* ---- soil: the shallow cap `data/world.js`'s surface band wears over its
           stone, so the first few dug tiles read as dirt rather than rock. Its
@@ -146,6 +156,9 @@ export const SUBSTANCES = [
     tile:{ solid:true, hard:0.50, drops:'gravel' },
     item:{ mass:0.5, hud:{ order:7 } },
     look:{ base:'soilA', hi:'soilA', lo:'soilC', speckle:0.44,
+           /* A soil bank's face is damp subsoil, darker than the sun-dried top
+              -- which is also what makes the turf drape above it read. */
+           face:'soilC', contact:'soilC',
            item:['soilA', 'soilC'],
            treatments:[ { fn:'banded', col:'soilC', every:5 } ],
            /* A TURF CAP, drawn only where `skyExposedAt` says this tile has
@@ -175,6 +188,7 @@ export const SUBSTANCES = [
     tile:{ solid:true, hard:2.4, drops:'gravel', tier:2 },
     item:{ mass:0.9, hud:{ order:8 } },
     look:{ base:'graniteB', hi:'graniteA', lo:'graniteD', speckle:0.17,
+           face:'graniteC', contact:'graniteD',
            item:['graniteA', 'graniteC'],
            treatments:[ { fn:'banded', col:'graniteD', every:8 } ] } },
 
@@ -190,6 +204,7 @@ export const SUBSTANCES = [
     tile:{ solid:true, hard:5.0, drops:'gravel', tier:3 },
     item:{ mass:1.4, hud:{ order:9 } },
     look:{ base:'adamantB', hi:'adamantA', lo:'adamantD', speckle:0.07,
+           face:'adamantC', contact:'adamantD',
            item:['adamantA', 'adamantC'],
            treatments:[ { fn:'glint', col:'adamantA', n:2 } ] } },
 

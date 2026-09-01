@@ -17,8 +17,8 @@
 
 import { offscreen } from '../core/canvas.js';
 import { drawText } from '../core/font.js';
-import { mix } from '../core/palette.js';
-import { R, noiseFill } from '../core/pixels.js';
+import { blend, mix } from '../core/palette.js';
+import { LIGHT, R, noiseFill } from '../core/pixels.js';
 import { hash2 } from '../core/rng.js';
 import { AIR, NATIVE } from '../data/forms.js';
 import { MACH } from '../data/machines.js';
@@ -29,7 +29,7 @@ import { progressAt } from '../model/mining.js';
 import { sizeOf } from '../model/items.js';
 import { eff } from '../model/mods.js';
 import { baseHardAt, formAt, rowAt, skyExposedAt, solidAt, subAt, tileAt } from '../model/tiles.js';
-import { chunkPx, chunkVer } from '../model/world.js';
+import { bands, chunkPx, chunkVer, heightPx } from '../model/world.js';
 import { EXTENT, TREAT, seedAt, treat } from './treatments.js';
 
 /* Repaints per frame. A first paint is never budgeted — a chunk with no canvas
@@ -60,6 +60,8 @@ let budget = REPAINT_BUDGET;
    world and a stale blit is worse than a black frame. */
 export function resetChunks() {
   cache.clear();
+  looks.clear();
+  worldBottom = 0;
   stats.painted = 0; stats.repainted = 0; stats.cached = 0; stats.skipped = 0;
 }
 
@@ -69,8 +71,6 @@ export function beginFrame() {
   stats.cached = cache.size;
 }
 
-/* The painted canvas for a chunk, repainted if the model moved on. Returns null
-   headless, where `core/canvas.js#offscreen` has no document to work with. */
 /* THE VERSION A CACHED CANVAS IS CHECKED AGAINST, and it is not this chunk's
    own version alone.
 
@@ -99,6 +99,8 @@ function stackVer(b, cx, cy) {
   return v;
 }
 
+/* The painted canvas for a chunk, repainted if the model moved on. Returns null
+   headless, where `core/canvas.js#offscreen` has no document to work with. */
 export function chunkCanvas(b, cx, cy) {
   const key = b.ord * 0x10000 + cy * b.cx + cx;
   const ver = stackVer(b, cx, cy);
@@ -245,14 +247,41 @@ function paintTile(g, b, tx, ty, dx, dy) {
 
   /* Exposed faces catch light; buried faces do not. This is most of what makes
      a dug corridor legible -- any open neighbour qualifies, a cave ceiling
-     included, which is correct for lighting and wrong for grass (below). */
-  if (!solidAt(b, tx, ty - 1))
-    for (let x = 0; x < t; x++) {
-      const jit = ((hash2(tx * t + x, ty * 7) * 3) | 0) - 1;
-      R(g, dx + x, dy + Math.max(0, jit), 1, 2, L.hi);
-    }
-  if (!solidAt(b, tx - 1, ty)) R(g, dx, dy, 1, t, L.edgeL);
-  if (!solidAt(b, tx + 1, ty)) R(g, dx + t - 1, dy, 1, t, L.edgeR);
+     included, which is correct for lighting and wrong for grass (which is why
+     turf is gated on `skyExposedAt` in `decorate`, not on this).
+
+     A TOP face is lit because `LIGHT` comes from above. Nothing here picks a
+     direction of its own; the one declaration in `core/pixels.js` is why the
+     top face, the two side faces below and the canopy all agree on where the
+     sun is. */
+  if (!solidAt(b, tx, ty - 1)) {
+    if (LIGHT.fromY < 0)
+      for (let x = 0; x < t; x++) {
+        const jit = ((hash2(tx * t + x, ty * 7) * 3) | 0) - 1;
+        R(g, dx + x, dy + Math.max(0, jit), 1, 2, L.hi);
+      }
+  } else if (subAt(b, tx, ty - 1) !== subAt(b, tx, ty)) {
+    /* A STRATA CONTACT, not a ruled line. Where the substance above this one
+       differs, the boundary between them gets a 1 px line in the lower
+       material's own contact tone, wobbling within the top three pixels on the
+       tile's own hash -- so a seam reads as geology rather than as the edge of
+       a fill rectangle. Phase 7's `kind:'contact'` interdigitates the TILES;
+       this draws the line those tiles imply, and it costs one `subAt` on the
+       tile above, only for tiles that are actually buried. */
+    for (let x = 0; x < t; x++)
+      R(g, dx + x, dy + ((hash2(tx * t + x, ty * 23 + 3) * 3) | 0), 1, 1, L.contact);
+  }
+
+  /* AN EXPOSED VERTICAL FACE IS A CLIFF FACE, not a 1 px edge. A hillside is
+     otherwise a stack of cut cubes: a one-pixel tint down the side of each tile
+     says "these are blocks", where a face two or three pixels deep with a
+     hash-jittered width down its length says "this is a bank of rock that broke
+     here". Same jitter idiom as the top face, and the wider face is what makes
+     Phase 7's relief read as landform rather than as staircase. */
+  if (!solidAt(b, tx - 1, ty))
+    cliffFace(g, dx, dy, tx, ty, t, LIGHT.fromX < 0 ? L.faceSun : L.faceShade, false);
+  if (!solidAt(b, tx + 1, ty))
+    cliffFace(g, dx, dy, tx, ty, t, LIGHT.fromX < 0 ? L.faceShade : L.faceSun, true);
   if (!solidAt(b, tx, ty + 1)) R(g, dx, dy + t - 1, t, 1, L.lo);
 
   /* Appearance is data: docs/DEVELOPER_GUIDE.md#colour-and-appearance */
@@ -264,6 +293,18 @@ function paintTile(g, b, tx, ty, dx, dy) {
   const hard = baseHardAt(b, tx, ty) * (sub < 0 ? 1 : eff('hard', SUB[sub].id));
   const d = progressAt(b, tx, ty, hard);
   if (d > 0.05) cracks(g, dx, dy, tx, ty, d, t);
+}
+
+/* The deepest a cliff face cuts into a tile, in pixels. Three of eight: enough
+   that the face reads as a face at this viewport, not enough to swallow the
+   tile's own colour. */
+const FACE_MAX = 3;
+
+function cliffFace(g, dx, dy, tx, ty, t, col, right) {
+  for (let y = 0; y < t; y++) {
+    const w = 1 + ((hash2(tx * 31 + y, ty * 17 + (right ? 7 : 3)) * FACE_MAX) | 0);
+    R(g, right ? dx + t - w : dx, dy + y, w, 1, col);
+  }
 }
 
 /* ---------- grain ----------
@@ -323,6 +364,9 @@ const INK = {
   fireLo: colour('lavaB'),
   spark:  mix(colour('ichor'), colour('cloudA'), 0.6),
   white:  colour('cloudA'),
+  /* What every tone is pushed toward with depth -- the abyss, so deep rock
+     cools rather than merely dimming. */
+  deep:   colour('abyC'),
   ui:     colour('ui'),
   /* The stalled-machine warning badge. `uiHeart` is the same red the HUD's
      own hearts/refusal text already uses -- reused, not invented, so "this
@@ -334,20 +378,56 @@ const INK = {
    Resolving five colour names per tile per repaint is the one place a name
    lookup would show up, so each substance's palette is resolved ONCE. `colour()`
    throws on a name that is not in `data/palette.js`, which is what makes a
-   typo'd colour an import-time failure rather than a black tile. */
+   typo'd colour an import-time failure rather than a black tile.
+
+   ONCE PER SUBSTANCE PER DEPTH STEP, now. The same granite has to read deeper
+   at row 260 than at row 180 or the deep bands are the shallow ones in a
+   different palette; a single shared curve pushes every tone toward the abyss
+   colour with depth. The curve is QUANTISED into `DEPTH_STEPS` bands for two
+   reasons: the palette is meant to be a palette rather than a per-row gradient,
+   and a cache keyed on a continuous depth would hold one entry per tile row.
+   Twelve steps over the whole world is about one shade per 280 px, which at
+   this tile size is a shift you notice over a shaft and not over a tile.
+
+   Depth is measured in ABSOLUTE WORLD PIXELS against the world's own total
+   extent, read from the band records rather than hardcoded: bands are
+   allocated at boot with their own origins, and a view constant naming a world
+   dimension is exactly what ARCHITECTURE section 6 exists to prevent. */
+const DEPTH_STEPS = 12;
+const DEPTH_K = 0.34;                   // darkest the curve ever gets
+
 const looks = new Map();
+let worldBottom = 0;
+
+function bottom() {
+  if (!worldBottom)
+    for (const b of bands) worldBottom = Math.max(worldBottom, b.origin.y + heightPx(b));
+  return worldBottom || 1;
+}
 
 function look(b, tx, ty) {
   const row = rowAt(b, tx, ty);
   const l = row.look;
   if (!l?.base) return null;
-  let e = looks.get(row.id);
+
+  const wy = b.origin.y + ty * b.tile;
+  const step = Math.max(0, Math.min(DEPTH_STEPS - 1, (wy / bottom() * DEPTH_STEPS) | 0));
+  const key = row.id + ':' + step;
+
+  let e = looks.get(key);
   if (!e) {
-    const base = colour(l.base), hi = colour(l.hi ?? l.base), lo = colour(l.lo ?? l.base);
-    e = { row, base, hi, lo, edgeL: mix(base, hi, 0.45), edgeR: mix(base, lo, 0.5),
+    const f = step / (DEPTH_STEPS - 1) * DEPTH_K;
+    const deep = INK.deep;
+    const base = blend(colour(l.base), deep, f);
+    const hi   = blend(colour(l.hi ?? l.base), deep, f);
+    const lo   = blend(colour(l.lo ?? l.base), deep, f);
+    const face = blend(colour(l.face ?? l.base), deep, f);
+    e = { row, base, hi, lo,
+          faceSun: mix(face, hi, 0.5), faceShade: mix(face, lo, 0.55),
+          contact: blend(colour(l.contact ?? l.lo ?? l.base), deep, 0.35 + f * 0.4),
           speckle: l.speckle ?? SPECKLE, grainBlk: l.grainBlk ?? 1,
           grainLo: [lo], grainHi: [hi] };
-    looks.set(row.id, e);
+    looks.set(key, e);
   }
   return e;
 }
