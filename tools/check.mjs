@@ -2770,6 +2770,117 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
        `nothing in a sealed chamber where a hearth reads ${control}`);
 }
 
+/* --- NO FALL DAMAGE WHILE RIDING, AND FULL FALL DAMAGE THE MOMENT YOU STEP
+   OFF. docs/PLAN-gears-and-winches.md section 6.5 asks for both in one test,
+   and the reason is the mechanism: the ride branch does not DISABLE fall
+   damage, it PINS `fallFrom` to the player's own y every substep
+   (`rules/player.js`'s existing line, reused unchanged). A test that only
+   proved "riding hurts nobody" would pass just as well against a ride branch
+   that switched damage off -- and that build would then let a player ride one
+   tile down and step off a cliff for free.
+
+   SO THREE THINGS, on the same 40-tile shaft:
+
+     A. RIDING 40 TILES COSTS NOTHING. Forty tiles is lethal twice over as a
+        fall (docs/SPEC.md section 3: 20 tiles is five hearts), and it is
+        travelled unpowered, under gravity, with the player aboard.
+     B. `fallFrom` TRACKS THE RIDER while they ride, within a pixel. That is
+        the mechanism, asserted directly rather than inferred from A.
+     C. STEPPING OFF AT THE TOP COSTS THE TABLE'S ANSWER. Not "some damage":
+        exactly `model/player.js#fallHearts(v)` for the landing speed the
+        simulation actually reached -- the same query section 3 already pins to
+        docs/SPEC.md's seven rows, so this inherits that pinning instead of
+        restating the table. --- */
+{
+  const TALL = {
+    seed: 8980, reachMul: 5,
+    room: { ty0: 60, h: 58 },
+    machines: [['hub', 20, 115], ['hub', 20, 75]],
+    links: [[0, 1]], carriers: [[0, 1]], ride: 0
+  };
+  let bad = 0;
+
+  /* A -- and B alongside it, since both are read off the same descent. */
+  const a = driveRig(TALL);
+  const hearts0 = run.run.hearts;
+  const y0 = player.player.y;
+  let worstPin = 0, ridden = 0, samples = 0;
+  for (let i = 0; i < 1500; i++) {
+    stepReal(1 / 120, { hasMouse: false });
+    samples++;
+    if (segs.riddenSegment()) ridden++;
+    worstPin = Math.max(worstPin, Math.abs(player.player.fallFrom - player.player.y));
+  }
+  const dropped = (player.player.y - y0) / a.band.tile;
+  const lost = hearts0 - run.run.hearts;
+
+  console.log(`  ..  ride: descended ${dropped.toFixed(1)} tiles aboard a carrier, ${lost} heart(s) lost, ` +
+              `fallFrom tracked the rider within ${worstPin.toFixed(2)} px, riding on ${ridden}/${samples} substeps`);
+
+  if (dropped < 39) {
+    fail(`NO FALL DAMAGE WHILE RIDING: the rider only descended ${dropped.toFixed(1)} tiles, so "40 tiles ` +
+         `cost nothing" is not what was measured`);
+    bad++;
+  }
+  if (lost !== 0) {
+    fail(`NO FALL DAMAGE WHILE RIDING: descending ${dropped.toFixed(1)} tiles on a carrier cost ${lost} ` +
+         `heart(s) -- a ride is not a fall`);
+    bad++;
+  }
+  if (worstPin > 2) {
+    fail(`NO FALL DAMAGE WHILE RIDING: fallFrom drifted ${worstPin.toFixed(2)} px from the rider's own y ` +
+         `during the ride -- the ride branch is not pinning it, so damage is being suppressed some other ` +
+         `way and stepping off will be free`);
+    bad++;
+  }
+
+  /* C -- the same shaft, the carrier back at the top, and one step sideways. */
+  const b = driveRig(TALL);
+  const hearts1 = run.run.hearts;
+  const top = player.player.y;
+  let vLand = 0, landedAt = -1, off = false;
+  for (let i = 0; i < 1200 && landedAt < 0; i++) {
+    /* Walk right until the carrier is no longer under the feet, then stop
+       pressing so the fall itself is vertical. `onGround` is NOT the test for
+       having left -- it is true the whole time they are standing on the deck,
+       which is the point of the ride branch; `riddenSegment()` going null is. */
+    stepReal(1 / 120, { right: !off, hasMouse: false });
+    if (!segs.riddenSegment()) off = true;
+    if (player.player.vy > vLand) vLand = player.player.vy;
+    if (off && player.player.onGround) landedAt = i;
+  }
+  const fell = (player.player.y - top) / b.band.tile;
+  const hurt = hearts1 - run.run.hearts;
+  const want = player.fallHearts(vLand);
+
+  console.log(`  ..  step off: fell ${fell.toFixed(1)} tiles at ${vLand.toFixed(1)} px/s, ` +
+              `${hurt} heart(s) lost, fallHearts(${vLand.toFixed(1)}) = ${want}, dead=${run.run.dead}`);
+
+  if (landedAt < 0) {
+    fail('STEP OFF THE CARRIER: the player never landed within 10 simulated seconds of walking off a ' +
+         '40-tile drop, so nothing about damage was measured');
+    bad++;
+  } else if (fell < 30) {
+    fail(`STEP OFF THE CARRIER: the player only fell ${fell.toFixed(1)} tiles after walking off the top ` +
+         `of a 40-tile shaft -- they are being caught by something`);
+    bad++;
+  } else if (hurt !== want) {
+    fail(`STEP OFF THE CARRIER: a ${fell.toFixed(1)}-tile fall at ${vLand.toFixed(1)} px/s cost ${hurt} ` +
+         `heart(s); model/player.js#fallHearts (pinned to docs/SPEC.md section 3 in section 3 above) says ` +
+         `${want} -- stepping off a carrier must cost exactly what stepping off a ledge costs`);
+    bad++;
+  } else if (want < 5 || !run.run.dead) {
+    fail(`STEP OFF THE CARRIER: a 40-tile drop should be lethal (docs/SPEC.md section 3: 20 tiles is five ` +
+         `hearts) -- got ${want} heart(s) and dead=${run.run.dead}`);
+    bad++;
+  }
+
+  if (!bad)
+    ok(`RIDING vs STEPPING OFF: 40 tiles down on a carrier costs 0 hearts with fallFrom pinned to within ` +
+       `${worstPin.toFixed(2)} px; one step off the top of the same shaft costs ${hurt} -- exactly ` +
+       `fallHearts(${vLand.toFixed(1)} px/s), and fatal`);
+}
+
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +
             `journal ${journal.peek ? journal.peek().length : 0} undrained`);
