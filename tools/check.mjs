@@ -1008,6 +1008,17 @@ console.log('\n4. Phase 6 probes');
    Read the printed ore figure as the headline it is: raw ore does not pay to
    crank up even ONE tile. That is the compression thesis holding, not a bug.
    See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves --- */
+
+/* The two DATA sides of the equation, hoisted out of the block below so that
+   section 5's measured counterpart divides the same worth by the same
+   compression ratios rather than by a second copy of them. Seconds to mine one
+   copper ore by hand with the stock pick, from the same three numbers
+   `rules/mining.js` multiplies; and docs/SPEC.md section 8's ratios. */
+const oreSecs = D_sub.SUB[D_sub.S.copper].tile.hard * mods.eff('hard', 'copper')
+              / (mods.eff('pickPower') * D_sub.SUB[D_sub.S.pick].item.tool.power);
+const RATIOS = { ore: 1, ingot: 4, plate: 12 };             // docs/SPEC.md section 8
+const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate };
+
 {
   const topsoil = world.bandOf('topsoil');
   const crank = D_mach.MACH[D_mach.M.crank].crank;
@@ -1024,13 +1035,6 @@ console.log('\n4. Phase 6 probes');
     return v > 0 ? topsoil.tile / v : Infinity;
   };
 
-  /* seconds to mine one copper ore by hand with the stock pick -- the same
-     three numbers rules/mining.js multiplies, not a fourth copy of them */
-  const oreSecs = D_sub.SUB[D_sub.S.copper].tile.hard * mods.eff('hard', 'copper')
-                / (mods.eff('pickPower') * D_sub.SUB[D_sub.S.pick].item.tool.power);
-
-  const RATIOS = { ore: 1, ingot: 4, plate: 12 };           // docs/SPEC.md section 8
-  const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate };
   const kTier = tier => kOf(FORMS[tier]);
   const breakEven = tier => (RATIOS[tier] * oreSecs) / kTier(tier);
   const beOre = breakEven('ore'), beIngot = breakEven('ingot'), bePlate = breakEven('plate');
@@ -2359,6 +2363,80 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     ok('LINK LEGALITY (cross-band): a clear span crosses either seam; b48203d\'s boundary-exact repro ' +
        'blocks on BOTH shared columns at both seams; astral\'s dead zone reads OUTSIDE THE WORLD; and a ' +
        'span that is both reports the rock');
+}
+
+/* --- BREAK-EVEN, REPRICED AND NOW MEASURED. Section 3's BREAK-EVEN DEPTH is
+   ARITHMETIC: it prices ascent in seconds of cranking straight from the tuning
+   rows, and asserts `ore < ingot < plate`. What it cannot tell you is whether
+   the game charges that price. So this puts one unit of each tier on a real
+   carrier, cranks it with a real crank for a real second, and derives `k` --
+   seconds of cranking per item-slot per tile -- from the pixels the simulation
+   actually moved.
+
+   THREE CLAIMS, in the order they matter:
+
+     1. THE MEASURED CLIMB IS docs/SPEC.md 17.8's, per tier. If this drifts,
+        section 3 is pricing a game that no longer exists and its ordering is a
+        statement about a formula rather than about the game.
+     2. `k` RISES WITH MASS. A heavier item-slot costs more seconds per tile;
+        that is the only reason compression is worth anything.
+     3. THE BREAK-EVEN DEPTH ORDERING SURVIVES IN MEASURED SECONDS:
+        `ore < ingot < plate`, dividing docs/SPEC.md section 8's own ratios
+        (hoisted, so this section and section 3 cannot disagree about them) by
+        the measured `k` rather than the computed one.
+
+   The worth datum is section 3's: what an item-slot's contents cost to MINE.
+   Nothing about the currency changes here -- what changes is that it is read
+   off the simulation. --- */
+{
+  const rows = [];
+  let bad = 0;
+  for (const tier of ['ore', 'ingot', 'plate']) {
+    const r = driveRig({ ...ONE_CRANK, seed: 8900, cargo: [[0, 'copper', tier, 1]] });
+    const mass = items.massOfPair(D_sub.S.copper, FORMS[tier]);
+    const v = measureV(r.seg, 1, 1 / 120, { turn: true });
+    const want = predictV(crankTorque(), mass, 1);
+    const k = v > 0 ? r.band.tile / v : Infinity;
+    rows.push({ tier, mass, v, want, k, be: (RATIOS[tier] * oreSecs) / k });
+    /* CLAIM 1 */
+    if (Math.abs(v - want) > 1e-6) {
+      fail(`BREAK-EVEN MEASURED: one copper ${tier} (${mass} T) aboard a vertical segment on one crank ` +
+           `climbs at ${v.toFixed(4)} px/s; docs/SPEC.md 17.8 gives ${want.toFixed(4)} -- section 3 is ` +
+           `pricing a formula the game no longer runs`);
+      bad++;
+    }
+  }
+
+  console.log('  ..  break-even, measured on a real carrier (1 s of cranking each):');
+  for (const r of rows)
+    console.log(`        ${r.tier.padEnd(6)} ${r.mass.toFixed(2).padStart(6)} T   ` +
+                `${r.v.toFixed(4).padStart(8)} px/s   k = ${r.k.toFixed(3)} s/tile/item-slot   ` +
+                `break-even ${r.be.toFixed(2)} tiles`);
+
+  for (let i = 1; i < rows.length; i++) {
+    /* CLAIM 2 */
+    /* STRICTLY greater, with no epsilon of slack in the permissive direction:
+       "equal" is what a drivetrain that had stopped reading mass at all would
+       produce, and that must be a failure here rather than a pass. */
+    if (!(rows[i].k > rows[i - 1].k * (1 + 1e-9))) {
+      fail(`BREAK-EVEN MEASURED: a ${rows[i].tier} (${rows[i].mass} T) cranks up at ${rows[i].k.toFixed(3)} ` +
+           `s/tile, cheaper than a ${rows[i - 1].tier} (${rows[i - 1].mass} T) at ` +
+           `${rows[i - 1].k.toFixed(3)} -- mass must cost seconds`);
+      bad++;
+    }
+    /* CLAIM 3 */
+    if (!(rows[i].be > rows[i - 1].be)) {
+      fail(`BREAK-EVEN MEASURED: ${rows[i].tier} breaks even at ${rows[i].be.toFixed(2)} tiles, not deeper ` +
+           `than ${rows[i - 1].tier} at ${rows[i - 1].be.toFixed(2)} -- compression must buy depth, in ` +
+           `measured seconds and not only in arithmetic`);
+      bad++;
+    }
+  }
+  if (!bad)
+    ok(`BREAK-EVEN MEASURED: on a real carrier, k rises with mass ` +
+       `(${rows.map(r => r.k.toFixed(2)).join(' < ')} s/tile/item-slot) and the break-even depth still ` +
+       `orders ore ${rows[0].be.toFixed(2)} < ingot ${rows[1].be.toFixed(2)} < plate ` +
+       `${rows[2].be.toFixed(2)} tiles -- section 3's price is the one the game charges`);
 }
 
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
