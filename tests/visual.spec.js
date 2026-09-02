@@ -383,7 +383,11 @@ test('a placed furnace', async ({ page }) => {
   });
   await putInQuickbar(page, 0, 'furnace', 'rig');
   await page.keyboard.press('1');
-  await page.keyboard.press('e');
+  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+     (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
+     tests' point, not this one's, so poke the same edge flag a real click
+     ultimately sets. */
+  await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(240));
   /* Phase 10b's altar is placed at boot (`rules/cycles.js#ensureAltarPlaced`)
      -- exclude it so this still asserts "exactly the one machine THIS test
@@ -468,7 +472,11 @@ test('REAL DRAG: dragging a held item from the inventory grid onto an empty quic
   expect(await page.evaluate(() => __mf.ui.armedPlace)).toEqual({ sub: S.furnace, form: F.rig });
 
   await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(1); });
-  await page.keyboard.press('e');
+  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+     (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
+     tests' point, not this one's, so poke the same edge flag a real click
+     ultimately sets. */
+  await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(240));
   /* Exclude the boot-placed altar (`rules/cycles.js#ensureAltarPlaced`) so
      this still asserts exactly the one machine this drag-and-place put down. */
@@ -526,7 +534,11 @@ test('a digit key arms the matching quickbar slot, not just any held item', asyn
   expect(armed.armedPlace).toEqual({ sub: armed.press, form: armed.rig });
   expect(armed.armedPlace.sub).not.toBe(armed.furnace);
 
-  await page.keyboard.press('e');
+  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+     (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
+     tests' point, not this one's, so poke the same edge flag a real click
+     ultimately sets. */
+  await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(240));
   const info = await page.evaluate(async () => {
     const { M } = await import('/src/data/machines.js');
@@ -1585,7 +1597,11 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
   });
   await moveHeldToQuickbar(page, 0, 'furnace', 'rig');
   await page.keyboard.press('1');        // arms slot 0's furnace (`view/ui/quickbar.js#slotForDigit`)
-  await page.keyboard.press('e');        // places it
+  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+     (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
+     tests' point, not this one's, so poke the same edge flag a real click
+     ultimately sets. */
+  await page.evaluate(() => { __mf.cmd.place = true; });
   const result = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
@@ -2245,7 +2261,11 @@ test('opening the panel then placing closes it, and the placement still succeeds
     return invCount(S.timber, F.rung);
   });
 
-  await page.keyboard.press('e');
+  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+     (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
+     tests' point, not this one's, so poke the same edge flag a real click
+     ultimately sets. */
+  await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(5));
 
   isOpen = await page.evaluate(() => __mf.ui.open.includes('main'));
@@ -2287,7 +2307,11 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
   });
   const before = await countExAltar();
   expect(before).toBe(0);
-  await page.keyboard.press('e');
+  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+     (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
+     tests' point, not this one's, so poke the same edge flag a real click
+     ultimately sets. */
+  await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(5));
   const afterRefusal = await countExAltar();
   expect(afterRefusal).toBe(0);
@@ -2343,7 +2367,11 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
      the spawn shelf is open air with the floor directly beneath it. */
   await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(1); });
 
-  await page.keyboard.press('e');
+  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+     (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
+     tests' point, not this one's, so poke the same edge flag a real click
+     ultimately sets. */
+  await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(5));
 
   const result = await page.evaluate(async () => {
@@ -2449,7 +2477,11 @@ test('click-to-arm: dig down, then place the dropped gravel back into the exact 
     return invCount(S.soil, F.gravel);
   });
 
-  await page.keyboard.press('e');
+  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+     (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
+     tests' point, not this one's, so poke the same edge flag a real click
+     ultimately sets. */
+  await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(5));
 
   const result = await page.evaluate(async ({ holeTx, ty }) => {
@@ -2536,7 +2568,7 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
        needs and gives the identical reason for. */
     banner.fade = 0;
   });
-  await page.keyboard.press('i');
+  await page.keyboard.press('e');       // opens the main panel -- 'i' retired, Phase 12d
   await page.evaluate(() => __mf.frames(1));
 
   let ui = await page.evaluate(() => __mf.ui);
@@ -2583,10 +2615,13 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
 
   /* Keyboard aim, no direction held -- the same "aims to the side, at the
      player's own row" recipe `a placed furnace` proves lands on open air
-     with a floor beneath it. Closed with 'i' (NOT Escape, which also clears
-     the arm) so the ghost is not drawn underneath the panel. */
+     with a floor beneath it. Closed with 'e' (NOT Escape, which also clears
+     the arm) so the ghost is not drawn underneath the panel -- 'e' toggles
+     the panel open/closed and touches nothing else (`shell/input.js`'s own
+     handler is a bare `toggle('main')`), the same reason 'i' was originally
+     chosen over Escape here, before 'i' was retired in Phase 12d. */
   await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(1); });
-  await page.keyboard.press('i');
+  await page.keyboard.press('e');
   await page.evaluate(() => __mf.frames(1));
 
   ui = await page.evaluate(() => __mf.ui);
@@ -2597,7 +2632,11 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
   await shot(page, 'furnace-lifecycle-2-ghost.png');
 
   /* ---- stage 3: confirm the placement -- placed, no fuel ---- */
-  await page.keyboard.press('e');
+  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+     (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
+     tests' point, not this one's, so poke the same edge flag a real click
+     ultimately sets. */
+  await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(5));
 
   const placed = await page.evaluate(async () => {
@@ -3339,10 +3378,13 @@ async function driveScene(page, spec) {
       pw.set('fallFrom', carrierTop(seg) - PH);
     }
 
-    /* THE MOTION. Nothing is written after this. */
-    __mf.cmd.turn = !!spec.turn;
+    /* THE MOTION. Nothing is written after this. `cmd.action` -- renamed
+       from `cmd.turn` in Phase 12d (docs/PLAN-phase12.md §3 D-J) -- is the
+       crank hold; `spec.turn` (this scene builder's own DSL field name) is
+       unchanged, since it describes the SCENE's intent, not the input field. */
+    __mf.cmd.action = !!spec.turn;
     __mf.frames(spec.frames);
-    __mf.cmd.turn = false;
+    __mf.cmd.action = false;
 
     const centre = spec.centreOn
       ? { x: carrierPos(segments[spec.centreOn]).x, y: carrierPos(segments[spec.centreOn]).y }
@@ -4069,7 +4111,11 @@ test('the Cloud Dock', async ({ page }) => {
   });
   await moveHeldToQuickbar(page, 0, 'cloud_dock', 'rig');
   await page.keyboard.press('1');
-  await page.keyboard.press('e');
+  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+     (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
+     tests' point, not this one's, so poke the same edge flag a real click
+     ultimately sets. */
+  await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(10));
 
   const placed = await page.evaluate(async () => {
