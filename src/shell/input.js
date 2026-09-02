@@ -23,7 +23,7 @@ import { VIEW, stage } from '../core/canvas.js';
 import { AIR, F, FORM } from '../data/forms.js';
 import { aim, write as aw } from '../model/aim.js';
 import { machineAt } from '../model/machines.js';
-import { invCount } from '../model/run.js';
+import { invCount, run } from '../model/run.js';
 import { tileAt } from '../model/tiles.js';
 import { drawn as uiDrawn } from '../view/ui/state.js';
 import { slotForDigit } from '../view/ui/quickbar.js';
@@ -364,19 +364,22 @@ export function installInput() {
        header), the same reasoning that already made its KEYS/legend toggle
        clickable with no panel open.
 
-       An empty slot, a slot whose item is no longer held (spent by a craft,
-       dropped, picked clean since it was assigned), or a slot holding a pair
-       that could never be placed at all (dragged in, not armed by a click)
-       does nothing at all -- no arm, no journal row, no error -- mirroring
-       exactly what a click on that same slot would do in each of those
-       cases (`shell/main.js`'s own "clicked" branch gates arming on the
-       identical tile-form-or-rig check). */
+       An empty slot, or a slot holding a pair that could never be placed at
+       all (dragged in, not armed by a click) does nothing at all -- no arm,
+       no journal row, no error -- mirroring exactly what a click on that
+       same slot would do in each of those cases (`shell/main.js`'s own
+       "clicked" branch gates arming on the identical tile-form-or-rig
+       check). Reads `run.inv[run.mainSlots + qslot]` directly (docs/
+       PLAN-phase12.md §3 D-H) -- a positioned slot, not an assignment table
+       or a derived list, so there is no staleness to guard: an occupied slot
+       always has `n >= 1` by construction (`write.spend` clears to `null` at
+       `n <= 0`), and the old `invCount(...) > 0` check this replaced has
+       nothing left to disagree with. */
     const qslot = slotForDigit(k);
     if (qslot >= 0) {
-      const pair = ui.quickbar[qslot];
-      if (pair && invCount(pair.sub, pair.form) > 0 &&
-          (FORM[pair.form]?.tile || pair.form === F.rig || pair.form === F.phial))
-        armPlace(pair.sub, pair.form);
+      const slot = run.inv[run.mainSlots + qslot];
+      if (slot && (FORM[slot.form]?.tile || slot.form === F.rig || slot.form === F.phial))
+        armPlace(slot.sub, slot.form);
     }
 
     if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k))

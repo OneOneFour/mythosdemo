@@ -33,7 +33,7 @@ import { clearEdges, cmd, flags, pointer, wants } from './input.js';
 import { drainJournal } from './notify.js';
 import { boons, grants, miracles, stepAll, trinkets } from './schedule.js';
 import {
-  armLink, armPlace, assignQuickbar, cancelQueued, clearArmedPlace, clearDrag, clearLink,
+  armLink, armPlace, cancelQueued, clearArmedPlace, clearDrag, clearLink,
   close as closePanel, closeTop, isOpen,
   queueCraft, scrollBy, setDrag, setSearchFocus, setTab, toggleAutoCollect, toggleHints, ui
 } from './ui.js';
@@ -331,7 +331,7 @@ let prevUiDown = false;
 
 /* CLICK-VS-DRAG THRESHOLD (Part 1, click-to-arm placement). A plain click on
    an inventory or quickbar slot arms it for placement; an actual drag still
-   does its existing equip/quickbar-assign job (`upEdge` below, unchanged).
+   does its existing equip/reposition job (`upEdge` below, unchanged).
    Both start from the exact same pointerdown -- `shell/input.js`'s own
    header on why `uiDown` exists at all -- so telling them apart needs the
    same movement-threshold trick every drag-and-drop UI uses: remember where
@@ -341,6 +341,13 @@ let prevUiDown = false;
 let dragStart = null;      // { sx, sy, gridId, index } | null, set at the down edge
 let dragExceeded = false;  // has the pointer moved past the threshold since?
 const DRAG_THRESHOLD = 3;
+
+/* A local grid index (0-based within EITHER the Character tab's grid or the
+   quickbar) to `run.inv`'s own absolute index -- the quickbar's cells are
+   `run.inv[run.mainSlots ..]` (docs/PLAN-phase12.md §3 D-H), the inventory
+   grid's are `run.inv[0 .. run.mainSlots)`, and this is the one place that
+   translation happens. */
+const absIndex = (gridId, i) => gridId === 'quickbar' ? run.mainSlots + i : i;
 
 function uiHitPanelClose(sx, sy) {
   for (const p of uiDrawn.panels) {
@@ -507,8 +514,16 @@ function applyUiIntents() {
         hit.slot.sub != null &&
         (FORM[hit.slot.form]?.tile || hit.slot.form === F.rig || hit.slot.form === F.phial)) {
       armPlace(hit.slot.sub, hit.slot.form);
-    } else if (hit && hit.gridId === 'quickbar') {
-      assignQuickbar(hit.slot.index, { sub: ui.drag.sub, form: ui.drag.form });
+    } else if (hit && (hit.gridId === 'inv' || hit.gridId === 'quickbar') &&
+               (ui.drag.from === 'inv' || ui.drag.from === 'quickbar')) {
+      /* REAL DRAG, real storage (docs/PLAN-phase12.md §3 D-H): the Character
+         tab's grid and the quickbar are the SAME array, `run.inv`, sliced
+         differently -- `absIndex` below just resolves a local grid index
+         back to that array's own index. `runw.moveSlot` is an unconditional
+         swap, so same-grid reorder, cross-grid move, and swap-with-occupied
+         are all this ONE call: swapping a slot with an empty one already IS
+         a move, and swapping two occupied slots already IS the reorder. */
+      runw.moveSlot(absIndex(ui.drag.from, ui.drag.index), absIndex(hit.gridId, hit.slot.index));
     } else if (hit && hit.gridId === 'equip') {
       /* BUG FIX (Bug 1 audit, docs/FINDINGS.md Phase 5b): dragging ONTO an
          equip slot used to always call `trinkets.equipFirst()` regardless of
@@ -731,10 +746,12 @@ function installTestHook() {
         linkFrom: ui.linkFrom
           ? { tx: ui.linkFrom.tx, ty: ui.linkFrom.ty, def: ui.linkFrom.def }
           : null,
-        /* The craft queue (recipe ids, FIFO) and the quickbar assignment
-           (`{sub,form}|null` per slot). */
+        /* The craft queue (recipe ids, FIFO) and the quickbar's own slice of
+           `run.inv` (`{sub,form,n}|null` per slot -- a deliberate, named
+           breaking change to this test hook's shape from the old assignment
+           table's `{sub,form}|null`, docs/PLAN-phase12.md §3 D-H/§4.6). */
         craftQueue: ui.craftQueue.slice(),
-        quickbar: ui.quickbar.map(s => s ? { ...s } : null),
+        quickbar: run.inv.slice(run.mainSlots).map(s => s ? { ...s } : null),
         hintsOpen: ui.hintsOpen,
         panels: uiDrawn.panels.map(p => ({ ...p, closeHit: p.closeHit ? { ...p.closeHit } : null })),
         tabs: uiDrawn.tabs.map(t => ({ ...t, hits: t.hits.map(h => ({ ...h })) })),

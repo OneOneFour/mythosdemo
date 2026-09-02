@@ -42,12 +42,11 @@ export const ui = {
      single input until the recipe's `secs` is reached, so removing a queued
      entry before then has nothing to give back.
 
-     `quickbar`: a fixed-length array of `{ sub, form } | null`, ASSIGNMENT
-     ONLY — which pocket pair sits in which numbered slot is a fact about the
-     SESSION, same as everything else in this file, and changing it does not
-     touch `run.inv` at all. Ten slots, two rows of five. */
+     The quickbar is NOT session state any more (docs/PLAN-phase12.md §3
+     D-H): its cells are the tail of `run.inv` itself
+     (`run.inv[run.mainSlots ..]`), the same physical storage the Character
+     tab's grid draws. There is no `ui.quickbar` left to own here. */
   craftQueue: [],
-  quickbar: Array.from({ length: 10 }, () => null),
   /* One toggleable line of key hints (the QUICKBAR section of Phase 5b),
      collapsed by default so the permanent bottom bar stays as dense as the
      rest of this layer. */
@@ -253,18 +252,12 @@ export function cancelQueued(index) {
 
 export function clearCraftQueue() { ui.craftQueue.length = 0; }
 
-/* ---------- the quickbar (Phase 5b) ----------
-   Assignment only, per the header comment: `payload` is `{ sub, form } |
-   null`, never a count -- the count a slot shows is read fresh from
-   `model/run.js#pocketRows()` every frame, the same "derived, not cached"
-   discipline the rest of this codebase already applies to hover and to the
-   widget layer's own `drawn` scratch space. */
-export function assignQuickbar(slot, payload) {
-  if (slot < 0 || slot >= ui.quickbar.length) return;
-  ui.quickbar[slot] = payload;
-}
-
-export function clearQuickbar(slot) { assignQuickbar(slot, null); }
+/* ---------- the quickbar ----------
+   Deleted (Phase 12c2, docs/PLAN-phase12.md §3 D-H): `assignQuickbar`/
+   `clearQuickbar` wrote a session-only assignment table that no longer
+   exists. Repositioning a quickbar slot now means `model/run.js#write.
+   moveSlot`, called directly from `shell/main.js`'s drag-resolve dispatch --
+   real storage, not a `shell/ui.js` mutator. */
 
 export function toggleHints() { ui.hintsOpen = !ui.hintsOpen; }
 
@@ -273,8 +266,8 @@ export function toggleAutoCollect() { ui.autoCollect = !ui.autoCollect; }
 
 /* ---------- click-to-arm placement ----------
    `armPlace` takes ORDINALS (a substance x form pair), the same shape
-   `ui.drag`/`ui.quickbar` already store one -- see `ui.armedPlace`'s own
-   header above for what clears it and why. */
+   `ui.drag` already stores one -- see `ui.armedPlace`'s own header above for
+   what clears it and why. */
 export function armPlace(sub, form) { ui.armedPlace = { sub, form }; }
 export function clearArmedPlace() { ui.armedPlace = null; }
 
