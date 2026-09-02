@@ -1209,3 +1209,246 @@ arrival, by `iw.spawn` + `iw.remove` at the same world pixel — the only
 sanctioned way to change an item's band. A cross-band chain therefore delivers
 into whichever band `bandAt()` puts the carrier in; nothing declares a
 destination.
+
+## 18. The tribute cycle and the Heavens
+
+Locked with `docs/PLAN-phase10.md` §4 and `CLAUDE.md` D1 (the four draft
+tiers), D9 (the depth datum) and D10 (the five transport nouns), landed as
+Phase 10a (the astral widening and the endpoint-footing sweep, §17.6) and
+Phase 10b (the cycle table, the two receivers, the director and beat sheet
+beats 5–6).
+
+### 18.1 The nouns
+
+Five words, and one of them is a role rather than a coinage:
+
+| term | what it is | where it lives |
+|---|---|---|
+| **cycle** | one trial: a god, a receiver, a demand, a clock, a reward and a punishment | `data/cycles.js#CYCLES`, one-based, live row `run.cycle` |
+| **tribute** | the LIVE demand ledger for the current cycle, or `null` when none is armed | `run.tribute = { id, have, left }`, `model/run.js` |
+| **demand** | `[{ sub, form, n }]`, concrete pairs a cycle's tribute requires — never a selector | `data/cycles.js`'s own `demand` field |
+| **favour** | how a god feels about you this run, `{ [godId]: int }` | `run.favour`, written by `write.favour` |
+| **receiver** | a machine tagged `tribute:{}` that drains its own buffer into the live tribute every frame | `altar`, `cloud_dock` — `data/machines.js` |
+
+**A receiver is a role, not a sixth transport noun.** `cloud_dock` is declared
+with a `hub:{}` block exactly like any other hub — `data/machines.js`'s own
+header is explicit that it must be one, since nothing in this game can
+deliver cargo to a machine that is not a segment endpoint — so §17.1's five
+nouns (hub, segment, carrier, chain, drivetrain) are unchanged and CLAUDE.md
+D10's "nothing in code, docs or a commit message may use a sixth" still
+holds. "Dock" names the machine the same way "furnace" does; `tribute:{}` is
+a second tag on an existing kind of thing, not a new kind.
+
+### 18.2 The astral band, as widened
+
+Phase 10b widened `astral` to full width (`data/world.js#BANDS[0]`):
+`tw:128`, `origin:{x:0, y:0}`, `tile:8`, `floorTy:30`. In absolute world px,
+against the two bands that already existed:
+
+| | astral | surface | topsoil |
+|---|---|---|---|
+| world x | **[0, 1024)** | [0, 1024) | [0, 1024) |
+| world y | **[0, 320)** | [320, 768) | [768, 3328) |
+| ground line (world y) | **240** (`floorTy 30 x tile 8`) | 480 (`floorTy 20`, `origin.y 320`) | n/a — buried under the surface band's own rock |
+
+All three bands share the same width and tile size now, which is *why* the
+world x range is identical across the row — §1's "world width 1024 px" was
+never a single-band number, it simply had nothing above the surface to
+disagree with it before this phase.
+
+**0 M does not move (CLAUDE.md D9).** The depth datum is
+`worldY(spawnBand, spawnBand.cfg.floorTy)` — the surface's own ground line,
+world y 480 — read identically by `view/hud.js#depth` and by
+`data/machines.js`'s `minDepth` placement rule, so the gauge and placement
+legality can never disagree. Astral's entire span (world y 0..320) sits
+above that datum; `view/hud.js#depth` renders the figure unsigned at or below
+it (e.g. `12M`) and `+`-prefixed above it (e.g. `+32M`), never as a second
+zero.
+
+**The gap between the two ground lines is 240 px — 30 tiles — and that is
+what a lift chain has to cross.** Astral's floor top (y 240) to the surface's
+own ground line (y 480) is `480 - 240 = 240` px. A hub's own `reach` is 96 px
+— 12 tiles, §17.2 — so the minimum number of segments able to bridge 240 px
+is `ceil(240 / 96) = 3`: the three-segment chain `data/cycles.js`'s own
+cycle-2 comment and `docs/PLAN-phase10.md` §4.5 both price the whole ascent
+against.
+
+### 18.3 The two receivers
+
+One receiver block, declared twice (`data/machines.js`, "PHASE 10B: THE TWO
+TRIBUTE RECEIVERS"): `ports` + `buffer.cap` + `catchBox` + `handFeed` +
+`tribute:{}`, and no `recipes` on either row. What differs is `hub` — the
+dock has one, the altar does not — and the catch-box slack.
+
+| | `cloud_dock` | `altar` |
+|---|---|---|
+| footprint | 2x1 | 2x2 |
+| footing | 2 | 2 |
+| `hub` | `{ reach:96, carries:['material','player'] }` | none — cycle 1 is unmoved at the surface (§4, §5); the player walks up and holds the feed key |
+| `accepts` | `*/#ore`, `*/#refined`, `*/gravel` | same |
+| `buffer.cap` | 64 per class | 64 per class |
+| `catchBox` slack | **6** | **2** — the furnace's own slack |
+| build bill | 5 `copper/plate` + 1 `copper/ingot` + 2 `timber/log` | **none — unbuildable** |
+| mass | **15.2 T** | — |
+| recipe secs | 14.0 | — |
+
+**What they accept, and why it is not a star.** Any element in an ore-tagged
+form, a refined-tagged form (`ingot`/`plate`, by their own form tags), or
+`gravel` — exactly what `data/cycles.js`'s cycle table (§18.4) can demand,
+and nothing else. A `*/*` receiver would also swallow a `relic` trinket or a
+`phial` miracle that fell in, precisely the accident D1's `subTags` exist to
+prevent; `#fuel` is deliberately absent too, since no cycle asks for logs.
+
+**The dock's catch-box slack is 6, and it is derived, not chosen.**
+`rules/drive.js` releases an arriving haul inside the footprint at the
+anchor — `box.y + 4` for `th:1` — two pixels below the top mouth's own lower
+edge, and the item then falls away from the mouth onto the footing tile:
+`rules/items.js#hop`'s resting position is `box.y + 8 - size/2`, which is
+`box.y + 6` for a size-4 ore or plate. The top mouth's own lower edge is
+`box.y + 2`, so the slack must reach 4.5 px past it; 6 is the next whole
+number with margin. Every other catch box in the machine table catches an
+item in flight through its top mouth, where 2 px is plenty — the dock is the
+one exception, because it is the one machine a haul is released *inside*
+rather than dropped onto.
+
+**The altar has no substance and no recipe, and is placed by the director.**
+`model/run.js#machineHeldSub` resolves a machine id through `S[...]`, so a
+row with no substance simply never passes `placementCheck`'s held-item
+clause — "never placeable by the player" with no special case anywhere.
+`rules/cycles.js#ensureAltarPlaced` places it through
+`model/machines.js#write.place`, the sanctioned worldgen-or-director route
+that asks nothing about footing, grants or held items, at
+`spawnTx - def.tw - SPAWN_GAP` — 4 tiles clear of spawn, not flush against
+it. Flush would put a player standing still at run start already inside
+`handFeed`'s 10 px reach with whatever they were handed, which is exactly
+the bug `SPAWN_GAP`'s own comment in `rules/cycles.js` records finding.
+
+**A receiver is a sink by mechanism, not by any one line that says so.**
+Neither row carries `recipes`, so `rules/machines.js#produce` never runs for
+either — nothing is ever crafted out of what a receiver holds. What actually
+empties them is `rules/cycles.js#drainReceivers`: every frame, for every
+machine tagged `tribute:{}`, every non-zero buffer entry is spent through
+`model/machines.js#write.consume` and credited to `run.tribute.have` in the
+same motion. Material goes in, is subtracted from the buffer, and nothing is
+ever produced back out of it — the receiver's buffer is a counting ledger
+with a footprint, not a hopper feeding a recipe.
+
+### 18.4 The cycle table
+
+Four rows (`data/cycles.js#CYCLES`); cycles 5–6 wait on the
+`essence`/`ambrosia` tiers §8 marks not implemented. The ore-equivalent
+column applies §8's compression ratios; `granite/gravel` has no ratio of its
+own there (§8 only prices the refined tiers), so it is counted as raw mined
+units, gated by `tile.tier` rather than by compression.
+
+| # | god | at | demand | ore-equiv. | deadline | reward | punishment |
+|---|---|---|---|---|---|---|---|
+| 1 | hephaestus | `altar` | 10 `copper/ore` | 10 | **none** | +1 favour; grant `furnace` + `cloud_dock`; chart `astral` | — (cannot be missed) |
+| 2 | hephaestus | `cloud_dock` | 3 `copper/plate` | 36 (+12 fuel across the two compression steps) | 480 s | +2 favour; chart `topsoil`; draft 1-of-3 `grant` | 1 heart, −1 favour |
+| 3 | athena | `cloud_dock` | 6 `copper/plate` + 4 `tin/ingot` | 72 + 16 = 88 | 420 s | +2 favour; draft 1-of-3 `boon` | 2 hearts, −1 favour |
+| 4 | poseidon | `cloud_dock` | 8 `copper/plate` + 8 `granite/gravel` | 96 + 8 tier-2 rock | 360 s | +3 favour; draft 1-of-3 `trinket` | 2 hearts, −1 favour |
+
+**Cycle 1 is the altar and every later cycle is the dock** — data expressing
+§4's "cycle 1 is unmoved at the surface" as a table lookup rather than as a
+branch in the director. **Escalation is in refinement, not volume**: cycle
+2's 3 plates cost 36 ore against cycle 1's 10 — a 3.6x jump in mining priced
+as a 3-unit ask on the panel, which is the whole point of pricing in
+compression. **Cycle 3 forces depth** (`tin` does not exist above topsoil
+row 60, §16). **Cycle 4 forces the tier gate** (`granite` is `tile.tier 2`,
+§9, so a stock pick cannot break it and the auger becomes necessary). **Hades
+never asks**: the asker set is `{hephaestus, athena, poseidon}` — `ares`
+stays the shipped trap god (§14) and `hades` is untouched, reserved for
+`docs/DESIGN.md`'s Hades act, where his being the first god to address the
+player in person is the whole reveal.
+
+### 18.5 The ledger
+
+Five `run` fields (`model/run.js#RUN_SCHEMA`), every one reset by `newRun()`
+(invariant 8):
+
+```
+run.cycle     1-based, which row of data/cycles.js is live. CYCLES[run.cycle-1]
+run.tribute   { id, have, left } | null. REPLACED WHOLE, never patched in
+              place -- a demand and its own deadline can never be observed
+              half-applied. `have` is keyed the model/items.js#keyOf way, the
+              same convention m.buf and run.inv already use.
+run.favour    { [godId]: int }, run-scoped
+run.charted   [bandId], KNOWLEDGE and not access -- there is no band lock
+run.misses    count of expired deadlines
+```
+
+`run.tribute.left` counts down from `dt` alone, at the fixed 1/120 s step
+(invariant 10), never from `Date.now()` — the first wall-clock quantity this
+game has ever had. `left === null` is cycle 1's real "no clock" branch and it
+must never count toward a miss that can never come.
+
+`rules/cycles.js#step` makes one decision per call, in order: arm a cycle if
+none is live, drain every receiver into it, tick the deadline, then resolve.
+**Completion outranks expiry** — a delivery landing the same frame the clock
+reaches zero pays the trial rather than missing it. `model/run.js#tributeMet()`
+is the shared predicate, a query rather than a decision here, precisely so a
+future TRIBUTE panel can draw the same yes/no without importing `rules`
+(`view` may not import `rules`).
+
+**A miss forfeits the ledger but not the trial**: `run.cycle` does not
+advance, so the identical row re-arms next frame with a fresh `have` and a
+fresh clock — the retry is the mercy, and the punishment is its cost. **Two
+misses end the run**, through the existing `write.hurt` and no new death
+path: the ordinary punishment applies first, then a second miss tops hearts
+off to zero outright (`hurtFor(pos, run.hearts, ...)`) regardless of which
+cycle it was or how many hearts remained, so "two" always means two.
+
+`run.offer` is the draft bridge. `rules/cycles.js` may not import the four
+`rules` siblings that each know what is draftable in their own tier
+(`rules/grants.js`, `rules/boons.js`, `rules/trinkets.js`,
+`rules/miracles.js`), so completion writes the tier name into `run.offer` and
+`shell/main.js` performs the identical "first undrafted row" lookup it
+already runs for the four debug-key drafts, then clears the field — one
+event, one dispatch path, whether a key or a completed trial requested it.
+
+### 18.6 Rewards and punishments
+
+Every completion always adds `favour` for the asking god — a trial always
+changes how that god feels about you, which is what makes the FAVOUR panel a
+picture of the run rather than a static roster. Beyond that, a reward is any
+mix of:
+
+- **`grants`** — machine ids appended straight to `run.granted`: the
+  machine-grant tier paid out directly rather than drafted (cycle 1 only:
+  `furnace` + `cloud_dock`).
+- **`charts`** — band ids appended to `run.charted`. **Knowledge, not
+  access** (`docs/PLAN-phase10.md` §3.4): there is no band lock anywhere in
+  this game and this does not invent one; it only takes the `????????` mask
+  (`view/ui/ruler.js#masked`) off a band's name on the ruler. Cycle 2's
+  `topsoil` chart is close to a no-op on its own — any player who has dug at
+  all has already entered that band — the payoff arrives once more bands
+  exist to chart.
+- **`draft`** — one of `'grant' | 'boon' | 'trinket' | 'miracle'`, offered
+  1-of-3 through `run.offer` (§18.5). Cycles 2–4 each draft a different tier,
+  in that order.
+
+A miss's `punishment` is `{ hearts?, favour? }`, both real numbers rather
+than a flat penalty: hearts scale from 1 (cycle 2) to 2 (cycles 3–4) as the
+run progresses, and every punishable cycle also costs 1 favour with the
+asking god — the two ways a debt can be felt at once. Cycle 1 carries no
+`punishment` key at all, rather than one that is merely zero, because it has
+no clock and can never be missed.
+
+### 18.7 The fall off the dock
+
+D5's premise — cargo ascends, the player does not, and gravity is the gate
+rather than a wall — is enforced by §3's own table, unedited. The shortest
+shaft a player can dig from the surface's own ground line up to the Cloud
+Dock is exactly §18.2's gap: **240 px**. `v = sqrt(2 x 320 x 240) = 392 px/s`,
+and `hearts = floor((392 - 160) / 32) = 7`, clamped to **5 — lethal**,
+regardless of how many hearts the player has standing. Stepping off the dock
+away from wherever the shaft was climbed is therefore not survivable by any
+margin the player can arrange; the mechanic that enforces D5 is §3's existing
+curve, unedited and un-special-cased for astral.
+
+The honest caveat: a carrier parked in the shaft below catches the player
+exactly as §17.10 says any carrier does — `carrierUnder()` does not know or
+care that the shaft it happens to be parked in leads to the Heavens. That is
+correct physics and not a hole to patch: a carrier is a real surface, and the
+fence D5 relies on is gravity acting on an *empty* shaft, not a rule that
+singles this one out.

@@ -76,7 +76,9 @@ produce identically, and the only lever automation gets to pull is
 parallelism: more machines than the player has hands, running in places the
 player currently is not.
 
-*Partially in the mockup:* the lift's speed asymmetry and the `perOut`
+*Partially in the mockup:* the lift's speed asymmetry (`reference/mockup/`
+only — the staged winch it describes is gone from `src/`, retired in Phase 8f
+and replaced by player-driven segment transport, `docs/SPEC.md` §17) and the `perOut`
 refinement ratios on stations. The fuel economics are not simulated.
 Hand-crafting itself — matching a machine's rate rather than being instant or
 throttled — is implemented; see `rules/crafting.js`.
@@ -93,11 +95,18 @@ and banked favour with individual gods.
 it → a punishment; two misses ends the run. Depth band = act, so the vertical
 axis literally is the run progress bar.
 
-Tribute must escalate in **refinement, not volume**. Cycle 1: 20 copper plates.
-Cycle 6: three bottles of ambrosia, each 400 raw units deep. Volume quotas push
-players wide; refinement quotas push them down.
+Tribute must escalate in **refinement, not volume**. Cycle 1: 10 raw copper,
+no clock — `docs/SPEC.md` §4 and §18.4 lock the number, the form and the
+absence of a deadline; this file used to say 20 plates against a per-cycle
+deadline and was stale on all three counts. Cycle 6: three bottles of
+ambrosia, each 400 raw units deep. Volume quotas push players wide;
+refinement quotas push them down.
 
-*Not implemented.* The HUD shows a static cycle-4 tribute panel as decoration.
+*Implemented as of Phase 10.* Four cycles ship (`data/cycles.js`,
+`rules/cycles.js`), each armed, drained and resolved by a real director —
+`docs/SPEC.md` §18 is the contract. Cycles 5 and 6 (the ambrosia end of this
+progression) wait on the `essence`/`ambrosia` tiers above, which are still
+not implemented.
 
 ## Physics that generate difficulty for free
 
@@ -177,11 +186,15 @@ all). Miracles are real: `data/miracles.js` ships one, a held phial that
 collapses a radius of terrain to air and grants a side-effect boon. The HUD's
 top-right timer stack (`view/hud.js`) shows active boons only, newest first,
 draining and flashing in the last five seconds, derived from `clock.t` and
-never `rand()`. *Still not built:* the 1-of-3 draft itself (a director that
-decides WHEN a god offers something), the Character tab's equip UI (drag to
-equip is Phase 5b; equipping today is a model-driven `p` key), and tribute
-completion as a real event (so `data/drops.js`'s tribute-triggered row is
-data-ready but unconsumed — its mining-triggered sibling is live today).
+never `rand()`. *Built since Phase 10:* the 1-of-3 draft itself now has a
+director deciding WHEN a god offers something — `rules/cycles.js`, arming,
+draining and resolving four tribute cycles (`docs/SPEC.md` §18) and writing
+the tier into `run.offer` on completion for `shell/main.js` to perform. The
+Character tab's equip UI is drag-to-equip for real, not only the model-driven
+`p` key. And tribute completion is a real event: `data/drops.js`'s
+tribute-triggered row (`tribute-bellows`, `chance:1`) is rolled by
+`rules/cycles.js#rollTributeDrop` on every cycle completion, so the first
+trial paid always hands over the bellows trinket.
 
 ## Monsters
 
@@ -259,7 +272,7 @@ says *planned*, `docs/BUILD_PLAN.md` names the phase.
 | hand-craft matching the machine's own rate | no | yes (`rules/crafting.js`) |
 | staged lift as the bottleneck | yes | yes, and rebuilt: **player-driven segment transport** (`hub` / `crank` / `gear` / `axle` machines, runtime segments in `model/segments.js`, motion in `rules/drive.js` — Phase 8d–8f). The one-stage `lift` machine it replaced is deleted. A carrier rises only while a crank is being held and slides back down for nothing, and a rider is real load that can reverse it |
 | belts, priced to be rare | no | yes (`belt_r` / `belt_l`) |
-| fog of war, permanent, plus a map overview | no | yes (`rules/reveal.js`) |
+| fog of war, permanent, plus a map overview | no | yes (`rules/reveal.js`, `view/overview.js`, `view/ui/ruler.js` — Phase 9 extracted the overview from the old monolithic `drawMap`) |
 | mining rigs, breakout, haulage | yes | yes (`talos_head` / `cyclops_maw`, `rules/machines.js`'s `mine` recipes — Phase 2c) |
 | tiered picks gating hard strata | no | yes (`item.tool:{tier,power}`, `tile.tier`, `model/run.js#bestTool()` — Phase 2c) |
 | real darkness and carried/placed light | no | yes (`rules/light.js`, carried `timber/brand`, placed brazier/hearth — Phase 2b) |
@@ -267,13 +280,13 @@ says *planned*, `docs/BUILD_PLAN.md` names the phase.
 | ladders as a crafted, tiered item | no | yes (`timber/rung` cheap tier 1, `copper/stair` fast tier 2 with `climbK` — Phase 2a) |
 | machines built from a real material bill | no | yes (every `STARTING_MACHINES` row has a real `cost`; `docs/SPEC.md` section 13 — Phase 3) |
 | machine-grant tier of god gifts | cosmetic | yes (`run.granted`; `data/grants.js`/`rules/grants.js`, renamed from the misnamed `boons.js` — Phase 4) |
-| trinket tier, reaching numbers through one pipeline | cosmetic | yes (`model/mods.js`); equip slots real (`run.equipped`, `eff('trinketSlots')` — Phase 4); drag-to-equip UI still Phase 5b |
+| trinket tier, reaching numbers through one pipeline | cosmetic | yes (`model/mods.js`); equip slots real (`run.equipped`, `eff('trinketSlots')` — Phase 4); drag-to-equip real too (`shell/main.js`'s drag/drop resolve, `:445-500`ish); the `p` key (`shell/input.js:129-132`) is now a redundant alternative, not the only path |
 | timed boons with a countdown | no | yes (`data/boons.js`, `model/boons.js`, `rules/boons.js`, the HUD's top-right timer stack — Phase 4) |
 | miracles, `conflictsWith` hostile gods | cosmetic | yes (`data/miracles.js`, one row; `conflictsWith` both `suppress` and `invert` shipped and proven — Phase 4) |
-| dense in-canvas inventory / crafting GUI | no | partial: a one-panel HUD list; no grid, queue or tabs — Phase 5 |
+| dense in-canvas inventory / crafting GUI | no | yes: a grid (`view/ui/grid.js`), a FIFO craft queue (`shell/ui.js#ui.craftQueue`, drawn in `view/ui/mainPanel.js`) and three tabs — CHARACTER / CRAFTING / LOGISTICS (`view/ui/tabs.js`, `mainPanel.js`) — Phase 5 |
 | spoil dumped to lava for free | yes | no |
-| suspicion meter, Hades gated by depth | cosmetic | no |
-| tribute cycles, boon drafting, favour | cosmetic | no (drafting is exercisable by key, no director) |
+| suspicion meter, Hades gated by depth | cosmetic | still no, but the masked-id predicate it needs now exists and is in use (`view/ui/ruler.js#masked`/`bandKnown`, built for the FAVOUR/ruler panels) — Hades reading as `????????` is one predicate call away, not a new mechanism |
+| tribute cycles, boon drafting, favour | cosmetic | yes — `data/cycles.js` + `rules/cycles.js`, four cycles, each arming, draining, ticking and resolving for real; a draft is offered on completion (Phase 10) |
 | buoyant heat, bottom-up flooding | no | seam only: `rules/fields.js` decays, does not diffuse |
 | monsters, aggro from emissions, ichor economy | no | no |
-| run loop, death, meta-progression | no | partial: death and `newRun()` are real; `meta` has no save |
+| run loop, death, meta-progression | no | partial: death and `newRun()` are real; `META_SCHEMA.godsMet` is reserved and reset every meta-reset, but nothing in `src/` writes to it yet (the FAVOUR panel deliberately reads `run.favour`, not `meta`, for exactly this reason); `meta` has no save regardless |
