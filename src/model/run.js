@@ -11,6 +11,7 @@
    -- and that class of bug is what a schema is for. */
 
 import { AIR, F, FORM, byHudOrder, matches } from '../data/forms.js';
+import { CYCLE, CYCLES } from '../data/cycles.js';
 import { S, SUB } from '../data/substances.js';
 import { STARTING_MACHINES } from '../data/grants.js';
 import { HAND_RECIPES, RECIPES } from '../data/recipes.js';
@@ -32,8 +33,55 @@ export const RUN_SCHEMA = Object.freeze({
                         // trinket and the starting pick both live here too,
                         // see `rules/trinkets.js` and `hasPick()` below
   granted: null,        // machine ids this run may place
-  cycle: 1, tribute: null,
   deepest: 0,           // world px, for the depth gauge and for `meta`
+
+  /* ---- THE TRIBUTE LEDGER (Phase 10b, docs/SPEC.md section 18.5) ----------
+     Five fields, and the first two are the pair that was scaffolded here in
+     Phase 3 and had zero callers until now.
+
+     `cycle` is WHICH ROW OF `data/cycles.js` is live, one-based, so
+     `CYCLES[run.cycle - 1]` is the current trial and `run.cycle > CYCLES.length`
+     is "every shipped trial is done". Incremented by `rules/cycles.js` on a
+     completion and by nothing else.
+
+     `tribute` is the LIVE DEMAND or `null` when none is armed:
+     `{ id, have, left }`. `id` is the `data/cycles.js` row's own id, so the
+     record survives a table reorder; `have` is keyed by the `sub/form` string
+     from `model/items.js#keyOf`, the SAME convention `m.buf` and `run.inv`
+     already use, so a receiver's buffer can be poured into it without a
+     translation; `left` is seconds remaining, or `null` for a cycle with no
+     clock.
+
+     `left` IS AN ACCUMULATOR ON `run` AND NOT A MODULE SCALAR, and that is
+     load-bearing rather than stylistic -- see `brandLeft` below, whose own
+     comment records the same decision for the same reason. A timer in
+     `rules/cycles.js`'s module scope would have no `newRun()` hook, which is
+     precisely the invariant-8 bug the schema exists to forbid. It counts down
+     from `dt` at the fixed 1/120 s step and NEVER from `Date.now()`: a deadline
+     is the first wall-clock quantity this game has ever had, and invariant 10
+     applies to it exactly as it does to a falling player.
+
+     `favour` is `{ [godId]: int }`, RUN-SCOPED (decision I): a god you have not
+     dealt with THIS run reads `????????`, so the FAVOUR panel is a picture of
+     this Torment. `meta.godsMet` gets the asking god's id pushed into it on
+     first ask, which is what that field was reserved for -- but the panel is
+     never drawn off `meta`, because `meta` has no save and that would be a
+     cross-run promise the build cannot keep.
+
+     `charted` is band ids, and it is KNOWLEDGE AND NOT ACCESS
+     (docs/PLAN-phase10.md 3.4): there is no band lock anywhere in this game
+     and this does not invent one. Nothing stops a player digging into topsoil
+     on minute three; charting takes the mask off a band's NAME.
+
+     `misses` is how many deadlines have expired. Two ends the run, through the
+     existing `write.hurt` and no new death path.
+
+     `favour` and `charted` are built FRESH in `write.reset()` below, not here,
+     for the identical reason `inv`/`granted`/`known`/`equipped` are: a
+     container on a shared frozen template is the one mutable reference every
+     run in the process would share. */
+  cycle: 1, tribute: null,
+  favour: null, charted: null, misses: 0,
 
   /* Phase 4 (docs/BUILD_PLAN.md) STEP 4, CLAUDE.md D1: a fixed-length
      SELECTION over `run.inv`, not a second inventory -- see
@@ -105,6 +153,10 @@ export const write = {
       inv: {},
       granted: [...STARTING_MACHINES],
       tribute: null,
+      /* FRESH CONTAINERS, same reason as `granted` above and `known`/`equipped`
+         below -- see `RUN_SCHEMA.favour`'s own comment. */
+      favour: {},
+      charted: [],
       /* Every hand recipe, known from run start -- see `RUN_SCHEMA.known`'s
          own comment above for why this is the honest seed rather than a
          placeholder. A FRESH array every run, same reason `granted` above
@@ -175,7 +227,24 @@ export const write = {
   },
 
   grant(machineId)  { if (!run.granted.includes(machineId)) run.granted.push(machineId); bump(); },
+
+  /* ---- the tribute ledger's writers, all in `grant`'s one-line style ----
+     `tribute` sets or clears the WHOLE live-demand record, so a demand and its
+     own deadline can never be observed half-applied -- the same reason
+     `craft` below writes its pair together. `rules/cycles.js` is the only
+     caller of any of these.
+
+     `favour` and `chart` are both IDEMPOTENT-SAFE in the way their field
+     wants: favour accumulates (a second trial for the same god adds), charting
+     is a set (charting a band twice is charting it once). `miss` is a plain
+     increment and the DECISION about what two misses mean stays in
+     `rules/cycles.js` -- death goes through `hurt` below, so there is exactly
+     one death path in this file and the director does not get a second. */
   tribute(t)        { run.tribute = t; bump(); },
+  favour(god, n)    { run.favour[god] = (run.favour[god] || 0) + n; bump(); },
+  chart(bandId)     { if (!run.charted.includes(bandId)) run.charted.push(bandId); bump(); },
+  miss()            { run.misses++; bump(); },
+  cycle(n)          { run.cycle = n; bump(); },
 
   /* One trinket slot, Phase 4 STEP 4. `sub` is a substance ordinal or
      `null` (empties the slot). `rules/trinkets.js#step` is the only caller
@@ -365,6 +434,42 @@ export function pocketsHave(sel, n) {
    decision with a consequence. */
 export const canCraft = recipeIn =>
   Object.keys(recipeIn).every(sel => pocketsHave(sel, recipeIn[sel]));
+
+/* ---- the tribute ledger's queries (Phase 10b, docs/SPEC.md 18.5) ------------
+   ONE DECISION, TWO READERS, and that is why completion lives HERE and not in
+   the director: `rules/cycles.js` enforces "is this trial paid" and the
+   TRIBUTE panel has to draw the same yes/no, and `view` may not import `rules`
+   (docs/DEVELOPER_GUIDE.md#one-decision-two-readers). The identical argument
+   `model/run.js#placementCheck` and `model/segments.js#linkCheck` already
+   stand on.
+
+   `cycleRow()` is the live row or `null`, resolved by ID and not by index, so
+   the answer does not change if `data/cycles.js` is reordered and a saved
+   `run.tribute` can never come to mean a different trial. Falls back to
+   `run.cycle`'s own row when nothing is armed yet, which is what the director
+   asks for when it decides WHAT to arm. */
+export function cycleRow() {
+  if (run.tribute) return CYCLE[run.tribute.id] ?? null;
+  return CYCLES[run.cycle - 1] ?? null;
+}
+
+/* Units of one demand row currently in the ledger. Keyed the `model/items.js`
+   way, so this is a lookup and not a scan. */
+export const tributeHave = (sub, form) =>
+  (run.tribute?.have?.[keyOf(S[sub], F[form])] ?? 0);
+
+/* Is every demand row of the LIVE cycle satisfied? False with nothing armed --
+   an unarmed ledger is not a met one, and a director that read `true` there
+   would complete a trial nobody had been asked to perform.
+
+   NOT CLAMPED PER ROW: `have` may exceed `n` (a haul of five arrives against a
+   demand for three), and over-delivery is accepted rather than refused, which
+   is invariant 5's "material that falls in is free" applied to a receiver. */
+export function tributeMet() {
+  const row = run.tribute ? CYCLE[run.tribute.id] : null;
+  if (!row) return false;
+  return row.demand.every(d => tributeHave(d.sub, d.form) >= d.n);
+}
 
 /* The grant tier's real teeth (see docs/DEVELOPER_GUIDE.md#adding-a-recipe): a
    MACHINE-BUILD recipe (`data/recipes.js`'s own block of `<id>/rig`-producing

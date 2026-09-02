@@ -105,6 +105,7 @@ const D_grant = await import('../src/data/grants.js');
 const D_boon = await import('../src/data/boons.js');
 const D_miracle = await import('../src/data/miracles.js');
 const D_drop = await import('../src/data/drops.js');
+const D_cycles = await import('../src/data/cycles.js');
 const D_src  = await import('../src/data/sources.js');
 const D_world = await import('../src/data/world.js');
 const D_recipes = await import('../src/data/recipes.js');
@@ -759,7 +760,19 @@ console.log('\n4. Phase 6 probes');
   run.write.equip(0, D_sub.S.pick);
   run.write.craft(2.5, 'smelt');
   run.write.brand(42);
-  run.write.tribute({ n: 1 });
+  /* THE TRIBUTE LEDGER, all five fields, one write each (Phase 10b). This line
+     was `run.write.tribute({ n: 1 })` -- a placeholder shape from Phase 3, when
+     the field had zero callers -- and it is now the real record
+     `rules/cycles.js` writes, `{ id, have, left }`, so a reset that forgot the
+     ledger fails here on its own contents rather than on a stand-in.
+     `favour`/`charted` are the two that would survive if `write.reset()` had
+     kept them on the frozen template instead of building them fresh, which is
+     the failure their own comment in `model/run.js` describes. */
+  run.write.tribute({ id: D_cycles.CYCLES[0].id, have: { 'copper/ore': 4 }, left: 123.5 });
+  run.write.favour('hephaestus', 2);
+  run.write.chart('astral');
+  run.write.miss();
+  run.write.cycle(3);
   mods.write.add('phase6-test', [{ key: 'walk', mul: 1.1 }]);
   machs.write.place(player.player.band, 0, 5, 5);
   sched.grants.grant(D_grant.GRANTS[0].id);
