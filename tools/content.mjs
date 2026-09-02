@@ -16,7 +16,7 @@
 
 import { SUB, S } from '../src/data/substances.js';
 import { FORM, F, expand, matches, crossable, packable, PACKABLE_LIMIT } from '../src/data/forms.js';
-import { RECIPES, recipesOf } from '../src/data/recipes.js';
+import { HAND_RECIPES, RECIPES, recipesOf } from '../src/data/recipes.js';
 import { MACH } from '../src/data/machines.js';
 import { TUNE } from '../src/data/tuning.js';
 import { TRINKETS } from '../src/data/trinkets.js';
@@ -850,6 +850,200 @@ export function checkContent({ quiet = false } = {}) {
              `${BUCKETS.map(b => `"${b}"`).join(', ')} (docs/SPEC.md section 19). Without one, its rubble ` +
              `packs into no block (data/recipes.js#pack reads #bulk) and nothing decides whether it may ` +
              `ever be player-placed (data/forms.js#block reads subTags bulk)`);
+    }
+  }
+
+  /* ---- 21. NO DEPOSIT IS OBTAINABLY PLACEABLE (Phase 14e,
+     docs/PLAN-phase14-mining-and-drops.md D14-B/D14-C). D14-C's whole claim is
+     that `rules/placement.js` needed NO new gate, because a deposit has no
+     tile-capable crossing anything can produce -- "unplaceable by
+     construction". That is a property of `data/`, and this is the check that
+     makes it a proven one rather than a true-by-accident one. The failure it
+     exists to catch is named in that plan's own risk register: a future
+     tile-capable form tagged `rock` or `metal` silently admits granite or
+     adamant, and nothing anywhere throws.
+
+     WRITTEN AGAINST OBTAINABILITY, NOT CROSSABILITY, and the difference is
+     load-bearing. `stair`'s `subTags:['metal']` legitimately admits
+     `adamant/stair` -- a legal pair, deliberately kept (adamant carries
+     `metal` for a future smelt path its own row describes), that no recipe
+     outputs and no `tile.drops` yields. Asserting mere crossability would
+     flag it and the honest fix would be to weaken the rule. So the question
+     asked here is the one that matters: can a player ever HOLD this pair?
+     Producers are exactly two, the same two `minedPairs()` and assertion 5's
+     fixpoint read: a substance's own `tile.drops`, and a recipe output
+     (literal `sub`, or `subFrom` resolved over every substance the selector
+     permits -- the widest reading, so this errs towards flagging).
+
+     ONE NAMED EXEMPTION, and it is a real design decision rather than a
+     known bug. `copper/stair` IS obtainable: `data/recipes.js#daedalan`
+     (2 copper/plate + 4 timber/log -> 2 copper/stair) is Phase 2a's tier-2
+     ladder, `data/forms.js#stair` is written around it, and
+     `model/tiles.js#baseChargeOf` explicitly handles it ("`stair` crosses
+     with `metal`, so `copper/stair` is a real placeable pair, and charging it
+     by its substance would turn one stair into four on the way back out").
+     A bronze stair is not a copper vein: it is placed, so `formOf(byte) !==
+     NATIVE`, so it carries charge 1, drops itself back rather than ore, and
+     is refused by every `#deposit`-blind selector in the game. What the brief
+     forbids is placing a new DEPOSIT of a resource, which no crossing here
+     can do. The exemption is per-PAIR, not per-substance or per-form, so a
+     new `tin/stair` recipe, or a `granite`-admitting form, still fails the
+     build -- which is the whole point of listing it rather than dropping the
+     check. Note that D14-B/D14-C's prose ("no deposit substance has an
+     obtainable tile-capable crossing") is stale on exactly this pair; the
+     shipped design is what this comment describes. ---- */
+  {
+    const TILE_FORMS = FORM.reduce((a, f, i) => (f.tile ? (a.push(i), a) : a), []);
+
+    /* Deliberate, reviewed exceptions. Add nothing here without the argument
+       above being true of the new row as well. */
+    const OBTAINABLE_DEPOSIT_TILES = new Set(['copper/stair']);
+
+    const produced = new Map();                 // pair key -> how it is obtained
+    for (let s = 0; s < SUB.length; s++) {
+      const drops = SUB[s].tile?.drops;
+      if (drops !== undefined && F[drops] !== undefined)
+        produced.set(keyOf(s, F[drops]), `mined from "${SUB[s].id}" (tile.drops)`);
+    }
+    for (const r of recipes) {
+      for (const c of r.out || []) {
+        if (c.sub !== undefined) {
+          const k = keyOf(S[c.sub], F[c.form]);
+          if (!produced.has(k)) produced.set(k, `recipe "${r.id}" output`);
+        } else if (c.subFrom) {
+          for (const p of expand(c.subFrom)) {
+            const k = keyOf(p.sub, F[c.form]);
+            if (!produced.has(k)) produced.set(k, `recipe "${r.id}" output (subFrom "${c.subFrom}")`);
+          }
+        }
+      }
+    }
+
+    for (let s = 0; s < SUB.length; s++) {
+      if (!SUB[s].tags?.includes('deposit')) continue;
+      for (const f of TILE_FORMS) {
+        checks++;
+        if (!crossable(s, f)) continue;               // illegal by subTags -- the D14-B mechanism
+        const how = produced.get(keyOf(s, f));
+        if (!how) continue;                           // legal but unobtainable, e.g. adamant/stair
+        if (OBTAINABLE_DEPOSIT_TILES.has(`${SUB[s].id}/${FORM[f].id}`)) continue;
+        fail(`substance "${SUB[s].id}" is tagged \`deposit\` and "${SUB[s].id}/${FORM[f].id}" is BOTH a ` +
+             `legal crossing (form "${FORM[f].id}" carries a \`tile\` block and its subTags admit this row) ` +
+             `AND obtainable -- ${how}. A deposit is natural-generation-only ` +
+             `(docs/PLAN-phase14-mining-and-drops.md D14-B/D14-C): either narrow the form's \`subTags\`, or ` +
+             `stop producing the pair. If the crossing is genuinely intended, add it to this assertion's ` +
+             `OBTAINABLE_DEPOSIT_TILES with the argument written down, as \`copper/stair\` is`);
+      }
+    }
+  }
+
+  /* ---- 22. EVERY `tile.charge` IS A WHOLE NUMBER >= 1, AND ONLY A `deposit`
+     ROW CARRIES ONE (Phase 14e, D14-D/D14-F).
+
+     Two different content bugs, both silent. A fractional or zero charge
+     breaks `model/mining.js#unitsCrossed`'s arithmetic without throwing:
+     `Math.floor(charge) - 1` is the cap it counts unit boundaries against, so
+     0.5 yields a cap of -1 (clamped to 0, i.e. no per-unit drops at all) while
+     `rules/mining.js` still multiplies `hard * charge` for the break -- a tile
+     that takes half as long and drops nothing on the way. A charge of 0 makes
+     `total` 0, and the floor at `Math.max(1, ...)` in both break sites is the
+     only thing standing between that and a tile that breaks on the first
+     frame. Neither would fail any other check here.
+
+     The second half is a copy-paste guard. `charge` on a `bulk` or `organic`
+     row would multiply the yield of soil, plain stone or a felled trunk by
+     however many units it named, silently inflating an economy that
+     docs/SPEC.md section 19 states is unchanged for those three, and quietly
+     re-opening the "5 rubble packs one block" trade at a discount. Charge
+     describes a NAMED BODY in the ground and nothing else. ---- */
+  for (const s of SUB) {
+    const c = s.tile?.charge;
+    if (c === undefined) continue;                   // absent means 1, which every non-deposit row is
+    checks++;
+    if (!Number.isInteger(c) || c < 1)
+      fail(`substance "${s.id}": tile.charge is ${JSON.stringify(c)}; it is a WHOLE NUMBER of units ` +
+           `>= 1 (model/mining.js#unitsCrossed floors it and counts unit boundaries against ` +
+           `charge - 1, and rules/mining.js multiplies hard x charge for the break)`);
+    checks++;
+    if (!s.tags?.includes('deposit'))
+      fail(`substance "${s.id}": carries tile.charge ${JSON.stringify(c)} but is not tagged \`deposit\` ` +
+           `(tags ${JSON.stringify(s.tags || [])}) -- only a named body depletes over several units. On a ` +
+           `\`bulk\` or \`organic\` row this silently multiplies its yield and docs/SPEC.md section 19 ` +
+           `says those three are unchanged`);
+  }
+
+  /* ---- 23. NO HAND RECIPE SHADOWS A LATER ONE (Phase 14e, section 2.9).
+     `rules/crafting.js#choose` takes THE FIRST `HAND_RECIPES` row whose inputs
+     are all satisfied, so declaration order is load-bearing and a row whose
+     bill is implied by a later row's bill makes that later row permanently
+     unreachable by hand. Nineteen `hand:true` rows, every one carrying a
+     comment arguing its position by hand -- and three of those arguments are
+     wrong, which is the case for checking it mechanically.
+
+     THE IMPLICATION TEST, and why it is a subset test over EXPANDED SELECTORS
+     rather than over selector strings. Row `i` is satisfied by every pockets
+     state that satisfies row `j` if, for each of `i`'s clauses (sel_i, n_i),
+     `j` has a clause (sel_j, n_j) with n_j >= n_i and every pair matching
+     sel_j also matching sel_i. Then any state satisfying j holds some single
+     pair with at least n_j of it that also answers sel_i, which is exactly
+     what `model/run.js#pocketedPair` asks. Comparing the strings would miss
+     that `timber/log` implies star-slash-hash-fuel (spelled in words for the
+     reason `data/forms.js`'s grammar block gives), and comparing counts would
+     claim `#bulk/gravel:5` implies `stone/gravel:4`, which is backwards.
+     Sound rather than complete: it can miss a shadowing (two clauses of `j`
+     answered by one pair), never invent one.
+
+     THREE KNOWN, PRE-EXISTING VIOLATIONS, ALLOWLISTED BY NAME rather than
+     silently tolerated. docs/FINDINGS.md (Phase 8d, #5, and the Phase 14e
+     entry) records them: `peg_rungs {2 log}` and `kindle {1 log}` are strict
+     subsets of `daedalan {2 plate, 4 log}`, and `kindle` is a strict subset of
+     `auger {2 plate, 1 log}`, so `daedalan` and `auger` are unreachable by
+     hand for any player holding a log. Fixing them means moving `daedalan` and
+     `auger` above `peg_rungs`/`kindle`, which mechanically works (re-derived:
+     it introduces no new shadowing) but TRADES ONE UNREACHABLE RECIPE FOR
+     ANOTHER -- a player holding 2 plates and 4 logs would then get stairs
+     where they get rungs today. That is a gameplay change and does not belong
+     in a harness phase (this plan's section 6.5 says so in as many words), so
+     it is recorded, not made. Every pair NOT on this list fails the build,
+     which is what makes a twentieth recipe safe to add. ---- */
+  {
+    /* `HAND_RECIPES` itself, not `recipes.filter(r => r.hand)`: the thing under
+       test is DECLARATION ORDER, and that array is the one
+       `rules/crafting.js#choose` actually walks. Re-deriving it here would be a
+       second implementation of "which rows have hand:true, in what order",
+       which is the drift assertion 7 above already exists to prevent. */
+    const HAND = HAND_RECIPES;
+    /* Ordered `before -> after`, i.e. "the earlier row that eats the later
+       one". docs/FINDINGS.md 8d #5. */
+    const KNOWN_SHADOWS = new Set([
+      'peg_rungs>daedalan',
+      'kindle>daedalan',
+      'kindle>auger'
+    ]);
+
+    const pairSet = sel => new Set(expand(sel).map(p => keyOf(p.sub, p.form)));
+    const covers = (outer, inner) => {                // every pair in inner is in outer
+      for (const k of inner) if (!outer.has(k)) return false;
+      return true;
+    };
+
+    for (let i = 0; i < HAND.length; i++) {
+      const A = HAND[i], billA = Object.entries(A.in || {});
+      for (let j = i + 1; j < HAND.length; j++) {
+        const B = HAND[j], billB = Object.entries(B.in || {});
+        checks++;
+        const implied = billA.every(([selA, nA]) => {
+          const setA = pairSet(selA);
+          return billB.some(([selB, nB]) => nB >= nA && covers(setA, pairSet(selB)));
+        });
+        if (!implied) continue;
+        if (KNOWN_SHADOWS.has(`${A.id}>${B.id}`)) continue;
+        fail(`hand recipes: "${A.id}" (declared #${i}) is satisfied by EVERY pockets state that satisfies ` +
+             `"${B.id}" (#${j}) -- ${JSON.stringify(A.in)} against ${JSON.stringify(B.in)}. ` +
+             `rules/crafting.js#choose takes the first affordable row, so "${B.id}" can never be ` +
+             `hand-crafted at all. Move "${B.id}" above "${A.id}" in data/recipes.js, or change one of the ` +
+             `two bills so neither contains the other`);
+      }
     }
   }
 

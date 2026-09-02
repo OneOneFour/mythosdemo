@@ -1608,10 +1608,20 @@ someone can forget to check — the same argument D4 makes for boarding a
 carrier, and the same `subTags` gate that keeps a miracle out of a trinket
 selector. **`rules/placement.js` needed no edit at all.**
 
-`copper/stair` and `tin/stair` stay legal and obtainable (`daedalan`), and
-that is correct: a Daedalan stair is refined bronze work, not a vein of
-copper. `adamant/stair` is legal and unobtainable — no recipe outputs it and
-nothing drops it.
+`copper/stair` stays legal and obtainable (`daedalan`), and that is correct: a
+Daedalan stair is refined bronze work, not a vein of copper — it is placed, so
+`formOf(byte) !== NATIVE`, so it carries charge 1 and drops itself back rather
+than ore (§19.6). `tin/stair` and `adamant/stair` are legal and
+**unobtainable**: `daedalan`'s output is the literal pair `copper/stair`, so no
+recipe outputs either and nothing drops them. (This paragraph said "`copper/stair`
+and `tin/stair` … obtainable" until Phase 14e; the tin half was never true.)
+
+**`tools/content.mjs` assertion 21 checks exactly this, per pair** (Phase 14e):
+for every `deposit` substance and every tile-capable form the crossing must be
+illegal *or* the pair unobtainable, where obtainable means "some `tile.drops`
+or some recipe output produces it". `copper/stair` is its one named exemption,
+with the argument above written out at the assertion. A future form tagged
+`rock` or `metal`, or a recipe that outputs a tin stair, fails the build.
 
 `hardK:1.0` means a packed block recovers at **native** hardness — soil
 0.50 s, stone 1.60 s (measured: a placed `soil/block` reads 0.50 s) — not the

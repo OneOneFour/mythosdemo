@@ -1885,3 +1885,88 @@ Consequences, in the order they bite:
    its own tier, which a body sealed in a dark room passes). **Parked**: a
    "how far must a player walk before meeting ore they can see" property is a
    real gap, and it is a Phase 14e-shaped question, not a 14d one.
+
+## Phase 14e (the harness) — five things parked
+
+1. **Assertion 23 ships with the three known shadowings allowlisted, and the
+   reorder that would "fix" them trades one unreachable recipe for another.**
+   The three are the ones Phase 8d (#5 above) recorded and this phase
+   re-derived mechanically: `peg_rungs {2 log}` and `kindle {1 log}` are
+   implied by `daedalan {2 plate, 4 log}`, and `kindle` by
+   `auger {2 plate, 1 log}`. Option (b) from the plan's §6.5 was checked
+   rather than assumed — moving `daedalan` and `auger` above
+   `peg_rungs`/`kindle` introduces **no** new shadowing, so it does work
+   mechanically. It was still not taken, because of what it does to play: a
+   player holding 2 plates and 4 logs currently gets **rungs** and would then
+   get **stairs**, and `peg_rungs` becomes the row nobody can reach in that
+   state. That is a content decision with a real feel to it (the cheap ladder
+   is the one you want in a shaft; the stair is the one you want when you have
+   plates to spare), it needs the craft queue's inability to *choose* a recipe
+   fixed first (#4 above, still open), and a harness phase is the wrong diff
+   for it. **The allowlist is exactly three ordered pairs**, so any twentieth
+   recipe that shadows anything fails the build.
+
+2. **`data/machines.js`' placed miners mine at the best tool power the CONTENT
+   TABLES define, not the best one the player owns.**
+   `rules/machines.js#bestHandToolPower()` scans `SUB[*].item.tool.power` over
+   the whole substance table (its own comment says so: "a future hand tool
+   raises every placed miner's rate the same day it raises a swinging
+   player's"), so a Talos Head chews at the auger's **1.8** for a player who
+   has never crafted an auger and swings at **1.0**. Measured while building
+   the MINER PARITY probe: hand 3.8083 s against the head's 2.1167 s on
+   identical copper tiles, a ratio of exactly 1.8. Not a break-site
+   disagreement — the two sites agree to 0.0000 s once the auger is held,
+   which is what the probe now asserts and what `docs/SPEC.md` §12's equality
+   is actually a claim about ("T3 mines at exactly the **T2** hand rate").
+   **Parked, not fixed**: reading the player's pockets instead would make a
+   placed miner slower than the hand that placed it before the auger exists,
+   which is a design call about whether automation is a *rate* purchase or a
+   *parallelism* purchase (§12 says parallelism), and it moves a number
+   `docs/DESIGN.md`'s break-evens are priced against.
+
+3. **The pre-existing `newRun() RESET` probe cannot see the mining ledger, and
+   since D14-E almost nothing can.** Comment `digw.clearAll()` out of
+   `shell/boot.js` and section 4's reset probe still passes — twice over, in
+   fact, because `snapshotModel()` only records `mining.activeCount()` and
+   because the *count* is genuinely zero: `newRun()` reallocates every band, so
+   worldgen writes every stratum into a freshly zeroed `mat`, every one of
+   those writes is a byte **change**, and a byte change clears that
+   coordinate's work (D14-E). Topsoil's air pockets are included — they are
+   `tw.clear`ed out of stone the layer pass had already written. The only
+   coordinates worldgen never writes are **true open sky** in the spawn band,
+   which is why 8e's DEPLETION RESET probe plants half its stale work there
+   and fails loudly (15 tiles, 9.6150 s) with `clearAll` disabled. Two things
+   follow, both parked: `clearAll()` is now *nearly* redundant and must not be
+   removed on that basis (sky is buildable space and an inherited half-vein
+   there breaks the next run's first placed block on first touch), and
+   `snapshotModel()`'s `mining` field would be strictly better as
+   `{ n, sum }` than as a bare count — 8e fingerprints both itself rather than
+   widening a shared helper mid-phase.
+
+4. **`docs/PLAN-phase14-mining-and-drops.md` D14-B/D14-C claim more than the
+   code does, and `docs/SPEC.md` §19.3 had a second, smaller version of the
+   same slip.** The plan says "no `deposit` substance has an obtainable
+   tile-capable crossing" and asks (§6.5) for an assertion written to that
+   sentence; `copper/stair` is a counterexample it names in its own D14-C
+   table two lines earlier (`daedalan` outputs the literal pair, and
+   `model/tiles.js#baseChargeOf` has a paragraph about it). SPEC §19.3 got the
+   design right — a Daedalan stair is refined bronze work, not a vein — but
+   said `tin/stair` was obtainable too, which it never was. SPEC is corrected
+   in this phase's commit and assertion 21 is written against **obtainability
+   per pair** with `copper/stair` as its one argued exemption. The plan text is
+   left as written, per the convention its own §4 D14-F correction note
+   follows: the mistake stays legible rather than being erased.
+
+5. **Nothing asserts that a `deposit` tile's charge is ever *reachable* at the
+   tier that can mine it.** `adamant` is charge 2 at tier 3, and no hand tool
+   reaches tier 3 at all — `data/machines.js#cyclops_maw` is the only thing
+   that can bite it, so 8e's framerate sweep covers copper, tin and granite
+   (the last with the auger, so the expected time is `hard × charge / power`
+   and a probe that had hardcoded power 1.0 would fail) and leaves adamant to
+   content assertion 22's static check. That is honest but thin: the arithmetic
+   is shared (`model/mining.js#unitsCrossed`) so there is no reason to expect
+   adamant to differ, and the MINER PARITY probe proves the machine break site
+   runs the same code — but **no probe has ever exhausted an adamant tile**.
+   A Maw-driven depletion case is the obvious extension, and it needs the
+   `minDepth:200` gate satisfied, which is why it is parked rather than
+   squeezed in.

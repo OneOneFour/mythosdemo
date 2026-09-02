@@ -4386,6 +4386,490 @@ console.log('\n8d. HEAVENS LEDGER: two misses ends the run');
        'documents');
 }
 
+/* ============================================================
+   8e. DEPLETION (Phase 14e, docs/PLAN-phase14-mining-and-drops.md D14-D/E/F)
+   ------------------------------------------------------------
+   A deposit tile yields `tile.charge` units before it is gone, each unit
+   costing a full `hard` of accumulated work. Phase 14b measured that once, by
+   hand; this section is the permanent regression check, and it drives the REAL
+   `rules/mining.js` and `rules/machines.js#mine` through `stepReal` rather
+   than re-implementing their arithmetic -- which is the whole point, because
+   the arithmetic is the thing under test.
+   ============================================================ */
+console.log('\n8e. DEPLETION (Phase 14e)');
+
+/* ONE NATIVE TILE, MINED BY HAND UNTIL IT IS GONE, at an arbitrary framerate.
+
+   Everything about the scene is derived, never hardcoded to a viewport
+   (CLAUDE.md: a click at (400,300) fails at a different base buffer). The
+   player is planted two tiles above the target so their 16 px body's FEET land
+   exactly on its top edge, which makes `rules/mining.js#resolveStraightDown`
+   resolve to that one tile and no other: the body is 6 px wide inside an 8 px
+   tile and `player.x` is set to the tile's own left edge, so both columns the
+   hitbox can straddle are the same column. `cmd.down` with no horizontal key
+   is the keyboard-aim path (`hasMouse:false`), so no pointer is faked.
+
+   UNITS ARE COUNTED AS SPAWNED ITEMS, not as journal rows: invariant 5 says
+   mined material becomes a falling item, so a spawn IS the yield, and the
+   count is unaffected by whether the player then walks over the ore and picks
+   it up. `items.write.spawn` is wrapped exactly the way the CONSERVATION probe
+   above wraps it, and filtered to the tile's own drop pair so the rare-trinket
+   roll (`data/drops.js`) cannot inflate the count.
+
+   The tile is read for its drop pair BEFORE the first swing, for the same
+   reason both break sites do it: once it is AIR there is nothing to ask. */
+function handMineTile(subId, fps, { seed = 1461, tool = null } = {}) {
+  const dt = 1 / fps;
+  boot.newRun(seed);
+  const band = world.bandOf('topsoil');
+  const tx = 10, ty = 60;
+  for (let dy = -4; dy <= 10; dy++)
+    for (let dx = -1; dx <= 1; dx++) tiles.write.clear(band, tx + dx, ty + dy);
+  tiles.write.set(band, tx, ty, D_sub.S[subId]);
+  mining.write.clearAll();
+  /* THE STOCK PICK IS NOT STARTING INVENTORY. `rules/generate.js` drops one
+     near spawn and `model/run.js#hasPick` is `bestTool() !== null`, so a
+     player teleported into a test shaft holds nothing and `rules/mining.js`
+     returns on its first line -- a probe that forgot this would measure a
+     tile that never breaks, not a rate. */
+  run.write.collect(D_sub.S.pick, D_form.F.relic, 1);
+  if (tool) run.write.collect(D_sub.S[tool], D_form.F.relic, 1);
+
+  player.write.band(band);
+  player.write.move(world.worldX(band, tx), world.worldY(band, ty - 2));
+  player.write.vel(0, 0);
+  player.write.set('onGround', true);
+  player.write.set('fallFrom', player.player.y);
+
+  const want = tiles.dropAt(band, tx, ty);
+  let drops = 0;
+  const orig = items.write.spawn;
+  items.write.spawn = (b, x, y, sub, form, vx, vy) => {
+    if (want && sub === want.sub && form === want.form) drops++;
+    return orig(b, x, y, sub, form, vx, vy);
+  };
+
+  /* `lastWork` is READ OUT OF THE REAL LEDGER at the top of each substep, not
+     reconstructed as frames x dt x power afterwards. `model/mining.js` keeps a
+     running float sum, so the two disagree by accumulated rounding -- at 20
+     fps the reconstruction read exactly 7.2000 s where the ledger stood a
+     hair under it, which made an honest break look like an early one. The
+     ledger is what `rules/mining.js` compares against, so it is what this
+     asserts against. */
+  let frames = 0, lastWork = 0;
+  const cap = Math.ceil(fps * 60);
+  while (tiles.tileAt(band, tx, ty) !== D_form.AIR && frames < cap) {
+    lastWork = mining.workAt(band, tx, ty);
+    stepReal(dt, { down: true, dig: true, hasMouse: false });
+    frames++;
+  }
+  items.write.spawn = orig;
+
+  const power = mods.eff('pickPower') * (run.bestTool()?.power ?? 1);
+  return {
+    band, tx, ty, drops, frames, dt, power, lastWork,
+    t: frames * dt,
+    gone: tiles.tileAt(band, tx, ty) === D_form.AIR,
+    pair: want
+  };
+}
+
+/* --- UNITS PER TILE EQUALS `tile.charge`, AND THE TILE SURVIVES UNTIL
+   EXACTLY `hard x charge` -- at all 8 framerates section 3's hardness table
+   already sweeps, and for the same reason it sweeps them: the simulation runs
+   a fixed 1/120 s substep, so a per-unit boundary crossed by
+   `model/mining.js#unitsCrossed` must not depend on how often the browser
+   asks for a frame. The historical bug this echoes is in CLAUDE.md's own list
+   -- a truncated per-tile byte made granite unmineable above 106 fps, and 107
+   is in this list because of it.
+
+   Three substances, chosen to vary every term independently: `copper`
+   (charge 4, tier 1, the stock pick), `tin` (charge 4 at a different
+   hardness, so the seconds-per-unit and the unit COUNT cannot be conflated)
+   and `granite` (charge 3, tier 2, mined with the auger at power 1.8, so the
+   expected time is `hard x charge / power` and a probe that had quietly
+   hardcoded power 1.0 would fail). `adamant` (charge 2, tier 3) is
+   deliberately absent: no hand tool reaches tier 3 at all, which is
+   `data/machines.js#cyclops_maw`'s whole gate -- assertion 22 in
+   tools/content.mjs covers its charge value statically. --- */
+{
+  const RATES = [20, 30, 60, 90, 107, 120, 144, 240];
+  const CASES = [
+    { sub: 'copper',  tool: null },
+    { sub: 'tin',     tool: null },
+    { sub: 'granite', tool: 'auger' }
+  ];
+  let bad = 0, worst = 0, worstAt = '';
+  for (const c of CASES) {
+    const row = D_sub.SUB[D_sub.S[c.sub]];
+    const charge = row.tile.charge ?? 1;
+    for (const fps of RATES) {
+      const r = handMineTile(c.sub, fps, { tool: c.tool });
+      if (!r.gone) { fail(`DEPLETION: ${c.sub} never broke at ${fps} fps (${r.frames} frames)`); bad++; continue; }
+      if (r.drops !== charge) {
+        fail(`DEPLETION: hand-mining one ${c.sub} tile at ${fps} fps yielded ${r.drops} ` +
+             `${D_form.FORM[r.pair.form].id} unit(s), not its tile.charge of ${charge}`);
+        bad++; continue;
+      }
+      /* THE TILE SURVIVES UNTIL EXACTLY `hard x charge`, NOT BEFORE AND NOT
+         AFTER, stated as two bounds on the ledger reading at the top of the
+         substep that killed it: it was still short of the total then (nothing
+         broke early), and one more substep's credit reached it (nothing
+         lingered). `hard` is read through `eff()` for the reason
+         `rules/mining.js` reads it there -- the base is not the effective
+         number and a trinket may bend it. */
+      const total = row.tile.hard * mods.eff('hard', c.sub) * charge;
+      const step = r.dt * r.power;
+      if (r.lastWork >= total + 1e-9) {
+        fail(`DEPLETION: ${c.sub} at ${fps} fps was still standing with ${r.lastWork.toFixed(6)}s of work ` +
+             `credited against a total of ${total.toFixed(6)}s -- it should already have broken`);
+        bad++; continue;
+      }
+      if (r.lastWork + step < total - 1e-9) {
+        fail(`DEPLETION: ${c.sub} at ${fps} fps broke with only ${(r.lastWork + step).toFixed(6)}s of work ` +
+             `credited, short of hard x charge = ${total.toFixed(6)}s`);
+        bad++; continue;
+      }
+      const err = Math.abs(r.lastWork + step - total);
+      if (err > worst) { worst = err; worstAt = `${c.sub}@${fps}fps`; }
+    }
+  }
+  if (!bad) {
+    for (const c of CASES) {
+      const row = D_sub.SUB[D_sub.S[c.sub]];
+      console.log(`  ..  depletion: one ${c.sub} tile yields ${row.tile.charge ?? 1} unit(s) of ` +
+                  `${row.tile.drops} over ${(row.tile.hard * (row.tile.charge ?? 1)).toFixed(2)}s of ` +
+                  `tool-time at every one of the 8 framerates`);
+    }
+    ok(`DEPLETION: units yielded per tile equals tile.charge, and the tile survives until exactly ` +
+       `hard x charge, at 8 framerates for copper/tin/granite (worst overshoot ${worst.toFixed(4)}s, ${worstAt})`);
+  }
+}
+
+/* --- HAND AND A FUELLED PLACED MINER EXHAUST AN IDENTICAL TILE IN AN
+   IDENTICAL TIME. docs/SPEC.md section 12 stakes a measured "0.0000 s
+   difference" on this, and Phase 14b re-measured it by hand once depletion
+   made a tile take four bites instead of one. This is that measurement, kept.
+
+   The T2=T3 probe in section 3 proves the two accumulate the same WORK
+   through the same `model/mining.js#write.add`; this proves the consequence
+   -- the same number of units out of the same tile, and the same tile gone at
+   the same substep -- through the two REAL break sites, which are `rules`
+   siblings that may not import one another and so implement the sequence
+   twice. Two tiles twenty columns apart, never one (a shared Map entry would
+   just be adding to itself), in ONE run stepped once per frame, so neither
+   side can differ by a frame of clock or a frame of scheduling. --- */
+{
+  const dt = 1 / 120;
+  boot.newRun(1462);
+  const band = world.bandOf('topsoil');
+  const txA = 10, tyA = 60, txB = 30, tyB = 60;
+
+  for (let dy = -4; dy <= 10; dy++)
+    for (let dx = -1; dx <= 1; dx++) tiles.write.clear(band, txA + dx, tyA + dy);
+  for (let dy = -2; dy <= 2; dy++)
+    for (let dx = -2; dx <= 2; dx++) tiles.write.clear(band, txB + dx, tyB + dy);
+  tiles.write.set(band, txA, tyA, D_sub.S.copper);
+  tiles.write.set(band, txB, tyB, D_sub.S.copper);
+  mining.write.clearAll();
+
+  /* `mine.facing:1` (data/machines.js), so the head chews the column to its
+     right; four logs is its whole buffer cap and 48 s of chewing at
+     `mine.secs:12`, far more than the 3.8 s this takes. */
+  const head = machs.write.place(band, D_mach.M.talos_head, txB - 1, tyB);
+  machs.write.take(head, D_sub.S.timber, D_form.F.log, 4);
+
+  /* THE AUGER IS HELD, AND THAT IS NOT INCIDENTAL. docs/SPEC.md section 12's
+     equality is "T3 mines at exactly the T2 HAND rate", and T2 is the auger --
+     the same reason section 3's T2=T3 probe collects one before measuring.
+     `rules/machines.js#bestHandToolPower` scans `item.tool.power` over the
+     SUBSTANCE TABLE rather than over the player's pockets (read there
+     directly; its own comment says "a future hand tool raises every placed
+     miner's rate the same day it raises a swinging player's"), so a placed
+     head always chews at the best power the content tables define -- 1.8. A
+     player holding only the stock pick swings at 1.0 and this probe measured
+     3.8083 s against the head's 2.1167 s, a ratio of exactly the auger's
+     1.8, which is the pick/auger gap and not a break-site disagreement.
+     Parked in docs/FINDINGS.md as an observation about which player the
+     equality is stated for; what is asserted here is the equality SPEC
+     actually claims. */
+  run.write.collect(D_sub.S.pick, D_form.F.relic, 1);
+  run.write.collect(D_sub.S.auger, D_form.F.relic, 1);
+  player.write.band(band);
+  player.write.move(world.worldX(band, txA), world.worldY(band, tyA - 2));
+  player.write.vel(0, 0);
+  player.write.set('onGround', true);
+  player.write.set('fallFrom', player.player.y);
+
+  let handOut = 0, machOut = 0;
+  const orig = items.write.spawn;
+  items.write.spawn = (b, x, y, sub, form, vx, vy) => {
+    if (sub === D_sub.S.copper && form === D_form.F.ore) {
+      if (Math.abs(x - world.worldX(band, txA)) < 32) handOut++; else machOut++;
+    }
+    return orig(b, x, y, sub, form, vx, vy);
+  };
+
+  let handAt = -1, machAt = -1, f = 0;
+  while ((handAt < 0 || machAt < 0) && f < 120 * 30) {
+    stepReal(dt, { down: true, dig: true, hasMouse: false });
+    f++;
+    if (handAt < 0 && tiles.tileAt(band, txA, tyA) === D_form.AIR) handAt = f;
+    if (machAt < 0 && tiles.tileAt(band, txB, tyB) === D_form.AIR) machAt = f;
+  }
+  items.write.spawn = orig;
+
+  const charge = D_sub.SUB[D_sub.S.copper].tile.charge ?? 1;
+  if (handAt < 0 || machAt < 0)
+    fail(`MINER PARITY: hand broke at frame ${handAt}, the Talos Head at frame ${machAt} (-1 means never, ` +
+         `in ${f} frames) -- one of the two break sites is not chewing at all`);
+  else if (handAt !== machAt)
+    fail(`MINER PARITY: hand exhausted its copper tile at ${(handAt * dt).toFixed(4)}s and the fuelled ` +
+         `Talos Head exhausted an identical one at ${(machAt * dt).toFixed(4)}s -- a difference of ` +
+         `${Math.abs(handAt - machAt) * dt} s, and docs/SPEC.md section 12 says 0.0000`);
+  else if (handOut !== charge || machOut !== charge)
+    fail(`MINER PARITY: same time, different yield -- hand dropped ${handOut} copper/ore and the Talos ` +
+         `Head ${machOut}, against tile.charge ${charge}`);
+  else
+    ok(`MINER PARITY: hand-mining and a fuelled Talos Head each exhaust an identical copper tile at ` +
+       `${(handAt * dt).toFixed(4)}s (difference 0.0000 s) and each yield exactly ${charge} ore -- the two ` +
+       `break sites agree on units as well as on rate`);
+}
+
+/* --- D14-E: ACCUMULATED WORK IS CLEARED WHENEVER A TILE'S BYTE CHANGES,
+   through the REAL terrain-editing verbs and not by poking the model.
+   `model/tiles.js#write.setByte` clears `model/mining.js`'s entry in the one
+   place every edit funnels through; the claim that matters is that every real
+   caller therefore inherits it, and a synthetic `setByte` call would not prove
+   that. So: the `chasm` miracle (`rules/miracles.js#use`, spending a real held
+   phial) and `rules/placement.js#placeTile` (spending real held material,
+   through its own backing check).
+
+   Without this, a half-depleted copper tile chasmed away leaves ~1.9 s of work
+   at that coordinate and a `soil/block` placed there breaks on the first
+   touch -- which is why the end of this probe places one and asserts its work
+   is zero against its own full hardness, rather than stopping at "the Map
+   entry went away". --- */
+{
+  boot.newRun(1463);
+  const band = world.bandOf('topsoil');
+  const tx = 12, ty = 64;
+  for (let dy = -4; dy <= 4; dy++)
+    for (let dx = -3; dx <= 3; dx++) tiles.write.clear(band, tx + dx, ty + dy);
+  tiles.write.set(band, tx, ty, D_sub.S.copper);
+  tiles.write.set(band, tx + 3, ty, D_sub.S.copper);
+  mining.write.clearAll();
+
+  const hard = tiles.baseHardAt(band, tx, ty);
+  mining.write.add(band, tx, ty, hard * 2);                // two of copper's four units spent
+  mining.write.add(band, tx + 3, ty, hard * 2);
+  const staleA = mining.workAt(band, tx, ty);
+
+  let bad = 0;
+  if (!(staleA > 0)) { fail('D14-E setup: no work accumulated to clear'); bad++; }
+
+  /* THE CHASM. A real held phial, spent by the real `use()`, applied at the
+     aimed tile the same way a dig is -- radius 1 collapse
+     (`data/miracles.js`), so it takes the neighbours with it. */
+  run.write.collect(D_sub.S.chasm, D_form.F.phial, 1);
+  const used = sched.miracles.use(band, tx, ty);
+  if (!used) { fail('D14-E: rules/miracles.js#use refused a held chasm phial -- nothing was tested'); bad++; }
+  else if (tiles.tileAt(band, tx, ty) !== D_form.AIR) {
+    fail('D14-E: the chasm did not clear its centre tile'); bad++;
+  } else if (mining.workAt(band, tx, ty) !== 0) {
+    fail(`D14-E: the chasm cleared the tile at (${tx},${ty}) but left ${mining.workAt(band, tx, ty).toFixed(4)}s ` +
+         `of accumulated work behind -- anything placed there next inherits it and breaks early ` +
+         `(model/tiles.js#write.setByte)`);
+    bad++;
+  }
+
+  /* THE PLACEMENT, at the coordinate the chasm just emptied. `placeTile` runs
+     its own refusals (backing, occupancy, pockets), so a false return here
+     means the probe's scene is wrong, not that the clear failed. */
+  run.write.collect(D_sub.S.soil, D_form.F.block, 1);
+  mining.write.add(band, tx, ty, hard * 2);                // stale work at an EMPTY coordinate
+  /* The backing goes in AFTER the collapse, not before: the chasm is a
+     radius-1 square (`data/miracles.js`) and took the neighbour with it, which
+     is exactly what a real player would have to rebuild against. A `setByte`
+     one column over cannot touch this coordinate's own ledger entry -- the
+     control tile at the end of this probe is what proves that. */
+  tiles.write.set(band, tx - 1, ty, D_sub.S.stone);
+  const placed = R_place.placeTile(band, tx, ty, D_sub.S.soil, D_form.F.block);
+  if (!placed) { fail('D14-E: placeTile refused a backed soil/block on cleared ground -- scene is wrong'); bad++; }
+  else {
+    const left = mining.workAt(band, tx, ty);
+    const blockHard = tiles.baseHardAt(band, tx, ty);
+    if (left !== 0) {
+      fail(`D14-E: a soil/block placed where a part-depleted copper tile stood inherited ${left.toFixed(4)}s ` +
+           `of work against its own ${blockHard.toFixed(2)}s hardness -- it would break ` +
+           `${left >= blockHard ? 'INSTANTLY' : 'early'}`);
+      bad++;
+    } else if (!(blockHard > 0) || !Number.isFinite(blockHard)) {
+      fail(`D14-E: the placed soil/block reads hardness ${blockHard}`); bad++;
+    }
+  }
+
+  /* AND THE CONTROL: an untouched neighbour twenty columns clear of the
+     collapse keeps its progress. A `setByte` that cleared the whole Map, or a
+     `clearAll` in the wrong place, would pass every assertion above. */
+  if (mining.workAt(band, tx + 3, ty) !== hard * 2) {
+    fail(`D14-E: the control tile at (${tx + 3},${ty}) lost its accumulated work ` +
+         `(${mining.workAt(band, tx + 3, ty).toFixed(4)}s of ${(hard * 2).toFixed(4)}s) without its byte ` +
+         `changing -- progress is being dropped too eagerly, and a vein you walked away from is a ` +
+         `vein you have to start over`);
+    bad++;
+  }
+
+  if (!bad)
+    ok('D14-E: the real chasm miracle and the real placeTile each clear the tile\'s accumulated work ' +
+       '(so a block placed on a part-depleted deposit takes its own full hardness), and an untouched ' +
+       'neighbour keeps its own');
+}
+
+/* --- INVARIANT 8, AGAINST A PARTIALLY DEPLETED WORLD. Section 4's reset
+   probe already fingerprints every exported model object across two fresh
+   `newRun()` calls, and `snapshotModel()` includes `mining.activeCount()` --
+   but a count is not the ledger. Since Phase 14b that Map IS the depletion
+   ledger, so a run that half-worked thirty veins and restarted must forget
+   every one of them: the count AND the seconds. Fingerprinted as both here,
+   so a future partial clear that kept the keys and zeroed the values, or kept
+   the values and dropped the count, cannot pass on the half it happens to
+   satisfy. --- */
+{
+  const seed = 1464;
+  const workPrint = () => {
+    let n = 0, sum = 0;
+    for (const v of mining.dig.work.values()) { n++; sum += v; }
+    return { n, sum: +sum.toFixed(6) };
+  };
+
+  boot.newRun(seed);
+  const fresh = snapshotModel(), freshWork = workPrint();
+
+  /* Deplete for real, two ways: a scripted dig through the whole pipeline
+     (which breaks tiles and so exercises the break sites' own clear), and a
+     spread of PART-worked tiles that nothing breaks -- the entries that
+     persist for the rest of a run by design, and therefore the only ones that
+     could outlive a `newRun()`.
+
+     HALF OF THEM ARE OPEN SKY, AND THAT IS THE HALF THAT CAN FAIL. Two
+     earlier drafts of this probe could not fail AT ALL with `digw.clearAll()`
+     commented out of `shell/boot.js`, and the reason is worth writing down
+     because it decides the whole probe design. `newRun()` reallocates every
+     band (`model/world.js#write.clear` empties `bands`), so worldgen writes
+     into a freshly ZEROED `mat`: every stratum write is a byte CHANGE, and
+     since D14-E a byte change clears that coordinate's work. Underground that
+     covers everything -- topsoil's air pockets are `tw.clear`ed out of stone
+     the layer pass had already written, which is a change too -- so
+     regeneration scrubs the ledger for the whole band on its own. What it
+     never writes is TRUE OPEN SKY: the spawn band's rows above the ground
+     line are still zero when generation finishes, so a stale entry there
+     survives anything but `clearAll`. It is also the entry that matters,
+     because a coordinate the player can build in is exactly where an
+     inherited half-vein's worth of seconds would make the next run's first
+     placed block break on first touch. Both kinds are planted; the assertion
+     covers the whole Map. */
+  const deep = world.bandOf('topsoil');
+  const sky  = world.bandOf(D_world.SPAWN_BAND);
+  runReal(600, 1 / 120, { right: true, dig: true, hasMouse: false });
+  const WANT = 15;
+  let solidN = 0, airN = 0;
+  for (let ty = 60; ty < 220 && solidN < WANT; ty++)
+    for (let tx = 10; tx < 80 && solidN < WANT; tx++) {
+      if (mining.workAt(deep, tx, ty) !== 0) continue;
+      if (tiles.tileAt(deep, tx, ty) === D_form.AIR) continue;
+      mining.write.add(deep, tx, ty, 0.31 + solidN * 0.017);
+      solidN++;
+    }
+  for (let ty = 0; ty < sky.th && airN < WANT; ty++)
+    for (let tx = 0; tx < sky.tw && airN < WANT; tx++) {
+      if (mining.workAt(sky, tx, ty) !== 0) continue;
+      if (tiles.tileAt(sky, tx, ty) !== D_form.AIR) continue;
+      mining.write.add(sky, tx, ty, 0.55 + airN * 0.013);
+      airN++;
+    }
+  const dirty = workPrint();
+
+  boot.newRun(seed);
+  const after = snapshotModel(), afterWork = workPrint();
+
+  if (!(solidN === WANT && airN === WANT && dirty.sum > 0))
+    fail(`DEPLETION RESET: the probe failed to dirty the work map as intended (${solidN} solid and ` +
+         `${airN} air coordinates of ${WANT} each, ${dirty.n} entries, ${dirty.sum.toFixed(3)}s) -- ` +
+         `without the AIR half the assertion below passes vacuously, for the reason written above it`);
+  else if (afterWork.n !== 0 || afterWork.sum !== 0)
+    fail(`DEPLETION RESET: ${afterWork.n} tile(s) still carry ${afterWork.sum.toFixed(4)}s of mining work ` +
+         `after newRun(${seed}) -- depletion surviving a restart is invariant 8's determinism bug, and ` +
+         `shell/boot.js must call model/mining.js#write.clearAll()`);
+  else if (JSON.stringify(fresh) !== JSON.stringify(after)) {
+    const key = Object.keys(fresh).find(k => JSON.stringify(fresh[k]) !== JSON.stringify(after[k]));
+    fail(`DEPLETION RESET: "${key}" differs between two fresh newRun(${seed}) calls around a partially ` +
+         `depleted world\n     before: ${JSON.stringify(fresh[key]).slice(0, 200)}\n` +
+         `     after:  ${JSON.stringify(after[key]).slice(0, 200)}`);
+  } else
+    ok(`DEPLETION RESET: a world with ${dirty.n} part-worked coordinates (${solidN} solid, ${airN} air) ` +
+       `carrying ${dirty.sum.toFixed(2)}s of work fingerprints identically to a fresh newRun(${seed}) -- ` +
+       `count and seconds both back to ${freshWork.n}/${freshWork.sum}`);
+}
+
+/* --- MASS CONSERVATION OVER `pack`, LIVE. tools/content.mjs assertion 6
+   already proves STATICALLY that no recipe nets mass from nothing, and it
+   covers `pack` with no special case: the recipe's one selector expands to
+   soil/gravel and stone/gravel, and each combination is priced through the
+   same `model/items.js#massOfPair` the game uses (soil 1.25 in / 1.00 out,
+   stone 1.50 / 1.20). That is the right place for the arithmetic and this
+   does not duplicate it.
+
+   What this adds is the one thing a table check cannot see: that the REAL
+   hand-craft path spends and produces what the table says, for the recipe
+   this wave added. `pack` is the first `hand:true` row whose input is a
+   TAG-scoped selector (`#bulk`) rather than a literal pair, so
+   `rules/crafting.js#choose` has to resolve it through
+   `model/run.js#pocketedPair` and then carry the element across into a
+   `subFrom` output -- five soil rubble must become one SOIL block, not a
+   stone one, and not five. Mass is measured over pockets AND ground items
+   together, because invariant 5 means the output falls at the player's feet
+   and may or may not have been picked back up by the time this reads it. --- */
+{
+  boot.newRun(1465);
+  const heldMass = () => {
+    let m = 0;
+    for (const slot of run.run.inv) if (slot) m += items.massOfPair(slot.sub, slot.form) * slot.n;
+    for (const it of items.items) m += items.massOf(it);
+    return m;
+  };
+  const PACK = D_recipes.RECIPES.pack;
+  const need = PACK.in['#bulk/gravel'];
+  run.write.collect(D_sub.S.soil, D_form.F.gravel, need);
+  const before = heldMass();
+
+  runReal(Math.ceil(PACK.secs * 120) + 4, 1 / 120, { craft: true, hasMouse: false });
+
+  const gravelLeft = run.invCount(D_sub.S.soil, D_form.F.gravel);
+  const blocks = run.invCount(D_sub.S.soil, D_form.F.block)
+               + items.items.filter(it => it.sub === D_sub.S.soil && it.form === D_form.F.block).length;
+  const stoneBlocks = run.invCount(D_sub.S.stone, D_form.F.block)
+               + items.items.filter(it => it.sub === D_sub.S.stone && it.form === D_form.F.block).length;
+  const after = heldMass();
+  const wantIn  = need * items.massOfPair(D_sub.S.soil, D_form.F.gravel);
+  const wantOut = items.massOfPair(D_sub.S.soil, D_form.F.block);
+
+  if (gravelLeft !== 0 || blocks !== 1 || stoneBlocks !== 0)
+    fail(`PACK: hand-crafting with exactly ${need} soil/gravel left ${gravelLeft} rubble, ${blocks} ` +
+         `soil/block and ${stoneBlocks} stone/block -- want 0 / 1 / 0. The subFrom output must carry the ` +
+         `ELEMENT across (data/recipes.js#pack, same mechanism as smelt)`);
+  else if (Math.abs((before - after) - (wantIn - wantOut)) > 1e-9)
+    fail(`PACK: held mass went ${before.toFixed(4)} -> ${after.toFixed(4)} T (delta ` +
+         `${(after - before).toFixed(4)}), but the recipe consumes ${wantIn.toFixed(4)} and produces ` +
+         `${wantOut.toFixed(4)} (delta ${(wantOut - wantIn).toFixed(4)})`);
+  else if (after > before + 1e-9)
+    fail(`PACK: 5 rubble -> 1 block NET MASS from nothing (${before.toFixed(4)} -> ${after.toFixed(4)} T)`);
+  else
+    ok(`PACK: the real hand-craft turns ${need} soil/gravel (${wantIn.toFixed(2)} T) into exactly one ` +
+       `SOIL block (${wantOut.toFixed(2)} T) -- the element carried across, ` +
+       `${(wantIn - wantOut).toFixed(2)} T lost as waste, nothing created`);
+}
+
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +
             `journal ${journal.peek ? journal.peek().length : 0} undrained`);
