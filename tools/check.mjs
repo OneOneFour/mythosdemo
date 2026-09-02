@@ -3247,6 +3247,271 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
        `fallHearts(${vLand.toFixed(1)} px/s), and fatal`);
 }
 
+/* ============================================================
+   6. PHASE 10B — THE TRIBUTE LOOP: THE TWO RECEIVERS AND THE DIRECTOR
+   ------------------------------------------------------------
+   docs/SPEC.md section 18 is the contract. The receivers first, because a
+   director draining a receiver that never fills is a phase that looks finished
+   and is not (docs/PLAN-phase10.md's own risk register says so).
+   ============================================================ */
+console.log('\n6. the tribute loop (Phase 10b)');
+
+/* --- WHERE A RELEASED HAUL ACTUALLY COMES TO REST, AND WHETHER THE DOCK'S
+   MOUTH REACHES IT. This is the assertion docs/PLAN-phase10.md 3.3 demands not
+   be eyeballed, and the reason is that the dock is the ONLY catch box in the
+   game that does not catch its item in flight: `rules/drive.js` releases an
+   arriving haul INSIDE the footprint at the anchor -- which for `th:1` is two
+   pixels BELOW the top mouth's lower edge -- and the item then falls AWAY from
+   the mouth onto the footing tile. Every other row's `slack:2` would therefore
+   be wrong here and would be wrong SILENTLY: a dock that never credits looks
+   exactly like a dock nobody has delivered to yet.
+
+   FOUR CLAIMS:
+
+     1. THE ARITHMETIC. The dock's anchor and the resting position
+        `rules/items.js#hop` computes are both inside the inflated mouth, for
+        every form the dock accepts -- derived from `sizeOf`, not from the
+        `slack` the row happens to carry, so the two can disagree.
+     2. THE MEASURED REST POSITION agrees with claim 1's arithmetic. Read off a
+        real item dropped in the footprint and stepped until it rests.
+     3. THE END TO END: a real haul on a real carrier, cranked to `t = 1`,
+        released, ends up in `m.buf`. Nothing about the mouth is asserted here
+        -- only that a unit of copper went in at the bottom and is in the
+        dock's ledger at the top. THIS CLAIM ALONE IS NOT ENOUGH, and that was
+        checked: with the slack set to the furnace's 2 it still PASSES, because
+        the release frame leaves the item at the anchor with `vy = 0` and the
+        catch box gets one look at it before gravity has moved it a fifth of a
+        pixel. Claims 1 and 2 are what fail, which is why they exist -- a dock
+        that only works while the item has not started falling yet is a dock
+        that stops working the first time a frame is dropped.
+     4. THE DOCK DOES NOT SWALLOW A RELIC. A `pick` in `relic` form dropped in
+        the same place is still lying there afterwards. CLAUDE.md D1 gives
+        `relic` and `phial` their own `subTags` precisely so a receiver cannot
+        eat a trinket by accident, and a star-slash-star `accepts` would pass
+        claims 1-3 identically. --- */
+{
+  const DOCK = D_mach.MACH[D_mach.M.cloud_dock];
+  const dockPorts = DOCK.ports.filter(p => p.mode === 'in');
+  let bad = 0;
+
+  /* A dock on a real footing, on flat ground in `topsoil` -- the band every
+     other rig in this file uses, for the same reason: nothing but what this
+     puts there. Astral would be the in-fiction home and is deliberately NOT
+     used, because a scene that depends on where worldgen left astral's ragged
+     lip is a scene that tests worldgen. */
+  function dockRig(seed = 9100) {
+    boot.newRun(seed);
+    const band = world.bandOf('topsoil');
+    for (let ty = 100; ty <= 119; ty++)
+      for (let tx = 16; tx <= 29; tx++) tiles.write.clear(band, tx, ty);
+    for (let tx = 16; tx <= 29; tx++) tiles.write.set(band, tx, 119, D_sub.S.stone);
+    const m = footUnder(machs.write.place(band, D_mach.M.cloud_dock, 20, 118));
+    player.write.band(band);
+    return { band, m };
+  }
+
+  /* CLAIM 1 */
+  {
+    const { m } = dockRig();
+    const mouth = m.mouth[DOCK.catchBox.mouth];
+    const s = DOCK.catchBox.slack;
+    const box = { y0: mouth.y - s, y1: mouth.y + mouth.h + s };
+    const anchor = anchorOfM(m);
+    const rows = [];
+    if (anchor.y < box.y0 || anchor.y > box.y1) {
+      fail(`DOCK MOUTH: the dock's anchor (y ${anchor.y}) is outside its own inflated top mouth ` +
+           `(y ${box.y0}..${box.y1}) -- a haul released at the anchor is never seen`);
+      bad++;
+    }
+    /* The footing row's own top, which is what `hop` snaps a resting item to,
+       minus half the item's size. One row per form the dock accepts. */
+    const footingTop = world.worldY(m.band, m.ty + DOCK.th);
+    for (const [subId, formId] of [['copper', 'ore'], ['copper', 'ingot'],
+                                   ['copper', 'plate'], ['stone', 'gravel']]) {
+      const sub = D_sub.S[subId], form = D_form.F[formId];
+      if (!items.holdable(sub, form)) continue;
+      const accepted = dockPorts.some(p => p.accepts.some(sel => D_form.matches(sel, sub, form)));
+      const restY = footingTop - D_form.FORM[form].size / 2;
+      const inside = restY >= box.y0 && restY <= box.y1;
+      rows.push({ pair: `${subId}/${formId}`, accepted, restY, inside });
+      if (accepted && !inside) {
+        fail(`DOCK MOUTH: a ${subId}/${formId} released at the dock's anchor comes to rest at y ` +
+             `${restY} (footing top ${footingTop} minus half its size ${D_form.FORM[form].size}), ` +
+             `outside the inflated top mouth y ${box.y0}..${box.y1} -- slack ${s} is too small and ` +
+             `the dock silently swallows nothing`);
+        bad++;
+      }
+    }
+    console.log(`  ..  dock mouth: footprint top y ${m.box.y}, anchor y ${anchor.y}, top mouth ` +
+                `y ${mouth.y}..${mouth.y + mouth.h} inflated by slack ${s} to y ${box.y0}..${box.y1}`);
+    for (const r of rows)
+      console.log(`        ${r.pair.padEnd(14)} accepted ${r.accepted ? 'yes' : 'no '}   ` +
+                  `rests at y ${r.restY}   ${r.inside ? 'inside' : 'OUTSIDE'} the mouth`);
+  }
+
+  /* CLAIM 2 -- the same number, off a real item rather than off the formula. */
+  {
+    const { band, m } = dockRig(9101);
+    const anchor = anchorOfM(m);
+    const it = items.write.spawn(band, anchor.x, anchor.y, D_sub.S.copper, D_form.F.ore, 0, 0);
+    /* The dock would eat it on the first frame, which is claim 3's business,
+       not this one: what is under test here is where `rules/items.js` PUTS a
+       released haul, so the machine is removed and only the physics is left. */
+    machs.write.remove(m);
+    runReal(60, 1 / 120, { hasMouse: false });
+    const footingTop = world.worldY(band, m.ty + DOCK.th);
+    const want = footingTop - D_form.FORM[D_form.F.ore].size / 2;
+    if (Math.abs(it.y - want) > 0.01) {
+      fail(`DOCK MOUTH: a copper/ore released at the dock's anchor came to rest at y ${it.y}, but the ` +
+           `arithmetic claim 1 asserts says ${want} -- one of the two is wrong and claim 1 is the one ` +
+           `the slack was chosen from`);
+      bad++;
+    } else {
+      console.log(`  ..  dock mouth: measured -- a copper/ore released at the anchor rests at y ` +
+                  `${it.y}, exactly the y claim 1 computes`);
+    }
+  }
+
+  /* CLAIM 3 -- end to end, through the real crank, carrier and release. The
+     dock sits 12 tiles above a plain hub; the player stands at a crank on the
+     floor and holds it, which is the only way anything ascends (a rider cannot
+     power their own segment -- docs/SPEC.md 17.6). */
+  {
+    boot.newRun(9102);
+    const band = world.bandOf('topsoil');
+    for (let ty = 100; ty <= 119; ty++)
+      for (let tx = 16; tx <= 29; tx++) tiles.write.clear(band, tx, ty);
+    for (let tx = 16; tx <= 29; tx++) tiles.write.set(band, tx, 119, D_sub.S.stone);
+    const lo = footUnder(machs.write.place(band, D_mach.M.hub, 20, 117));
+    const dock = footUnder(machs.write.place(band, D_mach.M.cloud_dock, 20, 106));
+    footUnder(machs.write.place(band, D_mach.M.crank, 19, 117));
+    const c = segs.linkCheck(lo, dock);
+    if (!c.ok) {
+      fail(`DOCK DELIVERY: a hub cannot be linked to a dock 12 tiles above it (${c.why}) -- the dock ` +
+           `is not a usable segment endpoint and nothing below this means anything`);
+      bad++;
+    } else {
+      const seg = segs.write.link(lo, dock);
+      segs.write.carrier(seg, 0, 0);
+      player.write.band(band);
+      player.write.move(world.worldX(band, 18), world.worldY(band, 117));
+      player.write.vel(0, 0);
+      player.write.set('onGround', true);
+      const p = segs.carrierPos(seg);
+      const it = items.write.spawn(band, p.x, p.y, D_sub.S.copper, D_form.F.ore, 0, 0);
+      if (it) it.rest = 1;
+      /* Long enough for 96 px at the measured ~5 px/s of a loaded single-crank
+         ascent, plus the frames the release and the catch take. */
+      for (let i = 0; i < 120 * 40 && seg.t < 1; i++) stepReal(1 / 120, { turn: true, hasMouse: false });
+      runReal(30, 1 / 120, { turn: true, hasMouse: false });
+      const held = machs.count(dock, '*/#ore');
+      if (seg.t < 1) {
+        fail(`DOCK DELIVERY: the carrier only reached t = ${seg.t.toFixed(3)} in 40 s of cranking, so no ` +
+             `arrival ever happened and the delivery was not tested`);
+        bad++;
+      } else if (held !== 1) {
+        fail(`DOCK DELIVERY: the carrier arrived at the dock and released its haul, but the dock's buffer ` +
+             `holds ${held} ore, not 1 -- the catch box never saw the released item (${items.items.length} ` +
+             `item(s) still loose in the world)`);
+        bad++;
+      } else {
+        console.log(`  ..  dock delivery: one copper/ore cranked 12 tiles up a real segment, released at ` +
+                    `the anchor and swallowed -- dock buffer holds ${held}, ${items.items.length} loose`);
+      }
+    }
+  }
+
+  /* CLAIM 4 */
+  {
+    const { band, m } = dockRig(9103);
+    const anchor = anchorOfM(m);
+    items.write.spawn(band, anchor.x, anchor.y, D_sub.S.pick, D_form.F.relic, 0, 0);
+    /* Out of `eff('pickupR')` of the dock, so the player does not pocket it
+       and make this pass for the wrong reason. */
+    player.write.move(world.worldX(band, 16), world.worldY(band, 118));
+    runReal(120, 1 / 120, { hasMouse: false });
+    const swallowed = items.items.length === 0;
+    const inBuf = Object.keys(m.buf).length;
+    if (swallowed || inBuf) {
+      fail(`DOCK ACCEPTS: the dock swallowed a pick in relic form (loose items ${items.items.length}, ` +
+           `buffer keys ${inBuf}) -- its accepts selectors are too wide, and CLAUDE.md D1 gives relic its ` +
+           `own subTags exactly so a receiver cannot eat a trinket`);
+      bad++;
+    }
+  }
+
+  if (!bad)
+    ok('DOCK MOUTH AND DELIVERY: the dock\'s inflated top mouth reaches the anchor a haul is released at ' +
+       'AND the y every accepted form comes to rest at (measured, not assumed); one ore cranked up a real ' +
+       '12-tile segment ends in the dock\'s buffer; and a relic dropped in the same place is left alone');
+}
+
+/* --- THE ALTAR: HAND-FED, AND UNOBTAINABLE. Two claims, and the second is the
+   one `kiln_divine` set the precedent for: a row with no substance can never
+   be placed by a player, so "the altar is the gods' and not yours" is an
+   absence in `data/substances.js` rather than a check anywhere. --- */
+{
+  let bad = 0;
+  const ALTAR = D_mach.MACH[D_mach.M.altar];
+
+  /* CLAIM 1 -- unobtainable. Asserted through the same three queries the game
+     itself uses, not by grepping the table. */
+  {
+    boot.newRun(9110);
+    if (run.machineHeldSub('altar') !== undefined) {
+      fail(`ALTAR: model/run.js#machineHeldSub('altar') resolves to substance ` +
+           `${run.machineHeldSub('altar')} -- the altar has a held item and can therefore be built`);
+      bad++;
+    }
+    if (D_recipes.HAND_RECIPES.some(r => r.out?.[0]?.sub === 'altar')) {
+      fail('ALTAR: a hand recipe produces altar/rig -- the altar must have no recipe at all');
+      bad++;
+    }
+    const band = world.bandOf('surface');
+    run.write.grant('altar');                 // the strongest case: granted anyway
+    const chk = run.placementCheck(band, 'altar', 40, 18);
+    if (chk.ok || chk.why !== 'NOTHING BUILT YET') {
+      fail(`ALTAR: placementCheck for a GRANTED altar says ${JSON.stringify(chk)} -- it should refuse ` +
+           `with 'NOTHING BUILT YET', which is the no-substance route and the only thing stopping a ` +
+           `player from placing one`);
+      bad++;
+    }
+  }
+
+  /* CLAIM 2 -- hand-fed. `handFeed` needs no key: standing inside `reach` of
+     the footprint is the whole verb (`rules/machines.js#handFeed`), which is
+     what makes cycle 1's "walk up carrying ore" work with no new code. */
+  {
+    boot.newRun(9111);
+    const band = world.bandOf('topsoil');
+    for (let ty = 110; ty <= 119; ty++)
+      for (let tx = 16; tx <= 29; tx++) tiles.write.clear(band, tx, ty);
+    for (let tx = 16; tx <= 29; tx++) tiles.write.set(band, tx, 119, D_sub.S.stone);
+    const m = footUnder(machs.write.place(band, D_mach.M.altar, 22, 117));
+    player.write.band(band);
+    player.write.move(world.worldX(band, 21), world.worldY(band, 117));
+    player.write.vel(0, 0);
+    player.write.set('onGround', true);
+    run.write.collect(D_sub.S.copper, D_form.F.ore, 10);
+    runReal(240, 1 / 120, { hasMouse: false });
+    const held = machs.count(m, '*/#ore');
+    const left = run.invCount(D_sub.S.copper, D_form.F.ore);
+    if (held !== 10 || left !== 0) {
+      fail(`ALTAR HAND FEED: standing ${Math.round(m.box.x - player.player.x)} px from a 2x2 altar with ` +
+           `10 copper/ore in the pockets moved ${held} into it and left ${left} held -- handFeed's ` +
+           `reach ${ALTAR.handFeed.reach} does not cover walking up to it`);
+      bad++;
+    } else {
+      console.log(`  ..  altar: 10 copper/ore hand-fed from ${Math.round(m.box.x - player.player.x)} px ` +
+                  `away in ${240 / 120} s, pockets empty`);
+    }
+  }
+
+  if (!bad)
+    ok('THE ALTAR: no substance, no recipe, and placementCheck refuses it with \'NOTHING BUILT YET\' even ' +
+       'when granted -- and a player standing beside one hand-feeds 10 ore into it with no key held');
+}
+
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +
             `journal ${journal.peek ? journal.peek().length : 0} undrained`);

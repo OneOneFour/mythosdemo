@@ -145,6 +145,35 @@ export const RECIPES = Object.freeze({
      is kept, since `hearth`'s {2 plate} is a strict subset of `hub`'s bill and
      `hearth` being declared LAST OF ALL is what covers that. ---- */
 
+  /* ---- cloud_dock: Phase 10b's receiver in astral, and DECLARED BEFORE
+     `hub` BECAUSE ITS BILL STRICTLY CONTAINS THE HUB'S. {5 plate, 1 ingot,
+     2 log} against the hub's {3 plate, 1 ingot, 2 log}: any pockets that
+     satisfy this one also satisfy the hub, so with `hub` first
+     `rules/crafting.js#choose`'s first-match rule would deterministically
+     build a hub forever and the dock would be uncraftable -- the identical
+     failure `cyclops_maw` before `talos_head` before `press_machine` already
+     records. The reverse is harmless: 3 plate builds a hub and never trips
+     this row.
+
+     Checked against every other `hand:true` bill in this file, and these are
+     ALL the containments: it contains `hub` (handled above), `auger`
+     {2 plate, 1 log} and `peg_rungs` {2 log} (both declared later already),
+     and `hearth` {2 plate} (declared last of all, which covers it). It does
+     NOT contain `press_machine` {4 plate, 2 ingot} -- one ingot short -- nor
+     `belt_r` {2 plate, 4 gravel} nor `daedalan` {2 plate, 4 log} nor `gear`
+     {2 log, 1 gravel}, and nothing declared before it contains IT (`furnace`
+     wants ore, `brazier` and `crank` want more logs than this). See
+     docs/DEVELOPER_GUIDE.md#hand-recipe-declaration-order
+
+     14.0s: the hub's own 10.0 plus 4.0 for the deck, in `crank`'s class. ---- */
+  cloud_dock: Object.freeze({
+    id:'cloud_dock', name:'THE CLOUD DOCK',
+    in:{ 'copper/plate':5, 'copper/ingot':1, 'timber/log':2 },
+    out:[ { sub:'cloud_dock', form:'rig', n:1 } ],
+    secs:14.0,
+    hand:true
+  }),
+
   hub: Object.freeze({
     id:'hub', name:'WINCH HUB',
     in:{ 'copper/plate':3, 'copper/ingot':1, 'timber/log':2 },

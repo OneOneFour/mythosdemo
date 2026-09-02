@@ -367,7 +367,35 @@ export const SUBSTANCES = [
      third of the loss" ought to cost. */
   { id:'axle', name:'AXLE', tags:['machine'],
     item:{ mass:4.8, hud:{ order:23 } },
-    look:{ item:['woodB', 'cuA'] } }
+    look:{ item:['woodB', 'cuA'] } },
+
+  /* 5 copper/plate + 1 copper/ingot + 2 timber/log:
+     5x2.4 + 1x1.6 + 2x0.8 = 15.2 T. PRICED AS A HUB PLUS A DECK, against
+     docs/SPEC.md 17.3's hub anchor: the hub's own bill with two more plate,
+     nothing else changed, because a dock is a hub with a platform bolted to
+     it and the platform is the plate. That makes it the heaviest single
+     machine substance in this table except `cyclops_maw`, which is the honest
+     statement of what the top of the chain costs -- docs/PLAN-phase10.md 4.5
+     prices the whole ascent at 3 hubs plus this against a 40 T cap, i.e. more
+     than one trip, by design.
+
+     THE PLATE AND NOT GRAVEL is also an ordering decision: a bill with gravel
+     in it would strictly contain `gear`'s {2 log, 1 gravel}, and `gear` is
+     declared before `hub` in `data/recipes.js`, so this row would have had to
+     jump ahead of the whole segment-transport block. With no gravel the only
+     containment is `hub`'s own bill, so `cloud_dock` is declared immediately
+     before `hub` and nothing else moves. See `data/recipes.js`'s
+     declaration-order block. */
+  { id:'cloud_dock', name:'THE CLOUD DOCK', tags:['machine'],
+    item:{ mass:15.2, hud:{ order:24 } },
+    look:{ item:['marbleB', 'ichor'] } }
+
+  /* `altar` is deliberately NOT given a substance here either, and for a
+     STRONGER reason than `kiln_divine`'s below: the altar must never be
+     obtainable at all. It is placed by `rules/cycles.js` when cycle 1 arms,
+     and a row with no substance can never pass `placementCheck`'s held-item
+     clause -- "never placeable by the player" expressed as an absence rather
+     than as a check. See `data/machines.js`'s `altar` row. */
 
   /* `kiln_divine` is deliberately NOT given a substance here. Its former
      `cost` (inherited, unchanged, via `variantOf:'furnace'`) is BIT-IDENTICAL

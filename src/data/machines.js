@@ -114,6 +114,26 @@
                  phase; refused with a reason, like every other placement
                  gate on this list.
 
+     tribute     `{}` -- Phase 10b's marker key, and the only one on this list
+                 with no fields. It says A CYCLE MAY BE PAID HERE, and it is
+                 what `rules/cycles.js` scans `machines` for: every machine
+                 whose row carries it has its buffer drained into the live
+                 demand's ledger. Empty on purpose rather than carrying a
+                 selector list, because WHICH pairs a receiver takes is
+                 already `ports.accepts`'s job and a second copy could
+                 disagree with it. A SECOND RECEIVER IS THEREFORE A ROW,
+                 not code -- which is how cycle 1's altar and cycle 2+'s dock
+                 are one drain path (docs/PLAN-phase10.md 3.3 option C1).
+
+                 A TRIBUTE RECEIVER IS A SINK, and that is a deliberate
+                 crossing of the line `rules/machines.js` draws at "a machine
+                 that consumed its inputs and produced nothing is a sink, not
+                 a recipe". It has `ports` and a `buffer` and NO `recipes`, so
+                 the generic interpreter accepts into it and never produces
+                 out of it; the director takes what accumulates. Said here, in
+                 the row, rather than smuggled in as a recipe with an empty
+                 `out`.
+
    Rows are APPEND-ONLY: the index is the id a save would store. ONE row has
    ever been deleted -- the WINCH STAGE row, retired in Phase 8f and replaced
    by the `hub`/`crank`/`gear`/`axle` rows at the foot of this table
@@ -623,7 +643,126 @@ export const MACHINES = [
                body:'irA', hi:'snA', lo:'irC', col:'irA', dark:'cuC' },
              { fn:'gearWheel', d:8, teeth:8, rt:4, dx:8,
                body:'irA', hi:'snA', lo:'irC', col:'irA', dark:'cuC' }
-           ] } }
+           ] } },
+
+  /* ============================================================================
+     PHASE 10B: THE TWO TRIBUTE RECEIVERS. See the `tribute` key's own entry in
+     this file's header, docs/PLAN-phase10.md 4.2/4.3 and docs/SPEC.md 18.3.
+
+     They are ONE receiver block twice, and that is the design: `ports` +
+     `buffer.cap` + `catchBox` + `handFeed` + `tribute:{}`, no `recipes`. The
+     dock adds `hub` and the altar does not, which is the whole difference
+     between "a carrier arrives here" and "you walk up and hold the feed key".
+     One drain path in `rules/cycles.js` serves both.
+
+     WHAT THEY ACCEPT, AND WHY IT IS NOT A STAR. Any element in an ore-tagged
+     form, in a refined-tagged form (which is `ingot` and `plate`, by their own
+     form tags), or in `gravel` -- exactly the material classes
+     docs/SPEC.md 18.4's cycle table can demand, and nothing else. (Spelled in
+     words rather than as selectors for the reason `data/forms.js`'s own
+     grammar block gives: a star followed by a slash closes this comment. The
+     literals are in the rows below.) A star-slash-star receiver would swallow
+     a `relic` trinket or a
+     `phial` miracle that fell in, which is precisely the accident CLAUDE.md D1
+     gives those two forms their own `subTags` to prevent; using the tags is
+     cheaper than a special case. `#fuel` is deliberately absent: no cycle asks
+     for logs, and a receiver that took them would credit them to a demand that
+     does not want them and then eat them.
+     ============================================================================ */
+
+  /* ---- THE CLOUD DOCK: a hub with a deck, standing on astral's floor.
+     2x1 and `footing:2` because it is a PLATFORM -- it sits ON the slab, not
+     hanging off it -- and because `th:1` is what makes the catch box work at
+     all (below).
+
+     IT IS A HUB, and it must be (docs/PLAN-phase10.md 3.2): nothing in this
+     game can deliver cargo to a machine that is not a segment endpoint. That
+     coins no sixth transport noun against CLAUDE.md D10 -- a row with a `hub`
+     block IS a hub, the way `belt_l` is a belt. "Dock" names the machine, the
+     same status `furnace` has. `carries:['material','player']` rather than
+     material alone: a player must be able to ride DOWN from it (a rider cannot
+     power the segment they ride -- docs/SPEC.md 17.6 -- so riding is the
+     descent verb, and refusing it here would refuse the free way home).
+
+     `reach:96` is the hub's own, unchanged: the dock terminates an ordinary
+     3-segment chain and must not quietly be a better hub than a hub.
+
+     THE CATCH BOX SLACK IS 6, AND IT IS DERIVED. Every other catch box in
+     this table catches an item IN FLIGHT through its top mouth, and 2 px of
+     slack is plenty for that. A dock does not: `rules/drive.js` releases an
+     arriving haul INSIDE the footprint, at the anchor, which for `th:1` is
+     `box.y + 4` -- two pixels BELOW the top mouth's own lower edge -- and the
+     item then falls AWAY from the mouth onto the footing tile. Where it comes
+     to rest is `rules/items.js#hop`'s answer: `worldY(footing row) - size/2`,
+     i.e. `box.y + 8 - size/2`, which is `box.y + 6` for a size-4 ore or plate
+     and `box.y + 6.5` for size-3 gravel. The top mouth is
+     `[box.y - 2, box.y + 2]`, so the slack must reach 4.5 px past its lower
+     edge; 6 is the next whole number with margin. `tools/check.mjs` asserts
+     the resting position rather than this arithmetic, because the arithmetic
+     is what would be wrong.
+
+     `cap:64` per class, not the furnace's 8: a buffer here is a LEDGER
+     waiting to be drained by the director, not a feed hopper sized to two
+     runs of a recipe, and docs/SPEC.md 18.4's largest demand is 8 units.
+
+     `cable` and `carrier` are restated because a hub must carry them: exactly
+     one endpoint of each segment draws each, chosen by `machines` order
+     (`view/paint.js`'s segment pass), so a dock without them would leave
+     whichever spans it happened to be first or last for undrawn. Marble
+     rather than iron, because it stands in astral. ---- */
+  { id:'cloud_dock', name:'THE CLOUD DOCK', glyph:'D',
+    tw:2, th:1, footing:2,
+
+    hub:{ reach:96, carries:['material', 'player'] },
+
+    ports:[ { side:'top', mode:'in', accepts:['*/#ore', '*/#refined', '*/gravel'] } ],
+    buffer:{ cap:{ '*/#ore':64, '*/#refined':64, '*/gravel':64 } },
+    catchBox:{ mouth:'top', slack:6 },
+    handFeed:{ reach:10, from:['*/#ore', '*/#refined', '*/gravel'] },
+
+    tribute:{},
+
+    look:{ body:'marbleB', trim:'marbleA', base:'marbleC',
+           cable:{ hi:'marbleA', lo:'marbleC', col:'ichor', low:'limeC',
+                   dark:'limeD', spacing:12 },
+           carrier:{ body:'limeD', hi:'ichor', lo:'marbleC', trim:'marbleA',
+                     col:'cuA', full:40, depth:7 } } },
+
+  /* ---- THE SURFACE ALTAR: cycle 1's receiver, and the one machine in this
+     table the player can never obtain.
+
+     NO SUBSTANCE AND NO RECIPE, which is `kiln_divine`'s precedent used on
+     purpose rather than inherited by accident: `model/run.js#machineHeldSub`
+     resolves a machine id through `S[...]`, so a row with no substance simply
+     never passes `placementCheck`'s held-item clause, and that is "never
+     placeable by the player" with no special case anywhere. It is placed by
+     `rules/cycles.js` through `model/machines.js#write.place`, which asks
+     nothing about footing, grants or held items -- the sanctioned route for a
+     worldgen- or director-placed machine (see the `hub` row's own note on why
+     that call exists and what it costs).
+
+     NO `hub`: cycle 1 is unmoved at the surface (docs/SPEC.md 4 and 5), and
+     the player walks up carrying ore and holds the feed key. `catchBox` too,
+     at the furnace's own `slack:2`, because ore that falls in is free and an
+     altar is a catch box like anything else -- CLAUDE.md invariant 5's whole
+     point. Nothing releases a haul inside THIS footprint, so it does not need
+     the dock's derived slack; it catches in flight through the top mouth like
+     every other row here.
+
+     2x2 and `footing:2`, a block of stone on flat ground. Limestone and bone
+     tones with the divine kiln's own `halo`, so it reads as the one thing in
+     the surface band that is not a machine you built. ---- */
+  { id:'altar', name:'THE SURFACE ALTAR', glyph:'A',
+    tw:2, th:2, footing:2,
+
+    ports:[ { side:'top', mode:'in', accepts:['*/#ore', '*/#refined', '*/gravel'] } ],
+    buffer:{ cap:{ '*/#ore':64, '*/#refined':64, '*/gravel':64 } },
+    catchBox:{ mouth:'top', slack:2 },
+    handFeed:{ reach:10, from:['*/#ore', '*/#refined', '*/gravel'] },
+
+    tribute:{},
+
+    look:{ body:'limeB', trim:'limeA', base:'limeD', halo:'ichor' } }
 ];
 
 /* ---- variant expansion, then derived indices, built once, frozen ------------
