@@ -3744,6 +3744,96 @@ console.log('\n8. Phase 11 TIER 2 harness gaps');
        'changes it again when a tile outside every declared decoration margin is changed');
 }
 
+/* --- GLOW IS NOT LIGHT, for a held or dropped glowing relic. `tools/content.mjs`
+   assertion 17 already proves the CONTENT shape (every relic/miracle-tagged
+   substance carries a `halo` treatment, no machine-tagged substance does) and
+   the SEGMENT LIGHT probe above already proves this exact RUNTIME shape for a
+   cable and its carrier. This is the identical live proof for the checklist's
+   own named example -- `pick` (`data/substances.js`), the relic every run
+   starts with, carries `look.treatments:[{fn:'halo',...}]`, a VIEW-ONLY glow
+   `view/paint.js#paintItem` draws -- and it must never reach `b.light`, held
+   or dropped. `hub`/`rig` rides along as the negative case the checklist
+   names by name: a machine substance carries no halo at all. */
+{
+  let bad = 0;
+  boot.newRun(9510);
+  const band = world.bandOf('topsoil');
+  const tx0 = 40, ty0 = 240, w = 10, h = 10;
+
+  /* The same sealed-chamber idiom the SEGMENT LIGHT probe above uses: clear
+     the interior, wall every side, so the only light that could ever reach
+     it is something INSIDE the walls -- no sky, no other emitter. */
+  for (let ty = ty0; ty < ty0 + h; ty++) for (let tx = tx0; tx < tx0 + w; tx++) tiles.write.clear(band, tx, ty);
+  for (let tx = tx0 - 1; tx <= tx0 + w; tx++) {
+    tiles.write.set(band, tx, ty0 - 1, D_sub.S.stone);
+    tiles.write.set(band, tx, ty0 + h, D_sub.S.stone);
+  }
+  for (let ty = ty0 - 1; ty <= ty0 + h; ty++) {
+    tiles.write.set(band, tx0 - 1, ty, D_sub.S.stone);
+    tiles.write.set(band, tx0 + w, ty, D_sub.S.stone);
+  }
+
+  const litIn = () => {
+    const out = [];
+    for (let ty = ty0; ty < ty0 + h; ty++)
+      for (let tx = tx0; tx < tx0 + w; tx++)
+        if (world.lightAt(band, tx, ty) !== 0) out.push(`(${tx},${ty})=${world.lightAt(band, tx, ty)}`);
+    return out;
+  };
+
+  /* HELD: both in the pockets, player standing inside the chamber. */
+  player.write.band(band);
+  player.write.move(world.worldX(band, tx0 + 2), world.worldY(band, ty0 + 2));
+  player.write.vel(0, 0);
+  player.write.set('onGround', true);
+  run.write.collect(D_sub.S.pick, D_form.F.relic, 1);
+  run.write.collect(D_sub.S.hub, D_form.F.rig, 1);
+  runReal(20, 1 / 120, { hasMouse: false });
+
+  const litHeld = litIn();
+  if (litHeld.length) {
+    fail(`GLOW IS NOT LIGHT: holding a pick/relic (and a hub/rig) lit ${litHeld.length} tile(s) of a sealed ` +
+         `unlit chamber [${litHeld.slice(0, 4).join(' ')}] -- a relic's halo is a view treatment and must ` +
+         `never reach the model's light field`);
+    bad++;
+  }
+
+  /* DROPPED: spent out of the pockets, dropped on the chamber floor, and the
+     player moved well clear of `eff('pickupR')` so they stay dropped rather
+     than being walked straight back into the pockets this same frame. */
+  run.write.spend(D_sub.S.pick, D_form.F.relic, 1);
+  run.write.spend(D_sub.S.hub, D_form.F.rig, 1);
+  player.write.move(world.worldX(band, tx0 + 8), world.worldY(band, ty0 + 1));
+  const px = world.worldX(band, tx0 + 3), py = world.worldY(band, ty0 + 5);
+  items.write.spawn(band, px, py, D_sub.S.pick, D_form.F.relic, 0, 0);
+  items.write.spawn(band, px + 8, py, D_sub.S.hub, D_form.F.rig, 0, 0);
+  runReal(20, 1 / 120, { hasMouse: false });
+
+  const litDropped = litIn();
+  if (litDropped.length) {
+    fail(`GLOW IS NOT LIGHT: a dropped pick/relic (and a dropped hub/rig) lit ${litDropped.length} tile(s) ` +
+         `of a sealed unlit chamber [${litDropped.slice(0, 4).join(' ')}] -- a free torch off a dropped ` +
+         `pickaxe is exactly the brand-economy leak docs/BUILD_PLAN.md's Phase 11 names`);
+    bad++;
+  }
+
+  /* THE CONTROL, same idiom SEGMENT LIGHT uses: a `hearth` in the SAME
+     chamber must read lit, or "the chamber reads 0" was a fact about the
+     probe, not about the relic. */
+  const hearth = machs.write.place(band, D_mach.M.hearth, tx0 + 6, ty0 + 7);
+  runReal(20, 1 / 120, { hasMouse: false });
+  const control = world.lightAt(band, hearth.tx, hearth.ty);
+  if (!(control > 0)) {
+    fail(`GLOW IS NOT LIGHT: the control failed -- a hearth in the same sealed chamber reads ${control}, so ` +
+         `the darkness above proves nothing about the relic`);
+    bad++;
+  }
+
+  if (!bad)
+    ok(`GLOW IS NOT LIGHT: a held or dropped pick/relic (halo) and a held or dropped hub/rig (no halo, the ` +
+       `named negative case) light nothing in a sealed chamber where a hearth reads ${control}`);
+}
+
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +
             `journal ${journal.peek ? journal.peek().length : 0} undrained`);
