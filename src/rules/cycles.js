@@ -79,12 +79,24 @@ function ensureLiveCycle() {
    route `data/machines.js`'s own altar-row comment names) at a position
    DERIVED from the spawn band's own fields, never a world-px literal --
    invariant 2. `spawnTx`/`floorTy` are per-band and per-seed; this reads them
-   rather than assuming topsoil's current numbers. */
+   rather than assuming topsoil's current numbers.
+
+   `SPAWN_GAP` TILES CLEAR OF `spawnTx`, NOT FLUSH AGAINST IT. `handFeed` is
+   real and unconditional from the frame this places it (reach 10 px, no key
+   -- `data/machines.js`'s own altar-row comment), so flush-against-spawn
+   would mean a player who has taken zero steps, doing nothing, is already
+   standing in its reach with whatever they were handed at run start. 4 tiles
+   clears `handFeed.reach` plus the player's own width (`model/player.js#PW`)
+   with room over, while staying a short, deliberate walk -- found the hard
+   way: `tools/check.mjs`'s BURDEN test and a furnace-crafting scene both fed
+   the player ore near spawn and had it silently vanish into the altar. */
+const SPAWN_GAP = 4;
+
 function ensureAltarPlaced() {
   if (machines.some(m => m.def === M.altar)) return;
   const band = bandOf(SPAWN_BAND);
   const def = MACH[M.altar];
-  mw.place(band, M.altar, band.cfg.spawnTx - def.tw, band.cfg.floorTy - def.th);
+  mw.place(band, M.altar, band.cfg.spawnTx - def.tw - SPAWN_GAP, band.cfg.floorTy - def.th);
 }
 
 /* Every machine tagged `tribute:{}` (today: the altar and the dock) empties
