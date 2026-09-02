@@ -25,11 +25,11 @@ import { MACH } from '../data/machines.js';
 import { colour } from '../data/palette.js';
 import { SUB } from '../data/substances.js';
 import { fill, machines, statusOf } from '../model/machines.js';
-import { progressAt } from '../model/mining.js';
+import { unitProgressAt } from '../model/mining.js';
 import { sizeOf } from '../model/items.js';
 import { eff } from '../model/mods.js';
 import { CARRIER_H, CARRIER_W, carrierPos, segmentsAt } from '../model/segments.js';
-import { baseHardAt, formAt, rowAt, skyExposedAt, solidAt, subAt, tileAt } from '../model/tiles.js';
+import { baseChargeAt, baseHardAt, formAt, rowAt, skyExposedAt, solidAt, subAt, tileAt } from '../model/tiles.js';
 import { bands, chunkPx, chunkVer, heightPx } from '../model/world.js';
 import { EXTENT, TREAT, seedAt, treat } from './treatments.js';
 import { SPRITE } from './sprites.js';
@@ -306,12 +306,40 @@ function paintTile(g, b, tx, ty, dx, dy) {
   /* Appearance is data: docs/DEVELOPER_GUIDE.md#colour-and-appearance */
   treat(g, L.row.look, { px: dx, py: dy, tx, ty, tile: t });
 
-  /* Cracks use the EFFECTIVE hardness, so a trinket that softens a material
-     also makes it visibly crack sooner. Same `eff` call the rule makes. */
-  const sub = subAt(b, tx, ty);
-  const hard = baseHardAt(b, tx, ty) * (sub < 0 ? 1 : eff('hard', SUB[sub].id));
-  const d = progressAt(b, tx, ty, hard);
+  /* A CRACK MEANS "THIS SWING", NOT "THIS VEIN" (Phase 14c, D14-G). It read
+     `progressAt` while every tile broke on its first unit, which was the same
+     number; since Phase 14b a deposit tile takes `charge` swings, and a crack
+     pattern that crept on across all four of them would say nothing about the
+     hit actually landing. `unitProgressAt` resets per unit, so each swing
+     cracks the rock from scratch and the moment a unit falls out is visible in
+     the cracks vanishing. HOW SPENT THE WHOLE VEIN IS is the other question,
+     and it is deliberately NOT drawn here: it is a live condition and this is
+     a chunk bake (see this file's header and `view/scene.js#drawDepletion`). */
+  const d = unitProgressAt(b, tx, ty, effHardAt(b, tx, ty), effChargeAt(b, tx, ty));
   if (d > 0.05) cracks(g, dx, dy, tx, ty, d, t);
+}
+
+/* THE TWO NUMBERS `rules/mining.js` MINES A TILE BY, RESOLVED ONCE FOR `view`.
+   Both are the substance's base value times its own scoped modifier, exactly
+   as the rule reads them (`rules/mining.js:163` and `:176`) -- so a trinket
+   that softens a material also makes it visibly crack sooner, and a boon that
+   enriches a vein also makes it take visibly longer to look spent.
+
+   Exported because TWO view passes need them and must never disagree: the
+   crack above (a chunk bake, this file) and the depletion cue
+   (`view/scene.js#drawDepletion`, a live overlay). One formula in one place is
+   what keeps "how cracked" and "how spent" two readings of the same tile
+   rather than two guesses about it. `view/scene.js` already imports this
+   module, and a same-layer import is legal (ARCHITECTURE section 1). */
+export function effHardAt(b, tx, ty) {
+  const sub = subAt(b, tx, ty);
+  return baseHardAt(b, tx, ty) * (sub < 0 ? 1 : eff('hard', SUB[sub].id));
+}
+
+export function effChargeAt(b, tx, ty) {
+  const sub = subAt(b, tx, ty);
+  if (sub < 0) return 1;
+  return Math.max(1, Math.round(baseChargeAt(b, tx, ty) * eff('richness', SUB[sub].id)));
 }
 
 /* The deepest a cliff face cuts into a tile, in pixels. Three of eight: enough

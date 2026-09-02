@@ -4203,3 +4203,196 @@ test('the Cloud Dock', async ({ page }) => {
   });
   await shot(page, 'cloud-dock.png');
 });
+
+/* ============================================================
+   PHASE 14c: THE DEPLETION CUE
+   (docs/PLAN-phase14-mining-and-drops.md D14-G)
+
+   Since Phase 14b a `deposit` tile yields `tile.charge` units before it is
+   gone, so a copper wall you have already half worked looks exactly like a
+   fresh one and the only way to find out what is left in a tile is to swing
+   at it. `view/scene.js#drawDepletion` is the answer, and it is a LIVE
+   OVERLAY rather than a chunk bake for the reason `model/world.js`'s band
+   record states twice, once for `seen` and once for `light`.
+
+   THREE TESTS, AND THE THIRD IS THE ONE THAT MATTERS. Two are baselines --
+   a fresh vein and the same vein part-spent, each at the desktop viewport
+   and the 200 px phone floor -- and a screenshot pair only proves the two
+   scenes are not identical to each OTHER. CLAUDE.md records two tests that
+   baselined a scene with the overlay flag misspelled and passed anyway, so
+   the third test renders one scene twice, with nothing changing between the
+   two draws except accumulated pick time, and counts the pixels that moved
+   and where.
+   ============================================================ */
+
+/* A hand-carved copper vein with OPEN SKY above it. The sky matters: a cue
+   this phase exists to prove visible must not be baselined underneath
+   `drawDarkness`, which paints 94% black over an unlit tile. `rules/light.js`
+   seeds every tile from row 0 down to and INCLUDING the first solid one at
+   `eff('lightMax')`, so clearing the pocket to row 0 leaves the vein row
+   itself fully lit and the darkness pass with nothing to do to it.
+
+   Hand-carved and not found, per CLAUDE.md's own "don't trust natural
+   worldgen": the seed decides what lies UNDER the vein, never the vein. */
+const VEIN = { tx0: 40, ty: 26, w: 6 };
+
+async function veinScene(page) {
+  await page.evaluate(async ({ tx0, ty, w }) => {
+    const { S } = await import('/src/data/substances.js');
+    const { bandOf, worldX, worldY, write: ww } = await import('/src/model/world.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { PH, write: pw } = await import('/src/model/player.js');
+    const { banner } = await import('/src/view/fx.js');
+
+    const band = bandOf('surface');
+    for (let tx = tx0 - 3; tx < tx0 + w + 3; tx++)
+      for (let y = 0; y < ty; y++) tw.clear(band, tx, y);
+    for (let tx = tx0; tx < tx0 + w; tx++) tw.set(band, tx, ty, S.copper);
+    tw.set(band, tx0 - 2, ty, S.stone);          // a floor left of the vein, clear of it
+
+    pw.band(band);
+    pw.move(worldX(band, tx0 - 2), worldY(band, ty) - PH);
+    ww.revealAll(band);
+    banner.fade = 0;   // past the opening title, same reasoning `settle()` gives
+  }, VEIN);
+  await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(2); });
+}
+
+/* Centre the vein in whatever viewport is current and render ONCE. Separate
+   from `veinScene` and always called last, because a substep also runs
+   `updateCamera`, which would pull the camera back onto the player. */
+const frameVein = page => page.evaluate(async ({ tx0, ty, w }) => {
+  const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+  const { VIEW } = await import('/src/core/canvas.js');
+  const band = bandOf('surface');
+  __mf.cam.x = Math.round(worldX(band, tx0 + w / 2) - VIEW.w / 2);
+  __mf.cam.y = Math.round(worldY(band, ty) - VIEW.h / 2);
+  __mf.draw();
+}, VEIN);
+
+/* Spend real units out of named tiles through `model/mining.js#write.add` --
+   the same call `rules/mining.js` makes, driven through the model rather than
+   through a click at a hardcoded pixel (CLAUDE.md: a hardcoded click
+   coordinate breaks at another viewport, and these scenes are shot at two).
+   `effHardAt` is `view/paint.js`'s own resolved hardness, so the test cannot
+   disagree with the renderer about what a unit costs.
+
+   NUDGED A TEN-THOUSANDTH OF A UNIT PAST EACH BOUNDARY rather than landing on
+   it. `3 * 0.95` is 2.8499999999999996 as a double -- a hair BELOW three whole
+   units -- so an exact-boundary setup would ask the renderer to read a value
+   `rules/mining.js`'s own `Math.floor(work / hard)` floors to 2, and a cue
+   that disagreed with the rule would be the bug. Real play never lands on a
+   boundary either: work arrives in `dt * pickPower` increments. */
+async function spendUnits(page, spec) {
+  await page.evaluate(async ({ ty, spec }) => {
+    const { bandOf } = await import('/src/model/world.js');
+    const { write: digw } = await import('/src/model/mining.js');
+    const { effHardAt } = await import('/src/view/paint.js');
+    const band = bandOf('surface');
+    for (const { tx, units } of spec)
+      digw.add(band, tx, ty, effHardAt(band, tx, ty) * (units + 1e-4));
+  }, { ty: VEIN.ty, spec });
+}
+
+test('a fresh copper vein', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await veinScene(page);
+  await frameVein(page);
+  await shot(page, 'vein-fresh.png');
+
+  await page.evaluate(() => __mf.resize(200, 180));
+  await frameVein(page);
+  await shot(page, 'vein-fresh-phone.png');
+});
+
+test('the same copper vein, one tile 3 of 4 spent and its neighbour 1 of 4', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await veinScene(page);
+  /* Framed once BEFORE the work is added so every chunk the shot needs is
+     already baked: `write.add` bumps the epoch and never a chunk version
+     (that is the whole reason this cue cannot live in the bake), so a chunk
+     first painted after the work exists would bake a crack that a chunk
+     painted before it would not. The nudge in `spendUnits` keeps the crack
+     read at 0.0001 either way -- but a baseline should not depend on that. */
+  await frameVein(page);
+  await spendUnits(page, [{ tx: VEIN.tx0 + 2, units: 3 }, { tx: VEIN.tx0 + 3, units: 1 }]);
+  await frameVein(page);
+  await shot(page, 'vein-depleted.png');
+
+  await page.evaluate(() => __mf.resize(200, 180));
+  await frameVein(page);
+  await shot(page, 'vein-depleted-phone.png');
+});
+
+/* THE PROOF THAT THE OVERLAY IS DOING SOMETHING, and the reason it is a
+   pixel count rather than a third screenshot: one scene, rendered twice,
+   with NOTHING different between the two draws but `dig.work`. If
+   `drawDepletion` were removed, misnamed, culled wrongly or gated on a
+   condition that is never true, `total` would be 0 and this test would fail
+   while both baselines above still passed -- which is exactly the failure
+   CLAUDE.md records ("a test can silently test nothing").
+
+   It also pins the pass's SCOPE, which a screenshot cannot: the only pixels
+   that may move are the two tiles that were worked. A cue that bled into a
+   neighbouring tile, or repainted the whole viewport, fails here. */
+test('the depletion cue actually changes pixels, and only on the tiles that were worked', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await veinScene(page);
+  await frameVein(page);
+
+  const seen = await page.evaluate(async ({ tx0, ty, w }) => {
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { write: digw } = await import('/src/model/mining.js');
+    const { effHardAt } = await import('/src/view/paint.js');
+    const band = bandOf('surface');
+
+    const c = document.getElementById('stage');
+    const ctx = c.getContext('2d');
+    const grab = () => ctx.getImageData(0, 0, c.width, c.height).data;
+
+    __mf.draw();
+    const before = grab();
+
+    digw.add(band, tx0 + 2, ty, effHardAt(band, tx0 + 2, ty) * 3.0001);
+    digw.add(band, tx0 + 3, ty, effHardAt(band, tx0 + 3, ty) * 1.0001);
+
+    __mf.draw();
+    const after = grab();
+
+    const moved = (i) => before[i] !== after[i] ||
+                         before[i + 1] !== after[i + 1] ||
+                         before[i + 2] !== after[i + 2];
+
+    let total = 0;
+    for (let i = 0; i < before.length; i += 4) if (moved(i)) total++;
+
+    /* Per-tile counts across the whole vein row plus one tile either side, so
+       "only the worked tiles moved" is asserted rather than assumed. */
+    const t = band.tile, counts = [];
+    for (let k = -1; k <= w; k++) {
+      const sx = worldX(band, tx0 + k) - __mf.cam.x, sy = worldY(band, ty) - __mf.cam.y;
+      let n = 0;
+      for (let y = sy; y < sy + t; y++)
+        for (let x = sx; x < sx + t; x++) if (moved((y * c.width + x) * 4)) n++;
+      counts.push({ tx: tx0 + k, n });
+    }
+    return { total, counts, tile: t };
+  }, VEIN);
+
+  const at = tx => seen.counts.find(c => c.tx === tx).n;
+  const worked = [VEIN.tx0 + 2, VEIN.tx0 + 3];
+
+  // the cue is visible at all, on both worked tiles
+  expect(at(worked[0])).toBeGreaterThan(0);
+  expect(at(worked[1])).toBeGreaterThan(0);
+  // the 3-of-4 tile is more changed than the 1-of-4 one: the wash is per unit
+  expect(at(worked[0])).toBeGreaterThanOrEqual(at(worked[1]));
+  // and nothing else in the row moved at all
+  for (const c of seen.counts)
+    if (!worked.includes(c.tx)) expect(c.n).toBe(0);
+  // no pixel anywhere outside those two tiles moved either
+  expect(seen.total).toBe(at(worked[0]) + at(worked[1]));
+});

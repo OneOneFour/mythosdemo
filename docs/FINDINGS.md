@@ -1784,3 +1784,59 @@ Consequences, in the order they bite:
    `data/substances.js`'s header for the append-vs-insert asymmetry.
    `docs/DEVELOPER_GUIDE.md`'s copy of the same sentence had the same problem
    and got the same fix.
+
+---
+
+## Phase 14c (the depletion cue) — three things parked
+
+1. **§2.7(a) REPRODUCES IN A REAL BROWSER, and here is the repro.** The plan
+   read the staleness off the code path and asked for it to be confirmed
+   rather than believed. Confirmed, in Chromium, by pixel readback:
+
+   - carve a lit copper vein (`tests/visual.spec.js#veinScene`), draw, then
+     add **half a unit** of pick time to one tile through
+     `model/mining.js#write.add` and draw again. `unitProgressAt` is now 0.5,
+     far past `view/paint.js#paintTile`'s own `d > 0.05` gate, and the new
+     depletion overlay draws nothing at all at `spent === 0` — so the crack
+     marks are the only thing that could move. **0 pixels moved.**
+   - then change ANY tile whose chunk neighbourhood includes that one
+     (`tw.clear` two chunk rows down) and draw again. **8 pixels appear** on
+     the untouched tile: the crack marks that should have appeared when the
+     work landed, half a second earlier.
+
+   `model/mining.js#write.add` calls `bump()` (the epoch) and never
+   `model/tiles.js#write.touch` (a chunk version), so `chunkCanvas` returns
+   the cached bitmap and the cracks you see while swinging are whatever was
+   true at the last unrelated repaint. **Not fixed here** — D14-G says so in
+   as many words, and conflating it with a new overlay would make this
+   phase's baseline diff unreadable. It is the reason the depletion cue is a
+   live pass: the obvious place to draw it inherits this bug.
+
+   The candidate fix, for whoever takes it: `write.add` cannot call
+   `write.touch` (that is `model/mining.js` → `model/tiles.js`, the reverse
+   of the D14-E edge, and a cycle), so either the crack moves out of the bake
+   into `drawDepletion`'s own pass — cheapest, and the pass is already there —
+   or `rules/mining.js` touches the chunk itself after `digw.add`, which puts
+   a view-cache concern in a rules file.
+
+2. **The phase's own before/after proof is a pixel count, not a third
+   screenshot, and it is the assertion that would actually fail.** Two
+   baselines prove a fresh vein and a part-spent vein are not identical to
+   each other; neither would notice `drawDepletion` becoming a no-op, because
+   both would simply be re-accepted. So
+   `tests/visual.spec.js`'s third test renders ONE scene twice with nothing
+   different between the draws but `dig.work`, and asserts 64 px moved on the
+   3-of-4 tile, 64 on the 1-of-4 tile, and **0 anywhere else in the frame**.
+   Measured with the call commented out: 0 px, and the test fails. Headless,
+   the same scene costs **+10 `fillRect` calls** (two washes, three notches on
+   one tile and one on the other, at two rects each) with 0 model writes and
+   an unmoved `rand()` cursor across six draws.
+
+3. **A fourth copy of the visible-tile-window arithmetic was extracted rather
+   than written.** `drawFields`, `drawDarkness` and `drawFog` each carried
+   their own copy of the same four clamped divisions, two of them commented as
+   being "the identical tile-range math" one of the others uses. The
+   depletion pass would have been the fourth, so all four now share
+   `view/scene.js#tileWindow`. Pure extraction: every one of the 100 visual
+   baselines is bit-identical across it, which is the only evidence worth
+   having for a refactor of a renderer.

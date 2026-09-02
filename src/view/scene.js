@@ -13,9 +13,9 @@
    is no "current band" in the renderer; the camera is a window onto world
    pixels and the band a thing belongs to is a property of the thing.
 
-   PASS ORDER: void, then per band (sky, then chunks), then machines, items,
-   player, chips, field overlay, fog of war, atmosphere, debug, HUD. Anything
-   that reads as lighting comes after everything it lights.
+   PASS ORDER: void, then per band (sky, then chunks), then depletion, machines,
+   items, player, chips, field overlay, darkness, fog of war, atmosphere, debug,
+   HUD. Anything that reads as lighting comes after everything it lights.
    See docs/DEVELOPER_GUIDE.md#pass-order-and-darkness */
 
 import { drawText } from '../core/font.js';
@@ -27,6 +27,7 @@ import { FIELDS } from '../data/world.js';
 import { fieldAt, hasField } from '../model/fields.js';
 import { items } from '../model/items.js';
 import { machines } from '../model/machines.js';
+import { progressAt, workAt } from '../model/mining.js';
 import { eff } from '../model/mods.js';
 import { PH, PW, player } from '../model/player.js';
 import { hasPick, run } from '../model/run.js';
@@ -34,7 +35,7 @@ import { bandAt, bands, chunkPx, heightPx, lightAt, seenAt, widthPx } from '../m
 import { chips, drawChips } from './fx.js';
 import { drawHUD } from './hud.js';
 import { drawOverview } from './overview.js';
-import { beginFrame, chunkCanvas, paintItem, paintMachine } from './paint.js';
+import { beginFrame, chunkCanvas, effChargeAt, effHardAt, paintItem, paintMachine } from './paint.js';
 
 const INK = {
   void:   colour('abyC'),
@@ -61,7 +62,12 @@ const INK = {
   heat:   colour('hot'),
   grid:   colour('watB'),
   chunk:  '#ff7fd0',
-  fog:    colour('abyA')
+  fog:    colour('abyA'),
+  /* A worked-out deposit: pale rock dust over the ore's own colour, and a
+     dark notch where each unit came out. See `drawDepletion`. */
+  dust:   colour('limeC'),
+  pit:    colour('abyA'),
+  pitLip: colour('limeD')
 };
 
 export const stats = { chunksDrawn: 0, bandsDrawn: 0 };
@@ -96,6 +102,12 @@ export function render(g, f) {
     drawChunks(g, b, cam, W, H);
   }
 
+  /* Terrain paint, so it runs with the terrain: a machine, an item or the
+     player standing in front of a worked-out vein must cover the cue, and
+     darkness and fog (both later) must dim and hide it exactly as they do the
+     rock it sits on. */
+  drawDepletion(g, f);
+
   for (const m of machines)
     paintMachine(g, m, (m.box.x - cam.x) | 0, (m.box.y - cam.y) | 0, f.t);
 
@@ -116,6 +128,25 @@ export function render(g, f) {
 const visible = (b, cam, W, H) =>
   b.origin.x < cam.x + W && b.origin.x + widthPx(b) > cam.x &&
   b.origin.y < cam.y + H && b.origin.y + heightPx(b) > cam.y;
+
+/* THE VISIBLE TILE RANGE OF ONE BAND, half-open, clamped to its own grid.
+   Four passes below walk it -- depletion, fields, darkness, fog -- because
+   none of them can go through the chunk cache (each renders a LIVE condition
+   over a canvas that caches only the static rock). Each used to carry its own
+   copy of this arithmetic, three of them commented as being "the identical
+   tile-range math" one of the others uses; a clamp that is wrong is now wrong
+   in one place. `visible()` above stays the cheaper FIRST test at every call
+   site: an off-screen band should cost one rectangle compare, not four
+   divisions and a loop that immediately does not run. */
+function tileWindow(b, cam, W, H) {
+  const t = b.tile;
+  return {
+    x0: Math.max(0, Math.floor((cam.x - b.origin.x) / t)),
+    x1: Math.min(b.tw, Math.ceil((cam.x + W - b.origin.x) / t)),
+    y0: Math.max(0, Math.floor((cam.y - b.origin.y) / t)),
+    y1: Math.min(b.th, Math.ceil((cam.y + H - b.origin.y) / t))
+  };
+}
 
 /* ---------- sky ----------
    A band's `look.sky` is the colour above its ground line and `look.tint` is
@@ -300,6 +331,125 @@ function drawChunks(g, b, cam, W, H) {
     }
 }
 
+/* ---------- depletion ----------
+   HOW SPENT A DEPOSIT IS (Phase 14c, docs/PLAN-phase14-mining-and-drops.md
+   D14-G). Since Phase 14b a `deposit` tile yields `tile.charge` units before
+   it is gone, so a copper wall you have half worked looks exactly like a fresh
+   one -- you have to swing at a tile to find out whether there is anything
+   left in it. This pass is the answer.
+
+   IT IS AN OVERLAY AND NOT A CHUNK BAKE, for the reason
+   `model/world.js`'s own band record states twice, once for `seen` and once
+   for `light`: A CHUNK CANVAS CACHES THE STATIC ROCK TEXTURE, and depletion is
+   a LIVE condition. `model/mining.js#write.add` bumps the epoch and never a
+   chunk version, so a cue painted in `paintTile` would only ever be as fresh
+   as the last time something else in that chunk happened to invalidate it --
+   i.e. it would show what was true several swings ago, which is worse than
+   showing nothing. (That is not a hypothesis: it is exactly what the crack
+   marks in the bake do today, parked with a repro in docs/FINDINGS.md.)
+
+   TWO CUES, BECAUSE ONE OF THEM ALWAYS READS BADLY SOMEWHERE. A pale wash
+   alone is nearly invisible on granite (already a light grey) and a dark notch
+   alone is nearly invisible on adamant (already near-black), so a spent tile
+   gets both: the wash carries the read on the dark rows, the notches carry it
+   on the light ones, and on copper -- warm mid-tone with a bright `glint` --
+   both land. NO SUBSTANCE NAME IS INVOLVED (this file, like `view/paint.js`,
+   names none): the cue is keyed on `charge`, so any future deposit row gets it
+   for free and nothing else gets it at all.
+
+   The wash also does the thing D14-G asks for without having to know how the
+   glint was drawn: a `glint` pip is one bright pixel baked into the chunk, and
+   pale dust laid over the tile MUTES every pip in it at once. Reproducing
+   `view/treatments.js#glint`'s own pip coordinates here to over-paint them one
+   by one was the first design and was rejected -- it is a second copy of a
+   positional formula, and the two would drift the first time either changed.
+
+   QUANTISED PER UNIT, not continuous: `spent / charge`, so the wash steps
+   visibly the instant a unit falls out and holds still while the next one is
+   being worked. Same argument `drawDarkness` below makes for its three fixed
+   alpha steps, and the fractional remainder is deliberately not drawn here at
+   all -- that is the crack's job (`view/paint.js#paintTile`, `unitProgressAt`).
+
+   NO `rand()` AND NO MODEL WRITE (invariants 7 and 9). Notch positions come
+   from `hash2` of the tile's own coordinates, so they sit still between frames
+   and two draws of one frame are identical; the only model calls are
+   `workAt` / `progressAt` and the two `view/paint.js` helpers, all reads.
+
+   READS `model/mining.js` AND, THROUGH `view/paint.js`, `model/tiles.js`.
+   D14-G names those two modules and no others. The hardness and charge
+   helpers live in `paint.js` rather than being inlined twice because the crack
+   in the bake and the cue here must never disagree about which numbers the
+   rule mined the tile by -- see `effHardAt` / `effChargeAt` there. A
+   same-layer `view -> view` import is legal and this file already had one. */
+
+/* Alpha of the dust wash when a tile is one unit short of gone. Scaled by
+   `spent / charge` below, so a charge-4 copper tile washes at 0.11 / 0.22 /
+   0.33 over its three visible steps and never reaches this value -- the tile
+   at full wash is the tile that has already broken. */
+const DUST_MAX = 0.44;
+
+function drawDepletion(g, f) {
+  const { cam, W, H } = f;
+  for (const b of bands) {
+    if (!visible(b, cam, W, H)) continue;
+    const t = b.tile;
+    const { x0, x1, y0, y1 } = tileWindow(b, cam, W, H);
+
+    for (let ty = y0; ty < y1; ty++)
+      for (let tx = x0; tx < x1; tx++) {
+        /* THE CULL IS A MAP LOOKUP, and it is the cheapest one available: a
+           tile with no accumulated work cannot be spent, whatever it is made
+           of, and `dig.work` holds an entry only for tiles something has
+           actually hit. So the substance lookups and the `eff()` call below
+           are paid for a handful of tiles per frame rather than for the four
+           thousand a viewport holds. */
+        if (workAt(b, tx, ty) <= 0) continue;
+
+        const charge = effChargeAt(b, tx, ty);
+        if (charge <= 1) continue;                  // not a deposit: nothing to spend
+        const d = progressAt(b, tx, ty, effHardAt(b, tx, ty), charge);
+        /* UNITS ALREADY OUT OF THE GROUND, derived from the same 0..1 read
+           D14-G names rather than from a second division, and FLOORED WITH NO
+           EPSILON so it can never claim a unit the rule has not actually
+           dropped: `progressAt` is `work / (hard * charge)`, so `d * charge`
+           lands within an ulp of `rules/mining.js`'s own
+           `Math.floor(work / hard)` and errs low rather than high. A tile
+           sitting exactly ON a unit boundary is measure-zero -- work
+           accumulates in `dt * pickPower` increments -- and being one frame
+           late with the cue is invisible where being one unit early would be
+           a lie.
+
+           Capped one short of `charge` for the same reason
+           `model/mining.js#unitsCrossed` caps itself there: the last unit IS
+           the break, and a tile at full charge is a tile that no longer
+           exists. Without the cap the single frame between "work reached
+           total" and "the rule cleared the tile" would flash a fully spent
+           tile. */
+        const spent = Math.min(charge - 1, Math.floor(d * charge));
+        if (spent < 1) continue;
+
+        const sx = b.origin.x + tx * t - cam.x, sy = b.origin.y + ty * t - cam.y;
+
+        g.globalAlpha = DUST_MAX * spent / charge;
+        R(g, sx, sy, t, t, INK.dust);
+        g.globalAlpha = 1;
+
+        /* ONE NOTCH PER UNIT TAKEN OUT. 2x2 with a lit lower lip, because
+           `core/pixels.js#LIGHT` comes from above and the floor of a hollow is
+           the part of it that catches light -- the same one declaration
+           `view/paint.js`'s top faces and cliff faces read. Inset by a pixel
+           so a notch never touches the tile edge and reads as a bite out of
+           the seam instead. */
+        for (let k = 0; k < spent; k++) {
+          const nx = 1 + ((hash2(tx * 17 + k * 31, ty * 13 + 5) * (t - 3)) | 0);
+          const ny = 1 + ((hash2(ty * 17 + k * 31, tx * 13 + 9) * (t - 3)) | 0);
+          R(g, sx + nx, sy + ny, 2, 2, INK.pit);
+          R(g, sx + nx, sy + ny + 2, 2, 1, INK.pitLip);
+        }
+      }
+  }
+}
+
 /* ---------- entities ---------- */
 function drawItems(g, f) {
   const { cam, W, H } = f;
@@ -356,10 +506,7 @@ function drawFields(g, f) {
     for (const name of FIELDS) {
       if (!hasField(b, name)) continue;
       const t = b.tile;
-      const x0 = Math.max(0, Math.floor((cam.x - b.origin.x) / t));
-      const x1 = Math.min(b.tw, Math.ceil((cam.x + W - b.origin.x) / t));
-      const y0 = Math.max(0, Math.floor((cam.y - b.origin.y) / t));
-      const y1 = Math.min(b.th, Math.ceil((cam.y + H - b.origin.y) / t));
+      const { x0, x1, y0, y1 } = tileWindow(b, cam, W, H);
       for (let ty = y0; ty < y1; ty++)
         for (let tx = x0; tx < x1; tx++) {
           const v = fieldAt(b, name, tx, ty);
@@ -418,10 +565,7 @@ function drawDarkness(g, f) {
   for (const b of bands) {
     if (!visible(b, cam, W, H)) continue;
     const t = b.tile;
-    const x0 = Math.max(0, Math.floor((cam.x - b.origin.x) / t));
-    const x1 = Math.min(b.tw, Math.ceil((cam.x + W - b.origin.x) / t));
-    const y0 = Math.max(0, Math.floor((cam.y - b.origin.y) / t));
-    const y1 = Math.min(b.th, Math.ceil((cam.y + H - b.origin.y) / t));
+    const { x0, x1, y0, y1 } = tileWindow(b, cam, W, H);
 
     for (let ty = y0; ty < y1; ty++) {
       let run = -1, cur = -1;
@@ -453,9 +597,9 @@ function drawDarkness(g, f) {
    and `view` importing a `write` namespace at all is exactly what the
    epoch-unchanged-across-a-render check exists to catch.
 
-   VIEWPORT-CULLED with the identical tile-range math `drawFields` uses two
-   functions up, and RUN-MERGED: a freshly spawned band the player has barely
-   explored is otherwise dozens of 8 px squares wide per row, so this walks
+   VIEWPORT-CULLED through the shared `tileWindow` every live tile pass uses,
+   and RUN-MERGED: a freshly spawned band the player has barely explored is
+   otherwise dozens of 8 px squares wide per row, so this walks
    each row once and paints one wide rect per contiguous run of unseen tiles
    instead. `tx <= x1` (not `<`) walks one extra "virtual" column past the
    visible edge purely as a sentinel that is never itself drawn (`hidden` is
@@ -466,10 +610,7 @@ function drawFog(g, f) {
   for (const b of bands) {
     if (!visible(b, cam, W, H)) continue;
     const t = b.tile;
-    const x0 = Math.max(0, Math.floor((cam.x - b.origin.x) / t));
-    const x1 = Math.min(b.tw, Math.ceil((cam.x + W - b.origin.x) / t));
-    const y0 = Math.max(0, Math.floor((cam.y - b.origin.y) / t));
-    const y1 = Math.min(b.th, Math.ceil((cam.y + H - b.origin.y) / t));
+    const { x0, x1, y0, y1 } = tileWindow(b, cam, W, H);
 
     for (let ty = y0; ty < y1; ty++) {
       let run = -1;

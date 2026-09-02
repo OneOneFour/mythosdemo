@@ -1036,12 +1036,12 @@ digging cannot stack forty bakes into one frame (`view/paint.js:41`).
 `view/scene.js#render` composes the passes and owns nothing but their order:
 
 ```
-void → per band (sky, chunks) → machines → items → player → chips
+void → per band (sky, chunks) → depletion → machines → items → player → chips
      → field overlay → darkness → fog of war → atmosphere → debug → HUD
 ```
 
 The governing rule: **anything that reads as lighting comes after everything it
-lights.** Three specific constraints fall out of it, and each is easy to break:
+lights.** Four specific constraints fall out of it, and each is easy to break:
 
 1. **Fog draws after the field overlay**, not merely near it. Fog hides a tile
    *regardless of what is actually there*, and a heat glow is one more thing
@@ -1053,6 +1053,20 @@ lights.** Three specific constraints fall out of it, and each is easy to break:
    because it composites with `'lighter'` and would add light straight *through*
    an opaque fog rect. An active furnace behind fog must not out itself by
    lighting the fog from within (`view/scene.js:452`).
+4. **The depletion cue runs with the terrain, not with the overlays.** It is
+   paint on a rock tile, so a machine, an item or the player standing in front
+   of a worked-out vein must cover it, and darkness and fog must dim and hide
+   it exactly as they do the rock underneath.
+
+`drawDepletion` is why a part-spent deposit reads as part-spent (Phase 14c,
+D14-G). It cannot be baked into the chunk canvas for the same reason `seen` and
+`light` cannot: **the bake caches the static rock texture, and depletion is a
+live condition.** `model/mining.js#write.add` bumps the epoch and never a chunk
+version, so a cue drawn in `paintTile` would show what was true several swings
+ago — which is exactly what the *crack* marks in the bake do today, a real
+pre-existing bug with a browser-verified repro in `docs/FINDINGS.md` (14c #1).
+Four live tile passes — depletion, fields, darkness, fog — therefore share one
+viewport cull, `view/scene.js#tileWindow`.
 
 `seen` and `light` are **two different facts**: `seen` is memory (permanent,
 one-way, `rules/reveal.js` owns it); `light` is a current condition that goes
