@@ -49,7 +49,11 @@ test('surface band at spawn', async ({ page }) => {
 test('walking right', async ({ page }) => {
   await boot(page);
   await settle(page);
-  await page.evaluate(() => __mf.hold({ right: 1 }, 240));
+  /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now -- `collect`
+     held alongside `right` sweeps up the boot-placed stock pickaxe the
+     walk passes over, the same always-collecting scene this baseline has
+     always shown. */
+  await page.evaluate(() => __mf.hold({ right: 1, collect: 1 }, 240));
   await shot(page, 'surface-walk.png');
 });
 
@@ -61,10 +65,14 @@ test('digging down into topsoil', async ({ page }) => {
        walk over it first, or `hasPick()` is false and digging is a no-op.
        `right` is a held key, not edge-triggered, so it must be released
        explicitly or the player keeps drifting through the whole dig and no
-       single tile ever accumulates enough work to break. */
-    __mf.hold({ right: 1 }, 90);
+       single tile ever accumulates enough work to break. Phase 12b
+       (docs/PLAN-phase12.md): pickup is opt-in now -- `collect` held
+       alongside covers both the walk-over (so the pickaxe is actually
+       pocketed and `hasPick()` reads true) and the dig itself, the same
+       always-collecting scene this baseline has always shown. */
+    __mf.hold({ right: 1, collect: 1 }, 90);
     __mf.cmd.right = false;
-    __mf.hold({ dig: 1, down: 1 }, 900);
+    __mf.hold({ dig: 1, down: 1, collect: 1 }, 900);
     __mf.frames(120);
   });
   await shot(page, 'digging.png');
@@ -90,6 +98,12 @@ test('digging straight down: no drift, monotonic depth, correct drops', async ({
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now, not automatic
+       -- this test's whole point is what falls, not the collect gate, so
+       restore the old always-on magnet for it rather than holding 'c'
+       through a loop keyed on `__mf.aim`. */
+    const { toggleAutoCollect } = await import('/src/shell/ui.js');
+    toggleAutoCollect();
 
     const band = bandOf('topsoil');
     const tx = 40, ty = 100, DEPTH = 8;
@@ -532,7 +546,11 @@ test('holding the hand-craft key smelts ore into an ingot, spending exactly its 
       ingot: invCount(S.copper, F.ingot)
     };
 
-    __mf.hold({ craft: 1 }, 500);
+    /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now, not automatic
+       -- `collect` held alongside `craft` here is `cmd.collect`, the same
+       HOLD key covers, so the output still lands in the pockets over the
+       following wait exactly as it always has. */
+    __mf.hold({ craft: 1, collect: 1 }, 500);
     __mf.frames(120);
 
     const after = {
@@ -1300,15 +1318,23 @@ test('the Character tab', async ({ page }) => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { write: rw } = await import('/src/model/run.js');
-    const { open, setTab } = await import('/src/shell/ui.js');
-    const { grant, equipFirst, step: trinketStep } = await import('/src/rules/trinkets.js');
+    const { open, setTab, toggleAutoCollect } = await import('/src/shell/ui.js');
+    const { grant, step: trinketStep } = await import('/src/rules/trinkets.js');
     const { banner } = await import('/src/view/fx.js');
 
     rw.collect(S.copper, F.ore, 5);
     rw.collect(S.timber, F.log, 3);
     grant('bellows');
+    /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now, not automatic
+       -- restore the old magnet for the wait below, the same way `digging
+       straight down...` above does. */
+    toggleAutoCollect();
     __mf.frames(200);          // let the drafted relic fall and land in the pockets
-    equipFirst();
+    /* Equip into the first slot directly -- Phase 12b retires
+       `rules/trinkets.js#equipFirst` (the 'p' key's own primitive,
+       superseded by drag-to-equip); `model/run.js#write.equip` is the same
+       model write that real path already calls. */
+    rw.equip(0, S.bellows);
     trinketStep();             // sync model/mods.js so the resolved deltas actually show
 
     open('main');
@@ -1381,7 +1407,13 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
     const { F } = await import('/src/data/forms.js');
     const { invCount } = await import('/src/model/run.js');
     const { bandOf } = await import('/src/model/world.js');
+    const { toggleAutoCollect } = await import('/src/shell/ui.js');
     __mf.revealAll(bandOf('surface'));
+    /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now, not automatic
+       -- this flow's own point is craft -> place -> feed -> smelt, not the
+       collect gate, so restore the old magnet for the whole scene rather
+       than holding 'c' through two separate waits below. */
+    toggleAutoCollect();
     /* "mine 12 copper ore" is stood in for by `give` -- the flow's own point
        is the chain (craft -> place -> feed -> smelt), not the mining grind.
        A furnace is CRAFTED (`data/recipes.js#furnace`: 12 copper/ore + 6
@@ -1469,9 +1501,11 @@ test('craft peg rungs by hand, place a brazier in a dark room, and the strata be
     const { write: tw } = await import('/src/model/tiles.js');
     const { placeMachine } = await import('/src/rules/placement.js');
 
-    /* Peg rungs BY HAND -- the real hand-craft key, not a grant. */
+    /* Peg rungs BY HAND -- the real hand-craft key, not a grant. Phase 12b
+       (docs/PLAN-phase12.md): pickup is opt-in now -- `collect` held
+       alongside `craft` covers the wait below too. */
     __mf.give(S.timber, F.log, 2);
-    __mf.hold({ craft: 1 }, 300);
+    __mf.hold({ craft: 1, collect: 1 }, 300);
     __mf.cmd.craft = false;             // release the key -- `hold` only auto-releases hop/place
     __mf.frames(60);
     const rungsHeld = invCount(S.timber, F.rung);
@@ -1590,8 +1624,12 @@ test('opening the GUI, shift-clicking a recipe queues 5, and ticking drains them
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { invCount } = await import('/src/model/run.js');
-    const { open, setTab } = await import('/src/shell/ui.js');
+    const { open, setTab, toggleAutoCollect } = await import('/src/shell/ui.js');
 
+    /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now, not automatic
+       -- this flow's own point is the craft queue draining, not the collect
+       gate, so restore the old magnet for the wait below. */
+    toggleAutoCollect();
     __mf.give(S.timber, F.log, 20);      // 5 runs of peg_rungs (2 logs each)
     open('main');
     setTab('main', 'craft');
@@ -2133,7 +2171,9 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
     write.grant('furnace');
     __mf.give(S.copper, F.ore, 12);
     __mf.give(S.timber, F.log, 6);
-    __mf.hold({ craft: 1 }, 1000);      // > 8.0s, `data/recipes.js#furnace`'s own secs
+    /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now -- `collect`
+       held alongside `craft` covers the wait below too. */
+    __mf.hold({ craft: 1, collect: 1 }, 1000);      // > 8.0s, `data/recipes.js#furnace`'s own secs
     __mf.cmd.craft = false;             // release the key -- `hold` only auto-releases hop/place
     __mf.frames(150);                   // let the crafted item fall and clear the pickup-magnet delay
     return { rig: invCount(S.furnace, F.rig) };
@@ -2226,7 +2266,9 @@ test('click-to-arm: dig down, then place the dropped gravel back into the exact 
 
   await page.evaluate(() => { __mf.cmd.hasMouse = false; });
   await page.evaluate(() => { __mf.hold({ right: 1 }, 6); __mf.cmd.right = false; });   // face right, toward the hole
-  await page.evaluate(() => __mf.hold({ dig: 1 }, 400));   // soil hard=0.50s, comfortably past it
+  /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now -- `collect`
+     held alongside `dig` covers the wait below too. */
+  await page.evaluate(() => __mf.hold({ dig: 1, collect: 1 }, 400));   // soil hard=0.50s, comfortably past it
   await page.evaluate(() => { __mf.cmd.dig = false; });    // `dig` is held, not edge-triggered -- release it
   await page.evaluate(() => __mf.frames(150));             // let the dropped gravel fall and clear the pickup-magnet delay
 
@@ -2332,7 +2374,13 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
      a loose world item, and `view/hover.js`'s own priority (a falling item
      beats a machine) would have it win every hover check below the moment it
      falls within the furnace's own generous hover radius. */
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
+    /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now, not automatic
+       -- restore the old magnet for the whole scene, both for the walk-over
+       just below and for the deconstruct refund at the very end of this
+       test, rather than holding 'c' through two separate windows. */
+    const { toggleAutoCollect } = await import('/src/shell/ui.js');
+    toggleAutoCollect();
     __mf.cmd.hasMouse = false;
     __mf.hold({ right: 1 }, 90);
     __mf.cmd.right = false;
@@ -3089,9 +3137,16 @@ async function driveScene(page, spec) {
     const { write: segw, linkCheck, segments, carrierPos, carrierTop } =
       await import('/src/model/segments.js');
     const { bandOf, worldX, worldY, write: ww } = await import('/src/model/world.js');
-    const { clearLink } = await import('/src/shell/ui.js');
+    const { clearLink, toggleAutoCollect } = await import('/src/shell/ui.js');
     const { banner } = await import('/src/view/fx.js');
     const { VIEW } = await import('/src/core/canvas.js');
+
+    /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now, not automatic
+       -- restore the old magnet for every scene this helper builds, so the
+       boot-placed stock pickaxe near spawn (`shell/boot.js`) is swept up as
+       it always was rather than sitting as incidental clutter a teleported
+       player happens to land near. None of these scenes are about pickup. */
+    toggleAutoCollect();
 
     const main = bandOf(spec.band || 'surface');
     const rooms = spec.rooms || [{ band: spec.band || 'surface', ...spec.room }];
