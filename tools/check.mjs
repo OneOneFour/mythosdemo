@@ -2576,6 +2576,200 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
        `with the ghost vs ${noGhost} without)`);
 }
 
+/* --- NO SECOND COLLISION MODEL (invariant 1: the tile grid is the only source
+   of truth for terrain). A carrier holds the player and its cargo up, and it
+   does it through `model/segments.js#carrierUnder` -- a MODEL QUERY, exactly
+   the way `model/tiles.js#climbAt` answers the ladder branch. The failure this
+   guards against is the obvious shortcut: writing a solid tile under the deck
+   so the existing collision code holds the player up for free. That works
+   immediately and is wrong permanently -- it would leave rock behind wherever a
+   carrier had been, and `rules/belts.js` already leans on machines not being
+   solid.
+
+   FOUR ASSERTIONS, and the third is the one that would catch the shortcut:
+
+     1. a rider is HELD UP WITH NOTHING SOLID UNDER THEM: `onGround` true while
+        every tile under their feet reads `solidAt` false. Both halves, because
+        either alone is satisfiable by a bug (falling through, or standing on
+        rock).
+     2. the carrier's own tiles are all non-solid, at every position it visits.
+     3. NOT ONE BYTE OF ANY BAND'S `mat` CHANGES across linking a cable, moving
+        a carrier, loading it, and 120 substeps of a rider descending on it.
+        Checksummed over all three bands with the same rolling hash the
+        determinism probe uses.
+     4. cargo aboard is resting on air too -- a carrier is not a floor for
+        items either. --- */
+{
+  let bad = 0;
+  const matSum = () => world.bands.map(b => sumBytes(b.mat)).join('/');
+
+  /* The claim at its smallest first: the model writes that CREATE transport
+     touch no terrain at all. */
+  {
+    boot.newRun(8960);
+    const band = world.bandOf('topsoil');
+    for (let ty = 100; ty <= 118; ty++)
+      for (let tx = 18; tx <= 29; tx++) tiles.write.clear(band, tx, ty);
+    const lo = machs.write.place(band, D_mach.M.hub, 20, 115);
+    const hi = machs.write.place(band, D_mach.M.hub, 20, 105);
+    const before = matSum();
+    const seg = segs.write.link(lo, hi);
+    segs.write.carrier(seg, 0.5, -1);
+    segs.write.load(seg, 30);
+    if (matSum() !== before) {
+      fail('NO SECOND COLLISION MODEL: linking a cable, moving its carrier and loading it CHANGED a ' +
+           'band\'s mat array -- transport must never write terrain (invariant 1)');
+      bad++;
+    }
+  }
+
+  const r = driveRig({
+    seed: 8961, reachMul: 2, room: { ty0: 96, h: 22 },
+    machines: [['hub', 20, 115], ['hub', 20, 100], ['crank', 19, 115]],
+    links: [[0, 1]], carriers: [[0, 0.6]], ride: 0, cargo: [[0, 'copper', 'ore', 2]]
+  });
+  const band = r.band;
+  const before = matSum();
+
+  /* Every tile the box touches, at every carrier position visited. */
+  const tilesOf = box => {
+    const out = [];
+    for (let ty = world.tileY(band, box.y); ty <= world.tileY(band, box.y + box.h); ty++)
+      for (let tx = world.tileX(band, box.x); tx <= world.tileX(band, box.x + box.w); tx++)
+        out.push([tx, ty]);
+    return out;
+  };
+
+  let solidUnderRider = 0, solidInCarrier = 0, notRiding = 0, floating = 0, sampled = 0;
+  for (let i = 0; i < 120; i++) {
+    stepReal(1 / 120, { hasMouse: false });
+    if (i % 10) continue;
+    sampled++;
+    if (!segs.riddenSegment()) { notRiding++; continue; }
+    if (!player.player.onGround) floating++;
+    const pb = player.playerBox();
+    /* The row of tiles the feet are IN and the row just below it: a rider held
+       up by rock would have one of those solid. */
+    const feetTy = world.tileY(band, pb.y + pb.h + 1);
+    for (let tx = world.tileX(band, pb.x); tx <= world.tileX(band, pb.x + pb.w); tx++)
+      if (tiles.solidAt(band, tx, feetTy)) solidUnderRider++;
+    for (const [tx, ty] of tilesOf(segs.carrierBox(r.seg)))
+      if (tiles.solidAt(band, tx, ty)) solidInCarrier++;
+  }
+
+  if (notRiding) {
+    fail(`NO SECOND COLLISION MODEL: the player was not riding on ${notRiding} of ${sampled} sampled ` +
+         `substeps -- the rig is not testing a ride`);
+    bad++;
+  }
+  if (floating) {
+    fail(`NO SECOND COLLISION MODEL: a rider read onGround false on ${floating} of ${sampled} sampled ` +
+         `substeps -- a carrier must hold the player up like ground does`);
+    bad++;
+  }
+  if (solidUnderRider) {
+    fail(`NO SECOND COLLISION MODEL: ${solidUnderRider} solid tile(s) found under a rider's feet -- a ` +
+         `carrier is holding the player up by WRITING TERRAIN, which is invariant 1 exactly`);
+    bad++;
+  }
+  if (solidInCarrier) {
+    fail(`NO SECOND COLLISION MODEL: ${solidInCarrier} tile(s) inside the carrier's own box read solid`);
+    bad++;
+  }
+  const aboard = items.items.filter(it => it.band === band);
+  const restingOnRock = aboard.filter(it =>
+    tiles.solidAt(band, world.tileX(band, it.x), world.tileY(band, it.y + 2))).length;
+  if (aboard.length === 0) {
+    fail('NO SECOND COLLISION MODEL: no cargo survived aboard the carrier, so assertion 4 tested nothing');
+    bad++;
+  } else if (restingOnRock) {
+    fail(`NO SECOND COLLISION MODEL: ${restingOnRock} of ${aboard.length} item(s) aboard the carrier are ` +
+         `resting on a solid tile -- a carrier is not a floor for items either`);
+    bad++;
+  }
+  if (matSum() !== before) {
+    fail('NO SECOND COLLISION MODEL: a band\'s mat array changed over 120 substeps of a rider descending ' +
+         'on a carrier -- transport is writing terrain');
+    bad++;
+  }
+  if (!bad)
+    ok(`NO SECOND COLLISION MODEL: over ${sampled} sampled substeps of a descending ride, the rider is ` +
+       `onGround with no solid tile under their feet, the carrier's own ${tilesOf(segs.carrierBox(r.seg)).length} ` +
+       `tiles are all air, ${aboard.length} item(s) ride on air, and not one byte of any band's mat changed`);
+}
+
+/* --- A SEGMENT EMITS NO LIGHT UNLESS A ROW SAYS SO. Phase 8b owns the
+   glow/light separation and this does not duplicate it; what it adds is the
+   transport-specific half: a cable, a carrier and a bucket chain are drawn
+   objects, and `rules/light.js` builds its emitter list from machine rows
+   carrying a `light:{}` block. A segment is not a machine at all (D10), so it
+   has no row and can have no block -- but "cannot" is a claim about today's
+   data, so it is asserted twice: structurally over the four transport rows,
+   and live in a sealed chamber.
+
+   WITH A POSITIVE CONTROL, because "everything underground reads 0" would pass
+   the live half by itself: the same sealed chamber, with a `hearth` (whose row
+   DOES say so -- `light:{ level:'max' }`) placed in it, must read lit. --- */
+{
+  let bad = 0;
+
+  for (const id of ['hub', 'crank', 'gear', 'axle']) {
+    const def = D_mach.MACH[D_mach.M[id]];
+    if (def.light) {
+      fail(`SEGMENT LIGHT: the ${id} row carries a light:{} block (${JSON.stringify(def.light)}). That is ` +
+           `legal -- it is what "unless a row says so" means -- but the live assertion below assumes no ` +
+           `transport row emits, so update it deliberately rather than deleting it`);
+      bad++;
+    }
+  }
+
+  boot.newRun(8970);
+  const band = world.bandOf('topsoil');
+  const tx0 = 40, ty0 = 220, w = 12, h = 12;
+  for (let ty = ty0; ty < ty0 + h; ty++) for (let tx = tx0; tx < tx0 + w; tx++) tiles.write.clear(band, tx, ty);
+  for (let tx = tx0 - 1; tx <= tx0 + w; tx++) {
+    tiles.write.set(band, tx, ty0 - 1, D_sub.S.stone);
+    tiles.write.set(band, tx, ty0 + h, D_sub.S.stone);
+  }
+  for (let ty = ty0 - 1; ty <= ty0 + h; ty++) {
+    tiles.write.set(band, tx0 - 1, ty, D_sub.S.stone);
+    tiles.write.set(band, tx0 + w, ty, D_sub.S.stone);
+  }
+  const lo = machs.write.place(band, D_mach.M.hub, tx0 + 4, ty0 + 9);
+  const hi = machs.write.place(band, D_mach.M.hub, tx0 + 4, ty0 + 1);
+  machs.write.place(band, D_mach.M.crank, tx0 + 3, ty0 + 9);
+  const seg = segs.write.link(lo, hi);
+  segs.write.carrier(seg, 0.5, 0);
+  runReal(20, 1 / 120, { hasMouse: false });
+
+  const litOnCable = [];
+  for (let k = 0; k <= 16; k++) {
+    const f = k / 16;
+    const x = mixTo(seg.ax, seg.bx, f), y = mixTo(seg.ay, seg.by, f);
+    const tx = world.tileX(band, x), ty = world.tileY(band, y);
+    if (world.lightAt(band, tx, ty) !== 0) litOnCable.push(`(${tx},${ty})=${world.lightAt(band, tx, ty)}`);
+  }
+  if (litOnCable.length) {
+    fail(`SEGMENT LIGHT: a cable, its carrier and two hubs lit ${litOnCable.length} tile(s) of a sealed ` +
+         `unlit chamber [${litOnCable.slice(0, 4).join(' ')}] -- no transport row declares a light:{} ` +
+         `block, so none of it may emit`);
+    bad++;
+  }
+
+  /* The control. Same chamber, one row that DOES say so. */
+  const hearth = machs.write.place(band, D_mach.M.hearth, tx0 + 8, ty0 + 9);
+  runReal(20, 1 / 120, { hasMouse: false });
+  const control = world.lightAt(band, hearth.tx, hearth.ty);
+  if (!(control > 0)) {
+    fail(`SEGMENT LIGHT: the control failed -- a hearth (light:{level:'max'}) in the same sealed chamber ` +
+         `reads ${control}, so "the cable is dark" was a fact about the probe, not about the cable`);
+    bad++;
+  }
+  if (!bad)
+    ok(`SEGMENT LIGHT: no transport row carries a light:{} block, and a cable with a carrier on it lights ` +
+       `nothing in a sealed chamber where a hearth reads ${control}`);
+}
+
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +
             `journal ${journal.peek ? journal.peek().length : 0} undrained`);
