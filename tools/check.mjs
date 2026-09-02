@@ -215,9 +215,27 @@ function snapshotModel() {
       vx: +it.vx.toFixed(3), vy: +it.vy.toFixed(3), sub: it.sub, form: it.form, rest: it.rest
     })),
     mining: mining.activeCount(),
+    /* `torque` and `turn` are in here for invariant 8's sake as much as for
+       determinism's: they are the two fields `rules/drive.js` writes on a
+       machine record every frame, and a `turn` phase that survived a restart
+       would be a gear that remembers how far it had been cranked in the
+       previous run. */
     machines: machs.machines.map(m => ({
       def: m.def, tx: m.tx, ty: m.ty, buf: { ...m.buf }, prog: +m.prog.toFixed(4),
-      made: m.made, charges: m.charges, running: m.running
+      made: m.made, charges: m.charges, running: m.running,
+      torque: +m.torque.toFixed(6), turn: +m.turn.toFixed(6)
+    })),
+    /* SEGMENTS ARE STATE AND THEREFORE FINGERPRINTED, and the two hub RECORDS
+       are recorded as their index in `machs.machines` -- an identity, flattened
+       to something JSON can compare, without pulling the whole machine in
+       twice. A segment surviving `newRun()` is precisely the determinism bug
+       invariant 8 exists to name, and until this line existed neither the
+       determinism probe nor the reset probe could see one. */
+    segments: segs.segments.map(s => ({
+      a: machs.machines.indexOf(s.a), b: machs.machines.indexOf(s.b),
+      ax: s.ax, ay: s.ay, bx: s.bx, by: s.by,
+      len: +s.len.toFixed(4), slope: +s.slope.toFixed(6), hi: s.hi,
+      t: +s.t.toFixed(6), dir: s.dir, load: +s.load.toFixed(4), band: s.band?.id ?? null
     })),
     mods: mods.mods.rows.map(r => ({ src: r.src, key: r.key, mul: r.mul, add: r.add })),
     boons: modelBoons.boons.active.map(a => ({ id: a.id, left: +a.left.toFixed(4) })),
@@ -235,16 +253,77 @@ function snapshotModel() {
    restarts on the SAME seed rather than stopping, so the script always runs
    its full length and two calls with the same (seed, steps) are directly
    comparable. */
+/* THE SCRIPT NOW BUILDS A DRIVETRAIN AND CRANKS IT, because a fingerprint over
+   `segments` and `m.torque` proves nothing about a mechanic the script never
+   touches. `scriptRig` plants two hubs and a crank beside the player's own
+   spawn tile, carves the span clear, and links it; the intent stream gains a
+   `turn` hold at 40%, so the player wanders in and out of the crank's 12 px
+   reach and the carrier rises, stalls and sinks all through the run.
+
+   WHY THE LINK INTENT IS A DIRECT `rules` CALL and not `cmd.link`: see the
+   `R_place` import's own comment. `shell/main.js`'s link branch needs
+   `aim.valid`, which needs a pointer.
+
+   `scriptStats` is how the section below proves this is not vacuous. A script
+   that quietly failed to build its rig would still produce two identical
+   fingerprints and tell nobody. */
+const scriptStats = { turned: 0, moved: 0, links: 0, cuts: 0 };
+
+function scriptRig() {
+  const band = player.player.band;
+  if (!band) return null;
+  const ptx = world.tileX(band, player.player.x), pty = world.tileY(band, player.player.y);
+  for (let ty = pty - 12; ty <= pty + 1; ty++)
+    for (let tx = ptx + 1; tx <= ptx + 4; tx++) tiles.write.clear(band, tx, ty);
+  const lo = machs.write.place(band, D_mach.M.hub, ptx + 2, pty - 1);
+  const hi = machs.write.place(band, D_mach.M.hub, ptx + 2, pty - 10);
+  machs.write.place(band, D_mach.M.crank, ptx + 1, pty - 1);
+  scriptLink(lo, hi);
+  return { lo, hi };
+}
+
+/* LINK, THEN PARK THE CARRIER MID-CABLE rather than at the low end a fresh
+   link puts it at. A carrier already at the bottom only moves while the crank
+   is in reach, which over a wandering script is a couple of pixels; parked at
+   0.6 it descends 43 px under its own weight from the first substep, so the
+   fingerprint covers real motion whether or not the player happens to be
+   standing at the handle. Every relink re-arms it the same way, so the script
+   accumulates hundreds of pixels of travel rather than one cable's worth. */
+function scriptLink(lo, hi) {
+  const seg = R_place.linkSegment(lo, hi);
+  if (seg) segs.write.carrier(seg, 0.6, 0);
+  return seg;
+}
+
 function scriptedPlay(seed, steps) {
   boot.newRun(seed);
+  let rig = scriptRig();
+  scriptStats.turned = scriptStats.moved = scriptStats.links = scriptStats.cuts = 0;
+  let prevT = segs.segments[0]?.t ?? null;
   const ctl = rng.mulberry(0xD00D5EED);
   for (let i = 0; i < steps; i++) {
     stepReal(1 / 120, {
       left: ctl() < 0.2, right: ctl() < 0.3, up: ctl() < 0.15, down: ctl() < 0.25,
       hop: ctl() < 0.05, dig: ctl() < 0.55, craft: ctl() < 0.2, place: ctl() < 0.02,
-      hasMouse: false
+      turn: ctl() < 0.4, hasMouse: false
     });
-    if (run.run.dead) boot.newRun(seed);
+    if (machs.machines.some(m => m.torque > 0)) scriptStats.turned++;
+    /* TOTAL travel, not the furthest point reached: a carrier that rose and
+       sank back is a carrier that moved, and a cut/relink resets `t` to 0. */
+    const s = segs.segments[0] ?? null;
+    if (s && prevT !== null) scriptStats.moved += Math.abs(s.t - prevT) * s.len;
+    prevT = s ? s.t : null;
+    /* A SCRIPTED CUT AND RELINK, rarely: the cable is not a fixture, and
+       `write.unlink`/`write.link` reorder `segments`, which is the one thing
+       that could make an otherwise-deterministic drivetrain iterate in a
+       different order between two runs. */
+    if (rig && ctl() < 0.002) {
+      const existing = segs.linkedTo(rig.lo, rig.hi);
+      if (existing) { R_place.unlinkSegment(existing); scriptStats.cuts++; }
+      else if (scriptLink(rig.lo, rig.hi)) scriptStats.links++;
+      prevT = segs.segments[0]?.t ?? null;
+    }
+    if (run.run.dead) { boot.newRun(seed); rig = scriptRig(); prevT = segs.segments[0]?.t ?? null; }
   }
   return JSON.stringify(snapshotModel());
 }
@@ -600,6 +679,61 @@ console.log('\n4. Phase 6 probes');
   } catch (e) {
     fail(`DETERMINISM: the fresh-process probe failed to run: ${e.message}`);
   }
+
+  /* AND THE SCRIPT ACTUALLY DROVE A DRIVETRAIN (Phase 8g). Two identical
+     fingerprints over a script that never turned a crank would be a green
+     result about nothing, which is CLAUDE.md's "a test can silently test
+     nothing" with the drivetrain in the blank. So: the crank delivered torque
+     on some substep, the carrier travelled a real distance along its cable
+     (200 px is two and a half cables' worth -- far more than float noise
+     and far less than the 316 px twelve relinks actually produce, so the
+     bound is not fitted to the number it happens to produce), and the scripted cut ran at least once. */
+  console.log(`  ..  determinism script: crank delivered torque on ${scriptStats.turned} of ${steps} ` +
+              `substeps, carrier travelled ${scriptStats.moved.toFixed(1)} px along its cable, ` +
+              `${scriptStats.cuts} scripted cut(s), ${scriptStats.links} relink(s)`);
+  if (!(scriptStats.turned > 0 && scriptStats.moved > 200 && scriptStats.cuts > 0))
+    fail(`DETERMINISM: the scripted crank/link intents were VACUOUS -- torque on ` +
+         `${scriptStats.turned} substeps, ${scriptStats.moved.toFixed(2)} px of carrier travel, ` +
+         `${scriptStats.cuts} cuts. The fingerprint covers segments and m.torque/m.turn, but the ` +
+         `script has to move them`);
+  else ok(`DETERMINISM: the scripted crank/link intents are not vacuous -- torque on ` +
+          `${scriptStats.turned} substeps, ${scriptStats.moved.toFixed(0)} px of carrier travel, and ` +
+          `${scriptStats.cuts} cable cut(s) reordering \`segments\``);
+}
+
+/* --- THE FINGERPRINT CAN SEE A SEGMENT AT ALL. `snapshotModel()` is the
+   instrument both probes above and the reset probe below depend on, and an
+   instrument blind to the field it is asked about reports success forever.
+   Three writes, each the smallest one that exists, each of which MUST move the
+   fingerprint: the carrier's parameter, a hub's delivered drive, and a gear's
+   accumulated phase. This is the "seen to fail" for the reset assertion,
+   wired in permanently rather than performed once by hand. --- */
+{
+  boot.newRun(7777);
+  const band = player.player.band;
+  for (let ty = 4; ty <= 14; ty++) for (let tx = 4; tx <= 8; tx++) tiles.write.clear(band, tx, ty);
+  const lo = machs.write.place(band, D_mach.M.hub, 5, 12);
+  const hi = machs.write.place(band, D_mach.M.hub, 5, 6);
+  const seg = segs.write.link(lo, hi);
+
+  const probes = [
+    ['a carrier that has moved', () => segs.write.carrier(seg, 0.5, -1)],
+    ['a hub delivering torque', () => machs.write.torque(lo, 0.5)],
+    ['a gear with accumulated turn', () => machs.write.turn(lo, 1.25)]
+  ];
+  let blind = 0;
+  for (const [what, poke] of probes) {
+    const before = JSON.stringify(snapshotModel());
+    poke();
+    if (JSON.stringify(snapshotModel()) === before) {
+      fail(`FINGERPRINT: snapshotModel() cannot see ${what} -- every determinism and reset assertion ` +
+           `about the drivetrain is therefore vacuous`);
+      blind++;
+    }
+  }
+  if (!blind)
+    ok('FINGERPRINT: snapshotModel() sees a moved carrier, a delivered torque and an accumulated turn -- ' +
+       'the determinism and reset probes are not blind to the drivetrain');
 }
 
 /* --- newRun() RESETS EVERYTHING (invariant 8): fingerprint every exported
@@ -630,6 +764,23 @@ console.log('\n4. Phase 6 probes');
   aimModel.write.set(player.player.band, 3, 3, true);
   journal.push('phase6-test');
 
+  /* AND THE DRIVETRAIN, dirtied the same way the rest of this list is: through
+     the real write API, one call per field that could possibly survive. A
+     linked segment with a carrier halfway up it, a hub holding delivered
+     drive, and a gear phase mid-rotation. `write.clear()` in `shell/boot.js`
+     is what has to forget the first; the machine list going with it is what
+     forgets the other two. */
+  {
+    const band = player.player.band;
+    const lo = machs.write.place(band, D_mach.M.hub, 6, 12);
+    const hi = machs.write.place(band, D_mach.M.hub, 6, 6);
+    const seg = segs.write.link(lo, hi);
+    segs.write.carrier(seg, 0.5, -1);
+    segs.write.load(seg, 12.5);
+    machs.write.torque(lo, 0.75);
+    machs.write.turn(hi, 3.25);
+  }
+
   boot.newRun(seed);
   const after = snapshotModel();
 
@@ -640,6 +791,24 @@ console.log('\n4. Phase 6 probes');
          `     before: ${JSON.stringify(fresh[key]).slice(0, 200)}\n` +
          `     after:  ${JSON.stringify(after[key]).slice(0, 200)}`);
   } else ok('newRun() RESET: every exported model object fingerprints identically across two fresh calls on the same seed');
+
+  /* THE SAME FACT, SAID IN ITS OWN WORDS. The byte-comparison above catches
+     this, but it reports "segments differs" -- and a future reader of a red
+     `npm run check` deserves the sentence invariant 8 is actually about. Both
+     halves are named because they fail for different reasons: `segments`
+     survives when `shell/boot.js` forgets `segw.clear()`, and a nonzero
+     `torque`/`turn` survives when a machine record does. */
+  if (segs.segments.length !== 0) {
+    fail(`newRun() RESET: ${segs.segments.length} segment(s) survived newRun() -- a cable outliving its ` +
+         `run is invariant 8's determinism bug, and shell/boot.js must call segments' write.clear()`);
+  } else {
+    const stale = machs.machines.filter(m => m.torque !== 0 || m.turn !== 0);
+    if (stale.length)
+      fail(`newRun() RESET: ${stale.length} machine(s) still hold torque/turn after newRun() -- a gear ` +
+           `that remembers how far the last run cranked it`);
+    else ok('newRun() RESET: `segments` is empty and every m.torque/m.turn is 0 after a run that ' +
+            'linked a cable, moved its carrier and turned a gear');
+  }
 }
 
 /* --- CONSERVATION: over a 10,000-substep random-intent fuzz, mass ADDED to
