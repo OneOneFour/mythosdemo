@@ -33,10 +33,10 @@
 import { clamp } from '../core/math.js';
 import { rand, randInt, randRange } from '../core/rng.js';
 import { NATIVE } from '../data/forms.js';
-import { S } from '../data/substances.js';
+import { S, SUB } from '../data/substances.js';
 import { STRATA_KINDS } from '../data/world.js';
 import { eff } from '../model/mods.js';
-import { write as tw, solidAt } from '../model/tiles.js';
+import { write as tw, solidAt, subAt } from '../model/tiles.js';
 import { inBounds } from '../model/world.js';
 
 /* Half-width in tiles of the guaranteed flat shelf around the spawn column.
@@ -309,6 +309,112 @@ const KINDS = {
 export function generate(b) {
   const ctx = { off: null, hollows: [], i: 0 };
   b.cfg.strata.forEach((row, i) => { ctx.i = i; KINDS[row.kind](b, row, ctx); });
+  unsealOreBodies(b);
+}
+
+/* ---------- ore reachability repair ---------- */
+
+/* `star()` (below) OVERWRITES whatever a cell already held, with no memory of
+   what used to be there -- correct for a `blobs` row painting over plain rock,
+   but it means a LATER, higher-tier row (declared later in `data/world.js`,
+   applied later above) can box in an EARLIER, lower-tier ore tile by
+   overwriting its neighbours without ever touching the ore tile itself.
+   `tools/worldgen-check.mjs`'s reachability property found this for real: a
+   copper or tin tile (tier 1) sealed by granite or adamant (tier 2/3), in
+   ~2.5% of seeds -- unreachable by the tool that can mine every OTHER copper
+   or tin tile in the world.
+
+   Scoped to `tags:['metal']` substances specifically, not every solid tile:
+   plain rock (`stone`/`granite`/`soil`) surrounded by a higher tier is the
+   ordinary, expected shape of a deposit and not a defect -- it is the ORE the
+   player is guaranteed a tool-appropriate path to, per docs/SPEC.md section
+   12's tier gate, that this repairs.
+
+   A ONE-HOP FIX WAS TRIED FIRST AND WAS NOT ENOUGH: opening a single
+   neighbour to `stone` fixed 4 of the 5 seeds this was found in, but the
+   5th had a shell more than one tile thick, and a plain "is my immediate
+   neighbour clear" check has no way to know that -- the neighbour it opened
+   was itself still sealed, one layer removed. `reachesAir` below is the
+   HONEST version of that same question: a real flood-fill through tiles
+   already diggable at this ore's own tier, exactly the claim the property
+   test itself checks, so this can never again believe a tile is unsealed
+   when the checker would disagree. When it says no, `carvePathToStone` runs
+   a SECOND, unrestricted flood-fill (through any tile, any tier) to find the
+   nearest existing open air and carves every tile of that shortest path down
+   to plain tier-1 `stone` -- a real, contiguous, always-diggable corridor,
+   not a hope that one opened cell happens to lead somewhere. */
+function unsealOreBodies(b) {
+  for (let ty = 0; ty < b.th; ty++) {
+    for (let tx = 0; tx < b.tw; tx++) {
+      const sub = subAt(b, tx, ty);
+      if (sub < 0 || !SUB[sub].tags?.includes('metal')) continue;
+      const tier = SUB[sub].tile?.tier ?? 1;
+      if (!reachesAir(b, tx, ty, tier)) carvePathToStone(b, tx, ty);
+    }
+  }
+}
+
+const ORTHO = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+
+/* Flood-fill from `(sx,sy)` through tiles that are already air, or solid at
+   or below `maxTier` -- the exact reachability claim
+   `tools/worldgen-check.mjs`'s property test makes. Returns true the instant
+   an air tile is found. Bounded generously (the size of the largest band) so
+   a seed with no sealed ore anywhere pays for exactly the small local search
+   its own geometry needs, never a fixed worst case. */
+function reachesAir(b, sx, sy, maxTier) {
+  const key = (x, y) => y * b.tw + x;
+  const seen = new Set([key(sx, sy)]);
+  const q = [[sx, sy]];
+  const cap = b.tw * b.th;
+  while (q.length && seen.size < cap) {
+    const [x, y] = q.shift();
+    for (const [dx, dy] of ORTHO) {
+      const nx = x + dx, ny = y + dy;
+      if (!inBounds(b, nx, ny)) continue;
+      const k = key(nx, ny);
+      if (seen.has(k)) continue;
+      if (!solidAt(b, nx, ny)) return true;
+      const nsub = subAt(b, nx, ny);
+      if (nsub >= 0 && (SUB[nsub].tile?.tier ?? 1) <= maxTier) { seen.add(k); q.push([nx, ny]); }
+      else seen.add(k);
+    }
+  }
+  return false;
+}
+
+/* Shortest path from `(sx,sy)` to the nearest air tile, through ANY tile
+   regardless of tier -- this is the carving pass, not a reachability check,
+   so it is allowed to cross rock `reachesAir` above would have refused.
+   Carves every tile on that path to `stone` except the destination air tile
+   itself (already open; writing to it would do nothing) and `(sx,sy)`
+   (the ore tile -- this repairs its surroundings, not the ore). */
+function carvePathToStone(b, sx, sy) {
+  const key = (x, y) => y * b.tw + x;
+  const parent = new Map();
+  const seen = new Set([key(sx, sy)]);
+  const q = [[sx, sy]];
+  let target = null;
+  while (q.length && !target) {
+    const [x, y] = q.shift();
+    for (const [dx, dy] of ORTHO) {
+      const nx = x + dx, ny = y + dy;
+      if (!inBounds(b, nx, ny)) continue;
+      const k = key(nx, ny);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      parent.set(k, [x, y]);
+      if (!solidAt(b, nx, ny)) { target = [nx, ny]; break; }
+      q.push([nx, ny]);
+    }
+  }
+  if (!target) return; // no air anywhere in the band at all -- cannot happen in practice
+
+  let [x, y] = parent.get(key(target[0], target[1]));
+  while (!(x === sx && y === sy)) {
+    tw.set(b, x, y, S.stone, NATIVE);
+    [x, y] = parent.get(key(x, y));
+  }
 }
 
 /* ---------- relief ---------- */
