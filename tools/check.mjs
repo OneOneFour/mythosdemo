@@ -2439,6 +2439,143 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
        `${rows[2].be.toFixed(2)} tiles -- section 3's price is the one the game charges`);
 }
 
+/* ============================================================
+   TIER 2 — THE INVARIANTS, APPLIED TO SEGMENT TRANSPORT
+   ============================================================ */
+
+/* --- RENDER PURITY OVER THE DRIVETRAIN'S OWN DRAW PATHS (invariants 9 and 7).
+   Section 2 proves the plain HUD and the terrain are pure and section 4 proves
+   the `view/ui/` tree is; neither draws a cable, a carrier, a bucket chain, a
+   turning gear or the cable ghost, all of which Phase 8e added and Phase 8f
+   made move.
+
+   FIVE STATES, and every one is DRAWN TWICE with the epoch counter compared
+   across the pair -- the same instrument section 2 uses, because `model` bumps
+   on every write and `view` may not write.
+
+   AND PROVEN NON-VACUOUS, which for a render test means proving the pixels
+   would have differed: CLAUDE.md records a test that set `flags.grid` instead
+   of `flags.showGrid` and baselined a scene with the overlay off. So each state
+   is compared by `fillRect` count against the same frame with the thing
+   removed -- no cable, or no armed hub -- and a state whose draw touched
+   nothing is a failure rather than a pass. --- */
+{
+  const CAM = seg => {
+    const p = segs.carrierPos(seg);
+    main.cam.x = p.x - 100;
+    main.cam.y = p.y - 60;
+  };
+  const drawTwice = label => {
+    const before = epoch.epoch.n;
+    main.draw();
+    main.draw();
+    if (epoch.epoch.n !== before) {
+      fail(`RENDER PURITY (drivetrain): drawing ${label} performed ${epoch.epoch.n - before} model ` +
+           `write(s) -- view may never mutate model (invariant 9)`);
+      return false;
+    }
+    return true;
+  };
+  const rects = () => { const n = calls.fillRect; main.draw(); return calls.fillRect - n; };
+
+  let bad = 0;
+  const r = driveRig({
+    /* The room starts two columns LEFT of the standard rig's, because this
+       one needs a gear and a crank between the player and the hub -- and
+       `driveRig`'s `player` tile must be inside the carved room or the player
+       spawns inside rock and is extracted upward a tile per substep, which
+       walks them out of the crank's reach in three frames. Found exactly that
+       way. */
+    seed: 8950, room: { tx0: 16, ty0: 100, h: 18, w: 14 },
+    machines: [['hub', 20, 115], ['hub', 20, 105], ['crank', 19, 115], ['gear', 18, 115]],
+    links: [[0, 1]], player: [17, 115], cargo: [[0, 'copper', 'ore', 3]]
+  });
+
+  /* A REAL TURNING GEAR, not a poked field: one second of the real crank held
+     through the real step, so `m.turn` and `m.torque` are whatever
+     `rules/drive.js` decided they are. */
+  runReal(120, 1 / 120, { turn: true, hasMouse: false });
+  const gear = r.placed[3];
+  if (!(gear.turn > 0 && gear.torque > 0)) {
+    fail(`RENDER PURITY (drivetrain): the gear beside the crank reads turn ${gear.turn}, torque ` +
+         `${gear.torque} after a second of cranking -- the turning-gear draw path is not being ` +
+         `exercised, so proving it pure proves nothing`);
+    bad++;
+  }
+  CAM(r.seg);
+
+  for (const t of [0, 0.5, 1]) {
+    segs.write.carrier(r.seg, t, t === 1 ? 0 : -1);
+    if (!drawTwice(`a carrier at t=${t}`)) bad++;
+  }
+
+  /* THE CABLE AND CARRIER ARE ACTUALLY ON SCREEN. Same camera, same machines,
+     one difference: the segment. */
+  segs.write.carrier(r.seg, 0.5, -1);
+  const withCable = rects();
+  const keep = [...segs.segments];
+  segs.write.clear();
+  const without = rects();
+  for (const s of keep) segs.segments.push(s);
+  if (withCable <= without) {
+    fail(`RENDER PURITY (drivetrain): a frame with a cable and carrier drew ${withCable} rects and one ` +
+         `without drew ${without} -- the cable/carrier draw path emitted nothing, so the purity ` +
+         `assertions above are about nothing`);
+    bad++;
+  }
+
+  /* THE CABLE GHOST, all four states its own header names. `aim` is written
+     directly rather than through a fake pointer, for the reason CLAUDE.md gives
+     about hardcoded click coordinates. */
+  const ghost = [
+    ['ok', r.placed[1].tx, r.placed[1].ty],
+    ['nothing under the reticle', 24, 110],
+    ['blocked', r.placed[1].tx, r.placed[1].ty, () => tiles.write.set(r.band, 20, 110, D_sub.S.stone)]
+  ];
+  let ghostRects = 0;
+  for (const [label, tx, ty, prep] of ghost) {
+    if (prep) prep();
+    shellUi.armLink(r.placed[0]);
+    aimModel.write.set(r.band, tx, ty, true);
+    if (!drawTwice(`the cable ghost (${label})`)) bad++;
+    ghostRects = Math.max(ghostRects, rects());
+  }
+  shellUi.clearLink();
+  const noGhost = rects();
+  if (ghostRects <= noGhost) {
+    fail(`RENDER PURITY (drivetrain): the cable ghost drew ${ghostRects} rects and no ghost at all drew ` +
+         `${noGhost} -- an unset ui.linkFrom must change the pixels, or the ghost states above were ` +
+         `never drawn (CLAUDE.md: "a test can silently test nothing")`);
+    bad++;
+  }
+
+  /* AND NO RANDOMNESS ANYWHERE IN ANY OF IT (invariant 7): the gear phase, the
+     bucket spacing and the cable's own dashes must all come from `m.turn`,
+     `seg.t` and a position hash, never from `rand()`. This is section 2's probe
+     pointed at a frame that has a drivetrain in it. */
+  shellUi.armLink(r.placed[0]);
+  segs.write.carrier(r.seg, 0.4, -1);
+  rng.seedRng(8951);
+  const expected = [rng.rand(), rng.rand(), rng.rand()];
+  rng.seedRng(8951);
+  const got = [];
+  for (let i = 0; i < 3; i++) { main.draw(); main.draw(); got.push(rng.rand()); }
+  shellUi.clearLink();
+  if (got.join() !== expected.join()) {
+    fail('RENDER PURITY (drivetrain): drawing a moving carrier, a bucket chain, a turning gear and the ' +
+         'cable ghost CONSUMED RANDOMNESS -- a screenshot now depends on how many times you have drawn ' +
+         '(invariant 7)');
+    bad++;
+  }
+
+  if (!bad)
+    ok(`RENDER PURITY (drivetrain): a carrier at t=0/0.5/1, a gear turning at phase ` +
+       `${gear.turn.toFixed(2)} on torque ${gear.torque.toFixed(2)}, and the cable ghost in three ` +
+       `states -- 0 model writes across ten draws, no randomness consumed, and every one of them ` +
+       `provably on screen (${withCable} rects with the cable vs ${without} without, ${ghostRects} ` +
+       `with the ghost vs ${noGhost} without)`);
+}
+
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +
             `journal ${journal.peek ? journal.peek().length : 0} undrained`);
