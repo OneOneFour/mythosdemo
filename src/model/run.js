@@ -10,7 +10,7 @@
    shape of `run` in four places -- three fields that other modules each invented
    -- and that class of bug is what a schema is for. */
 
-import { AIR, F, FORM, byHudOrder, matches } from '../data/forms.js';
+import { AIR, F, byHudOrder, matches } from '../data/forms.js';
 import { CYCLE, CYCLES } from '../data/cycles.js';
 import { S, SUB } from '../data/substances.js';
 import { STARTING_MACHINES } from '../data/grants.js';
@@ -18,7 +18,7 @@ import { HAND_RECIPES, RECIPES } from '../data/recipes.js';
 import { M, MACH, MACHINES } from '../data/machines.js';
 import { SPAWN_BAND } from '../data/world.js';
 import { bump } from './epoch.js';
-import { keyOf, massOfPair, parseKey } from './items.js';
+import { keyOf, massOfPair } from './items.js';
 import { machineAt } from './machines.js';
 import { eff } from './mods.js';
 import { player } from './player.js';
@@ -29,9 +29,14 @@ export const RUN_SCHEMA = Object.freeze({
   seed: 1337, t: 0,
   dead: false, deathCause: '',
   hearts: 5, maxHearts: 5, invuln: 0,
-  inv: null,            // sparse; keyed by the `sub/form` string -- a drafted
-                        // trinket and the starting pick both live here too,
-                        // see `rules/trinkets.js` and `hasPick()` below
+  inv: null,            // FIXED-LENGTH array, `{sub,form,n} | null` per slot
+                        // (docs/PLAN-phase12.md D-G) -- length `mainSlots +
+                        // eff('quickbarSlots')`, the tail being the quickbar's
+                        // own storage, not a mirror of it. A drafted trinket
+                        // and the starting pick both live here too, see
+                        // `rules/trinkets.js` and `hasPick()` below
+  mainSlots: 0,          // placeholder; `Math.round(eff('invSlots'))` at reset,
+                        // fixed for the run -- see `write.reset()` below
   granted: null,        // machine ids this run may place
   deepest: 0,           // world px, for the depth gauge and for `meta`
 
@@ -47,9 +52,11 @@ export const RUN_SCHEMA = Object.freeze({
      `tribute` is the LIVE DEMAND or `null` when none is armed:
      `{ id, have, left }`. `id` is the `data/cycles.js` row's own id, so the
      record survives a table reorder; `have` is keyed by the `sub/form` string
-     from `model/items.js#keyOf`, the SAME convention `m.buf` and `run.inv`
-     already use, so a receiver's buffer can be poured into it without a
-     translation; `left` is seconds remaining, or `null` for a cycle with no
+     from `model/items.js#keyOf`, the SAME convention `m.buf` still uses
+     (`run.inv` moved to a slot array in Phase 12c, `have` did not -- a
+     delivery ledger has no position, only a count per pair), so a receiver's
+     buffer can be poured into it without a translation; `left` is seconds
+     remaining, or `null` for a cycle with no
      clock.
 
      `left` IS AN ACCUMULATOR ON `run` AND NOT A MODULE SCALAR, and that is
@@ -158,9 +165,12 @@ export const write = {
   /* The whole of `newRun()` as far as this module is concerned. Called by
      `shell/boot.js` alongside the `clear()` on every other model module. */
   reset(seed) {
+    const mainSlots = Math.max(0, Math.round(eff('invSlots')));
+    const quickbarSlots = Math.max(0, Math.round(eff('quickbarSlots')));
     Object.assign(run, RUN_SCHEMA, {
       seed,
-      inv: {},
+      inv: Array.from({ length: mainSlots + quickbarSlots }, () => null),
+      mainSlots,
       granted: [...STARTING_MACHINES],
       tribute: null,
       /* FRESH CONTAINERS, same reason as `granted` above and `known`/`equipped`
@@ -198,19 +208,46 @@ export const write = {
 
   deepest(y) { if (y > run.deepest) { run.deepest = y; bump(); } },
 
+  /* MERGE-FIRST, always: the whole array is searched for an existing stack of
+     this exact pair before a new slot is ever allocated, so two slots holding
+     the identical pair simultaneously cannot occur (docs/PLAN-phase12.md
+     D-G) -- `invCount` stays a single lookup, never a sum across positions.
+     A brand-new pair may only land in `[0, run.mainSlots)`: the quickbar's
+     own tail is populated only by a deliberate drag, never by a pickup.
+     Returns FALSE, now, on no existing stack and no free main slot -- the
+     one new way a pickup may be refused (D-G/D-H, `rules/items.js#step`). */
   collect(sub, form, n) {
-    const k = keyOf(sub, form);
-    run.inv[k] = (run.inv[k] || 0) + n;
+    const i = run.inv.findIndex(s => s && s.sub === sub && s.form === form);
+    if (i !== -1) { run.inv[i].n += n; bump(); return true; }
+    const free = run.inv.findIndex((s, idx) => s === null && idx < run.mainSlots);
+    if (free === -1) return false;               // no existing stack, no free MAIN slot
+    run.inv[free] = { sub, form, n };
     bump();
+    return true;
   },
 
   spend(sub, form, n) {
-    const k = keyOf(sub, form);
-    if ((run.inv[k] || 0) < n) return false;
-    run.inv[k] -= n;
-    if (!run.inv[k]) delete run.inv[k];
+    const i = run.inv.findIndex(s => s && s.sub === sub && s.form === form);
+    if (i === -1 || run.inv[i].n < n) return false;
+    run.inv[i].n -= n;
+    if (run.inv[i].n <= 0) run.inv[i] = null;
     bump();
     return true;
+  },
+
+  /* Unconditional swap of two positions -- reordering within one grid, moving
+     into an empty cell, and moving cross-grid (main <-> quickbar) are all the
+     SAME operation on one array (docs/PLAN-phase12.md D-H): swapping with an
+     empty slot already IS a move, swapping two occupied slots already IS a
+     reorder. Out-of-range or a no-op swap is silently ignored, the same
+     "shrinking a slot count must not crash a frame still iterating the old
+     length" convention `write.equip` below already follows. */
+  moveSlot(from, to) {
+    if (from < 0 || from >= run.inv.length || to < 0 || to >= run.inv.length || from === to) return;
+    const tmp = run.inv[to];
+    run.inv[to] = run.inv[from];
+    run.inv[from] = tmp;
+    bump();
   },
 
   /* Hearts are SPENT, not consumed as an item -- never through `inv`, which is
@@ -288,7 +325,10 @@ export const write = {
 
 /* ---- queries ---- */
 
-export const invCount = (sub, form) => run.inv[keyOf(sub, form)] || 0;
+export const invCount = (sub, form) => {
+  const s = run.inv.find(s => s && s.sub === sub && s.form === form);
+  return s ? s.n : 0;
+};
 export const hearts   = () => run.hearts;
 export const canPlace = machineId => run.granted.includes(machineId);
 
@@ -415,10 +455,7 @@ export function placementCheck(band, machineId, tx, ty) {
    it is just heavy) -- all read this, but none of that decision lives here. */
 export function burdenOf() {
   let mass = 0;
-  for (const k in run.inv) {
-    const { sub, form } = parseKey(k);
-    mass += massOfPair(sub, form) * run.inv[k];
-  }
+  for (const slot of run.inv) if (slot) mass += massOfPair(slot.sub, slot.form) * slot.n;
   return mass;
 }
 
@@ -428,12 +465,23 @@ export function burdenOf() {
 export const burdenFrac = () => burdenOf() / eff('burden');
 
 export function pocketsHave(sel, n) {
-  for (const k in run.inv) {
-    if (run.inv[k] < n) continue;
-    const p = parseKey(k);
-    if (matches(sel, p.sub, p.form)) return true;
-  }
+  for (const slot of run.inv) if (slot && slot.n >= n && matches(sel, slot.sub, slot.form)) return true;
   return false;
+}
+
+/* Largest single matching pair's count -- `rules/machines.js`/`rules/
+   crafting.js`'s own duplicate dict scans, retired onto this and
+   `pocketedPair` below (docs/PLAN-phase12.md D-G). */
+export function pocketedBest(sel) {
+  let n = 0;
+  for (const slot of run.inv) if (slot && matches(sel, slot.sub, slot.form) && slot.n > n) n = slot.n;
+  return n;
+}
+
+/* First matching pair holding at least `need` units, or `null`. */
+export function pocketedPair(sel, need) {
+  for (const slot of run.inv) if (slot && slot.n >= need && matches(sel, slot.sub, slot.form)) return { sub: slot.sub, form: slot.form };
+  return null;
 }
 
 /* Whether every input clause of a recipe (`data/recipes.js` shape) is
@@ -522,11 +570,9 @@ export function isKnown(id) {
    never ships two tools at the same tier, so this never has to choose. */
 export function bestTool() {
   let best = null;
-  for (const k in run.inv) {
-    if (!run.inv[k]) continue;
-    const { sub, form } = parseKey(k);
-    if (form !== F.relic) continue;
-    const tool = SUB[sub]?.item?.tool;
+  for (const slot of run.inv) {
+    if (!slot || slot.form !== F.relic) continue;
+    const tool = SUB[slot.sub]?.item?.tool;
     if (tool && (!best || tool.tier > best.tier)) best = tool;
   }
   return best;
@@ -545,18 +591,13 @@ export const hasPick = () => bestTool() !== null;
    first minute of the game has something to point at. Sorted by the one
    ordering rule in `data/forms.js`. */
 export function pocketRows() {
-  const seen = new Set(), out = [];
-  for (const k in run.inv) {
-    const [s, f] = k.split('/');
-    out.push({ sub: SUB.findIndex(r => r.id === s), form: F[f], n: run.inv[k] });
-    seen.add(k);
-  }
+  const out = [];
+  for (const slot of run.inv) if (slot) out.push({ sub: slot.sub, form: slot.form, n: slot.n });
   SUB.forEach((s, i) => {
     if (!s.item?.hud?.always) return;
     const f = F[s.tile?.drops];
     if (f === undefined) return;
-    const k = `${s.id}/${FORM[f].id}`;
-    if (!seen.has(k)) out.push({ sub: i, form: f, n: 0 });
+    if (!out.some(r => r.sub === i && r.form === f)) out.push({ sub: i, form: f, n: 0 });
   });
   return out.sort(byHudOrder);
 }

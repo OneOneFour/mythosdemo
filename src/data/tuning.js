@@ -136,6 +136,13 @@ export const TUNABLES = [
   /* ---- trinkets. See docs/DEVELOPER_GUIDE.md#the-four-gift-tiers ---- */
   { id:'trinketSlots', kind:'value', base:3, unit:'slots', note:'length of run.equipped; a boon could someday widen it' },
 
+  /* ---- inventory (Phase 12c, docs/PLAN-phase12.md D-G/D-H). `invSlots` is
+     `run.mainSlots` at reset; `quickbarSlots` is the tail of `run.inv` past
+     it -- the same "a slot count is content, read through eff()" precedent
+     `trinketSlots` above already sets. */
+  { id:'invSlots',      kind:'value', base:30, unit:'slots', note:'length of the main inventory grid; run.mainSlots at reset' },
+  { id:'quickbarSlots', kind:'value', base:10, unit:'slots', note:'length of the quickbar; the tail of run.inv past run.mainSlots' },
+
   /* ---- light (Phase 2b). `lightMax` is both daylight and the ceiling any
      emitter can reach (the hearth). The two falloffs are per-tile-of-travel
      losses a BFS in rules/light.js subtracts, rock lossier than air so
