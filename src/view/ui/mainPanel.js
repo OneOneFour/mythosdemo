@@ -513,9 +513,24 @@ function drawCraftingTooltip(g, f, grid, recipes) {
    STALLED (present but not moving -- a full output port, a cold `needs`
    gate, a servo throttle: this file cannot tell those apart without
    importing `rules`); an entirely empty buffer reads as BLOCKED. */
-function machineState(m) {
+/* EXPORTED FOR THE OVERVIEW'S MACHINES LAYER (Phase 9 section 4), which was
+   told in as many words to read the same query as this tab rather than write a
+   second one. Same-layer import, and the heuristic above is stated once, here,
+   where the tab that made it lives. */
+export function machineState(m) {
   const def = defOf(m);
-  if (m.running || m.charges > 0) return 'RUNNING';
+  if (m.running || m.charges > 0 || m.torque > 0) return 'RUNNING';
+  /* A DRIVETRAIN OR STRUCTURAL MACHINE IS NOT A PROCESSOR, and the two clauses
+     below cannot say anything true about one. A hub, a crank, a gear and an axle
+     have no `ports` and no `recipes` at all, so they fell through to "empty
+     buffer, therefore BLOCKED" -- which read as a red alarm on a hub doing
+     exactly what a hub does. The Phase 9 map is what made it visible (every hub
+     in a working chain drawn in the colour of a fault); the tab has been saying
+     it since the drivetrain landed. `m.torque > 0` above already catches one
+     that is actively turning, so what is left here is honestly IDLE.
+     Structural, not name-based: a future row with neither block gets the same
+     answer with no edit. */
+  if (!def.ports?.length && !def.recipes?.length) return 'IDLE';
   const fuelSels = [];
   for (const p of def.ports || [])
     if (p.mode === 'in' && p.accepts) for (const sel of p.accepts) if (sel.includes('#fuel')) fuelSels.push(sel);
@@ -523,7 +538,9 @@ function machineState(m) {
   return Object.keys(m.buf).length ? 'STALLED' : 'BLOCKED';
 }
 
-const STATE_COLOUR = { RUNNING: GOOD, STALLED: AMBER, UNFUELLED: DIM, BLOCKED: HEART };
+export const STATE_COLOUR = {
+  RUNNING: GOOD, STALLED: AMBER, UNFUELLED: DIM, BLOCKED: HEART, IDLE: DIM
+};
 
 function depthOf(band, ty) {
   const ref = bandOf(SPAWN_BAND);

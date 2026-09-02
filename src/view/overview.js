@@ -70,13 +70,16 @@ import { drawText, textWidth } from '../core/font.js';
 import { mix } from '../core/palette.js';
 import { lineTo, R } from '../core/pixels.js';
 import { colour } from '../data/palette.js';
-import { machines } from '../model/machines.js';
+import { items } from '../model/items.js';
+import { defOf, machines } from '../model/machines.js';
+import { eff } from '../model/mods.js';
 import { player, playerCentre } from '../model/player.js';
 import {
   breaks, carrierPos, chains, isHub, linkCheck, segments, segmentsAt
 } from '../model/segments.js';
 import { rowAt } from '../model/tiles.js';
-import { bands, heightPx, seenAt, widthPx } from '../model/world.js';
+import { bands, heightPx, lightAt, seenAt, tileX, tileY, widthPx } from '../model/world.js';
+import { machineState, STATE_COLOUR } from './ui/mainPanel.js';
 import { drawRuler, rulerWidth } from './ui/ruler.js';
 import { resetDrawn } from './ui/state.js';
 
@@ -267,10 +270,7 @@ function drawTerrain(g, v) {
     const T = b.tile;
     const cell = Math.max(1, Math.round(T * v.scale));
 
-    const tx0 = Math.max(0, Math.floor((v.wx - b.origin.x) / T));
-    const tx1 = Math.min(b.tw, Math.ceil((v.wx + v.vw / v.scale - b.origin.x) / T));
-    const ty0 = Math.max(0, Math.floor((v.wy - b.origin.y) / T));
-    const ty1 = Math.min(b.th, Math.ceil((v.wy + v.vh / v.scale - b.origin.y) / T));
+    const [tx0, tx1, ty0, ty1] = tileWindow(b, v);
     if (tx1 <= tx0 || ty1 <= ty0) continue;
 
     for (let ty = ty0; ty < ty1; ty++) {
@@ -325,7 +325,177 @@ function cellColour(b, tx, ty) {
 
 function drawLayers(g, v, f) {
   const L = f.ui.map.layers;
+  if (L.light) drawLight(g, v);
+  if (L.ore) drawOre(g, v);
+  if (L.piles) drawPiles(g, v);
+  if (L.machines) drawMachines(g, v);
   if (L.chain) drawChain(g, v);
+}
+
+/* ---------- LIGHT ----------
+   Which shafts are unlit, from `b.light` -- the same volatile 0..`lightMax`
+   field `view/scene.js#drawDarkness` buckets into three alpha steps on the
+   normal path. Two steps here rather than three: at four screen pixels per
+   tile the difference between the middle two was invisible, and a shading layer
+   that cannot be told apart from its neighbour is noise.
+
+   SHADED, NOT MARKED, which is why this is the one layer that starts OFF
+   (`shell/ui.js#ui.map.layers`' own comment): it changes how every other layer
+   reads, so it is better asked for than imposed.
+
+   ONLY OVER SEEN TILES. An unseen tile is already void -- painting darkness over
+   the void would draw the SHAPE of an unexplored hollow, which is precisely the
+   cheat this mode's invariant exists to prevent. Row-run coalesced, like the
+   terrain pass, and the ceiling is `eff('lightMax')`: the same reading
+   `view/scene.js#drawDarkness` takes, through the same one door every tunable
+   goes through, so the two passes cannot disagree about what "fully lit" is. */
+function drawLight(g, v) {
+  const max = Math.max(1, eff('lightMax'));
+  for (const b of bands) {
+    const T = b.tile;
+    const cell = Math.max(1, Math.round(T * v.scale));
+    const [tx0, tx1, ty0, ty1] = tileWindow(b, v);
+    if (tx1 <= tx0 || ty1 <= ty0) continue;
+
+    for (let ty = ty0; ty < ty1; ty++) {
+      const py = syOf(v, b.origin.y + ty * T);
+      let run = -1, cur = 0;
+      for (let tx = tx0; tx <= tx1; tx++) {
+        const a = tx < tx1 ? darkStep(b, tx, ty, max) : 0;
+        if (a === cur) continue;
+        if (cur) {
+          g.globalAlpha = cur;
+          R(g, sxOf(v, b.origin.x + run * T), py, (tx - run) * cell, cell, INK.void);
+          g.globalAlpha = 1;
+        }
+        run = tx; cur = a;
+      }
+    }
+  }
+}
+
+/* 0 for "leave it alone", otherwise the alpha of the shade over it. Unseen and
+   unlit are DIFFERENT ANSWERS and both are 0 here: unseen because the tile is
+   not ours to talk about, and fully lit because there is nothing to say. */
+function darkStep(b, tx, ty, max) {
+  if (!seenAt(b, tx, ty)) return 0;
+  const l = lightAt(b, tx, ty) / max;
+  return l >= 0.6 ? 0 : l >= 0.2 ? 0.3 : 0.62;
+}
+
+/* ---------- ORE ----------
+   SEEN ORE ONLY, and "ore" is a TAG, never a substance name (SPEC 12): a tile
+   whose substance is tagged `metal`, which today is copper, tin and adamant and
+   tomorrow is whatever else earns the tag. `data/substances.js` tags adamant
+   both `rock` and `metal` and says so explicitly; that is the row this reading
+   was written against.
+
+   MARKED AT A FLOOR OF TWO PIXELS even at zoom level 1, where a tile is one
+   pixel and the terrain pass has already drawn the ore's own colour in it. A
+   layer that is invisible at the zoom you use to see the whole world is a layer
+   with no purpose, and the small bleed onto a neighbouring cell is the honest
+   cost of saying "there is metal here" at 1 px per tile. */
+function drawOre(g, v) {
+  for (const b of bands) {
+    const T = b.tile;
+    const cell = Math.max(2, Math.round(T * v.scale));
+    const [tx0, tx1, ty0, ty1] = tileWindow(b, v);
+    for (let ty = ty0; ty < ty1; ty++) {
+      for (let tx = tx0; tx < tx1; tx++) {
+        if (!seenAt(b, tx, ty)) continue;
+        const row = rowAt(b, tx, ty);
+        if (!row.tags?.includes('metal')) continue;
+        const x = sxOf(v, b.origin.x + tx * T), y = syOf(v, b.origin.y + ty * T);
+        R(g, x, y, cell, cell, hexOf(row.look?.item?.[0] ?? row.look?.base ?? 'ui'));
+        R(g, x, y, 1, 1, INK.ui);
+      }
+    }
+  }
+}
+
+/* ---------- PILES ----------
+   Dropped material, bucketed BY TILE and drawn only where the count reaches a
+   threshold. Per-item markers were the first attempt and are wrong twice over:
+   at four pixels per tile a dozen items in one hollow is one indistinguishable
+   blob, and the question the layer answers is "where did I leave a heap", not
+   "where is every single ingot".
+
+   `items` is not indexed by band, and `model/items.js`'s spatial grid answers
+   "what is near this point" rather than "what is in this rect of the world", so
+   this walks the array. It is a few hundred entries at worst -- the same order
+   `view/scene.js#drawItems` already walks every frame in play. */
+const PILE_MIN = 3;
+
+function drawPiles(g, v) {
+  const buckets = new Map();
+  for (const it of items) {
+    const b = it.band;
+    if (!b) continue;
+    const tx = tileX(b, it.x), ty = tileY(b, it.y);
+    if (!seenAt(b, tx, ty)) continue;
+    const k = b.id + ':' + tx + ':' + ty;
+    const cur = buckets.get(k);
+    if (cur) cur.n++;
+    else buckets.set(k, { b, tx, ty, n: 1 });
+  }
+
+  for (const p of buckets.values()) {
+    if (p.n < PILE_MIN) continue;
+    const T = p.b.tile;
+    const x = sxOf(v, p.b.origin.x + p.tx * T), y = syOf(v, p.b.origin.y + p.ty * T);
+    const cell = Math.max(3, Math.round(T * v.scale));
+    R(g, x, y, cell, cell, INK.back);
+    R(g, x, y, cell, 1, INK.ui);
+    /* The count, when there is room for it beside the marker -- a number drawn
+       over a 3 px block is a smudge. */
+    if (cell >= 4) drawText(g, String(p.n), x + cell + 1, y - 1, INK.ui, 1, 1);
+  }
+}
+
+/* ---------- MACHINES ----------
+   One glyph each, coloured by state, and NEITHER HALF IS A SECOND COPY:
+
+     the glyph  is `def.glyph`, one character on the `data/machines.js` row (see
+                that file's key reference for why it sits beside `look` and not
+                inside it). No machine name appears here.
+     the state  is `view/ui/mainPanel.js#machineState`, the LOGISTICS tab's own
+                query, imported rather than reimplemented -- so a machine that
+                reads STALLED in the tab is the same amber on the map. Its own
+                header explains why the heuristic is `model`-only and what it
+                cannot tell apart without importing `rules`.
+
+   The glyph is centred on the machine's footprint and drawn over a backing
+   block, because a 5x7 character on top of mottled rock is unreadable. Below
+   about six pixels of footprint the glyph is dropped and the block alone carries
+   the state colour -- a legible dot beats an illegible letter. */
+function drawMachines(g, v) {
+  for (const m of machines) {
+    if (!seenAt(m.band, m.tx, m.ty)) continue;
+    const st = machineState(m);
+    const col = STATE_COLOUR[st] || INK.dim;
+    const w = Math.max(3, Math.round(m.box.w * v.scale));
+    const h = Math.max(3, Math.round(m.box.h * v.scale));
+    const x = sxOf(v, m.box.x), y = syOf(v, m.box.y);
+    if (x + w < v.vx || x > v.vx + v.vw || y + h < v.vy || y > v.vy + v.vh) continue;
+
+    R(g, x, y, w, h, mix(INK.back, col, 0.45));
+    const glyph = defOf(m).glyph;
+    if (!glyph || w < 6 || h < 6) { R(g, x, y, Math.min(w, 2), Math.min(h, 2), col); continue; }
+    drawText(g, glyph, x + ((w - 5) >> 1), y + ((h - 7) >> 1), col, 1, 1);
+  }
+}
+
+/* The visible tile window of one band, as `[tx0, tx1, ty0, ty1]`. Extracted
+   because four layers now need the identical cull and four copies of it is four
+   chances to get one of the four clamps wrong. */
+function tileWindow(b, v) {
+  const T = b.tile;
+  return [
+    Math.max(0, Math.floor((v.wx - b.origin.x) / T)),
+    Math.min(b.tw, Math.ceil((v.wx + v.vw / v.scale - b.origin.x) / T)),
+    Math.max(0, Math.floor((v.wy - b.origin.y) / T)),
+    Math.min(b.th, Math.ceil((v.wy + v.vh / v.scale - b.origin.y) / T))
+  ];
 }
 
 /* A dashed line, integer pixels, walked parametrically so the dash phase is a

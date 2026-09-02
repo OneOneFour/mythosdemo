@@ -67,6 +67,17 @@
      look        appearance only. `view/` is the only reader, and no machine or
                  substance name appears anywhere in `view/`.
 
+     glyph       ONE CHARACTER: this machine's mark on the overview map
+                 (`view/overview.js`'s MACHINES layer, Phase 9). Appearance
+                 only, like `look`, and deliberately NOT inside it: a
+                 `variantOf` row is a SHALLOW merge, so a variant that restates
+                 `look` to change its colours -- which is what nearly every
+                 variant here exists to do -- would silently lose a glyph nested
+                 in it. At the top level a variant inherits the glyph it should
+                 and overrides it only where the difference is the point
+                 (`belt_l`'s direction, `axle` against `gear`). This is how
+                 `view` draws a machine's kind without naming one (SPEC 12).
+
      light       { level, whileRunning }. Phase 2b's one new interpreter key:
                  `rules/light.js` reads it exactly like every other key here,
                  no machine name involved. `level` is a number, or the literal
@@ -121,7 +132,7 @@ export const MACHINES = [
      recipe is not here -- it is the shared `smelt` row, which is why this one
      machine smelts every ore in the game and will smelt every ore added later.
      ---- */
-  { id:'furnace', name:'CRUDE FURNACE',
+  { id:'furnace', name:'CRUDE FURNACE', glyph:'F',
     tw:3, th:2, footing:2,
 
     ports:[ { side:'top', mode:'in', accepts:['*/#ore', '*/#fuel'] },
@@ -172,7 +183,7 @@ export const MACHINES = [
      (or trivially open at threshold 0) is worse than no gate. Wire this once
      `rules/fields.js` grows the buoyant transport its own comment already
      names as the seam. ---- */
-  { id:'press', name:'PRESS',
+  { id:'press', name:'PRESS', glyph:'P',
     tw:2, th:2, footing:2,
 
     ports:[ { side:'top', mode:'in', accepts:['*/#ingot', '*/#fuel'] },
@@ -237,7 +248,7 @@ export const MACHINES = [
      reinvented, and the reason `belt_l` needs no build recipe of its own
      (its bill would be bit-identical to `belt_r`'s, an unbreakable tie
      `rules/crafting.js#choose`'s first-match rule could never resolve). ---- */
-  { id:'belt_r', name:'CONVEYOR (RIGHT)',
+  { id:'belt_r', name:'CONVEYOR (RIGHT)', glyph:'>',
     tw:4, th:1, footing:4,
 
     ports:[ { side:'top', mode:'in', accepts:['*/#fuel'] } ],
@@ -261,7 +272,7 @@ export const MACHINES = [
            pips:[ { sel:'*/#fuel', row:0 } ],
            sfx:{ accept:'ignite', produce:'winch' } } },
 
-  { id:'belt_l', name:'CONVEYOR (LEFT)', variantOf:'belt_r',
+  { id:'belt_l', name:'CONVEYOR (LEFT)', variantOf:'belt_r', glyph:'<',
     belt:{ dir:-1 } },
 
   /* ---- BRAZIER: the placed, fuel-powered light source. Prometheus carried
@@ -273,7 +284,7 @@ export const MACHINES = [
      recompute (triggered by the emitter signature changing, not by any tile
      write) darkens the room again. 1x1, footing 1 -- a bowl on the ground,
      not a structure. ---- */
-  { id:'brazier', name:'BRAZIER',
+  { id:'brazier', name:'BRAZIER', glyph:'*',
     tw:1, th:1, footing:1,
 
     ports:[ { side:'top', mode:'in', accepts:['*/#fuel'] } ],
@@ -300,7 +311,7 @@ export const MACHINES = [
      frozen 15, so a boon that ever widened the daylight ceiling would widen
      the hearth's own light with it, for the same reason the daylight seed in
      `rules/light.js` reads `eff('lightMax')` and not a literal. ---- */
-  { id:'hearth', name:'HEARTH',
+  { id:'hearth', name:'HEARTH', glyph:'H',
     tw:2, th:2, footing:2,
 
     /* An `in:{}` recipe is satisfied by construction -- `rules/machines.js#
@@ -339,7 +350,7 @@ export const MACHINES = [
      `rules/mining.js` reads for a swinging player -- so "mines at exactly
      the T2 hand rate" is true because both call sites share the SAME data,
      not because two authors copied the same literal into two files. ---- */
-  { id:'talos_head', name:'TALOS HEAD',
+  { id:'talos_head', name:'TALOS HEAD', glyph:'T',
     tw:1, th:1, footing:1,
 
     ports:[ { side:'top',    mode:'in',  accepts:['*/#fuel'] },
@@ -375,7 +386,7 @@ export const MACHINES = [
      actually nearby (`data/world.js`'s adamant blobs start at topsoil row
      220, which is depth ~256 against `view/hud.js`'s own datum -- 200 leaves
      room to place it on the approach, not only once standing in the vein). */
-  { id:'cyclops_maw', name:'CYCLOPS MAW',
+  { id:'cyclops_maw', name:'CYCLOPS MAW', glyph:'M',
     tw:1, th:3, footing:1,
 
     ports:[ { side:'top',    mode:'in',  accepts:['*/#fuel'] },
@@ -466,7 +477,7 @@ export const MACHINES = [
      gated on their own key being present. A hub receives cargo by having a
      carrier arrive at it, which is `rules/drive.js`'s job in Phase 8f, not a
      buffer's. */
-  { id:'hub', name:'WINCH HUB',
+  { id:'hub', name:'WINCH HUB', glyph:'O',
     tw:2, th:2, footing:1,
 
     hub:{ reach:96, carries:['material', 'player'] },
@@ -531,7 +542,7 @@ export const MACHINES = [
      `reach:12` is `handFeed`'s own 10 plus a little, deliberately: standing
      close enough to turn a crank and standing close enough to feed a machine
      should read as the same distance. */
-  { id:'crank', name:'HAND CRANK',
+  { id:'crank', name:'HAND CRANK', glyph:'C',
     tw:1, th:2, footing:1,
 
     crank:{ torque:1.5, reach:12 },
@@ -568,7 +579,7 @@ export const MACHINES = [
      DIAGONALS DO NOT CONDUCT (docs/PLAN A3, confirmed): a corner needs a gear
      IN it. That is a legibility choice, and Phase 8e's art is what teaches
      it -- an accidentally diagonal pair must visibly not mesh. */
-  { id:'gear', name:'GEAR',
+  { id:'gear', name:'GEAR', glyph:'X',
     tw:1, th:1, footing:1,
 
     gear:{ loss:0.06 },
@@ -592,7 +603,7 @@ export const MACHINES = [
      and `belt_l` already are. `footing:1` (not 3) on purpose: an axle spans a
      gap, so requiring a floor under all three tiles would defeat the point of
      having it. */
-  { id:'axle', name:'AXLE', variantOf:'gear',
+  { id:'axle', name:'AXLE', variantOf:'gear', glyph:'-',
     tw:3, th:1, footing:1,
 
     gear:{ loss:0.02 },
