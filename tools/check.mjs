@@ -3834,6 +3834,116 @@ console.log('\n8. Phase 11 TIER 2 harness gaps');
        `named negative case) light nothing in a sealed chamber where a hearth reads ${control}`);
 }
 
+/* --- DATUM: `model/run.js#placementCheck`'s `minDepth` branch and
+   `view/hud.js#depth` (lines ~316-325) are two SEPARATE pieces of source
+   using the textually near-identical formula
+   `datum = worldY(bandOf(SPAWN_BAND), floorTy); depth = (worldY - datum) / tile`
+   -- docs/SPEC.md section 12 and CLAUDE.md D9 both say the two may never
+   disagree. `view/hud.js#depth` is a PRIVATE, unexported function (only
+   `hoverInfo`, `drawHUD` and `pairLabel` leave that file), and widening its
+   exports is outside this pass's file ownership -- so this cannot CALL it.
+   What it can do, and does: transcribe both formulas verbatim (cited by
+   file and line) from PUBLIC primitives (`world.bandOf`, `world.worldY`)
+   the two source files already read the identical way, then exercise
+   `model/run.js#placementCheck`'s REAL, live decision -- not a copy of its
+   arithmetic -- against that shared datum at the three points the checklist
+   names. `cyclops_maw` (`data/machines.js`) is the one shipped row with a
+   numeric `minDepth` (200), so it is the one gate this arithmetic actually
+   flips; its own comment there claims topsoil row 220 is "depth ~256"
+   against this datum, which this test cross-checks as an independent
+   second source for the same number. */
+{
+  let bad = 0;
+  boot.newRun(9520);
+  const ref = world.bandOf(D_world.SPAWN_BAND);
+  const datum = world.worldY(ref, ref.cfg.floorTy ?? 0);
+
+  /* view/hud.js#depth: `Math.round((player.y - datum) / ref.tile)`. Not
+     called here (see above) -- transcribed for the diff below. */
+  const hudDepthAt = worldY => Math.round((worldY - datum) / ref.tile);
+  /* model/run.js#placementCheck's own minDepth branch, unrounded. */
+  const placementDepthAt = (band, ty) => (world.worldY(band, ty) - datum) / ref.tile;
+
+  run.write.grant('cyclops_maw');                 // the strongest case, as THE ALTAR test above argues
+  const CM = D_mach.MACH[D_mach.M.cyclops_maw];
+
+  /* One clear, footed footprint, reused at each point by rebuilding it there
+     rather than declaring it three times. */
+  function tryAt(band, tx, ty) {
+    for (let j = -1; j <= CM.th; j++) for (let i = -1; i <= CM.tw; i++) tiles.write.clear(band, tx + i, ty + j);
+    for (let i = 0; i < CM.tw; i++) tiles.write.set(band, tx + i, ty + CM.th, D_sub.S.stone);
+    return run.placementCheck(band, 'cyclops_maw', tx, ty);
+  }
+
+  const surface = world.bandOf('surface');
+  const points = [
+    { label: 'the surface band', band: surface, ty: (surface.cfg.floorTy ?? 0) + 3 },
+    { label: 'the astral band', band: world.bandOf('astral'), ty: 5 },
+    { label: 'topsoil row 220', band: world.bandOf('topsoil'), ty: 220 }
+  ];
+
+  let row220 = null;
+  for (const p of points) {
+    const predicted = placementDepthAt(p.band, p.ty);
+    if (p.label === 'topsoil row 220') row220 = predicted;
+    /* The HUD reads `player.y` directly rather than a band+row; at a
+       tile-aligned world y the two formulas are the same number by
+       construction (both share `datum` and `ref.tile`) -- asserted anyway,
+       rather than assumed, so a stray `Math.floor` vs `Math.round` or a
+       `ref.tile` vs `band.tile` typo in either transcription would show up
+       as a mismatch right here before the real behavioural check below. */
+    const hudPredicted = hudDepthAt(world.worldY(p.band, p.ty));
+    if (Math.abs(hudPredicted - predicted) > 0.5) {
+      fail(`DATUM: the two transcribed formulas disagree at ${p.label} -- hud ${hudPredicted}, placement ` +
+           `${predicted.toFixed(3)} -- one of the two transcriptions above no longer matches its source`);
+      bad++;
+      continue;
+    }
+
+    const chk = tryAt(p.band, 30, p.ty);
+    const predictedTooShallow = predicted < CM.minDepth;
+    const actualTooShallow = !chk.ok && chk.why === 'TOO SHALLOW';
+    /* `tryAt` clears and foots the exact footprint, so the only refusal a
+       legal footprint at this depth can produce besides depth itself is
+       'NOTHING BUILT YET' (unaffordable -- this test never grants the held
+       substance) -- never 'NOT THERE', 'NEEDS CLEAR SPACE' or 'NEEDS A
+       FLOOR', any of which would mean the helper above is not building what
+       it claims to and the comparison below is worthless. */
+    if (!chk.ok && chk.why !== 'TOO SHALLOW' && chk.why !== 'NOTHING BUILT YET') {
+      fail(`DATUM: placing at ${p.label} refused for an unexpected reason (${chk.why}) -- the footprint ` +
+           `helper is not building a legal footprint, so the depth comparison below proves nothing`);
+      bad++;
+    } else if (predictedTooShallow !== actualTooShallow) {
+      fail(`DATUM: at ${p.label} (world y ${world.worldY(p.band, p.ty)}), the shared datum predicts depth ` +
+           `${predicted.toFixed(2)} tiles against minDepth ${CM.minDepth} (want ` +
+           `${predictedTooShallow ? "'TOO SHALLOW'" : 'deep enough'}), but placementCheck says ` +
+           `${JSON.stringify(chk)} -- the HUD gauge's datum and placementCheck's own have drifted apart`);
+      bad++;
+    } else {
+      console.log(`  ..  datum: ${p.label} is ${predicted.toFixed(2)} tiles deep, placementCheck agrees ` +
+                  `(${chk.why ?? 'deep enough'})`);
+    }
+  }
+
+  /* THE INDEPENDENT CROSS-CHECK: data/machines.js's own cyclops_maw comment
+     claims topsoil row 220 is "depth ~256" against this exact datum. If that
+     claim and this test's shared formula ever disagree, one of the two
+     pieces of prose in this codebase is stale. */
+  if (row220 === null || Math.abs(row220 - 256) > 4) {
+    fail(`DATUM: topsoil row 220 computes to depth ${row220} tiles against the shared datum, not the ~256 ` +
+         `data/machines.js's own cyclops_maw comment claims -- one of the two is stale`);
+    bad++;
+  } else {
+    console.log(`  ..  datum: topsoil row 220 is depth ${row220.toFixed(1)} tiles, matching data/machines.js's ` +
+                'own "~256" note on cyclops_maw');
+  }
+
+  if (!bad)
+    ok(`DATUM: the HUD gauge's transcribed formula and placementCheck's own REAL decision agree at the ` +
+       `surface band, the astral band, and topsoil row 220 (${row220.toFixed(1)} tiles, matching ` +
+       `data/machines.js's own note on cyclops_maw)`);
+}
+
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +
             `journal ${journal.peek ? journal.peek().length : 0} undrained`);
