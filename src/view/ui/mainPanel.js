@@ -520,17 +520,31 @@ function drawCraftingTooltip(g, f, grid, recipes) {
 export function machineState(m) {
   const def = defOf(m);
   if (m.running || m.charges > 0 || m.torque > 0) return 'RUNNING';
-  /* A DRIVETRAIN OR STRUCTURAL MACHINE IS NOT A PROCESSOR, and the two clauses
-     below cannot say anything true about one. A hub, a crank, a gear and an axle
-     have no `ports` and no `recipes` at all, so they fell through to "empty
-     buffer, therefore BLOCKED" -- which read as a red alarm on a hub doing
-     exactly what a hub does. The Phase 9 map is what made it visible (every hub
-     in a working chain drawn in the colour of a fault); the tab has been saying
-     it since the drivetrain landed. `m.torque > 0` above already catches one
-     that is actively turning, so what is left here is honestly IDLE.
-     Structural, not name-based: a future row with neither block gets the same
-     answer with no edit. */
-  if (!def.ports?.length && !def.recipes?.length) return 'IDLE';
+  /* A DRIVETRAIN OR STRUCTURAL MACHINE IS NOT A PROCESSOR, and the clause
+     below cannot say anything true about one. A hub, a crank, a gear and an
+     axle have no `ports` and no `recipes` at all, so they fell through to
+     "empty buffer, therefore BLOCKED" -- which read as a red alarm on a hub
+     doing exactly what a hub does. The Phase 9 map is what made it visible
+     (every hub in a working chain drawn in the colour of a fault); the tab
+     has been saying it since the drivetrain landed. `m.torque > 0` above
+     already catches one that is actively turning, so what is left here is
+     honestly IDLE.
+
+     PHASE 10c, FINDINGS #15's second instance: a receiver -- the Cloud Dock,
+     the altar -- carries `ports` (a `mode:'in'` catch for cargo) and no
+     `recipes`, so the ORIGINAL "no ports AND no recipes" clause still fell
+     through to BLOCKED on an empty buffer, a red alarm on a dock that has
+     simply not been fed yet. Dropping the `ports` check on its own would
+     overshoot, though: `talos_head`/`cyclops_maw` ALSO have `ports` (a
+     fuel intake) and no `recipes` -- they are active miners, not receivers,
+     and their `mine:{}` block is what says so, so their fuel/stalled reading
+     below must stay reachable. The clause that is actually true of every
+     structural-or-receiver machine and false of every active one is "no
+     recipes AND no mine job" -- verified against every row in
+     `data/machines.js`: the only rows with `recipes:[]` and no `mine` are
+     the drivetrain parts (already IDLE before this change) and the two
+     receivers this change is for. */
+  if (!def.recipes?.length && !def.mine) return 'IDLE';
   const fuelSels = [];
   for (const p of def.ports || [])
     if (p.mode === 'in' && p.accepts) for (const sel of p.accepts) if (sel.includes('#fuel')) fuelSels.push(sel);
