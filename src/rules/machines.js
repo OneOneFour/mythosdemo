@@ -24,7 +24,7 @@ import { capOf, count, defOf, fill, firstMatching, machines, write as mw } from 
 import { write as digw } from '../model/mining.js';
 import { eff } from '../model/mods.js';
 import { playerBox } from '../model/player.js';
-import { run, write as rw } from '../model/run.js';
+import { pocketedBest, pocketedPair, run, write as rw } from '../model/run.js';
 import { baseHardAt, dropAt, subAt, tileAt, write as tw } from '../model/tiles.js';
 import { tileX, tileY, worldX, worldY } from '../model/world.js';
 
@@ -39,7 +39,7 @@ import { tileX, tileY, worldX, worldY } from '../model/world.js';
    two answers; see docs/DEVELOPER_GUIDE.md#non-item-inputs */
 const api = {
   buffered: (m, sel) => best(m.buf, sel),
-  pocketed: (sel) => best(run.inv, sel),
+  pocketed: (sel) => pocketedBest(sel),
 
   /* Both spends return the concrete `{sub, form}` pair actually taken, so the
      interpreter learns which substance satisfied a selector without ever asking
@@ -52,7 +52,7 @@ const api = {
     return pair;
   },
   takePocketed: (sel, n) => {
-    const pair = bestPair(run.inv, sel, n);
+    const pair = pocketedPair(sel, n);
     if (!pair || !rw.spend(pair.sub, pair.form, n)) return null;
     return pair;
   },
@@ -66,9 +66,10 @@ const api = {
      spends hearts next. */
 };
 
-/* Largest single matching pair in a `{ 'sub/form': units }` ledger. Both the
-   machine buffer and the player's pockets are that shape — see the note in
-   `model/items.js` about why the string key was chosen. */
+/* Largest single matching pair in a `{ 'sub/form': units }` ledger -- `m.buf`
+   is the only ledger left in that shape (Phase 12c moved `run.inv` to a slot
+   array, see `model/run.js#pocketedBest`/`#pocketedPair` for its own
+   equivalents), so this now serves `buffered` alone. */
 function best(ledger, sel) {
   let n = 0;
   for (const k in ledger) {
@@ -76,15 +77,6 @@ function best(ledger, sel) {
     if (matches(sel, p.sub, p.form) && ledger[k] > n) n = ledger[k];
   }
   return n;
-}
-
-function bestPair(ledger, sel, need) {
-  for (const k in ledger) {
-    if (ledger[k] < need) continue;
-    const p = parseKey(k);
-    if (matches(sel, p.sub, p.form)) return p;
-  }
-  return null;
 }
 
 /* `recipesOf` allocates, and this runs per machine per frame, so the resolved
@@ -139,7 +131,7 @@ function handFeed(m, def) {
   if (!overlaps(playerBox(), m.box, def.handFeed.reach)) return;
   for (const sel of def.handFeed.from) {
     if (count(m, sel) >= capOf(def, sel)) continue;
-    const pair = bestPair(run.inv, sel, 1);
+    const pair = pocketedPair(sel, 1);
     if (!pair || !rw.spend(pair.sub, pair.form, 1)) continue;
     mw.take(m, pair.sub, pair.form, 1);
     mw.fire(m, 1);

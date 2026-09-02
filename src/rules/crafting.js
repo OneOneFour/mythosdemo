@@ -17,27 +17,13 @@
    entirely rather than banking it -- there is no shaft to come back to here,
    only a recipe that either has the player's attention right now or does not. */
 
-import { F, matches } from '../data/forms.js';
+import { F } from '../data/forms.js';
 import { HAND_RECIPES } from '../data/recipes.js';
 import { S } from '../data/substances.js';
 import { push } from '../model/journal.js';
-import { parseKey, write as iw } from '../model/items.js';
+import { write as iw } from '../model/items.js';
 import { player, playerCentre } from '../model/player.js';
-import { run, write as rw } from '../model/run.js';
-
-/* The largest single pocketed pair matching a selector, with at least `need`
-   units. Rules siblings may not import one another, so this is the same
-   shape as `rules/machines.js`'s private `bestPair`, re-derived over the
-   player's pockets rather than shared. See
-   docs/DEVELOPER_GUIDE.md#duplication-across-a-layer-boundary */
-function bestPocketed(sel, need) {
-  for (const k in run.inv) {
-    if (run.inv[k] < need) continue;
-    const p = parseKey(k);
-    if (matches(sel, p.sub, p.form)) return p;
-  }
-  return null;
-}
+import { pocketedPair, run, write as rw } from '../model/run.js';
 
 /* First hand-craftable recipe the player currently has every input for --
    "first match wins, a real menu would let you choose"; declaration order in
@@ -51,7 +37,7 @@ function choose() {
     const took = {};
     let ok = true;
     for (const sel in r.in) {
-      const pair = bestPocketed(sel, r.in[sel]);
+      const pair = pocketedPair(sel, r.in[sel]);
       if (!pair) { ok = false; break; }
       took[sel] = pair;
     }
