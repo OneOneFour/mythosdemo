@@ -509,3 +509,45 @@ deferred, and unrelated to hearts or `data/sources.js#vital`.
 
 What the Heavens lack is not a location but content: a dock, a ledger, and a
 reason to go. That is the cycle director's job, not worldgen's.
+
+### D12 — a form is either feedstock or buildable, never both
+
+**A form carrying a `tile` block may not also be named by any recipe's `in:`
+selector, any machine's `handFeed.from` selector, or any tribute demand.** The
+thing you build with and the thing you consume are different rows in
+`data/forms.js`, and the recipe between them is the whole point.
+
+This is not a style rule; it is what makes mined material a *prerequisite*
+rather than a placeable unit, and it is the premise stated in content instead
+of in a check. When one form is both, nothing ever forces the player through
+the recipe, so the recipe might as well not exist.
+
+Two worked examples, both real and both built:
+
+- **`gravel` → `block`.** `gravel` used to carry
+  `tile:{ solid:true, climb:false, hardK:0.5 }` *and* be consumed by
+  `brazier`/`crank`/`gear`/`belt_r` *and* be the literal tribute currency of
+  `data/cycles.js#salt-tribute`. Mined rubble shovelled 1:1 straight back into
+  the hole it came out of, for nothing. `gravel` is now feedstock only, and
+  `data/recipes.js#pack` packs **5 rubble of one `bulk` element into 1
+  `block`** of that element, recovered at native hardness rather than half.
+- **`log` → `rung` + `stair`.** `log` used to carry
+  `tile:{ solid:false, climb:true, hardK:0.30 }` *and* be `tags:['fuel']` a
+  furnace drains *and* be a bare ingredient in five recipes. Same shape, other
+  substance. `log` is now feedstock only, and `recipes.js#peg_rungs` (2 logs →
+  4 `rung`, unchanged and already present) is the only route to a placeable
+  timber ladder.
+
+Two consequences worth having in one place:
+
+- **A deposit becomes unplaceable by construction, not by permission.** With
+  the tile-capable forms reduced to `rung`/`stair`/`block` and `block`'s
+  `subTags:['bulk']`, `crossable(granite, block)` is false — the pair cannot
+  be *expressed*, so no placement path can be forgotten. `rules/placement.js`
+  needed no edit at all. `copper/stair` and `tin/stair` remain legal and
+  intentional: a Daedalan stair is refined bronze work, not a vein of copper,
+  and D12 is about a form's double duty, not about a substance's.
+- **`tools/content.mjs` assertion 20** makes the classification a build
+  failure rather than a convention: every substance carrying both a `tile`
+  block and the `mineable` tag must carry exactly one of `bulk`, `deposit` or
+  `organic`. `docs/SPEC.md` §19 holds the numbers.

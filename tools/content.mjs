@@ -817,6 +817,42 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
+  /* ---- 20. EVERY MINEABLE TERRAIN ROW IS CLASSIFIED (Phase 14a,
+     docs/SPEC.md section 19). Three buckets, one substance tag each, and the
+     split has to be expressible IN CONTENT rather than as a branch in code:
+     `#bulk/gravel` is a recipe input granite can never satisfy, and
+     `data/forms.js#block`'s `subTags:['bulk']` is the whole of "a deposit is
+     never player-placeable". Both of those read a TAG, so a terrain row added
+     without one silently gets neither behaviour -- its rubble packs into
+     nothing, and a future tile-capable form could quietly admit it.
+
+     EXACTLY ONE, not "at least one": a row tagged both `bulk` and `deposit`
+     would be placeable-by-recipe AND a named body at once, which is the
+     contradiction the classification exists to prevent, and `#bulk/gravel`
+     would start matching a deposit's rubble the moment it happened.
+
+     Scoped to `tile` + `mineable` on purpose. `bedrock`/`air` are pseudo-rows
+     (`VOID_SUB`/`EDGE_SUB`) and not in `SUB` at all; a relic, a miracle and
+     the machine items have no `tile` block and are not unclassified terrain,
+     they are not terrain. The vocabulary is hardcoded here for the same
+     reason assertions 10, 18 and 19 hardcode theirs: it is a closed set
+     defined by call sites, and a lint may not learn its vocabulary from the
+     data it is linting. ---- */
+  {
+    const BUCKETS = ['bulk', 'deposit', 'organic'];
+    for (const s of SUB) {
+      if (!s.tile || !s.tags?.includes('mineable')) continue;
+      checks++;
+      const held = BUCKETS.filter(b => s.tags.includes(b));
+      if (held.length !== 1)
+        fail(`substance "${s.id}": mineable terrain tagged ${held.length ? held.map(b => `"${b}"`).join(' and ') : 'with no bucket'} ` +
+             `-- every row with a \`tile\` block and \`mineable\` must carry EXACTLY ONE of ` +
+             `${BUCKETS.map(b => `"${b}"`).join(', ')} (docs/SPEC.md section 19). Without one, its rubble ` +
+             `packs into no block (data/recipes.js#pack reads #bulk) and nothing decides whether it may ` +
+             `ever be player-placed (data/forms.js#block reads subTags bulk)`);
+    }
+  }
+
   if (!quiet) {
     for (const v of violations) console.error(`  FAIL ${v}`);
     const verdict = violations.length ? 'FAIL' : 'ok  ';

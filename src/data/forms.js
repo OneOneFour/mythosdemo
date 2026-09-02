@@ -14,9 +14,17 @@
      subTags   which substance tags may take this form. `ingot` requires
                `metal`, which is why there is no stone ingot and no row saying so.
      tile      present -> a PLACED unit of this form is a wall/ladder tile.
-               `log`, `rung` and `stair` all have one -- placing any of them
-               is how a ladder is built.
+               `block`, `rung` and `stair` are the three that have one:
+               placing a `rung` or a `stair` is how a ladder is built, and
+               placing a `block` is how a hole is filled back in.
                hardK -> multiplies the substance hardness when placed.
+
+               A FORM IS EITHER FEEDSTOCK OR BUILDABLE, NEVER BOTH
+               (CLAUDE.md D12). A form carrying a `tile` block may not also be
+               named by any recipe's `in:` selector, any machine's
+               `handFeed.from`, or any tribute demand. `gravel` and `log` both
+               violated that and both lost their `tile` block in Phase 14a --
+               see their own rows below, and docs/SPEC.md section 19.
      climbK    OPTIONAL. Multiplies `eff('climb')` for this form
                (rules/player.js). Absent means 1; only `stair` sets it
                (~1.8x), which is the point of a tier-2 ladder buying
@@ -32,23 +40,32 @@ export const FORMS = [
     tags:['ore', 'crushable'],
     subTags:['metal'] },
 
+  /* FEEDSTOCK ONLY, NEVER PLACED -- CLAUDE.md D12, applied here first
+     (Phase 14a, docs/PLAN-phase14-mining-and-drops.md D14-A).
+
+     This row used to carry `tile:{ solid:true, climb:false, hardK:0.5 }`, and
+     the comment that went with it argued for the half hardness at length:
+     mined rubble could be shovelled 1:1 straight back into the hole it came
+     out of, softer than any of the four native rocks it drops from. It was
+     deleted, along with that argument, for two reasons that are the same
+     reason twice:
+
+       1. `gravel` was simultaneously CONSUMED -- by `brazier` (2), `crank`
+          (3), `gear` (1) and `belt_r` (4) in `data/recipes.js`, and by
+          `salt-tribute`'s 8 granite/gravel demand in `data/cycles.js` -- and
+          PLACED. That is exactly the double duty D12 forbids.
+       2. While rubble placed 1:1 for free, mined material WAS the placeable
+          unit, so nothing in the game ever had to make it a prerequisite.
+
+     The way back to solid ground is now `data/recipes.js#pack`: 5 rubble of
+     one bulk element -> 1 `block` of that element, recovered at NATIVE
+     hardness rather than half. Backfill costs five tiles' worth per tile and
+     is no longer the easiest dig in the game -- deliberately, and stated in
+     docs/SPEC.md section 19. */
   { id:'gravel', label:'GRAVEL', short:'GRVL',
     size:3, massK:0.5, hudOrder:2,
     tags:['bakeable', 'spoil'],
-    subTags:['metal', 'rock'],
-    /* PLACEABLE RUBBLE, for the dig-and-restore follow-up: mined gravel
-       (`stone/gravel`, `soil/gravel`, and now `granite`/`adamant`'s gravel
-       too, since Phase 1 gave all four the same `drops:'gravel'`) can be
-       shovelled back into a dug-out hole through the EXACT SAME `placeTile`
-       path `log`/`rung`/`stair` already use -- same unbacked-tile refusal,
-       same "mining a placed tile gives it back" recovery. `solid:true` (a
-       real wall, unlike the ladder forms above), `climb:false` (loose
-       backfill, not a rung), `hardK:0.5` -- softer than any NATIVE rock this
-       drops from (stone 1.60, soil 0.50, granite 2.4, adamant 5.0), so
-       shovelled-back fill is deliberately the easiest thing in the game to
-       dig back out, never harder than the loosest of the four sources
-       (soil's own 0.50 native hardness). */
-    tile:{ solid:true, climb:false, hardK:0.5 } },
+    subTags:['metal', 'rock'] },
 
   { id:'ingot', label:'INGOT', short:'ING',
     size:4, massK:1.6, hudOrder:3,
@@ -60,13 +77,30 @@ export const FORMS = [
     tags:['refined', 'ingot'],
     subTags:['metal'] },
 
-  /* The only tile-capable form. `solid:false, climb:true` is the ladder, and
-     it is also why a standing tree can be climbed. */
+  /* FEEDSTOCK ONLY, NEVER PLACED -- CLAUDE.md D12, and the row that made the
+     rule worth naming (Phase 14a, D14-H). A log is fuel (`tags:['fuel']`,
+     which the furnace's own `handFeed.from` selects with star-slash-hash-fuel
+     -- spelled in words for the reason the grammar block below gives) and a
+     bare ingredient in five recipes (`hub`,
+     `crank`, `gear`, `axle`, `daedalan`). While it ALSO carried
+     `tile:{ solid:false, climb:true, hardK:0.30 }` it was `gravel`'s exact
+     double-duty shape on a different substance, and nothing ever forced a
+     player through `data/recipes.js#peg_rungs` -- which already existed, is
+     unchanged, and is now the only route to a placeable timber ladder: 2 logs
+     -> 4 `rung`.
+
+     THE TWO CLAIMS THIS COMMENT USED TO MAKE WERE BOTH FALSE ALREADY, before
+     the tile block went. "The only tile-capable form" ignored `rung`, `stair`
+     and `gravel`. "It is also why a standing tree can be climbed" was never
+     true at all: `rules/generate.js#trees` writes trunks as `NATIVE`, and a
+     NATIVE byte reads the SUBSTANCE's own `tile` block, which carries no
+     `climb` key -- `model/tiles.js#tileBlockOf`'s form-wins-over-substance
+     rule and `rules/player.js#boxClimbK`'s own comment both say so. Only a
+     PLACED form has ever climbed. */
   { id:'log', label:'LOG',
     size:4, massK:1.0, hudOrder:4,
     tags:['fuel'],
-    subTags:['organic'],
-    tile:{ solid:false, climb:true, hardK:0.30 } },
+    subTags:['organic'] },
 
   /* A trinket's only form: not mineable, not smeltable, not tile-capable --
      `subTags:['relic']` means only a `relic`-tagged substance may cross into
@@ -85,7 +119,7 @@ export const FORMS = [
      not become an ingot may not become a plate either. `massK` is denser than
      ingot's 1.6 -- a plate is the more compact good, consistent with the
      compression-ratio thesis that only refined goods are worth lifting.
-     No `tile` block: unlike `log`, a plate is never placed as terrain, only
+     No `tile` block: unlike `block`, a plate is never placed as terrain, only
      ever held or banked -- there is no "plate wall" to dig back out of.
      `hudOrder` is appended after `relic` rather than slotted next to `ingot`
      to avoid renumbering an existing row; it still sorts after ingot within
@@ -128,9 +162,11 @@ export const FORMS = [
 
   /* ---- rung: a cheap, dedicated ladder peg (Phase 2a, CLAUDE.md D4's own
      prerequisite -- the encumbrance lockout needs something cheaper than a
-     whole log to climb back out on). `timber/log` already places as a
-     climbable tile -- building a ladder out of whole logs stays true -- this
-     is the SAME `climb:true` idiom at a fraction of the material.
+     whole log to climb back out on). `timber/log` used to place as a
+     climbable tile too, so this was originally the SAME `climb:true` idiom at
+     a fraction of the material; since Phase 14a stripped `log`'s `tile` block
+     (D12, see that row above) this is the ONLY climbable timber tile there
+     is, and `peg_rungs` is the only way to get one.
      `recipes.js#peg_rungs` turns TWO logs into FOUR rungs (not the plan's
      literal one -- see that recipe's own comment for why the quantity is
      load-bearing against a hand-craft priority collision with `kindle`, a
@@ -140,9 +176,11 @@ export const FORMS = [
      1-log draft required -- but 0.3 was kept anyway, matching `brand`'s own
      massK, since a peg is exactly that same "split lighter, with real
      waste" shape `tools/content.mjs`'s mass-conservation check already
-     validated for brand in Phase 1 (4 x 0.3 = 1.2, under 1.6). `hardK` is
-     softer than a placed log's 0.30: a single peg is the flimsiest
-     climbable in the game, on purpose. No tag membership: a rung is not
+     validated for brand in Phase 1 (4 x 0.3 = 1.2, under 1.6). `hardK:0.20`
+     was set softer than the placed log's own 0.30: a single peg is the
+     flimsiest climbable in the game, on purpose, and it stays 0.20 now that
+     the log it was measured against no longer places at all. No tag
+     membership: a rung is not
      fuel, ore or anything else a selector should be able to find by
      accident. */
   { id:'rung', label:'LADDER',
@@ -164,7 +202,7 @@ export const FORMS = [
      conservation (8.0 consumed / 2 produced), and 3.0 leaves real headroom
      for waste -- some of the timber is scaffolding, not structure, and does
      not survive into the stair. No `hardK` override: a bronze stair
-     recovers at plain copper hardness, tougher than a placed log or a rung,
+     recovers at plain copper hardness, tougher than a rung,
      which is the other half of "tier 2 costs more and is worth it." */
   { id:'stair', label:'STAIR',
     size:4, massK:3.0, hudOrder:10, climbK:1.8,
@@ -177,8 +215,8 @@ export const FORMS = [
 
      No `tile` block, on purpose: a machine is placed as a multi-tile
      STRUCTURE through `model/machines.js`/`rules/placement.js#placeMachine`,
-     never as grid terrain -- do not confuse this with `log`/`rung`/`stair`
-     above, which place as a single terrain tile through `placeTile`.
+     never as grid terrain -- do not confuse this with `rung`/`stair`/`block`,
+     which place as a single terrain tile through `placeTile`.
      `massK:1.0` so a machine substance's own `item.mass`
      (`data/substances.js`) IS the carried item's mass directly, with no
      second multiplier to keep straight -- unlike `ingot`/`plate`, which
@@ -188,7 +226,42 @@ export const FORMS = [
   { id:'rig', label:'RIG', short:'RIG',
     size:4, massK:1.0, hudOrder:11,
     tags:['machine', 'placeable'],
-    subTags:['machine'] }
+    subTags:['machine'] },
+
+  /* ---- block: PACKED EARTH, the way back to solid ground (Phase 14a,
+     docs/PLAN-phase14-mining-and-drops.md D14-B, docs/SPEC.md section 19).
+     One form covers soil AND stone AND any future `bulk` element, because
+     `data/recipes.js#pack`'s `out:[{ subFrom:'#bulk/gravel', ... }]` carries
+     the element across exactly as `smelt` carries it from ore -- there is no
+     `soil_block` row and there never will be.
+
+     `subTags:['bulk']` IS THE LOAD-BEARING HALF, and it is the whole of
+     "a deposit is never player-placeable". `crossable(granite, block)` is
+     FALSE, so `granite/block` is not a legal pair and cannot be constructed,
+     let alone placed -- the same `subTags` gate that keeps a miracle out of a
+     trinket selector (`phial` above), used for the same reason: a
+     POSSIBILITY that cannot be expressed beats a PERMISSION someone can
+     forget to check. With `gravel` and `log` now feedstock-only, the
+     tile-capable forms are `rung`/`stair`/`block` admitting
+     organic/metal/bulk, and no `deposit` substance has an obtainable
+     crossing into any of them. `rules/placement.js` needed no edit at all.
+
+     `massK:2.0` -- twice the element's base mass, because a block is
+     COMPACTED where rubble is loose (`gravel.massK` 0.5). It is also the
+     largest round value that clears `tools/content.mjs`'s mass-conservation
+     check with real waste in both directions: soil 5 x 0.5 x 0.5 = 1.25 in
+     against 1 x 0.5 x 2.0 = 1.00 out; stone 5 x 0.6 x 0.5 = 1.50 against
+     1 x 0.6 x 2.0 = 1.20. 2.5 is the ceiling.
+
+     `hardK:1.0` -- a packed block recovers at NATIVE hardness (soil 0.50 s,
+     stone 1.60 s), not the retired rubble tile's half. Paired with the 5:1
+     cost, filling a hole is a real decision now rather than free.
+     `climb:false`: it is a wall, not a rung. ---- */
+  { id:'block', label:'BLOCK', short:'BLK',
+    size:4, massK:2.0, hudOrder:12,
+    tags:['built'],
+    subTags:['bulk'],
+    tile:{ solid:true, climb:false, hardK:1.0 } }
 ];
 
 export const FORM = Object.freeze(FORMS.map(Object.freeze));
@@ -216,8 +289,12 @@ export const crossable = (subOrd, formOrd) => {
 
    `formOrd === NATIVE` is the element as it comes out of the ground -- a copper
    vein, a granite wall, a standing trunk. Any other form is a PLACED unit.
-   With four forms the stride is five, so a byte holds 50 substances; the guard
-   below fails the build rather than wrapping silently. */
+   The stride is `FORM.length + 1` -- 13 at the twelve forms above -- so a byte
+   holds 19 substances' worth of ordinals and the last one that fits is
+   `PACKABLE_LIMIT`. The guard below fails the build rather than wrapping
+   silently. A FORM is cheap and a tile-capable SUBSTANCE is not appendable at
+   all; that asymmetry is spelled out in `data/substances.js`'s header and in
+   docs/SPEC.md section 15. */
 
 export const NATIVE  = -1;
 export const AIR     = 0;
@@ -237,9 +314,10 @@ const STRIDE = FORM.length + 1;
 
    So a substance is packable iff it is native terrain OR some tile-capable
    form is a legal crossing for it. Nothing else can be handed to `packTile`:
-   `gravel`'s `subTags` are metal/rock, `log`/`rung`'s are organic and
-   `stair`'s is metal, so no `relic`, `miracle` or `machine` substance crosses
-   into any of them.
+   the three tile-capable forms are `rung` (`subTags` organic), `stair`
+   (metal) and `block` (bulk), so no `relic`, `miracle` or `machine` substance
+   crosses into any of them -- and, since Phase 14a, no `deposit` substance
+   crosses into one either (`block`'s own comment above).
 
    The guard used to price EVERY row as if it were tile-capable
    (`1 + (SUB.length - 1) * STRIDE + FORM.length`), which at 19 substances read

@@ -6,6 +6,22 @@
 
      tags   free strings. `#metal` in a selector means "any row tagged metal".
 
+            THREE OF THEM CLASSIFY TERRAIN, and every row carrying both a
+            `tile` block and `mineable` must carry EXACTLY ONE of them
+            (tools/content.mjs assertion 20, so a future terrain row cannot
+            forget to classify itself). docs/SPEC.md section 19:
+
+              bulk     FILLER terrain you tunnel through -- `soil`, `stone`.
+                       Mines to `gravel`, and 5 gravel pack back into one
+                       placeable `block` (`data/recipes.js#pack`).
+              deposit  a NAMED body -- `copper`, `tin`, `granite`, `adamant`.
+                       Never player-placeable, and that is a property of the
+                       tables rather than a check anyone can forget: no
+                       tile-capable form's `subTags` admit a deposit, so the
+                       pair cannot be CONSTRUCTED, let alone placed.
+              organic  grown and felled -- `timber`. Neither bucket;
+                       docs/PLAN-phase15-trees.md owns its regrowth.
+
      tile   present -> the element can exist in the grid as native rock.
             absent  -> it never can. Absence is a declaration, not an omission.
             hard    -> SECONDS to break at pick power 1. Not a 0..255 byte: that
@@ -58,13 +74,31 @@
                        boundary: this substance's top edge, where the substance
                        ABOVE it is a different one. Absent means `lo`.
 
-   ROWS ARE APPEND-ONLY; see docs/DEVELOPER_GUIDE.md#adding-a-substance. */
+   ROWS ARE APPEND-ONLY -- EXCEPT FOR A TILE-CAPABLE ROW, WHICH CANNOT BE
+   APPENDED AT ALL. Appending is safe for anything that never reaches the tile
+   byte (a relic, a miracle, a machine item); those cost an ordinal and nothing
+   else. It is NOT safe for a row with a `tile` block, or one crossable with a
+   tile-capable form: `data/forms.js`'s import-time guard prices the highest
+   PACKABLE ordinal against `BEDROCK`, and `SUB.length` is already past
+   `PACKABLE_LIMIT`, so appending such a row THROWS AT IMPORT today. Measured,
+   not predicted -- at 23 rows and 12 forms an appended packable row packs to
+   `1 + 23 * 13 + 12 = 312` of 255.
+
+   docs/SPEC.md section 15 used to read as if twelve ordinals of tile-capable
+   headroom remained. That was true as a SLOT COUNT and misleading as advice:
+   all twelve of those slots (ordinals 9-20) are already occupied by
+   non-packable rows, so real APPENDABLE headroom for a tile-capable row is
+   ZERO. Such a row must be INSERTED at an ordinal <= `PACKABLE_LIMIT`
+   instead, which is safe because no tile byte is ever persisted (no save file,
+   no `localStorage`) -- an insertion is only ever a renumbering. See
+   docs/SPEC.md sections 15 and 19 and
+   docs/DEVELOPER_GUIDE.md#adding-a-substance. */
 
 export const SUBSTANCES = [
 
   /* ---- the commented row. Every row below is this shape with different
           literals; copy the nearest one and change the words. ---- */
-  { id:'copper', name:'COPPER', short:'CU', tags:['metal', 'mineable'],
+  { id:'copper', name:'COPPER', short:'CU', tags:['metal', 'mineable', 'deposit'],
 
     tile:{ solid:true,
            hard:0.95,                    // seconds at pick power 1
@@ -77,16 +111,23 @@ export const SUBSTANCES = [
            treatments:[ { fn:'glint', col:'veinA', n:2 } ] } },
 
   /* ---- tin: see docs/DEVELOPER_GUIDE.md#adding-a-substance ---- */
-  { id:'tin', name:'TIN', tags:['metal', 'mineable'],
+  { id:'tin', name:'TIN', tags:['metal', 'mineable', 'deposit'],
     tile:{ solid:true, hard:1.10, drops:'ore' },
     item:{ mass:1.0, hud:{ order:2 } },
     look:{ base:'snC', hi:'snA', lo:'snD', speckle:0.28,
            item:['snA', 'snC'],
            treatments:[ { fn:'glint', col:'snA', n:2 } ] } },
 
-  /* ---- timber: the fuel and the ladder. Its `log` form is tile-capable and
-          climbable, so felling a tree and building a ladder are the same two
-          nouns in different places -- see `forms.js`. ---- */
+  /* ---- timber: the fuel and the ladder STOCK. `organic` is its terrain
+          classification (see the header): neither `bulk` nor `deposit`, and
+          docs/PLAN-phase15-trees.md owns the regrowth.
+
+          Felling a tree yields `log`, which is FEEDSTOCK ONLY -- fuel and a
+          recipe ingredient, never a placed tile (CLAUDE.md D12). This comment
+          used to say the log form was tile-capable and climbable "so felling
+          a tree and building a ladder are the same two nouns in different
+          places"; they are now one noun apart, `data/recipes.js#peg_rungs`,
+          which turns 2 logs into 4 `rung`. See `forms.js#log`. ---- */
   { id:'timber', name:'TIMBER', short:'WOOD', tags:['organic', 'mineable'],
     tile:{ solid:true, hard:0.35, drops:'log' },
     item:{ mass:0.8, hud:{ order:3, always:true } },
@@ -105,7 +146,7 @@ export const SUBSTANCES = [
 
   /* ---- stone: the bulk of the world. Mines to gravel, never to ore, and has
           no ingot -- see docs/DEVELOPER_GUIDE.md#adding-a-form ---- */
-  { id:'stone', name:'STONE', tags:['rock', 'mineable', 'spoil'],
+  { id:'stone', name:'STONE', tags:['rock', 'mineable', 'spoil', 'bulk'],
     tile:{ solid:true, hard:1.60, drops:'gravel' },
     item:{ mass:0.6, hud:{ order:4 } },
     look:{ base:'irC', hi:'irB', lo:'irD', speckle:0.24,
@@ -167,7 +208,7 @@ export const SUBSTANCES = [
           than stone (a shovel's depth, not a pick's), and drops the same
           `gravel` any `rock`-tagged substance does -- no new form for a second
           kind of rubble. ---- */
-  { id:'soil', name:'SOIL', tags:['rock', 'mineable'],
+  { id:'soil', name:'SOIL', tags:['rock', 'mineable', 'bulk'],
     tile:{ solid:true, hard:0.50, drops:'gravel' },
     item:{ mass:0.5, hud:{ order:7 } },
     look:{ base:'soilA', hi:'soilA', lo:'soilC', speckle:0.44,
@@ -199,7 +240,7 @@ export const SUBSTANCES = [
           substance (copper, tin, timber, stone, soil) is unaffected. Mines
           to `gravel`, same as stone and soil, so no new rubble form is
           needed for it. ---- */
-  { id:'granite', name:'GRANITE', short:'GRNT', tags:['rock', 'mineable'],
+  { id:'granite', name:'GRANITE', short:'GRNT', tags:['rock', 'mineable', 'deposit'],
     tile:{ solid:true, hard:2.4, drops:'gravel', tier:2 },
     item:{ mass:0.9, hud:{ order:8 } },
     look:{ base:'graniteB', hi:'graniteA', lo:'graniteD', speckle:0.17,
@@ -215,7 +256,7 @@ export const SUBSTANCES = [
           this phase adds that recipe, and mining it still only ever yields
           gravel). `tile.tier:3` gates it behind Phase 2c's auger/Talos-head
           tools -- a bronze pickaxe cannot scratch it. ---- */
-  { id:'adamant', name:'ADAMANT', short:'ADMT', tags:['rock', 'metal', 'mineable'],
+  { id:'adamant', name:'ADAMANT', short:'ADMT', tags:['rock', 'metal', 'mineable', 'deposit'],
     tile:{ solid:true, hard:5.0, drops:'gravel', tier:3 },
     item:{ mass:1.4, hud:{ order:9 } },
     look:{ base:'adamantB', hi:'adamantA', lo:'adamantD', speckle:0.07,

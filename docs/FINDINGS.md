@@ -1720,3 +1720,67 @@ Consequences, in the order they bite:
   stage would make a self-lifting ride possible without touching
   `rules/drive.js`. Adding a passive power source would not: D10 rejects it
   explicitly.
+
+## Phase 14a (rubble becomes a prerequisite; D12 applied) — five things parked
+
+1. **`docs/SPEC.md` §21 does not exist and could not, so this landed as §19.**
+   `docs/PLAN-phase14-mining-and-drops.md` §5 and §6.1 both said "a new §21".
+   SPEC's last section was **§18**; §19 and §20 did not exist, and
+   `docs/PLAN-phase13.md` §794 reserves §20 for its own band gate. Numbering
+   this 21 would have left two holes in a document nothing indexes
+   sequentially, so it took the next free number and every `§21` reference in
+   the plan document was rewritten to `§19` with a correction note in its §5.
+   **14b, 14c and 14d should read §19.**
+
+2. **`data/forms.js`'s prediction about the CRAFTING tab was wrong, and no
+   craft baseline moved.** 14a's own prompt (and `docs/FINDINGS.md` 8d #6)
+   expected the RAW recipe grid to gain a slot for `pack`'s output.
+   `view/ui/mainPanel.js#categoryOf` sorts on the OUTPUT FORM: `form.tile` is
+   tested before the `refined`/`raw` fallbacks, so `pack` lands in **PLACE**,
+   beside `peg_rungs` and `daedalan`. Both crafting baselines
+   (`ui-crafting`, `furnace-lifecycle-1-crafting-ui`) shoot the default RAW
+   category and are bit-identical. The three baselines that DID move
+   (`ui-character`, `ui-character-swap`, `ui-character-swap-phone`) moved for
+   an unrelated and smaller reason: the inventory slot glyph at
+   `mainPanel.js:190` is `FORM[slot.form].tile ? '#' : glyphOf(sub)`, and
+   those scenes hold `timber/log`, which no longer carries a `tile` block.
+   156 px, one glyph cell, verified against the diff image.
+
+3. **`'THAT DOES NOT BUILD'` is reachable but NOT the refusal a player sees**,
+   and this is the one legibility gap the phase leaves. 14a's prompt expected
+   arming rubble and clicking to produce that journal row. It does not,
+   because the pair can no longer be armed at all: both
+   `rules/placement.js#placeableFromPockets` and `shell/main.js`'s
+   click-to-arm branch gate on `FORM[...].tile`, so a gravel/log slot click
+   falls through to the drag-resolve branch and is a **silent no-op**, and LMB
+   on open ground mines instead. The refusal string is real and was verified
+   by calling `placeTile` directly (`soil/gravel`, `timber/log`,
+   `granite/gravel`, `copper/ore`, `adamant/gravel` — all five refused with
+   it), but nothing in normal play reaches it. Not fixed here, and it is not a
+   new defect: this is the identical silent no-op every non-placeable form has
+   always had. **Owned by `docs/PLAN-phase16-interaction-model-v2.md`**, whose
+   Part C already names "clicking an ore/ingot/plate/brand/relic is a
+   confirmed silent no-op" as the gap it exists to close. Gravel and log have
+   now joined that class; 16's own solution covers them for free.
+
+4. **Comment-only edits in three `rules/` files, outside the phase's stated
+   scope.** D14-C says "`rules/placement.js` is **not edited by this phase at
+   all**", and no line of logic was. But four comments in `rules/` named the
+   retired placeables as fact and would have been left false:
+   `rules/placement.js`'s `---------- tiles ----------` header and
+   `#placeableFromPockets` (both listed "`log`, `rung`, `stair`, `gravel`"),
+   `rules/generate.js#trees` ("timber's `log` form is the only tile-capable
+   form in the game" — already false when `rung`/`stair`/`gravel` existed),
+   and `rules/player.js#boxClimbK` ("a rung or a placed log both read as 1").
+   All four were corrected. **They are a separable hunk**: `git diff` over
+   those three files is comments only, so a reviewer who wants the "no `rules/`
+   file touched" claim literally true can drop them without touching
+   behaviour.
+
+5. **`data/forms.js`'s packing header still had a stale illustration**, fixed
+   in passing: "With four forms the stride is five, so a byte holds 50
+   substances" was written when there were four forms. It now states the live
+   figures (stride 13, guard 117 of 255, `PACKABLE_LIMIT` 18) and points at
+   `data/substances.js`'s header for the append-vs-insert asymmetry.
+   `docs/DEVELOPER_GUIDE.md`'s copy of the same sentence had the same problem
+   and got the same fix.

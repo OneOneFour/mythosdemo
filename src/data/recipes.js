@@ -59,9 +59,12 @@ export const RECIPES = Object.freeze({
                              strict SUBSET of every other plate-consuming
                              recipe here (cyclops_maw, talos_head,
                              press_machine, belt_r, and the EXISTING
-                             daedalan/auger), so `hearth` is declared LAST OF
-                             ALL, or it would starve every one of them the
-                             moment enough plate for both existed.
+                             daedalan/auger), so `hearth` is declared AFTER
+                             EVERY PLATE-CONSUMING ROW, or it would starve
+                             every one of them the moment enough plate for
+                             both existed. Only `pack` (Phase 14a) is declared
+                             after it, and the two share no material at all --
+                             see that row's own derivation.
 
      Phase 8d's four segment-transport rows were checked the same way, against
      every row in this file, and only these containments exist:
@@ -83,7 +86,7 @@ export const RECIPES = Object.freeze({
        hub               -- no containment with anything still in this file.
                              `hearth`'s {2 plate} is a subset of the hub's
                              {3 plate, 1 ingot, 2 log}, which `hearth` being
-                             last of all already covers.
+                             last of the plate rows already covers.
        axle              -- {2 ingot, 2 log}: no containment with anything
                              either, including `hub` -- the hub needs plate the
                              axle does not, and the axle needs two ingots to
@@ -158,7 +161,7 @@ export const RECIPES = Object.freeze({
      Checked against every other `hand:true` bill in this file, and these are
      ALL the containments: it contains `hub` (handled above), `auger`
      {2 plate, 1 log} and `peg_rungs` {2 log} (both declared later already),
-     and `hearth` {2 plate} (declared last of all, which covers it). It does
+     and `hearth` {2 plate} (declared after every plate row, which covers it). It does
      NOT contain `press_machine` {4 plate, 2 ingot} -- one ingot short -- nor
      `belt_r` {2 plate, 4 gravel} nor `daedalan` {2 plate, 4 log} nor `gear`
      {2 log, 1 gravel}, and nothing declared before it contains IT (`furnace`
@@ -343,8 +346,9 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* ---- hearth: 2 copper/plate -> hearth/rig, DECLARED ABSOLUTE LAST, after
-     even `auger` -- see the machine-recipe block's own header comment above
+  /* ---- hearth: 2 copper/plate -> hearth/rig, DECLARED LAST OF EVERY
+     PLATE-CONSUMING ROW, after even `auger` -- see the machine-recipe block's
+     own header comment above
      for why: this bill (2 plate, nothing else) is a strict SUBSET of every
      other plate-consuming recipe in this table (`cyclops_maw`,
      `talos_head`, `press_machine`, `belt_r`, and the pre-existing
@@ -358,6 +362,71 @@ export const RECIPES = Object.freeze({
     in:{ 'copper/plate':2 },
     out:[ { sub:'hearth', form:'rig', n:1 } ],
     secs:4.0,
+    hand:true
+  }),
+
+  /* ---- pack: 5 rubble of one BULK element -> 1 `block` of that element, the
+     only way back to solid ground now that `data/forms.js#gravel` has no
+     `tile` block (Phase 14a, docs/PLAN-phase14-mining-and-drops.md D14-A/B,
+     docs/SPEC.md section 19). One row covers soil AND stone AND any future
+     `bulk` element: `subFrom` carries the substance across exactly as
+     `smelt` carries it from ore, so there is no `pack_soil`.
+
+     `#bulk/gravel` and not `#rock/gravel` IS THE POINT. `bulk` tags `soil`
+     and `stone` only; `granite` and `adamant` are tagged `deposit`, so
+     neither this input nor `block`'s own `subTags:['bulk']` can ever admit
+     them. `cyclops_maw`'s 6 `granite/gravel` is therefore NOT a containment
+     concern with this row at all -- the two bills cannot be satisfied by the
+     same pocketed pair, whatever the counts.
+
+     DECLARATION POSITION, DERIVED PAIRWISE AGAINST EVERY OTHER `hand:true`
+     BILL IN THIS FILE (the rule is docs/DEVELOPER_GUIDE.md#hand-recipe-
+     declaration-order; note `rules/crafting.js#choose` matches through
+     `model/run.js#pocketedPair`, so a clause must be met by ONE pocketed
+     pair holding the whole count, never by a sum across two elements):
+
+       CONCLUSION: `pack` has NO CONTAINMENT, IN EITHER DIRECTION, WITH ANY
+       ROW IN THIS FILE. Two facts give that, and both are load-bearing.
+
+       1. Nothing here can imply `pack`. Its 5 is strictly MORE gravel than
+          any other bill asks for -- `belt_r` 4, `crank` 3, `brazier` 2,
+          `gear` 1, and `cyclops_maw`'s 6 is granite, which `#bulk` excludes.
+          So no pockets state that satisfies another row also satisfies this
+          one. (If a future row ever wants 5+ plain gravel, it must be
+          declared BEFORE this one or this one starves it.)
+       2. `pack` can imply nothing. It is a ONE-CLAUSE bill and every other
+          gravel-consuming row also demands logs (`brazier` 4, `crank` 3,
+          `gear` 2) or plate (`belt_r` 2), which this row does not ask for at
+          all. Every non-gravel row (`furnace`, `cloud_dock`, `hub`, `axle`,
+          `talos_head`, `press_machine`, `smelt`, `press`, `peg_rungs`,
+          `kindle`, `daedalan`, `auger`, `hearth`) shares no material with it
+          whatsoever.
+
+     SO POSITION IS UNCONSTRAINED BY CONTAINMENT, AND IS DECIDED BY WHO LOSES
+     THE OVERLAP INSTEAD -- first-match-wins still means any two
+     simultaneously-affordable rows contend, and gravel is the most abundant
+     material in the game, so a player will hold 5+ of it almost always.
+     Declared FIRST, this row would win that overlap and a player carrying
+     rubble could not hand-build a `brazier`, `crank`, `gear` or `belt_r` --
+     i.e. most of the drivetrain -- without spending their gravel below 5.
+     Declared LAST, the loss runs the other way and is smaller: `pack` waits
+     until nothing else is affordable, so a player holding 2+ plate has to put
+     the plate down to pack earth. Starving four machine builds is worse than
+     starving one utility craft, so this is declared ABSOLUTE LAST, after even
+     `hearth` -- which loses nothing, since the two bills share no material.
+
+     That residual wart is the known one: `docs/FINDINGS.md` (8d, #4) records
+     that the craft queue cannot choose a recipe, and a real menu is the fix
+     for this the way it is the fix for `daedalan`/`auger`. Nothing here
+     invents a number to dodge it.
+
+     `secs:2.5` -- in `gear`/`kindle`'s cheap class. The cost of a block is
+     the five tiles of rubble, not the time. ---- */
+  pack: Object.freeze({
+    id:'pack', name:'PACK EARTH',
+    in:{ '#bulk/gravel':5 },
+    out:[ { subFrom:'#bulk/gravel', form:'block', n:1 } ],
+    secs:2.5,
     hand:true
   })
 });

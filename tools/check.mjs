@@ -1160,7 +1160,12 @@ const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate
        not what the assertion below means to measure. Dug well clear of it. */
     const tx = world.tileX(band, player.player.x) + 15, ty = world.tileY(band, player.player.y);
     for (let dy = -1; dy <= 4; dy++) tiles.write.clear(band, tx, ty + dy);
-    tiles.write.set(band, tx, ty + 4, D_sub.S.timber, D_form.F.log);   // a ladder tile to climb
+    /* `F.rung`, not `F.log`: Phase 14a stripped `log`'s `tile` block (CLAUDE.md
+       D12 -- a form is either feedstock or buildable), so a placed log is no
+       longer a climbable tile at all. `timber/rung` is what `peg_rungs` makes
+       and what a ladder has been built from since Phase 2a; the scene is the
+       same, the tile is the one the game can actually produce. */
+    tiles.write.set(band, tx, ty + 4, D_sub.S.timber, D_form.F.rung);   // a ladder tile to climb
     player.write.move(world.worldX(band, tx), world.worldY(band, ty + 3));
     player.write.vel(0, 0);
     const need = mods.eff('burden') * 1.5;

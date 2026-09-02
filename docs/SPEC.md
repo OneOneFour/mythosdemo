@@ -552,16 +552,28 @@ paths are harmless, not free. Wiring a "place from pockets" click-to-arm UI
 and locking the Crafting tab's silhouettes on the grant tier are a follow-up
 task's job, not this reversal's.
 
-**Placeable rubble.** `data/forms.js#gravel` gained a `tile` block
+**~~Placeable rubble.~~** ~~`data/forms.js#gravel` gained a `tile` block
 (`solid:true, climb:false, hardK:0.5`) so mined rubble (`stone/gravel`,
 `soil/gravel`, `granite/gravel`, `adamant/gravel`) can be shovelled back into
 a dug-out hole through the same `placeTile` path `log`/`rung`/`stair` use —
-loose backfill, easier to dig back out than any native rock it came from.
+loose backfill, easier to dig back out than any native rock it came from.~~
+— **SUPERSEDED by §19** (Phase 14a). `gravel` lost that `tile` block, and so
+did `log`: a form may not be both feedstock and buildable (CLAUDE.md D12).
+Backfill is now `data/forms.js#block` at 5 rubble per tile, recovered at
+native hardness, and a timber ladder is `rung` via `peg_rungs`.
 
 **Tile-byte headroom.** Adding one form (`rig`, `data/forms.js`'s 11th) makes
 `STRIDE` 12, so a substance at ordinal `n` in form `f` packs to
-`1 + n * 12 + (f + 1)`, and `BEDROCK` (255) is the ceiling. Note that a new
-FORM costs disproportionately: every substance's stride grows by one.
+`1 + n * 12 + (f + 1)`, and `BEDROCK` (255) is the ceiling. **Phase 14a added
+a twelfth form (`block`), so the live figures are `STRIDE` 13 and
+`1 + n * 13 + (f + 1)`;** the shape of the arithmetic is unchanged.
+
+A new FORM does cost every substance one byte of stride, and that reads as if
+a form were the expensive thing. **It is the cheap one.** Measured against the
+real modules at the twelve forms shipped today: the guard's own figure is
+`1 + 8 * 13 + 12 = 117` of 255, and `PACKABLE_LIMIT` is 18. Two more forms
+would take it to 135 and 15. A form is affordable; a tile-capable substance is
+not appendable at all — see the correction below.
 
 This section used to say **two substance rows left**, which was true of the
 guard as it was written and false of the game (corrected in Phase 8c,
@@ -579,19 +591,49 @@ tile-capable form's `subTags` (`gravel`: metal/rock, `log`/`rung`: organic,
 ordinal — native terrain, or a legal crossing with a form carrying a `tile`
 block:
 
-| | |
+| | as measured, post-Phase-14a |
 |---|---|
-| packable substances | 7 of 19 (`copper`, `tin`, `timber`, `stone`, `soil`, `granite`, `adamant`) |
+| substance rows | 23 |
+| forms | 12, so `STRIDE` 13 |
+| packable substances | 7 of 23 (`copper`, `tin`, `timber`, `stone`, `soil`, `granite`, `adamant`) |
 | highest packable ordinal | 8 (`adamant`) |
-| byte in use at that ordinal | `1 + 8 * 12 + 11 = 108` of 255 |
-| last ordinal that still fits | 20, at `1 + 20 * 12 + 11 = 252` |
-| **tile-capable headroom** | **12 rows** (ordinals 9–20) |
+| byte in use at that ordinal | `1 + 8 * 13 + 12 = 117` of 255 |
+| last ordinal that still fits (`PACKABLE_LIMIT`) | 18, at `1 + 18 * 13 + 12 = 247` |
 
 Rows that can never be packed — relics, miracles, machine items — now cost
 the tile byte **nothing**. They do still consume ordinals, so a *tile-capable*
-row must land at an ordinal ≤ 20; since no tile byte is ever persisted (no
-save file, no `localStorage`), such a row may be inserted early in
-`data/substances.js` rather than appended if that limit is ever approached.
+row must land at an ordinal ≤ `PACKABLE_LIMIT`.
+
+**CORRECTION (Phase 14a): appendable headroom for a tile-capable row is ZERO,
+and has been for some time.** This table used to end with a row reading
+"**tile-capable headroom — 12 rows** (ordinals 9–20)". That was arithmetically
+true as a *slot count* and thoroughly misleading as advice, because **every
+one of those twelve ordinals is already occupied** by a non-packable row:
+9–20 are `auger`, `chasm`, `furnace`, `press`, `belt_r`, `brazier`, `hearth`,
+`talos_head`, `cyclops_maw`, `hub`, `crank`, `gear`. `SUB.length` is 23, so
+the next **appended** row lands at ordinal 23, and if it were packable:
+
+```
+before Phase 14a (11 forms, STRIDE 12):  1 + 23 * 12 + 11 = 288  >= 255
+after  Phase 14a (12 forms, STRIDE 13):  1 + 23 * 13 + 12 = 312  >= 255
+```
+
+`data/forms.js` **throws at import** in both cases. Executed, not reasoned
+about: appending a `marble` row to `data/substances.js` produces
+`forms: 24 substances x 11 forms overflows the tile byte -- packable ordinal
+23 ("marble") packs to 288, and ordinal 20 is the last that fits`. So the
+escape hatch this section already gestured at is not a contingency for "if
+that limit is ever approached" — it is **the only mechanism**, today:
+
+> **A new tile-capable substance must be INSERTED at an ordinal ≤
+> `PACKABLE_LIMIT`, never appended.** No tile byte is ever persisted (no save
+> file, no `localStorage`, §7's own "no meta-progression"), so an insertion is
+> only ever a renumbering and is safe.
+
+`src/data/substances.js`'s own header said "ROWS ARE APPEND-ONLY", in flat
+contradiction with the paragraph above it. It now carries the same
+qualification: append freely for anything that can never reach the tile byte;
+insert for anything that can.
 
 Both halves are enforced, not eyeballed: `data/forms.js` throws at import if
 the highest packable ordinal exceeds 20, and `tools/content.mjs` assertion 16
@@ -1452,3 +1494,146 @@ care that the shaft it happens to be parked in leads to the Heavens. That is
 correct physics and not a hole to patch: a carrier is a real surface, and the
 fence D5 relies on is gravity acting on an *empty* shaft, not a rule that
 singles this one out.
+
+## 19. Deposits, rubble and the packed block (Phase 14a)
+
+Locked with `docs/PLAN-phase14-mining-and-drops.md` (D14-A, D14-B, D14-C,
+D14-H). **Content only: no `rules/` file changed and no mechanic was added.**
+Depletion — a deposit tile's charge counter — is Phase 14b and is not in this
+section yet.
+
+The premise, in one line: **mined material is a prerequisite, not a placeable
+unit,** and **a deposit is never something the player can put back.**
+
+### 19.1 Three buckets, two new tags
+
+Every mineable terrain substance is classified, and the classification lives
+as a **substance tag** rather than a new key, because a tag is what the
+selector grammar already reads — so `#bulk/gravel` is a recipe input that
+granite can never satisfy, and the split is expressible in content instead of
+as a branch in code.
+
+| substance | bucket | why | what it drops |
+|---|---|---|---|
+| `soil` | **bulk** | the surface cap; filler you tunnel through, not a vein of anything | `gravel` |
+| `stone` | **bulk** | "the bulk of the world" — its own row comment says so | `gravel` |
+| `copper` | **deposit** | a `blobs`/`vein` body, glinting, the economy's base unit | `ore` |
+| `tin` | **deposit** | a `blobs` body, depth-graded | `ore` |
+| `granite` | **deposit** | a named body at `tile.tier 2` | `gravel` |
+| `adamant` | **deposit** | a named body at `tile.tier 3` | `gravel` |
+| `timber` | **organic** | grown, felled, and regrows from a seed — neither bucket | `log` |
+
+Nothing else in `data/substances.js` is terrain at all: the three relics, the
+one miracle and the twelve machine substances carry no `tile` block and are
+not unclassified, they are *not terrain*.
+
+`tools/content.mjs` **assertion 20** requires exactly one of the three tags on
+every row carrying both a `tile` block and `mineable`, so a future terrain row
+cannot be added without classifying itself.
+
+**`marble` does not exist.** If it is ever added it is a **deposit** by this
+table's own logic, and per §15's correction it cannot be appended — it would
+have to be *inserted* at an ordinal ≤ `PACKABLE_LIMIT`, with the `deposit`
+tag and a `blobs` row in `data/world.js`, or it is unreachable content.
+
+### 19.2 A form is either feedstock or buildable, never both
+
+CLAUDE.md **D12**, applied twice in the same commit. Two forms lost their
+`tile` block:
+
+| form | was also | now |
+|---|---|---|
+| `gravel` | consumed by `brazier` (2), `crank` (3), `gear` (1), `belt_r` (4), and demanded 8-at-a-time by `data/cycles.js#salt-tribute` | **feedstock only.** No `tile` block. |
+| `log` | `tags:['fuel']` a furnace drains, plus a bare ingredient in `hub`, `crank`, `gear`, `axle`, `daedalan` | **feedstock only.** No `tile` block. |
+
+`gravel`'s block was `{solid:true, climb:false, hardK:0.5}` and superseded
+§15's "Placeable rubble" paragraph, marked there in place. `log`'s was
+`{solid:false, climb:true, hardK:0.30}`.
+
+**`peg_rungs` is unchanged and is now the only route to a placeable timber
+ladder:** 2 `timber/log` → 4 `timber/rung`, 1.5 s. `rung` and `stair` are the
+only wood/metal ladder forms, which is what `peg_rungs` and `daedalan` already
+intended.
+
+Consequence, measured: the tile-capable forms are exactly **`rung`, `stair`,
+`block`**, and a raw drop refuses placement with
+`'THAT DOES NOT BUILD'` (`rules/placement.js`) — verified for `soil/gravel`,
+`granite/gravel`, `adamant/gravel`, `copper/ore` and `timber/log`. Neither
+`placeableFromPockets` nor the click-to-arm gate in `shell/main.js` will offer
+a form with no `tile` block, so in normal play the pair cannot even be armed.
+
+### 19.3 `block` — the packed block
+
+One new form in `data/forms.js`. One row covers soil **and** stone **and** any
+future `bulk` element, because `subFrom` carries the element across exactly as
+`smelt` does; there is no `soil_block` row and there never will be.
+
+| | value |
+|---|---|
+| `size` | 4 |
+| `massK` | **2.0** — twice the element's base mass; a block is compacted where rubble is loose (`gravel.massK` 0.5). 2.5 is the ceiling before mass conservation fails. |
+| `hudOrder` | 12 |
+| `tags` | `['built']` |
+| `subTags` | `['bulk']` |
+| `tile` | `{ solid:true, climb:false, hardK:1.0 }` |
+
+**`subTags:['bulk']` is the load-bearing half, and it is the whole of "a
+deposit is never player-placeable".** `crossable(granite, block)` is false, so
+`granite/block` is not a legal pair and cannot be *constructed*, let alone
+placed. That is a possibility that does not exist rather than a permission
+someone can forget to check — the same argument D4 makes for boarding a
+carrier, and the same `subTags` gate that keeps a miracle out of a trinket
+selector. **`rules/placement.js` needed no edit at all.**
+
+`copper/stair` and `tin/stair` stay legal and obtainable (`daedalan`), and
+that is correct: a Daedalan stair is refined bronze work, not a vein of
+copper. `adamant/stair` is legal and unobtainable — no recipe outputs it and
+nothing drops it.
+
+`hardK:1.0` means a packed block recovers at **native** hardness — soil
+0.50 s, stone 1.60 s (measured: a placed `soil/block` reads 0.50 s) — not the
+retired rubble tile's half.
+
+### 19.4 `pack` — the recipe, and its 5:1 ratio
+
+```
+pack   PACK EARTH   in { '#bulk/gravel': 5 }
+                    out [ { subFrom:'#bulk/gravel', form:'block', n:1 } ]
+                    secs 2.5   hand:true
+```
+
+**5:1, and the 5 is not decorative.** Backfilling a hole now costs five tiles'
+worth of rubble per tile of hole and digs back out at native hardness rather
+than half — strictly harder than the retired 1:1 shovel, deliberately. And the
+compression is **one-way**: mining a placed `soil/block` back out returns
+exactly **1 `soil/block`** (`model/tiles.js#dropOf` gives a placed tile its
+own pair back), never 5 gravel. Measured through the real dig verb.
+
+Mass conservation (`tools/content.mjs` assertion 6):
+
+| | in | out |
+|---|---|---|
+| soil | 5 × 0.5 × 0.5 = **1.25** | 1 × 0.5 × 2.0 = **1.00** |
+| stone | 5 × 0.6 × 0.5 = **1.50** | 1 × 0.6 × 2.0 = **1.20** |
+
+**Declaration position: absolute last**, after even `hearth`.
+`rules/crafting.js#choose` is first-match-wins over declaration order, and
+`pack` has **no containment in either direction** with any row in the file —
+its 5 is strictly more gravel than any other bill asks for (`belt_r` 4,
+`crank` 3, `brazier` 2, `gear` 1; `cyclops_maw`'s 6 is *granite* gravel, which
+`#bulk` excludes), and it is a one-clause bill that demands none of the logs or
+plate every other gravel row also wants. So position is decided by who loses
+the overlap instead: declared first, a player holding 5+ rubble — nearly
+always — could not hand-build a `brazier`, `crank`, `gear` or `belt_r`;
+declared last, a player holding 2+ plate has to put the plate down to pack
+earth. Starving four machine builds is worse than starving one utility craft.
+The residual wart is the known one (`docs/FINDINGS.md` 8d #4: the craft queue
+cannot choose a recipe), and a real menu is its fix.
+
+### 19.5 What this section does NOT change
+
+Seconds-per-unit, `hard`, `tier`, `pickPower` and every tool's `power` are
+untouched, so §8's compression table and `docs/DESIGN.md`'s measured
+break-evens (raw ore 0.62 tiles, ingot 2.40, plate 6.90) still hold with no
+re-derivation. `tile.drops` is unchanged for every substance. No `data/world.js`
+count moved. `rules/mining.js` and `rules/machines.js` were not opened.

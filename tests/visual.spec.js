@@ -120,7 +120,8 @@ test('digging down into topsoil', async ({ page }) => {
 
    Hand-carves a known shaft and places the player EXACTLY tile-aligned over
    it, for the same "don't trust natural worldgen" reason `click-to-arm: dig
-   down, then place the dropped gravel back into the exact hole` above does. */
+   down, pack the rubble, then place the block back into the exact hole` above
+   does. */
 test('digging straight down: no drift, monotonic depth, correct drops', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -1720,7 +1721,12 @@ test('overloaded past 40 T, a climb intent is refused; dropping the heaviest pai
     const band = bandOf('topsoil');
     const tx = 10, ty = 40;
     for (let dy = -1; dy <= 4; dy++) tw.clear(band, tx, ty + dy);
-    tw.set(band, tx, ty + 4, S.timber, F.log);        // a ladder tile
+    /* `F.rung`, not `F.log`: Phase 14a stripped `log`'s `tile` block
+       (CLAUDE.md D12), so a placed log is no longer a climbable tile at all.
+       `timber/rung` is what `peg_rungs` makes and what a ladder has been
+       built from since Phase 2a. Scene setup only -- the behaviour under
+       test here is the burden climb lockout, not the tile. */
+    tw.set(band, tx, ty + 4, S.timber, F.rung);       // a ladder tile
     pw.band(band);
     pw.move(worldX(band, tx), worldY(band, ty + 3));  // straddling the ladder tile
 
@@ -2391,7 +2397,17 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
   expect(result.armedAfter).toBeNull();    // cleared on a successful placement
 });
 
-test('click-to-arm: dig down, then place the dropped gravel back into the exact hole', async ({ page }) => {
+/* Phase 14a (CLAUDE.md D12, docs/SPEC.md §19) CHANGED WHAT THIS TEST PROVES,
+   because it changed what mined rubble IS. `gravel` lost its `tile` block, so
+   the 1:1 "shovel it straight back" this test used to exercise is exactly the
+   behaviour that was removed -- the test would now fail at the arm step, and
+   that failure would be the phase working. So the scenario is the same dig and
+   the same hole, driven through the new correct path: rubble is a
+   PREREQUISITE, `recipes.js#pack` turns 5 of it into one `soil/block`, and the
+   BLOCK is what arms and places. The two halves the old test proved (mining
+   pockets real rubble; a click-armed pair places at the aimed tile) are both
+   still asserted, plus one new one: an unarmable form cannot be armed. */
+test('click-to-arm: dig down, pack the rubble, then place the block back into the exact hole', async ({ page }) => {
   await boot(page);
   await settle(page);
 
@@ -2446,9 +2462,6 @@ test('click-to-arm: dig down, then place the dropped gravel back into the exact 
   expect(afterDig.tile).toBe(0);                    // AIR: `data/forms.js#AIR`
   expect(afterDig.gravel).toBeGreaterThan(0);        // and it is actually pocketed, not merely dropped
 
-  /* Click-to-arm the gravel, then place it back with 'E', aimed exactly the
-     same way (no direction held, facing right) at the exact tile just
-     mined. */
   await page.evaluate(async () => {
     const { open, setTab } = await import('/src/shell/ui.js');
     open('main');
@@ -2456,11 +2469,54 @@ test('click-to-arm: dig down, then place the dropped gravel back into the exact 
     __mf.frames(1);
   });
 
-  const invSlot = await page.evaluate(async () => {
+  /* RUBBLE IS NOT PLACEABLE ANY MORE, and the arm gate is where that is felt:
+     `shell/main.js`'s click-to-arm branch only arms a pair whose FORM carries
+     a `tile` block (or a `rig`/`phial`), so clicking the gravel slot leaves
+     `armedPlace` null rather than arming something 'E' would then refuse. */
+  const gravelSlot = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const grid = __mf.ui.grids.find(g => g.id === 'inv');
     return grid.slots.find(s => s.sub === S.soil && s.form === F.gravel);
+  });
+  expect(gravelSlot).toBeTruthy();                   // it IS held, and shown
+  await realClick(page, gravelSlot.x + gravelSlot.w / 2, gravelSlot.y + gravelSlot.h / 2);
+  expect(await page.evaluate(() => __mf.ui.armedPlace)).toBeNull();
+
+  /* PACK IT. `data/recipes.js#pack` wants 5 of one bulk element's gravel and
+     is declared last, so with nothing else affordable it is the row
+     `rules/crafting.js#choose` picks. The dig above yielded one unit; the rest
+     is granted directly rather than mined five times over, which would test
+     the dig loop again instead of the recipe. `collect` is held alongside
+     `craft` because a hand-craft's output is a FALLING ITEM (invariant 5), not
+     a pocket credit. */
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    __mf.give(S.soil, F.gravel, 5 - invCount(S.soil, F.gravel));
+  });
+  await page.evaluate(() => __mf.hold({ craft: 1, collect: 1 }, 400));   // pack secs 2.5
+  await page.evaluate(() => { __mf.cmd.craft = false; });
+  await page.evaluate(() => __mf.frames(150));       // let the block fall and be picked up
+
+  const packed = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    return { gravel: invCount(S.soil, F.gravel), block: invCount(S.soil, F.block) };
+  });
+  expect(packed.block).toBe(1);      // 5 -> 1, and exactly one
+  expect(packed.gravel).toBe(0);     // all five spent
+
+  /* Click-to-arm the BLOCK, then place it back, aimed exactly the same way
+     (no direction held, facing right) at the exact tile just mined. */
+  await page.evaluate(() => __mf.frames(1));
+  const invSlot = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const grid = __mf.ui.grids.find(g => g.id === 'inv');
+    return grid.slots.find(s => s.sub === S.soil && s.form === F.block);
   });
   expect(invSlot).toBeTruthy();
   await realClick(page, invSlot.x + invSlot.w / 2, invSlot.y + invSlot.h / 2);
@@ -2470,11 +2526,11 @@ test('click-to-arm: dig down, then place the dropped gravel back into the exact 
 
   await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(1); });
 
-  const gravelBefore = await page.evaluate(async () => {
+  const blockBefore = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { invCount } = await import('/src/model/run.js');
-    return invCount(S.soil, F.gravel);
+    return invCount(S.soil, F.block);
   });
 
   /* 'e' no longer places -- Phase 12d moved placement to LMB only
@@ -2492,13 +2548,13 @@ test('click-to-arm: dig down, then place the dropped gravel back into the exact 
     const { bandOf } = await import('/src/model/world.js');
     return {
       tile: tileAt(bandOf('topsoil'), holeTx, ty),
-      gravel: invCount(S.soil, F.gravel),
+      block: invCount(S.soil, F.block),
       armedAfter: __mf.ui.armedPlace
     };
   }, { holeTx, ty });
 
   expect(result.tile).not.toBe(0);                    // solid again, not AIR
-  expect(result.gravel).toBe(gravelBefore - 1);        // exactly one unit spent
+  expect(result.block).toBe(blockBefore - 1);          // exactly one unit spent
   expect(result.armedAfter).toBeNull();                // cleared on a successful placement
 });
 

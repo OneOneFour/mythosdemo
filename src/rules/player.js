@@ -289,7 +289,8 @@ function boxClimb(b, x, y) {
 /* The fastest `climbK` among the tiles the player currently occupies -- a
    player straddling two different ladder tiers (rare, but the box spans two
    columns) gets the better one, never the worse. Absent on every form but
-   `stair` (data/forms.js), so a rung or a placed log both read as 1. Native
+   `stair` (data/forms.js), so a rung reads as 1 (and so did a placed log,
+   until Phase 14a made `log` feedstock only -- CLAUDE.md D12). Native
    tiles never carry `climb:true` (see model/tiles.js#tileBlockOf's FORM-
    wins-over-substance rule), so `formAt` is always a real placed form here,
    never NATIVE. */

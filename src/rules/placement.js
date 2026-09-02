@@ -173,12 +173,17 @@ export function unlinkSegment(seg) {
 }
 
 /* ---------- tiles ----------
-   Only a form carrying a `tile` block may be placed as terrain -- `log`,
-   `rung`, `stair` and `gravel`. There is no ladder id, no ladder recipe and no
-   ladder code. See docs/DEVELOPER_GUIDE.md#adding-a-form */
+   Only a form carrying a `tile` block may be placed as terrain -- `rung`,
+   `stair` and `block`. There is no ladder id, no ladder recipe and no ladder
+   code. `gravel` and `log` were also on that list until Phase 14a stripped
+   their `tile` blocks (CLAUDE.md D12: a form is either feedstock or buildable,
+   never both), which is also why NOTHING IN THIS FILE CHANGED for it -- "a
+   deposit is never placeable" is a property of `data/forms.js#block`'s
+   `subTags`, not a check here. See docs/DEVELOPER_GUIDE.md#adding-a-form and
+   docs/SPEC.md section 19. */
 
 /* Every `{sub, form}` pair in the pockets that could be PLACED -- a
-   tile-capable form (terrain: `log`, `rung`, `stair`, `gravel`) OR a
+   tile-capable form (terrain: `rung`, `stair`, `block`) OR a
    machine's own `rig` pair (a structure: `rules/placement.js#placeMachine`)
    -- in HUD order. `shell/main.js#applyIntents`'s `cmd.place` branch places
    the first of these, dispatching to `placeTile` or `placeMachine`

@@ -150,9 +150,16 @@ One row in `src/data/forms.js`. A form is a *shape* an element takes.
   carefully: `plate` carries `refined`, so `press` had to select `#ingot`
   instead or a press would eat its own output (`recipes.js:177`).
 - `tile` — present means a **placed** unit of this form is a terrain tile.
-  `log`, `rung`, `stair` and `gravel` all have one; placing any of them is how a
-  ladder or a backfill is built. `hardK` multiplies the substance hardness when
-  placed. **A machine is not this** — see below.
+  `rung`, `stair` and `block` are the three that have one; placing a rung or a
+  stair is how a ladder is built, and placing a block is how a hole is filled
+  back in. `hardK` multiplies the substance hardness when placed. **A machine
+  is not this** — see below.
+- **A form is either feedstock or buildable, never both** (CLAUDE.md D12). A
+  form with a `tile` block may not also be named by a recipe's `in:`, a
+  machine's `handFeed.from`, or a tribute demand. `gravel` and `log` both
+  broke that and both lost their `tile` block in Phase 14a; `block` and
+  `rung`/`stair` are their buildable counterparts, reached through
+  `recipes.js#pack` and `#peg_rungs`. `docs/SPEC.md` §19.
 - `climbK` — optional per-form climb multiplier; only `stair` sets it.
 - `hudOrder` — append rather than renumber.
 
@@ -160,14 +167,20 @@ Two traps:
 
 1. **No `tile` block on `rig`, on purpose.** A machine is placed as a multi-tile
    *structure* through `rules/placement.js#placeMachine`, never as grid terrain.
-   Do not copy `log`'s `tile` block onto a structure form (`forms.js:187`).
+   Do not copy `block`'s `tile` block onto a structure form.
 2. **Mass conservation is linted.** `tools/content.mjs` assertion 6 caught
    `brand` at `massK:0.5`, because `kindle` turns one log into three brands and
    3 × 0.5 exceeds the log's 1.0 (`forms.js:111`).
 
-Adding a form costs one byte of tile-id stride for every substance. With four
-tile-capable forms the stride is five and a byte holds 50 substances; the guard
-at `forms.js:237` fails the build rather than wrapping silently.
+Adding a form costs one byte of tile-id stride for every substance: at the
+twelve forms shipped today the stride is 13, the highest packable ordinal
+(`adamant`, 8) packs to 117 of 255, and `PACKABLE_LIMIT` is 18. The guard in
+`data/forms.js` fails the build rather than wrapping silently.
+
+**A form is the cheap thing here; a tile-capable substance is not appendable at
+all.** `SUB.length` is already past `PACKABLE_LIMIT`, so appending a row with a
+`tile` block throws at import — such a row must be *inserted* below the limit.
+`docs/SPEC.md` §15 carries the arithmetic.
 
 ---
 
@@ -261,7 +274,8 @@ The worked collisions, all recorded at their own rows:
 | `peg_rungs` / `kindle` — both fire off `timber/log` alone | `peg_rungs` requires **2** logs (not the planned 1) and is declared first. Holding 1 log falls through to `kindle`. (`recipes.js:197`) |
 | `daedalan` / `auger` — identical input keys, 4 vs 1 logs | `daedalan` declared first. Holding 4+ yields a stair; 1-3 falls through to the auger. (`recipes.js:255`) |
 | machine bills ⊃ ordinary recipes | the whole machine-build block is declared **before** `smelt`/`press`/`peg_rungs`/`kindle`/`daedalan`/`auger`, with a pairwise containment table at `recipes.js:52` |
-| `hearth` (2 plate) ⊂ every other plate recipe | declared **absolute last**, after even `auger` (`recipes.js:279`) |
+| `hearth` (2 plate) ⊂ every other plate recipe | declared after every plate row, after even `auger` (`recipes.js:279`) |
+| `pack` (5 `#bulk/gravel`) — no containment either way | declared **absolute last**, after `hearth`. Position is not forced by containment but by who loses the overlap: declared early it would starve `brazier`/`crank`/`gear`/`belt_r` for any player carrying 5+ rubble. See the row's own derivation. |
 
 A tie that cannot be broken by quantity cannot be shipped at all: `kiln_divine`
 has no build recipe precisely because its bill would be bit-identical to

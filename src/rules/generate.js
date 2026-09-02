@@ -276,9 +276,13 @@ const KINDS = {
      relief the ground line moves, so the window has to span every height the
      map can produce — see the `trees` row's own comment in `data/world.js`.
 
-     Trees are the only timber above ground, and timber's `log` form is the only
-     tile-capable form in the game — so this loop is also the ladder supply.
-     See `data/forms.js`. */
+     Trees are the only timber above ground, so this loop is still the ladder
+     supply — but at one remove since Phase 14a: a felled `log` is feedstock
+     only (CLAUDE.md D12), and `data/recipes.js#peg_rungs` turns 2 of them into
+     4 `timber/rung`, which is the tile-capable form that actually places. The
+     claim this comment used to make — that `log` was "the only tile-capable
+     form in the game" — was already false when `rung`, `stair` and `gravel`
+     existed. See `data/forms.js`. */
   trees(b, row) {
     const sub = S[row.sub];
     const top = Math.max(0, row.fromTy);
