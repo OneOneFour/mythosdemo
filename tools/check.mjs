@@ -4038,6 +4038,104 @@ console.log('\n8. Phase 11 TIER 2 harness gaps');
        'HUD and the view/ui/ tree above');
 }
 
+/* --- REVEAL LEAK's LIGHT GATE, isolated from the radius cap. `rules/reveal.js#step`
+   (Pass B) has TWO independent gates: solid rock blocks the flood outright
+   (trivially true, and not what is in question), and past the always-
+   revealed first ring, `if (d >= 1 && lightAt(...) < 1) continue` (around
+   line 192) stops it at an UNLIT tile even when nothing solid is in the
+   way. The existing Playwright enclosure test
+   (`tests/visual.spec.js:928-970`) cannot isolate that second gate from
+   `eff('sightRadius')`: its sealed room carries no light source at all, so
+   its own boundary sits at graph distance 1 (the trivial always-revealed
+   ring, widened only by the player's own footprint) regardless of the
+   radius -- which proves the rule exists, not that it binds independently
+   of the cap.
+
+   THE AUDIT'S OWN PREMISE, CHECKED AND FOUND FALSE BEFORE WRITING THIS:
+   "topsoil carries non-zero ambient light" is not why that test can't
+   isolate the gate. `data/world.js#look.ambient` is read in exactly two
+   places, `view/paint.js#cavityColour` and `view/scene.js#atmosphere` --
+   both pure render tint, neither ever reaching `model/world.js#b.light` or
+   `rules/light.js`. No band's `ambient` touches the light FIELD at all;
+   `lightAt()` reads 0 wherever nothing REAL (sky or an emitter) reaches,
+   in every band alike, which is the ordinary state of anywhere underground.
+   There is no zero-ambient band to go find, because ambient was never the
+   gate. What actually isolates the two mechanisms is a real light GRADIENT
+   that dies out before the radius does -- any emitter dimmer than
+   `eff('sightRadius')` (14) produces exactly that: a fuelled `brazier`
+   (`level:12`, `rules/light.js`'s own falloff of 1/tile through open air)
+   reaches 0 around 12 tiles out, inside the flood's own cap rather than at
+   it. A real, fuelled brazier (the same idiom the LIGHT section above uses)
+   in a long straight open-air corridor -- nowhere near rock -- produces
+   that gradient for real, and the flood can be shown to stop partway along
+   it, PROVABLY because of light and not because of distance. */
+{
+  let bad = 0;
+  boot.newRun(9550);
+  const band = world.bandOf('topsoil');
+  const ex = 20, ty0 = 260, len = 30;              // deep in topsoil, nowhere near open sky
+
+  for (let tx = ex - 1; tx <= ex + len; tx++)
+    for (let ty = ty0 - 1; ty <= ty0 + 2; ty++) tiles.write.clear(band, tx, ty);
+  for (let tx = ex - 1; tx <= ex + len; tx++) tiles.write.set(band, tx, ty0 + 2, D_sub.S.stone);
+
+  const brazier = machs.write.place(band, D_mach.M.brazier, ex, ty0 + 1);
+  machs.write.take(brazier, D_sub.S.timber, D_form.F.log, 20);
+
+  const playerTx = ex + 2;                            // the flood's own seed column, not the brazier's
+  player.write.band(band);
+  player.write.move(world.worldX(band, playerTx), world.worldY(band, ty0));
+  player.write.vel(0, 0);
+  player.write.set('onGround', true);
+  runReal(30, 1 / 120, { hasMouse: false });          // ignite, settle the light field, and flood real frames
+
+  const radius = mods.eff('sightRadius');
+  let edge = -1;
+  for (let tx = ex; tx < ex + len; tx++)
+    if (world.lightAt(band, tx, ty0 + 1) === 0) { edge = tx; break; }
+
+  /* RADIUS DISTANCE IS MEASURED FROM THE FLOOD'S OWN SEED (the player's
+     tile), never from the brazier -- the two sit two tiles apart on
+     purpose, and `eff('sightRadius')` bounds graph distance from the
+     player, not from whatever lit the corridor. */
+  if (edge < 0) {
+    fail('REVEAL LEAK (light gate): the corridor never went dark within its own length -- lengthen it, or ' +
+         'the brazier\'s falloff no longer isolates the gate at all');
+    bad++;
+  } else if (edge + 2 - playerTx >= radius) {
+    fail(`REVEAL LEAK (light gate): the dark edge (tx ${edge}) sits ${edge - playerTx} tiles from the ` +
+         `player, at or past eff('sightRadius') (${radius}) -- the radius cap would bind first, so this ` +
+         'scenario no longer isolates the light gate from it');
+    bad++;
+  } else {
+    console.log(`  ..  reveal leak: a level-${D_mach.MACH[D_mach.M.brazier].light.level} brazier's own ` +
+                `light reaches 0 at tx ${edge} (${edge - ex} tiles from the brazier, ${edge - playerTx} ` +
+                `from the player), inside sightRadius ${radius}`);
+
+    const lastLit = world.seenAt(band, edge - 1, ty0 + 1);
+    const pastDark = world.seenAt(band, edge + 2, ty0 + 1);
+    if (!lastLit) {
+      fail(`REVEAL LEAK (light gate): the last LIT tile before the dark edge (tx ${edge - 1}) was never ` +
+           'revealed at all -- the flood never even reached the lit region, so the boundary below proves ' +
+           'nothing');
+      bad++;
+    } else if (pastDark) {
+      fail(`REVEAL LEAK (light gate): tx ${edge + 2} -- two tiles past where light reads 0, and only ` +
+           `${edge + 2 - playerTx} of the ${radius}-tile radius from the player -- was revealed anyway. ` +
+           "rules/reveal.js's own 'lightAt(...) < 1' gate did not stop the flood");
+      bad++;
+    } else {
+      console.log(`  ..  reveal leak: tx ${edge - 1} (still lit) is seen, tx ${edge + 2} (dark, and only ` +
+                  `${edge + 2 - playerTx} of the ${radius}-tile radius from the player) is not -- the light ` +
+                  'gate stopped the flood well short of the radius cap');
+    }
+  }
+
+  if (!bad)
+    ok('REVEAL LEAK: a real, fuelled brazier dimmer than sightRadius produces a corridor that goes dark ' +
+       'well inside the flood\'s own radius, and the flood stops exactly there -- the light gate, not the cap');
+}
+
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +
             `journal ${journal.peek ? journal.peek().length : 0} undrained`);
