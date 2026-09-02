@@ -27,7 +27,13 @@ export const GRANT = Object.freeze(Object.fromEntries(
    the reason the retired winch stage was: transport is the game's bottleneck,
    not a reward, and gating the ONLY way up behind a draft would make a run's
    viability a dice roll. The winch stage itself left this list in Phase 8f,
-   along with its machine row. */
+   along with its machine row.
+
+   `furnace` IS NOT HERE, and that is Phase 10b (D-H/H1): docs/SPEC.md
+   section 4 and 5 have always locked the furnace as CYCLE 1's REWARD --
+   "the altar gifts a crude furnace" -- and this row quietly contradicted that
+   from run start until now. `rules/cycles.js#complete` grants it (and
+   `cloud_dock`) the moment the first trial pays. */
 export const STARTING_MACHINES = Object.freeze(
-  ['furnace', 'press', 'belt_r', 'belt_l', 'brazier', 'hearth',
+  ['press', 'belt_r', 'belt_l', 'brazier', 'hearth',
    'hub', 'crank', 'gear', 'axle']);

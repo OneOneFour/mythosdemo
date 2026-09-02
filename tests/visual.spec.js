@@ -332,6 +332,10 @@ test('a placed furnace', async ({ page }) => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { assignQuickbar } = await import('/src/shell/ui.js');
+    /* Phase 10b (D-H): the furnace is cycle 1's reward and no longer a
+       starting grant -- this test's own point is the furnace's LOOK, not
+       whether a trial has been paid, so grant it directly. */
+    write.grant('furnace');
     write.collect(S.furnace, F.rig, 1);
     assignQuickbar(0, { sub: S.furnace, form: F.rig });
   });
@@ -381,6 +385,7 @@ test('REAL DRAG: dragging a held item from the inventory grid onto a quickbar sl
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { open, setTab } = await import('/src/shell/ui.js');
+    write.grant('furnace');   // Phase 10b (D-H): no longer a starting grant
     write.collect(S.furnace, F.rig, 1);
     open('main');
     setTab('main', 'char');
@@ -1315,12 +1320,18 @@ test('the Character tab', async ({ page }) => {
   await shot(page, 'ui-character.png');
 });
 
-/* No recipe is genuinely lockable in this build -- `model/run.js
+/* No HAND recipe is genuinely lockable in this build -- `model/run.js
    #RUN_SCHEMA.known` is seeded with EVERY `HAND_RECIPES` id in
    `write.reset()`. The silhouette-rendering CODE PATH is real and wired
    (`view/ui/mainPanel.js`'s `!known` branch), but there is nothing to feed it
    a locked id with, so this screenshots the tab AS IT ACTUALLY RENDERS today
-   rather than fabricating a locked recipe that cannot currently occur. */
+   rather than fabricating a locked recipe that cannot currently occur.
+
+   A MACHINE'S OWN BUILD ROW IS A DIFFERENT LOCK, and Phase 10b (D-H) makes it
+   a real one for the first time: `furnace` is cycle 1's reward and is no
+   longer in `data/grants.js#STARTING_MACHINES`, so its PLACE-tab icon now
+   genuinely renders as "not yet granted" at a fresh boot -- this baseline
+   changed for that reason, not a regression. */
 test('the Crafting tab', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -1398,7 +1409,12 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
   await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
+    const { write } = await import('/src/model/run.js');
     const { assignQuickbar } = await import('/src/shell/ui.js');
+    /* Phase 10b (D-H): the furnace is cycle 1's reward, not a starting
+       grant -- this flow's point is the smelt chain, so grant it directly
+       rather than routing through the cycle director. */
+    write.grant('furnace');
     assignQuickbar(0, { sub: S.furnace, form: F.rig });
   });
   await page.keyboard.press('1');        // arms slot 0's furnace (`view/ui/quickbar.js#slotForDigit`)
@@ -2111,7 +2127,10 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
   const crafted = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
-    const { invCount } = await import('/src/model/run.js');
+    const { invCount, write } = await import('/src/model/run.js');
+    /* Phase 10b (D-H): the furnace is cycle 1's reward, not a starting
+       grant -- crafting the rig doesn't need it, but placing it below does. */
+    write.grant('furnace');
     __mf.give(S.copper, F.ore, 12);
     __mf.give(S.timber, F.log, 6);
     __mf.hold({ craft: 1 }, 1000);      // > 8.0s, `data/recipes.js#furnace`'s own secs
@@ -2352,7 +2371,12 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
   await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
+    const { write } = await import('/src/model/run.js');
     const { setTab } = await import('/src/shell/ui.js');
+    /* Phase 10b (D-H): the furnace is cycle 1's reward, not a starting
+       grant -- this stage's own comment already said "grant a furnace/rig",
+       it just didn't have to say it in code until now. */
+    write.grant('furnace');
     __mf.give(S.furnace, F.rig, 1);
     setTab('main', 'char');
     __mf.frames(1);
