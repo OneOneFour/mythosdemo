@@ -1586,3 +1586,27 @@ hardcoded pixel origins") and the fix belongs to whoever next owns
 `src/view/hud.js`. Phase 8g owns `tests/`, not `view/`, so this is parked rather
 than fixed; the two shots above are the repro and the comparison, already
 committed.
+
+**14. `winch-unlit` / `winch-lit` failed once in a full parallel visual run and
+passed in isolation and on the next full run, with no source change in
+between — PARKED, not diagnosed.** Observed twice during Phase 9 (164 px and a
+similar small diff). Both are the last two tests in the file and both are
+light-dependent, which makes `rules/light.js`'s flood the obvious first suspect;
+what makes it worth writing down is that these baselines are `maxDiffPixels: 0`
+BY DESIGN, on the argument that the renderer is deterministic by construction. A
+screenshot that can fail intermittently either breaks that argument or hides a
+real nondeterminism behind "just re-run it", and the CLAUDE.md rule about not
+raising the threshold to make a test pass applies with full force. Phase 9 owns
+`view/overview.js`, not the light rule or the visual spec, so this is parked with
+the repro conditions: run the whole suite with default parallelism, not `-g`.
+
+**15. A visualisation is a test, and Phase 9's map proved it.**
+`view/ui/mainPanel.js#machineState` classified every hub, crank, gear and axle as
+`BLOCKED` — its last clause reads an empty buffer as a fault, and a drivetrain
+machine has no ports, no recipes and no buffer to fill. In the LOGISTICS tab that
+was one wrong word in a list nobody had reason to disbelieve; the instant the
+same query coloured glyphs on a map, a perfectly good lift chain lit up red and
+the bug was undeniable in one frame. Fixed in Phase 9 (`m.torque > 0` reads
+RUNNING, no-ports-and-no-recipes reads IDLE), but the general point is the
+finding: **drawing existing state in a new place is a cheap way to audit it**, and
+the next phase that puts a query on screen should expect to find something.
