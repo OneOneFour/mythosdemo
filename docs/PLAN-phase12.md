@@ -1,6 +1,9 @@
 # Plan — the interaction model, audited and unified
 
-**Status: PROPOSAL. Nothing here is built. No `src/` file has been touched.**
+**Status: BUILT. Phases 12a, 12b, 12c, 12c2 and 12d are all committed**,
+ending with a 12d gap-fix retiring the last stray craft key. Kept below as
+the design record; the "PROPOSAL" framing that follows describes the plan
+before it was executed.
 This is the plan-mode step `docs/BUILD_PLAN.md`'s own convention requires
 before a phase this size touches code — the same convention `docs/PLAN-
 phase10.md` followed. It answers the user's own two-message brief: an audit

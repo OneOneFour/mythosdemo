@@ -1,5 +1,48 @@
 # Build plan — prototype to game
 
+**Status as of `818236e` (2026-09-02): every phase below, waves 1 and 2, is
+committed — 0 through 11, including the 8c–8g segment-transport insertion.**
+A third wave ran after this document stopped being extended: the interaction-
+model rework (key audit, unified LMB, opt-in pickup, a real slot-grid
+inventory), planned in `docs/PLAN-phase12.md` as Phases 12a/12b/12c/12c2/12d
+and also fully committed. This file was never updated to add that wave to its
+own sequencing tables; treat `docs/PLAN-phase12.md` as the record for it.
+Two items sit parked, not fixed, in `docs/FINDINGS.md` #13 (a HUD label can
+overlap the burden bar at wide values) and #14 (an intermittent
+`winch-lit`/`winch-unlit` visual-test flake under full parallel runs).
+`FUTURE_IDEAS.md` and `docs/DESIGN.md`'s unbuilt sections are backlog, not
+scheduled work.
+
+**Wave 4 is PLANNED AND NOT STARTED**, in four documents plus one scoping
+document, following the same convention wave 3 used — the plan is standalone
+and this file points at it rather than absorbing it:
+
+| document | phases | what |
+|---|---|---|
+| `docs/PLAN-phase13.md` | **13a–13d** | UI text contrast (a *classified* recolour — grey is load-bearing in ten places); the ladder's sprite (the label rename already landed in `7c6993c`, so this is pixels only); the auto-collect default (one real gap — `newRun()` does not reset it — plus two now-vacuous test probes); and a **20-item punch list of what is left to close the tribute loop**, with 13d proposed as the five-item shortest path. 13d needs a greenlight. |
+| `docs/PLAN-phase14-mining-and-drops.md` | **14a–14e** | Mined material becomes a prerequisite (rubble stops being placeable; 5 → 1 packed block) and named deposits **deplete** instead of vanishing. Its own document because it changes what a material *is*. Carries the wave's risk register. **Read its §2.1 first, whatever else you are doing: appending a tile-capable substance row throws at import today, and `docs/SPEC.md` §15 reads as if there is room.** Also drafts **D12** — a form is either feedstock or buildable, never both — and applies it a second time to `timber/log` (D14-H); **now the wave's first phase to land, ahead of 13 and 15.** |
+| `docs/PLAN-phase15-trees.md` | **15** | A fully felled tree drops a seed; a planted seed grows into a tree on the fixed step. Shares `data/forms.js` and the form budget with 14a and must land after it — and after D14-H, since a placed timber ladder can no longer be `log`. |
+| `docs/PLAN-phase16-interaction-model-v2.md` | **16a–16c** | **The missing feed verb**, and what a click on an inventory slot means. Extends Phase 12's interaction model rather than replacing it: today clicking a placeable arms it (correct, and Factorio-shaped) but clicking an ore/ingot/plate/brand/relic is a **confirmed silent no-op**, and feeding a machine is not a gesture at all — `rules/machines.js#handFeed` is proximity-only, ungated, at 120 Hz. **Three places in the repo already work around that and three more claim a "feed key" that has never existed.** Keeps "the click *target* decides" as the implementation (more defensive against a future content mistake) now that D12 has made it behaviourally identical to plain type-dispatch for every legal pair — and recommends describing it to the player the simpler way regardless. 16b (the drain becomes opt-in `ui.autoFeed`) carries the whole risk. |
+| `docs/PLAN-horizontal-chunks-SCOPE.md` | **none — scoping only** | A horizontal, procedural, unbounded world. **Not a phase plan and must not be executed.** It establishes that the storage change is feasible (nothing outside `model/` reads a tile array directly) and that the *generator* change has an unsolved problem in it, drafts the `CLAUDE.md`/`ARCHITECTURE.md`/`SPEC.md` diffs **for review and deliberately unapplied**, and recommends a cheaper bounded-but-large intermediate instead, plus a read-only recon pass before any implementation. |
+
+**Net wave order: 14a first, then 13a → 13b → 13c → 13d, then 15, then
+16a → 16b → 16c.** 14a moved to the front after `docs/PLAN-phase14-mining-and-drops.md`'s
+D14-H drafted `CLAUDE.md` D12 (a form is either feedstock or buildable,
+never both) and applied it to `timber/log` as well as `gravel` — both 15
+(shared form budget, and D15-A/D15-C were written assuming `log` stays
+placeable) and 16 (D16-A's click-model choice was originally forced by
+`log`/`gravel` being double-duty; D12 removes the forcing reason) now depend
+on it landing first, not just on each other.
+
+Within that order: **13a → 13b → 14c → 15's view work → 16c are all
+`src/view/` and must not run concurrently** — the same rule that kept Phases
+8, 8b, 8e and 9 serial. 13c is disjoint and may run alongside anything.
+14a → 14b is strictly serial; 14d is parallel-safe with 14c. **16 lands after
+the whole of 13**, including 13d — its own §7.2 argues the ordering (13d's
+acceptance criterion is worded against the automatic feed 16b turns off, and
+16's acceptance wants the completion feedback 13d adds); 16a → 16b → 16c are
+strictly serial.
+
 Ordered. Each phase has a **paste-ready prompt** for a subagent, an explicit
 **FILE OWNERSHIP** block in this repo's real paths, and an **acceptance
 criterion** that is a physical action you perform. Do not reorder. Phases 0, 1,
@@ -1201,6 +1244,8 @@ tested.
 ---
 
 ## Sequencing summary
+
+**All phases in this table are DONE.**
 
 | phase | agents | parallel? | gate to proceed |
 |---|---|---|---|
@@ -2422,6 +2467,9 @@ globalThis.__mf whose cost you name in docs/FINDINGS.md first.
 
 ## Sequencing summary — wave 2 (phases 6.5–11)
 
+**All phases in this table are DONE**, including the 8c–8g insertion below
+(see "Pending insertion" — resolved).
+
 Continues the table above. Same rules: reviewer after every phase, one commit
 per agent, never two agents at once against the same file.
 
@@ -2479,6 +2527,11 @@ assertion is written twice in Phase 11: once for the scene, once for the map.
 
 ## Pending insertion — segment transport replaces the staged winch (Phases 8c–8g)
 
+**RESOLVED. Phases 8c–8g are committed**, `docs/PLAN-gears-and-winches.md`'s
+§7 patches were applied, and Phases 9 and 10 above ran against the segment
+model, not the retired winch. Left below verbatim as the historical record of
+the decision.
+
 **`docs/PLAN-gears-and-winches.md` exists and is awaiting review.** It is the
 plan-mode output for a rejected mechanic: the staged winch
 (`src/rules/lift.js`, `data/machines.js`'s `lift` row,
@@ -2522,3 +2575,117 @@ Sequencing, until this is approved: **Phase 8 (painting) and 8b (relics) are
 unaffected and may proceed.** Phase 9 and Phase 10 depend on the new mechanism
 existing — Phase 9 to visualise it, Phase 10 for the Cloud Dock to be reachable
 — so neither should start until 8c–8g are either done or explicitly deferred.
+
+*(Done — see the RESOLVED note above this section.)*
+
+---
+
+## Wave 3 — the interaction model (Phases 12a–12d)
+
+Not sequenced in this file. Planned and executed as a standalone document,
+`docs/PLAN-phase12.md`, after Phase 11 landed: audited every key, unified
+mining/placing/miracle-use/craft onto LMB, made pickup opt-in (`c` to
+collect, an auto-collect toggle), converted `run.inv` from an unbounded dict
+to a fixed-capacity slot array, and rebuilt the quickbar as a live mirror of
+that array. Sub-phases 12a, 12b, 12c, 12c2 and 12d are all committed; 12d
+included a gap-fix commit retiring the last stray craft key
+(`u`) that survived the initial pass. See `docs/PLAN-phase12.md` for the
+full design record — its own "Status: PROPOSAL" header is stale and refers
+to before the phase was built.
+
+---
+
+## Wave 4 — legibility, materials, the world's edges, and the feed verb (Phases 13a–16c)
+
+Not sequenced in this file either, for the same reason wave 3 was not:
+planned as standalone documents so that a phase agent is handed one file
+rather than a slice of this one. **Nothing in wave 4 is committed.**
+
+- **`docs/PLAN-phase13.md` — Phases 13a, 13b, 13c, 13d.** UI text contrast,
+  the ladder's sprite, the auto-collect default, and the game-loop punch
+  list. 13d ("the shortest path to a closed loop") is a *proposal* and needs
+  a greenlight before it is scheduled; the other three are ready to run.
+- **`docs/PLAN-phase14-mining-and-drops.md` — Phases 14a–14e.** Mining drops
+  become prerequisites and named deposits deplete. The largest item in the
+  wave and the one with a full risk register. **Also carries a new
+  cross-cutting decision, drafted for review as `CLAUDE.md` D12 (§4's
+  D14-H): a form is either feedstock or buildable, never both** — the
+  general rule `gravel` losing its `tile` block already is one instance of;
+  applied a second time in the same phase to `timber/log` (fuel, five
+  recipe ingredients, *and* a ladder tile today — `peg_rungs` already
+  crafts the placeable `rung` from it, so the fix is deleting one field, not
+  new content). D12 is now the earliest dependency in the wave: **14a lands
+  first**, ahead of 13 and 15.
+- **`docs/PLAN-phase15-trees.md` — Phase 15.** Seeds, planting and growth.
+  Gated on 14a twice over: the shared form budget (§2.4) and, since D14-H,
+  the fact that its own D15-A/D15-C were written assuming `log` stays
+  placeable and must be re-read against 14a's actual landed row.
+- **`docs/PLAN-phase16-interaction-model-v2.md` — Phases 16a, 16b, 16c.**
+  The missing feed verb. Clicking a non-placeable inventory slot is a
+  confirmed silent no-op today, and feeding a machine is a proximity side
+  effect rather than a gesture — with three workarounds in the repo for its
+  absence (`rules/cycles.js`'s `SPAWN_GAP`, and two offsets in
+  `tools/check.mjs`) and three comments asserting a "feed key" that has
+  never existed. Extends Phase 12's model; contradicts none of it. Its
+  click-model decision (D16-A) originally rejected pure type-dispatch
+  because `log` and `gravel` were both double-duty; D12 removes both
+  counterexamples, so the two candidate models now agree on every legal
+  pair and D16-A's revision (§5) keeps the target-priority implementation
+  as the more defensive of two equivalent choices, while recommending the
+  *simpler* framing ("what you're holding decides") for the player-facing
+  legibility work in 16c. **Lands after 14a and after the whole of 13**, per
+  its own §7.2 — net wave order is **14a, then 13a→13d, then 15, then
+  16a→16c**.
+- **`docs/PLAN-horizontal-chunks-SCOPE.md` — scoping only, no phase
+  numbers.** An unbounded horizontal world. Feasible, larger than any wave
+  so far, and recommended *against* in its current form in favour of a
+  bounded-but-large intermediate; requires a read-only recon pass
+  (`docs/RECON-horizontal.md`) before any implementation phase is written.
+  Its §5 drafts three binding-document diffs which are **deliberately
+  unapplied**, exactly as `docs/PLAN-gears-and-winches.md` §3 did.
+
+Five facts from wave 4's planning that are true of the repo **today** and are
+worth knowing whether or not the wave ever runs:
+
+1. **Appending a tile-capable substance row to `data/substances.js` throws at
+   import.** `SUB.length` is 23, `PACKABLE_LIMIT` is 20, and the twelve
+   "free" ordinals `docs/SPEC.md` §15 counts are all already occupied by
+   non-packable rows. `docs/SPEC.md` §15 and
+   `src/data/substances.js`'s "ROWS ARE APPEND-ONLY" header contradict each
+   other on this. See `docs/PLAN-phase14-mining-and-drops.md` §2.1.
+2. **`docs/SPEC.md` §18.4 promises a 1-of-3 draft and the code delivers
+   1-of-1**, and three of the four gift tiers have exactly one content row so
+   1-of-3 is not currently constructible. See `docs/PLAN-phase13.md` §5.2
+   items 4 and 5, and `docs/PLAN-phase16-interaction-model-v2.md` §7.3 for
+   why the draft's own UI belongs in a Phase 17 document rather than in
+   either of them.
+3. **Clicking a non-placeable inventory slot does nothing at all.** The
+   click-to-arm gate (`shell/main.js:514-517`, mirrored at
+   `shell/input.js:411-412`) requires a tile-capable form, `F.rig` or
+   `F.phial`, so every ore, ingot, plate, brand and relic is click-inert —
+   control falls through to `runw.moveSlot(i, i)`, which returns immediately
+   on `from === to`. See `docs/PLAN-phase16-interaction-model-v2.md` §3.3.
+4. **There is no way to feed a machine on purpose.**
+   `rules/machines.js#handFeed` is proximity-only and ungated, called from a
+   `step(dt)` that takes no `cmd`, once per machine per fixed substep — so an
+   altar takes everything you carry in under a second and
+   `rules/cycles.js#drainReceivers` credits it the same frame.
+   `rules/cycles.js:84-93`'s `SPAWN_GAP = 4` and two offsets in
+   `tools/check.mjs` (`:1154-1160`, `:3552`) exist only to work around it,
+   and three comments (`data/machines.js:655`, `:745`, `docs/SPEC.md` §18.3)
+   describe a "feed key" that has never existed. See
+   `docs/PLAN-phase16-interaction-model-v2.md` §3.4–3.5.
+5. **`docs/PLAN-phase12.md` D-I never landed**, despite that document's
+   status line. `git log -- src/view/ui/slot.js` shows no Phase 12 commit and
+   `frameSlot` still draws a single 1-px border, not the specified 2-px
+   double frame. Folded into Phase 16c.
+6. **Every currently-placeable form is also consumed as feedstock somewhere,
+   on both terrain rows the game has.** `timber/log` is fuel
+   (`handFeed:{from:['*/#fuel']}`) and a bare ingredient in five recipes
+   (`hub`, `crank`, `gear`, `axle`, `daedalan`) *and* directly placeable as
+   a ladder. `*/gravel` (stone, soil, granite, adamant's shared mined drop)
+   is cycle 4's literal tribute currency and a recipe ingredient in
+   `belt_r`/`gear` *and* the "shovel it back" placeable tile. Both are the
+   same shape of bug, on different substances — see
+   `docs/PLAN-phase14-mining-and-drops.md` §4's D14-A/B (gravel) and D14-H
+   (log), and the drafted `CLAUDE.md` D12 that names the general rule.
