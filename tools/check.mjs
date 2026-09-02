@@ -121,6 +121,19 @@ const epoch  = await import('../src/model/epoch.js');
 const journal = await import('../src/model/journal.js');
 const modelBoons = await import('../src/model/boons.js');
 const aimModel = await import('../src/model/aim.js');
+/* THE ONE `rules` MODULE IMPORTED DIRECTLY, and the reason is written down so
+   it does not become a habit. Every other behavioural probe in this file drives
+   the game through `shell/main.js#step` and the real `cmd` object, which is the
+   whole point of `stepReal`. But the LINK verb cannot be reached that way from
+   a headless harness: `shell/main.js:246`'s branch is gated on
+   `cmd.link && aim.valid && aim.band`, and `model/aim.js` is only valid while a
+   real pointer is over the stage -- so a scripted link would have to fake a
+   mouse position, which is exactly the hardcoded-coordinate mistake CLAUDE.md
+   records ("a click at (400,300) fails at a different base buffer"). Calling
+   `linkSegment` directly is the same module instance `shell/main.js` calls, one
+   layer in from the pointer, and it keeps the journal row and the refusal
+   string in the assertion. */
+const R_place = await import('../src/rules/placement.js');
 const boot   = await import('../src/shell/boot.js');
 const main   = await import('../src/shell/main.js');
 const sched  = await import('../src/shell/schedule.js');
@@ -1757,6 +1770,294 @@ function predictV(supply, mass, slope, demand = null) {
               `${v.toFixed(1)} px/s); a gear in that corner drives it at ${gv.toFixed(2)} px/s`);
     }
   }
+}
+
+/* ---------- SHARED SPAN GEOMETRY, for the two link sections below ----------
+
+   `chordThrough` IS AN INDEPENDENT SECOND IMPLEMENTATION, on purpose and in a
+   different family of algorithm from the thing it judges. `model/segments.js`
+   answers "is this span clear" by SAMPLING (the half-tile sweep); this answers
+   it ANALYTICALLY, by clipping the span against a tile's closed box
+   (Liang-Barsky) and returning how much of the span lies inside it. Two
+   samplers with different step sizes would agree about the same blind spots; a
+   sampler and a clipper do not.
+
+   CLOSED boxes, deliberately. A span running exactly along a tile boundary
+   lies inside the closed box of BOTH tiles that share it, so both count -- the
+   identical rule `model/segments.js#solidNear` applies, and the reason
+   commit b48203d had to be written at all. `p === 0 && q < 0` is "parallel and
+   outside"; `q === 0` is "parallel and exactly on the edge", which is inside. */
+const mixTo = (a, b, f) => a + (b - a) * f;
+
+function chordThrough(pa, pb, x0, y0, x1, y1) {
+  const dx = pb.x - pa.x, dy = pb.y - pa.y;
+  let t0 = 0, t1 = 1;
+  for (const [p, q] of [[-dx, pa.x - x0], [dx, x1 - pa.x], [-dy, pa.y - y0], [dy, y1 - pa.y]]) {
+    if (p === 0) { if (q < 0) return 0; continue; }
+    const r = q / p;
+    if (p < 0) { if (r > t1) return 0; if (r > t0) t0 = r; }
+    else { if (r < t0) return 0; if (r < t1) t1 = r; }
+  }
+  return (t1 - t0) * Math.hypot(dx, dy);
+}
+
+/* The longest chord this span cuts through ANY solid tile of ANY band, and
+   where. Scanned over every band the span's bounding box touches, so a
+   cross-band span is one call and not a special case. */
+function worstChord(pa, pb) {
+  let worst = 0, at = null;
+  const bx0 = Math.min(pa.x, pb.x), bx1 = Math.max(pa.x, pb.x);
+  const by0 = Math.min(pa.y, pb.y), by1 = Math.max(pa.y, pb.y);
+  for (const b of world.bands) {
+    const lo = (v, o, t) => Math.floor((v - o) / t) - 1, hi = (v, o, t) => Math.floor((v - o) / t) + 1;
+    const tx0 = Math.max(0, lo(bx0, b.origin.x, b.tile)), tx1 = Math.min(b.tw - 1, hi(bx1, b.origin.x, b.tile));
+    const ty0 = Math.max(0, lo(by0, b.origin.y, b.tile)), ty1 = Math.min(b.th - 1, hi(by1, b.origin.y, b.tile));
+    for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
+      if (!tiles.solidAt(b, tx, ty)) continue;
+      const x = world.worldX(b, tx), y = world.worldY(b, ty);
+      const c = chordThrough(pa, pb, x, y, x + b.tile, y + b.tile);
+      if (c > worst) { worst = c; at = `${b.id} (${tx},${ty})`; }
+    }
+  }
+  return { worst, at };
+}
+
+/* The first point of the span that resolves to no band, or null. A dense
+   sampler and not a clipper, because "outside every band" is a union of three
+   rectangles rather than one box -- and unlike blockage, an off-world stretch
+   of a span is never a thin corner clip: the bands' own edges are tile-aligned
+   and hundreds of pixels long. */
+function offWorldOn(pa, pb) {
+  const len = Math.hypot(pb.x - pa.x, pb.y - pa.y);
+  const n = Math.max(1, Math.ceil(len / 1));
+  for (let k = 0; k <= n; k++) {
+    const f = k / n;
+    const x = mixTo(pa.x, pb.x, f), y = mixTo(pa.y, pb.y, f);
+    if (!world.bandAt(x, y)) return { x, y };
+  }
+  return null;
+}
+
+/* THE CLEAR WINDOW IS SIZED FROM THE SPAN, NEVER FROM A HUB'S PLACEMENT TILE,
+   and this is the whole of a bug a previous attempt at this section shipped and
+   then had to diagnose. A hub's anchor is its footprint CENTRE, which for a
+   2x2 row is one tile ABOVE its placement row -- so a window carved as
+   "ty-1 .. ty+2 around each hub's own tile" leaves the middle of the span
+   untouched, and near a band seam it leaves the LOWER band's row 0 untouched
+   too, which in real generated terrain is solid rock. The cross-band case then
+   fails for a reason that has nothing to do with the code under test.
+
+   So: walk the actual anchor-to-anchor line, and clear a (2*pad+1)^2 tile
+   neighbourhood around every sample, in EVERY band -- `tiles.write.clear`
+   bounds-checks itself (`model/tiles.js:107`), so a band the sample is nowhere
+   near is a cheap no-op and the seam needs no arithmetic of its own. */
+function clearAlong(pa, pb, pad = 1) {
+  const len = Math.hypot(pb.x - pa.x, pb.y - pa.y);
+  const n = Math.max(1, Math.ceil(len / 2));
+  for (let k = 0; k <= n; k++) {
+    const f = k / n;
+    const x = mixTo(pa.x, pb.x, f), y = mixTo(pa.y, pb.y, f);
+    for (const b of world.bands) {
+      const tx = Math.floor((x - b.origin.x) / b.tile), ty = Math.floor((y - b.origin.y) / b.tile);
+      for (let dy = -pad; dy <= pad; dy++)
+        for (let dx = -pad; dx <= pad; dx++) tiles.write.clear(b, tx + dx, ty + dy);
+    }
+  }
+}
+
+const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
+
+/* --- LINK LEGALITY, OVER 240 SEEDED SPANS AT EVERY ANGLE, IN ONE BAND AND
+   ACROSS BOTH SEAMS (docs/PLAN-gears-and-winches.md section 4.5,
+   docs/SPEC.md 17.6).
+
+   FOUR CLAIMS, and each is one-sided on purpose:
+
+     1. A LINK IS ACCEPTED IF AND ONLY IF `linkCheck` SAYS SO. Every trial goes
+        through the real `rules/placement.js#linkSegment`, so "accepted" means a
+        record appeared in `model/segments.js#segments` and a `'link'` journal
+        row was pushed -- and a refusal means no record and a `'refused'` row
+        carrying the same `why` string the check returned. Two readers of one
+        decision is the pattern (docs/DEVELOPER_GUIDE.md#one-decision-two-readers);
+        this is the assertion that they have not drifted.
+
+     2. AN ACCEPTED SPAN CUTS NO SOLID TILE BY AS MUCH AS HALF A TILE. Half a
+        tile and not zero, and the bound is derived rather than tolerated: the
+        sweep samples at `tile * 0.5` or finer (`model/segments.js:257-262`), and
+        any interval of length >= the sample spacing must contain a sample. So a
+        chord of half a tile or more is a blockage the sweep is GUARANTEED to
+        see, and asserting it is asserting the sweep's own contract. A shorter
+        chord -- a span clipping the corner of a tile for three pixels -- may
+        legally pass, is cosmetic, and is printed rather than asserted so a
+        future reader can see how often it actually happens.
+
+     3. AN ACCEPTED SPAN LEAVES NO SAMPLE OFF-WORLD, at one-pixel resolution,
+        which is eight times finer than the sweep looks.
+
+     4. THE REFUSAL ORDER IS THE ORDER 17.6 LOCKS. `'TOO FAR APART'` outranks
+        `'THE PATH IS BLOCKED'`, so a span that is both must say the structural
+        one -- otherwise a player learns to clear rock out of a span that was
+        never going to reach.
+
+   THREE FAMILIES, EIGHTY TRIALS EACH: one wholly inside `topsoil`, one across
+   the surface/topsoil seam, one across the astral/surface seam. The cross-band
+   families are the ones that matter most (`bandAt` per sample is the only
+   reason a cross-band cable works at all) and they are also the ones a badly
+   sized clear window silently turns into "always blocked" -- hence the
+   per-family accepted counts in the summary, and the assertion that each
+   family accepted at least one span. A family that accepted nothing has tested
+   nothing. --- */
+{
+  const TRIALS = 80;
+  const STONE = D_sub.S.stone;
+  const REACH = D_mach.MACH[D_mach.M.hub].hub.reach;
+
+  /* Each family returns two [bandId, tx, ty] placements. The astral/surface
+     pair shares a WORLD column, which is 16 tiles of offset because astral's
+     own origin is x:128 (`data/world.js:44`) -- the 32-column dead zone
+     docs/PLAN section 4.5 warns about, kept away from on purpose here so that
+     this section measures blockage and not band geometry. */
+  const FAMILIES = [
+    { id: 'topsoil only', pick: r => [
+      ['topsoil', 16 + (r() * 24 | 0), 100 + (r() * 12 | 0)],
+      ['topsoil', 16 + (r() * 24 | 0), 100 + (r() * 12 | 0)]] },
+    { id: 'surface/topsoil seam', pick: r => [
+      ['surface', 30 + (r() * 14 | 0), 48 + (r() * 7 | 0)],
+      ['topsoil', 30 + (r() * 14 | 0), (r() * 6 | 0)]] },
+    { id: 'astral/surface seam', pick: r => {
+      const col = 40 + (r() * 14 | 0);
+      return [['astral', col - 16 + (r() * 3 | 0) - 1, 33 + (r() * 6 | 0)],
+              ['surface', col + (r() * 3 | 0) - 1, (r() * 6 | 0)]];
+    } }
+  ];
+
+  const BUCKETS = 6;                            // 30 degrees each, over 0..180
+  const angles = Array.from({ length: BUCKETS }, () => 0);
+  const tally = {};
+  const perFamily = {};
+  let bad = 0, clips = 0, worstClip = 0, tried = 0;
+
+  for (const fam of FAMILIES) {
+    perFamily[fam.id] = 0;
+    for (let i = 0; i < TRIALS; i++) {
+      const seed = 8700 + i;
+      boot.newRun(seed);
+      const r = rng.mulberry(0xC0FFEE ^ (seed * 2654435761 >>> 0));
+
+      const [pa_, pb_] = fam.pick(r);
+      const A = machs.write.place(world.bandOf(pa_[0]), D_mach.M.hub, pa_[1], pa_[2]);
+      const B = machs.write.place(world.bandOf(pb_[0]), D_mach.M.hub, pb_[1], pb_[2]);
+      const ea = anchorOfM(A), eb = anchorOfM(B);
+      const len = Math.hypot(eb.x - ea.x, eb.y - ea.y);
+      if (len === 0) continue;                   // two hubs stacked exactly: no span to test
+      tried++;
+
+      /* A genuinely clear span first, THEN rock put back on purpose -- so a
+         refusal is always attributable to a tile this trial chose, never to
+         whatever worldgen happened to leave in the way. */
+      clearAlong(ea, eb, 1);
+      const stones = r() * 4 | 0;
+      for (let k = 0; k < stones; k++) {
+        const f = 0.15 + r() * 0.7;
+        const ox = (r() * 5 | 0) - 2, oy = (r() * 5 | 0) - 2;
+        const x = mixTo(ea.x, eb.x, f) + ox * 8, y = mixTo(ea.y, eb.y, f) + oy * 8;
+        const b = world.bandAt(x, y);
+        if (b) tiles.write.set(b, world.tileX(b, x), world.tileY(b, y), STONE);
+      }
+
+      const tile = Math.min(world.bandAt(ea.x, ea.y)?.tile ?? 8, world.bandAt(eb.x, eb.y)?.tile ?? 8);
+      const { worst, at } = worstChord(ea, eb);
+      const off = offWorldOn(ea, eb);
+      const verdict = segs.linkCheck(A, B);
+
+      journal.write.drain();
+      const before = segs.segments.length;
+      const made = R_place.linkSegment(A, B);
+      const rows = journal.write.drain();
+      const grew = segs.segments.length - before;
+      tally[verdict.why ?? 'ok'] = (tally[verdict.why ?? 'ok'] || 0) + 1;
+
+      /* CLAIM 1 */
+      if (verdict.ok !== !!made || grew !== (verdict.ok ? 1 : 0)) {
+        fail(`LINK LEGALITY: ${fam.id} trial ${i} -- linkCheck said ${verdict.ok ? 'ok' : verdict.why} ` +
+             `but linkSegment ${made ? 'created' : 'refused'} (segments ${grew > 0 ? '+' + grew : grew})`);
+        bad++;
+      }
+      const kinds = rows.map(w => w.kind);
+      const wantKind = verdict.ok ? 'link' : 'refused';
+      if (!kinds.includes(wantKind)) {
+        fail(`LINK LEGALITY: ${fam.id} trial ${i} -- ${verdict.ok ? 'an accepted' : 'a refused'} link ` +
+             `pushed [${kinds.join(', ')}] and not a '${wantKind}' journal row`);
+        bad++;
+      }
+      if (!verdict.ok) {
+        const why = rows.find(w => w.kind === 'refused')?.data?.why;
+        if (why !== verdict.why) {
+          fail(`LINK LEGALITY: ${fam.id} trial ${i} -- linkCheck refused with '${verdict.why}' but the ` +
+               `journal row says '${why}' -- one decision, two readers, and they have drifted`);
+          bad++;
+        }
+      }
+
+      /* CLAIM 4 first, because it decides what CLAIMS 2 and 3 may expect. */
+      const tooFar = len > REACH * mods.eff('segReach', 'hub') + 1e-9;
+      if (tooFar && verdict.why !== 'TOO FAR APART') {
+        fail(`LINK LEGALITY: ${fam.id} trial ${i} -- a ${len.toFixed(1)} px span against a ${REACH} px ` +
+             `reach was answered '${verdict.why ?? 'ok'}', not 'TOO FAR APART' (docs/SPEC.md 17.6 puts ` +
+             `the structural refusal first)`);
+        bad++;
+      }
+
+      if (verdict.ok) {
+        /* CLAIM 2 */
+        if (worst >= tile * 0.5 - 1e-9) {
+          fail(`LINK LEGALITY: ${fam.id} trial ${i} -- an ACCEPTED ${len.toFixed(1)} px span cuts ` +
+               `${worst.toFixed(2)} px through solid ${at}, which is half a tile or more; the half-tile ` +
+               `sweep is guaranteed to have sampled inside it`);
+          bad++;
+        } else if (worst > 0) { clips++; worstClip = Math.max(worstClip, worst); }
+        /* CLAIM 3 */
+        if (off) {
+          fail(`LINK LEGALITY: ${fam.id} trial ${i} -- an ACCEPTED span passes through (${off.x.toFixed(1)}, ` +
+               `${off.y.toFixed(1)}), which resolves to no band at all`);
+          bad++;
+        }
+        perFamily[fam.id]++;
+        const a180 = ((Math.atan2(-(eb.y - ea.y), eb.x - ea.x) * 180 / Math.PI) + 360) % 180;
+        angles[Math.min(BUCKETS - 1, a180 / (180 / BUCKETS) | 0)]++;
+      } else if (!tooFar && worst >= tile * 0.5 - 1e-9 && verdict.why !== 'THE PATH IS BLOCKED') {
+        fail(`LINK LEGALITY: ${fam.id} trial ${i} -- a span cutting ${worst.toFixed(2)} px through solid ` +
+             `${at} was refused '${verdict.why}' rather than 'THE PATH IS BLOCKED'`);
+        bad++;
+      }
+    }
+  }
+
+  console.log(`  ..  link legality: ${tried} seeded spans, verdicts ` +
+              Object.entries(tally).map(([k, n]) => `${k} x${n}`).join(', '));
+  console.log(`  ..  link legality: accepted per family ` +
+              Object.entries(perFamily).map(([k, n]) => `${k} ${n}`).join(', ') +
+              `; accepted-span 30-degree buckets [${angles.join(', ')}]` +
+              `; ${clips} accepted span(s) clipped a solid corner, worst ${worstClip.toFixed(2)} px ` +
+              `(bound ${(8 * 0.5).toFixed(1)})`);
+
+  for (const [id, n] of Object.entries(perFamily))
+    if (n === 0) {
+      fail(`LINK LEGALITY: the "${id}" family accepted NOTHING over ${TRIALS} trials, so every ` +
+           `assertion above was vacuous for it -- the generator or the clear window is wrong, ` +
+           `not the game`);
+      bad++;
+    }
+  const emptyBucket = angles.findIndex(n => n === 0);
+  if (emptyBucket >= 0) {
+    fail(`LINK LEGALITY: no span was accepted in the ${emptyBucket * 30}-${emptyBucket * 30 + 30} degree ` +
+         `bucket, so "every angle" is not tested`);
+    bad++;
+  }
+  if (!bad)
+    ok(`LINK LEGALITY: ${tried} seeded spans in one band and across both seams -- accepted exactly when ` +
+       `linkCheck says so, never over a solid tile by half a tile or more, never off-world, and ` +
+       `'TOO FAR APART' always outranks 'THE PATH IS BLOCKED'`);
 }
 
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
