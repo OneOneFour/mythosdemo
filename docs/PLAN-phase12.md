@@ -171,41 +171,197 @@ this binding and is stale — see §7.3); `r` is not free either (it is
 restart, live at any time, `input.js:335`) — so this is a genuine two-key
 swap, not a one-line edit. See D-C, D-J.
 
-### 2.7 The quickbar, as it exists, and which half of the user's two complaints is a bug
+### 2.7 Recon — the inventory model, top to bottom, and the full blast radius of changing its shape
 
-`view/ui/quickbar.js` (whole file, 85 lines) draws two rows of five,
-**always** (its own header, `:1-12`: "not gated on the main panel being
-open"), reading `ui.quickbar[i]` (`shell/ui.js:50`, a fixed 10-slot array of
-`{sub,form}|null`, **assignment only** — its own comment, `ui.js:45-48`).
-The only way a slot is ever populated is a **drag** from the Character tab's
-inventory grid onto a quickbar cell (`shell/main.js:490-494`,
-`assignQuickbar`). Once assigned, the slot shows a **live** count
-(`invCount`, `quickbar.js:61`) but never re-populates itself, never drops a
-depleted item, and never picks up a newly-held item that was never dragged
-in.
+**Why this recon exists.** The user's follow-up message changes the premise
+§4.6/D-G/D-H were written against: *"say I have 30 inventory slots, including
+the 10 in the quickbar well now i have 40 inventory slots. I can click and
+drag things to rearrange in inventory."* Confirmed directly: inventory becomes
+a real fixed-capacity grid, not a display-order preference over the current
+unlimited dict; a full inventory refuses a new pickup outright, material stays
+on the ground. Everything below was read directly out of the repo (commit at
+time of writing has Phase 12a landed and Phase 12b in progress); every
+`file:line` is real.
 
-The digit-key path (`input.js:366-372`) arms **whatever `ui.quickbar[qslot]`
-currently is** — this was audited and shipped clean (the digit mapping
-reuses the exact same `DIGITS` string the drawn glyph uses,
-`quickbar.js:36-43`). **There is no code-level bug here.** The two failure
-modes the user confirmed — "pressing a number does nothing" and "dragging
-onto a slot doesn't stick" — are the **same root cause**: nothing is
-assigned to that slot (or the assignment was already spent/dropped), so the
-digit handler's own documented no-op (`input.js:359-365`, "does nothing at
-all... no arm, no journal row") fires silently and correctly, and a "drag"
-that did not exceed `DRAG_THRESHOLD` (3 px, `main.js:334`) or that landed on
-the wrong cell reads as nothing happening. **The architecture is the bug,
-not the code**: manual per-slot assignment is a second decision about "what
-is in slot N" that can silently drift from "what do I actually hold" —
-precisely the ambiguity this project's own idioms are built to forbid
-(`docs/DEVELOPER_GUIDE.md#one-decision-two-readers`). Message 2 asks for
-exactly the fix: make the bar a *derived view*, never an assignment. See D-G.
+**2.7.1 — The quickbar as it exists today (the design being replaced).**
+`view/ui/quickbar.js` (85 lines) draws two rows of five, **always** (not
+gated on the main panel being open), reading `ui.quickbar[i]`
+(`shell/ui.js:50`, a fixed 10-slot array of `{sub,form}|null`, **assignment
+only** — its own comment, `ui.js:45-48`). The only way a slot is populated is
+a **drag** from the Character tab's inventory grid onto a quickbar cell
+(`shell/main.js:490-494,504-505`, `assignQuickbar`). The digit-key path
+(`input.js:366-372`) arms whatever `ui.quickbar[qslot]` currently is.
+`quickbar.js:49`'s `LEGEND` string is presentation text describing bindings
+`shell/input.js` owns. All of this — `ui.quickbar`, `assignQuickbar`,
+`clearQuickbar`, the drag-to-assign branch — is deleted outright by this
+revision; §2.7.2 onward is the recon for what replaces it.
 
-`quickbar.js:49`'s `LEGEND` string (`'I MENU  X DIG  E PLACE  U CRAFT  Q DROP
-V USE  P EQUIP'`) is presentation text describing bindings owned by
-`shell/input.js`, per that line's own comment — it will be wrong the moment
-any key in §2.1's table moves and must be rewritten in the same phase that
-moves them (§5).
+**2.7.2 — `run.inv`'s real shape today, confirmed line by line.**
+`RUN_SCHEMA.inv: null` (`model/run.js:32`, comment: "sparse; keyed by the
+`sub/form` string"), built fresh every run as `inv: {}` in `write.reset()`
+(`:163`). This is genuinely a plain `{ [sub/form key]: count }` dictionary —
+no slot count, no positions, no cap of any kind. `write.collect(sub,form,n)`
+(`:201-205`) does `run.inv[k] = (run.inv[k]||0) + n`. `write.spend(sub,form,n)`
+(`:207-214`) decrements and `delete`s the key at zero, returning `false` if
+insufficient (the one existing boolean-return convention this phase's new
+`write.collect` return value now matches). `invCount(sub,form)` (`:291`) is
+`run.inv[keyOf(sub,form)] || 0`, a direct keyed lookup. `burdenOf()`
+(`:416-423`) sums `massOfPair(sub,form) * run.inv[k]` over `for (const k in
+run.inv)`, decoding each key with `parseKey`. `pocketsHave(sel,n)` (`:430-437`)
+and `bestTool()` (`:523-533`) do the identical `for...in` + `parseKey` scan.
+`pocketRows()` (`:547-562`) does the same scan, plus a second pass over `SUB`
+adding a synthetic **zero-count row** for any substance flagged
+`item.hud.always` that is not currently held (existing teaching-slot
+mechanism, e.g. the tutorial's copper prompt) — both halves sorted once by
+`byHudOrder`. Its **only** two callers today: `mainPanel.js:165`,
+`pocketRows().filter(r => r.n > 0)` (the Character tab's inventory grid), and
+`shell/main.js:198`, `placeableFromPockets(pocketRows())[0]` (the
+"nothing armed, click default-places whatever's placeable" convenience).
+Confirms exactly what the brief suspected: today's Character tab shows *one
+row per distinct held pair, packed with no gaps* — not a slot grid at all.
+
+**2.7.3 — The full blast radius, grepped exhaustively.** Every direct
+consumer of `run.inv`'s dict shape, or of the five queries above, across
+`src/`, `tools/`, `tests/`:
+
+- `model/run.js` itself: `burdenOf`, `pocketsHave`, `bestTool`, `pocketRows`
+  (four independent `for (const k in run.inv)` loops).
+- `rules/machines.js:40-88`: `api.pocketed = sel => best(run.inv, sel)` and
+  `api.takePocketed`'s `bestPair(run.inv, sel, n)` — both reuse a **generic**
+  private `best`/`bestPair` pair that ALSO serves `m.buf` (a machine buffer,
+  which stays a dict forever, out of scope). This is the one place a
+  shape-generic helper is shared between the two, and it cannot stay shared
+  once `run.inv` stops being a dict.
+- `rules/crafting.js#bestPocketed` (`:28-40`), its own comment explicitly
+  says it is "the same shape as `rules/machines.js`'s private `bestPair`,
+  re-derived... rules siblings may not import one another" — a second,
+  independent copy of the identical dict scan, over `run.inv` specifically.
+- `rules/items.js#dropHeaviest` (`:77-98`), a third independent copy, scanning
+  `run.inv` for the single heaviest held pair to drop on `q`.
+- `view/ui/mainPanel.js#representativePair` (`:343-360`) and `#countTowards`
+  (`:474-488`) — a fourth and fifth independent copy, `view`'s own version
+  (cannot import `rules`), used by the CRAFTING tab's icon/tooltip.
+- `rules/items.js#step`'s pickup branch (`:100-132`, detailed in §2.7.4) —
+  the ONE place a fallen item becomes an `inv` credit via `rw.collect`.
+- `shell/main.js#give` (`:854`, `runw.collect(sub,form,n)`) — the ONLY other
+  caller of `write.collect` anywhere, test-only, gated behind `?test=1`.
+- `tools/check.mjs`: **~15** direct `run.write.collect(...)` calls seeding
+  test scenarios, plus one structural check that assumes the dict shape
+  outright — `actualHeldMass` (`:874-878`), the mass-conservation fuzz's own
+  reconstruction of "how much mass is currently held," `for (const k in
+  run.run.inv) { const p = items.parseKey(k); m += ...*run.run.inv[k]; }`,
+  run over a 7,200-substep fuzz. This is load-bearing (it is what catches "a
+  future code path that bypasses the write API to poke `run.inv` directly")
+  and MUST be rewritten in the same phase that changes the shape it inspects.
+  Also three burden tests (`:1108-1169`) reading `run.invCount(...)` directly
+  — signature-stable, unaffected.
+- `tests/visual.spec.js`: **~30** `write.collect`/`rw.collect` calls (all
+  signature-stable) and **~25** `invCount` assertions (all signature-stable,
+  confirmed by their call shape — `invCount(sub,form)` in, a number out,
+  identical before and after). The one test that is NOT shape-stable: the
+  "REAL DRAG" test (`:376-424`) that drags an item from the inventory grid
+  onto a quickbar slot and asserts `__mf.ui.quickbar[0]` deep-equals a bare
+  `{sub,form}` (`:408,416`) — this test's own subject (assignment) is being
+  deleted outright and must be rewritten around the new move/swap mechanism.
+
+**2.7.4 — The pickup/refusal mechanism, and the one existing precedent for
+"refused."** `rules/items.js#step` (`:100-132`). `MAGNET_DELAY = 0.35` (`:41`),
+`near()` (`:205-208`) a plain circle test around `playerCentre()`, gated (per
+Phase 12b, in progress) behind `cmd.collect`. The pickup branch's existing
+body (`:112-123`):
+
+```js
+if (it.age > MAGNET_DELAY && !run.dead && near(it, c, pickupR)) {
+  if (burdenOf() + massOfPair(it.sub, it.form) > eff('burden') + MASS_EPS) {
+    if (refusalDue(it))
+      push('refused', { x: it.x, y: it.y }, { sub: it.sub, form: it.form, why: 'TOO HEAVY TO CARRY' });
+  } else {
+    rw.collect(it.sub, it.form, 1);
+    push('pickup', { x: it.x, y: it.y }, { sub: it.sub, form: it.form });
+    iw.remove(it);
+  }
+}
+```
+
+This **is** an existing "pickup refused" path — for a burden-cap reason, per
+CLAUDE.md D4's own "a pickup that would cross the hard cap is refused, with a
+journal row." `refusalDue`/`REFUSAL_GAP` (`:58-65`) rate-limits the journal
+push (not the refusal itself) per item-identity, via a `WeakMap`, so a refused
+item does not spam the toast queue every frame it sits in range.
+`shell/notify.js:46`, `refused: row => row.data?.why || ''`, proves `why` is
+displayed **verbatim** — confirms no new journal *kind* is needed, only a new
+`why` string (`'INVENTORY FULL'`), reusing this exact shape a second time,
+alongside the existing burden one, inside the same `if`/`else if` chain. See
+D-G/§4.6 for the exact composed branch.
+
+**2.7.5 — The grid/slot/drag primitives, and what "drag to rearrange" needs.**
+`view/ui/grid.js#drawGrid` (`:53-92`) already accepts a sparse `items` array
+and indexes `items[idx]` directly, drawing `null` as an empty cell via
+`slot.js#drawSlot`'s own `if (!item) return {sub:null,...}` branch (`:39`).
+`view/ui/quickbar.js` **already exercises this today** — its own
+`ui.quickbar.map(slot => slot ? {...} : {sub:null,...,glyph:digitOf(i)})`
+(`:58-64`) is the existing "one cell per slot, empty slots visible" contract.
+**The grid primitive needs zero changes** for the new Character-tab grid or
+the new quickbar grid; only the `items` array each caller builds changes.
+`shell/main.js`'s drag-resolve dispatch (`:458-541`): `downEdge` captures
+`{sub,form,n,from:hit.gridId,index:hit.slot.index}` (`:466-479`, UNCHANGED,
+already gridId-agnostic); the click-vs-drag threshold (`dragStart`,
+`dragExceeded`, `DRAG_THRESHOLD=3`, `:342-344,483-485`, UNCHANGED); the
+click-to-arm branch (`:498-503`, UNCHANGED, already checks `hit.slot.sub !=
+null` which an empty slot already satisfies as false). The **one existing
+precedent for a positional drag** (not an assignment) is the equip-slot swap
+already live at `:521-527`:
+
+```js
+} else if (ui.drag.from === 'equip' && ui.drag.index !== hit.slot.index) {
+  const other = run.equipped[hit.slot.index];
+  runw.equip(hit.slot.index, ui.drag.sub);
+  runw.equip(ui.drag.index, other ?? null);
+}
+```
+
+This is the exact shape "drag within one grid to reorder" needs; §4.6/D-H
+reuse it directly rather than inventing a second mechanism. The quickbar's
+own drag TARGET today (`:504-505`, `assignQuickbar`) is an **assignment**, not
+a reposition, and is deleted outright, replaced by the same `moveSlot`
+mechanism the Character tab's own grid now also uses.
+
+**2.7.6 — CLAUDE.md's invariants, re-read against this specific change.**
+Invariant 5 ("mined material becomes a falling item, never a direct inventory
+credit... machines are catch boxes") is not at risk: §2.7.3 confirms
+`write.collect` has exactly two callers in the whole codebase, and neither is
+new — the pickup branch (from an already-fallen item) and the debug-only
+`give()`. This phase adds a **second reason** an already-fallen pickup can be
+refused; it invents no new path that skips falling. The general "one source
+of truth" ethos, stated explicitly for this exact case elsewhere in
+CLAUDE.md — "a slot array and any derived count query must agree by
+construction, not by convention" — is the deciding argument for D-G's single-
+array design over a two-array alternative (see D-G). CLAUDE.md's "tunables are
+split by name" rule, and `data/tuning.js`'s existing `trinketSlots` row
+(`:137`) plus `run.equipped`'s reset-time build off `eff('trinketSlots')`
+(`run.js:180`, "a FRESH array every run... rounded because a slot count must
+be an integer") is the direct, already-shipped precedent this phase's own
+`invSlots`/`quickbarSlots` tunables follow verbatim.
+
+**2.7.7 — Interaction with Phase 12a (landed) and Phase 12b (in progress).**
+12a's own diff (§4.4) reads only `ui.armedPlace`/`invCount(sub,form)` at
+`pointerdown` time — `invCount`'s signature is unchanged by this revision
+(same two args in, same number out), so **12a is confirmed unaffected**,
+independent of storage shape. 12b is, as this recon is written, actively
+editing `rules/items.js#step`'s exact pickup branch quoted in §2.7.4 —
+wrapping it in `if (cmd.collect && ...)` — plus `shell/ui.js` (`ui.autoCollect`),
+`shell/schedule.js` (threading `cmd` into `items.step`), `shell/input.js`/
+`shell/main.js` (retiring `p`/`equipFirst`), `view/ui/mainPanel.js` (the AUTO
+COLLECT row), `tools/check.mjs`/`tests/visual.spec.js` (updating
+auto-collect-dependent assertions). This revision's own change to the SAME
+branch — adding the slot-capacity refusal alongside the existing burden one,
+§4.6 — is a **second, later edit to a spot 12b is editing now**. The two are
+not in conflict (12b decides WHEN the branch runs at all; this phase decides
+what happens once it does), but they are not concurrency-safe against each
+other either. **This phase must land strictly after 12b**, and its own prompt
+(§6.3) requires re-reading the branch's actual post-12b shape rather than
+trusting this recon's pre-12b line citations. Nothing else in 12a or 12b's
+already-designed scope reads or assumes anything about `run.inv`'s shape.
 
 ### 2.8 The armed-selection highlight, today
 
@@ -473,51 +629,296 @@ narrowed-command channel doesn't already give for free, and creates the
 exact "does this reset on restart" ambiguity CLAUDE.md's `model`/`rules`
 split exists to answer definitively rather than case-by-case.
 
-### D-G — the quickbar's population rule, and whether `ui.quickbar` survives
+### D-G — the inventory becomes a real, fixed-capacity slot grid, and what a slot is
 
-**Recommended: full replacement.** `ui.quickbar`, `assignQuickbar`,
-`clearQuickbar` (`shell/ui.js:50,247-252`) and the drag-to-quickbar-assign
-branch (`shell/main.js:493-494`) are deleted outright. The bar is redrawn
-every frame from a **derived** query, `model/run.js#heldPairs()` — new, one
-line, `pocketRows().filter(r => r.n > 0)` — the *exact* filter
-`view/ui/mainPanel.js#drawCharacterTab` already applies inline (`:165`).
-One function, three callers (`view/ui/quickbar.js`, `mainPanel.js`'s
-Character tab, `shell/input.js`'s digit handler): "one decision, two
-readers," this project's own named idiom, satisfied by construction. Digit
-keys now arm **whichever pair currently occupies that ordinal position** in
-the live, `byHudOrder`-sorted list — "press 3" means "the third pair you are
-currently holding, in the same order the Character tab already lists them,"
-with no assignment step, ever.
+**Superseding note.** This replaces the shipped D-G (`heldPairs()`, a live
+derived mirror with no capacity) outright, per the user's own explicit
+clarification (§2's brief, message re-quoted at the top of §2.7): *"30
+inventory slots, including the 10 in the quickbar... now i have 40 inventory
+slots. I can click and drag things to rearrange."* Confirmed on direct
+follow-up: this is a real fixed-capacity grid with **positions**, not a
+display-order preference over an unlimited list, and a full inventory
+**refuses** a new pickup — the item stays on the ground. `heldPairs()` and
+everything built on it (old D-G, old D-H, old §4.6, old §6.3) is deleted.
 
-**Rejected alternative — a hybrid "pin some slots, mirror the rest."**
-Genuinely richer, and not without merit as a *future* enhancement. Rejected
-for Phase 12 because it reintroduces exactly the two-source-of-truth
-ambiguity ("press 3, but the slot showing 3 is something else") the digit
-mapping's own precedent (§2.7) was written to forbid. Noted as a possible
-follow-up in §8, not designed here.
+**Recommended shape.** `run.inv` changes from a sparse dict to a **fixed-length
+array**, `Array(mainSlots + quickbarSlots)` of `{sub, form, n} | null`. Two new
+`data/tuning.js` rows, `invSlots` (base **30**) and `quickbarSlots` (base
+**10**) — the user's own 30-main-plus-10-quickbar example, locked as the
+default via a tunable rather than a hardcoded literal, following the exact
+precedent `trinketSlots`/`eff('trinketSlots')` already set (§2.7.6): a slot
+*count* is content, the same way a machine's recipe list or a substance's mass
+is, and a future boon widening it costs nothing structurally, exactly as
+`trinketSlots`'s own row comment already anticipates for equip slots.
+`RUN_SCHEMA` gains one new field, `mainSlots: 0` (a placeholder, same
+convention `inv`/`equipped` already use), fixed at `write.reset()` time from
+`Math.round(eff('invSlots'))` and **never recomputed mid-run** — the same
+"fixed at reset, not re-read every frame" decision `run.equipped.length`
+already makes for `trinketSlots`, for the identical reason (a mid-run boon
+must not silently resize an array something else is still iterating the old
+length of).
 
-### D-H — does the quickbar scroll, or truncate at 10
+**Why ONE array, not two ("inv" array + "quickbar" array).** CLAUDE.md's own
+general ethos, restated for this specific case: *"a slot array and any derived
+count query must agree by construction, not by convention."* A single array
+means `burdenOf`, `pocketsHave`, `bestTool`, `pocketRows`, `invCount` — every
+aggregate question about what the player carries — need exactly **one** pass
+over `run.inv` to be correct, automatically, forever. Two separate arrays
+(`run.inv` for the main grid, a second `run.quickbar`) would require every one
+of those five functions to remember to scan *both* — and a forgotten second
+scan does not throw, it silently returns a smaller-than-true answer (burden
+under-counted, a craftable recipe reading as unaffordable, a tool in the
+quickbar not detected) — precisely the "second decision that can silently
+drift" class of bug CLAUDE.md's `model`/`rules` split exists to forbid. The
+"genuinely separate capacity" property the user asked for (§4.6/D-H) is
+achieved instead by an **index-range restriction**, not a second container:
+`write.collect`'s search for a free slot to place a brand-new pair is bounded
+to `[0, run.mainSlots)` and never reaches into the quickbar's own index range
+— so the quickbar can never be silently auto-filled by mining, only by a
+deliberate drag. Same user-visible behaviour, one array, zero risk of a
+forgotten second scan.
 
-**Recommended: scroll.** `view/ui/grid.js#drawGrid` already accepts a
-`scroll` row offset natively (`:43-70`) — the Character tab's inv grid
-already uses it (`mainPanel.js:178`, `ui.scroll['main:inv']`). Give the
-quickbar its own scroll key (`ui.scroll['quickbar:quickbar']`) and route the
-mouse wheel to it **even with no panel open** — today's wheel listener only
-routes while `isOpen(top())` (`input.js:533`), the same always-on-UI carve-
-out already exists for the quickbar's own hints-toggle click
-(`onAlwaysOnUi`, `input.js:424-428`, used at `main.js:390`); widen both to
-also recognise a wheel-over-quickbar event. This is a real, scoped code
-change, not free, but it is the one piece of new plumbing that actually earns
-its cost: without it, a player holding more than 10 distinct pairs would see
-the "extension of inventory" silently truncate, which is precisely the
-complaint being fixed.
+**One slot per distinct pair, no stack cap (point 3, resolved).** A slot holds
+exactly what today's dict entry held — one pair, one count, no upper limit —
+now at a position instead of a key. No new cap is introduced: mass (CLAUDE.md
+D3, `docs/DEVELOPER_GUIDE.md#buffers-and-pockets`'s own "slots are stack-based,
+but the BINDING constraint is mass") is already the real limit and remains it
+unchanged. Enforced by construction: `write.collect` always searches the
+**whole** array for an existing slot already holding the exact pair first
+(merges there, `n += amount`) before ever allocating a new one; `write.
+moveSlot` (D-H) only ever relocates or swaps *whole* slot contents, never
+splits or duplicates a stack. So two slots holding the identical pair
+simultaneously cannot occur, and `invCount` stays a single lookup, never a
+sum across positions — every existing caller's assumption preserved for free.
 
-**Rejected alternative — cap at 10, Character tab as overflow.** Cheaper (no
-wheel-routing widening needed) but directly contradicts "just an extension of
-inventory that's always there" the moment a player holds 11 distinct
-materials — plausible well before mid-game given ore/plate/ingot/fuel/tool
-variety. Noted as the fallback if the wheel-routing widening is judged out of
-budget for 12c (§6.3's prompt says so explicitly).
+**Every existing query, preserved, file by file:**
+
+```js
+// model/run.js -- straight array scans replace `for (const k in run.inv)`
+
+export const invCount = (sub, form) => {
+  const s = run.inv.find(s => s && s.sub === sub && s.form === form);
+  return s ? s.n : 0;
+};
+
+export function burdenOf() {
+  let mass = 0;
+  for (const slot of run.inv) if (slot) mass += massOfPair(slot.sub, slot.form) * slot.n;
+  return mass;
+}
+
+export function pocketsHave(sel, n) {
+  for (const slot of run.inv) if (slot && slot.n >= n && matches(sel, slot.sub, slot.form)) return true;
+  return false;
+}
+
+export function bestTool() {
+  let best = null;
+  for (const slot of run.inv) {
+    if (!slot || slot.form !== F.relic) continue;
+    const tool = SUB[slot.sub]?.item?.tool;
+    if (tool && (!best || tool.tier > best.tier)) best = tool;
+  }
+  return best;
+}
+
+export function pocketRows() {
+  const out = [];
+  for (const slot of run.inv) if (slot) out.push({ sub: slot.sub, form: slot.form, n: slot.n });
+  SUB.forEach((s, i) => {
+    if (!s.item?.hud?.always) return;
+    const f = F[s.tile?.drops];
+    if (f === undefined) return;
+    if (!out.some(r => r.sub === i && r.form === f)) out.push({ sub: i, form: f, n: 0 });
+  });
+  return out.sort(byHudOrder);
+}
+```
+
+`pocketRows()`'s SHAPE (and therefore `placeableFromPockets(pocketRows())[0]`,
+`shell/main.js:198`, unchanged) and its "always" teaching-zero-row behaviour
+are byte-for-byte preserved — only the internal derivation moved from a dict
+scan to an array scan. `parseKey`'s import in `model/run.js` becomes fully
+dead (every one of its four uses was inside a function rewritten above) and
+must be dropped.
+
+**Two NEW model exports, retiring three duplicated cross-layer scans.**
+`pocketedBest(sel)` (largest single matching pair's count) and
+`pocketedPair(sel, need)` (first matching pair with at least `need`), placed
+immediately after `pocketsHave`:
+
+```js
+export function pocketedBest(sel) {
+  let n = 0;
+  for (const slot of run.inv) if (slot && matches(sel, slot.sub, slot.form) && slot.n > n) n = slot.n;
+  return n;
+}
+
+export function pocketedPair(sel, need) {
+  for (const slot of run.inv) if (slot && slot.n >= need && matches(sel, slot.sub, slot.form)) return { sub: slot.sub, form: slot.form };
+  return null;
+}
+```
+
+These retire `rules/machines.js#api.pocketed`/`#api.takePocketed`'s
+pockets-specific use of its own **generic** `best`/`bestPair` (which stays,
+unchanged, for `m.buf` — a dict forever, out of scope), `rules/crafting.js#
+bestPocketed` (deleted outright), and `view/ui/mainPanel.js#countTowards`/
+`#representativePair`'s hand-rolled loops (§2.7.3's five duplicate scans,
+four of them retired). Named explicitly as a free simplification this
+phase's own unavoidable touch to every one of those call sites buys, not a
+speculative addition — "one decision, two [now four] readers," this
+project's own idiom, satisfied where the layer boundary allows it.
+
+**`write.collect`/`write.spend`, exactly** (see §4.6 for the composed pickup
+branch and the exact `write.moveSlot` this feeds into for D-H):
+
+```js
+collect(sub, form, n) {
+  const i = run.inv.findIndex(s => s && s.sub === sub && s.form === form);
+  if (i !== -1) { run.inv[i].n += n; bump(); return true; }
+  const free = run.inv.findIndex((s, idx) => s === null && idx < run.mainSlots);
+  if (free === -1) return false;               // no existing stack, no free MAIN slot
+  run.inv[free] = { sub, form, n };
+  bump();
+  return true;
+},
+
+spend(sub, form, n) {
+  const i = run.inv.findIndex(s => s && s.sub === sub && s.form === form);
+  if (i === -1 || run.inv[i].n < n) return false;
+  run.inv[i].n -= n;
+  if (run.inv[i].n <= 0) run.inv[i] = null;
+  bump();
+  return true;
+},
+```
+
+`collect` now RETURNS a boolean (previously void) — additive, matching
+`spend`'s own existing true/false-on-capacity convention exactly. Its two
+existing callers (`rules/items.js`'s pickup branch, `shell/main.js#give`) are
+free to use or ignore it; the pickup branch must now use it (§4.6).
+
+**The Character tab's grid** changes from "`pocketRows().filter(n>0)`, one row
+per held pair, packed with no gaps" to "one cell per SLOT,
+`run.inv.slice(0, run.mainSlots)`, empty slots included and drawn empty" —
+the Minecraft-style choice, made deliberately: capacity is now a real,
+positioned fact, and hiding empty slots would hide the exact information —
+"how much room do I have left" — this whole revision exists to make legible.
+`view/ui/grid.js#drawGrid` needs **zero** changes to support it (§2.7.5).
+
+**Rejected alternatives:**
+
+- **Two separate arrays** (`run.inv` + `run.quickbar`). Argued against above
+  — every aggregate query would have to remember to scan both, and a missed
+  one fails silently, not loudly.
+- **A stack cap per slot.** Not asked for; mass already gates total carry, and
+  CLAUDE.md's own D3/D4 give no argument that a *second*, per-slot number
+  should exist alongside it.
+- **Hide empty slots, show only occupied ones** (i.e. keep today's Character
+  tab's own filter). This is precisely the "cosmetic display-order preference
+  over an unlimited list" shape the user explicitly said this revision is
+  **not**.
+- **A hybrid "pin some slots, mirror the rest."** Old D-G's own rejected
+  alternative, now doubly moot — there is no "the rest" left to mirror; the
+  whole grid is real, positioned storage.
+
+### D-H — the quickbar is 10 of those slots, genuinely separate capacity, and drag reorders in place
+
+**Recommended: the quickbar's 10 cells ARE `run.inv[run.mainSlots ..
+run.inv.length)`** — not a mirror, not a derived list (`heldPairs()`, fully
+superseded), not an assignment array (`ui.quickbar`, fully deleted). The exact
+same storage the Character tab's grid draws, sliced differently. Old D-H's own
+question — "does the quickbar scroll, or truncate at 10" — and the
+wheel-routing-when-no-panel-open widening it required are **both fully
+dissolved**, not merely deferred: a quickbar with a real, fixed
+`eff('quickbarSlots')`-length capacity can never hold more distinct pairs than
+it has cells for, because nothing ever forces more than that many pairs into
+it — it is not derived from "however many distinct pairs the player holds"
+any more. There is nothing to overflow and therefore nothing to scroll. This
+is a genuine scope REDUCTION the storage-shape decision buys for free, named
+explicitly rather than left implicit.
+
+**Population stays deliberate.** D-G's `write.collect` never allocates a
+brand-new pair's slot inside the quickbar's own index range — a pair only
+ever reaches the quickbar because a player dragged it there. Once something
+occupies a quickbar slot, further pickups of the SAME pair top up that slot
+wherever it currently lives (`write.collect`'s whole-array merge-first search,
+D-G, already gives this for free, no special-casing needed).
+
+**Drag-to-rearrange, and exactly what it reuses.** The mechanism is the
+existing equip-slot swap already live in `shell/main.js:521-527` (§2.7.5),
+generalised. What is reused, verbatim, unchanged: `ui.drag{sub,form,n,from,
+index}` captured at press (`downEdge`, `:466-479`); the click-vs-drag
+threshold (`dragStart`/`dragExceeded`/`DRAG_THRESHOLD`); the click-to-arm
+branch (`:498-503`, already correct against an empty slot's `sub:null`). What
+is NEW: one model writer, an **unconditional swap** — no branching needed,
+because swapping a slot with an empty one already IS a move, and swapping
+two occupied slots already IS the reorder the user asked for:
+
+```js
+// model/run.js
+moveSlot(from, to) {
+  if (from < 0 || from >= run.inv.length || to < 0 || to >= run.inv.length || from === to) return;
+  const tmp = run.inv[to];
+  run.inv[to] = run.inv[from];
+  run.inv[from] = tmp;
+  bump();
+},
+```
+
+and one index-translation helper plus one new branch in `shell/main.js`'s
+drag-resolve dispatch, replacing the deleted `assignQuickbar` call (`:505`):
+
+```js
+const absIndex = (gridId, i) => gridId === 'quickbar' ? run.mainSlots + i : i;
+// ...inside the existing upEdge/ui.drag branch chain, before the 'equip' branches:
+} else if (hit && (hit.gridId === 'inv' || hit.gridId === 'quickbar') &&
+           (ui.drag.from === 'inv' || ui.drag.from === 'quickbar')) {
+  runw.moveSlot(absIndex(ui.drag.from, ui.drag.index), absIndex(hit.gridId, hit.slot.index));
+} else if (hit && hit.gridId === 'equip') {
+  /* unchanged */
+```
+
+The `equip` grid's OWN swap code (`:521-527`) is **untouched** — a different
+array (`run.equipped`, a SELECTION of substance ordinals, not physical
+storage), with different validation (must be a currently-held, currently-
+unequipped relic) that has nothing to do with slot repositioning. `run` is
+already imported into `shell/main.js` (`:24`) — no new import needed for
+`run.mainSlots` or `runw.moveSlot`.
+
+**Dropping on empty canvas.** If the drag started from `'inv'`/`'quickbar'`
+and is released over no slot at all, nothing happens — the source slot's
+contents are untouched. No destructive "drop the item into the world" gesture
+is invented; a physical drop remains, only and exactly, the `q` key's
+`dropHeaviest()`. This mirrors the plan's own established caution against
+smuggling in an unrelated mechanic.
+
+**The digit mapping (`slotForDigit`/`DIGITS`/`digitOf`, `quickbar.js:36-43`)
+is UNCHANGED** — still says "slot 0 is key '1'." Only what a LOCAL quickbar
+index resolves to changes: a direct `run.inv[run.mainSlots + i]` read, no
+live-list or assignment-table indirection. "Press 3" and "the slot showing 3"
+are now *structurally* incapable of disagreeing — there is no second
+decision left to desync against; occupied slot 3 stays slot 3 until a
+player's own drag moves it.
+
+**The armed-selection highlight (old D-I) is UNCHANGED and unaffected** —
+`frameArmedSlot`/`frameUniqueSlots`/`quickbar.js`'s own armed block already
+match by `{sub,form}` against `gridResult.slots`, which still carries
+`sub:null` for an empty cell either way; nothing here touches `slot.js`.
+
+**Rejected alternatives:**
+
+- **Cap at 10, Character tab as overflow** (old D-H's own rejected
+  alternative). Now doubly moot: there is no overflow to cap against — the
+  quickbar always has exactly `eff('quickbarSlots')` cells, full stop.
+- **A separate `write.assignQuickbar`-shaped writer for cross-grid moves,
+  alongside a same-grid-only swap.** Rejected: two writers for what is
+  structurally one operation (repositioning two indices in one array)
+  reintroduces exactly the duplicate-decision risk D-G's single-array design
+  exists to avoid, for zero behavioural benefit — the unconditional swap
+  above already handles same-grid reorder, cross-grid move, and swap-with-
+  occupied identically, in five lines.
 
 ### D-I — the armed-selection highlight
 
@@ -586,7 +987,8 @@ prefers it. Named explicitly in §6.4's prompt as the implementer's choice.
 - **The map's digit pre-emption (§2.10) needs no change** — confirmed by
   re-reading `mapKey`'s guard order against the new digit semantics; it
   returns before the quickbar block is ever reached, unconditionally on
-  `flags.showMap`, regardless of what `heldPairs()`-driven arming does.
+  `flags.showMap`, regardless of what the slot-array-driven arming (D-G/D-H)
+  resolves a digit to.
 
 ### D-M — the `rung` label and armed-slot-border housekeeping named in the brief
 
@@ -627,7 +1029,7 @@ it in.
 | `l` | link/unlink | unchanged |
 | Escape | blur / close / cancel armed place/link | unchanged |
 | **`z`** | *(free today)* | **new:** cancel the armed pair / armed link endpoint — a narrower synonym for Escape's own cancel half, additive, does not close panels |
-| digits `1234567890` | arm the *assigned* quickbar slot | arm the Nth *currently held* pair, live (`heldPairs()`) |
+| digits `1234567890` | arm the *assigned* quickbar slot | arm whatever real slot `run.inv[mainSlots+N]` currently holds (D-G/D-H) — a positioned read, not an assignment or a derived list |
 | `t b k y` | debug drafts, gated on `showDebug` | unchanged |
 
 ### 4.2 The final mouse map
@@ -744,35 +1146,226 @@ burden bar vs. near the inventory grid) is an implementer's call within the
 existing layout pass -- no anchor conflict exists since this row has no
 sibling to collide with.
 
-### 4.6 The quickbar, exactly
+### 4.6 The inventory becomes a real slot grid, and the quickbar is 10 of its slots, exactly
 
-`model/run.js` gains:
+**`data/tuning.js`** gains two rows, placed beside `trinketSlots`:
 
+```js
+{ id:'invSlots',      kind:'value', base:30, unit:'slots', note:'length of the main inventory grid; run.mainSlots at reset' },
+{ id:'quickbarSlots', kind:'value', base:10, unit:'slots', note:'length of the quickbar; the tail of run.inv past run.mainSlots' },
 ```
-export function heldPairs() { return pocketRows().filter(r => r.n > 0); }
+
+**`model/run.js#RUN_SCHEMA`** gains `mainSlots: 0` (placeholder, same
+convention `inv`/`equipped` use) beside `inv: null`; `inv`'s own comment is
+rewritten to describe the new shape (D-G). **`write.reset()`**:
+
+```js
+reset(seed) {
+  const mainSlots = Math.max(0, Math.round(eff('invSlots')));
+  const quickbarSlots = Math.max(0, Math.round(eff('quickbarSlots')));
+  Object.assign(run, RUN_SCHEMA, {
+    seed,
+    inv: Array.from({ length: mainSlots + quickbarSlots }, () => null),
+    mainSlots,
+    granted: [...STARTING_MACHINES],
+    /* ...unchanged... */
+  });
+  bump();
+},
 ```
 
-placed immediately after `pocketRows()` (`:547-561`).
+`write.collect`, `write.spend`, `write.moveSlot`, `invCount`, `burdenOf`,
+`pocketsHave`, `bestTool`, `pocketRows`, `pocketedBest`, `pocketedPair` —
+exact bodies given in D-G and D-H. `parseKey`'s import in `model/run.js`
+is dropped (fully dead after the rewrite).
 
-`view/ui/quickbar.js#drawQuickbar` replaces its `ui.quickbar.map(...)` source
-(`:58-64`) with `heldPairs()`, sliced/paginated by the grid's own `scroll`
-mechanism (D-H) rather than a fixed 10-null array. `LEGEND` (`:49`) is
-rewritten to the final keymap (§7.1 names this explicitly as a docs-owed
-item, landed in the same commit).
+**`rules/machines.js`**'s `api` block (`:40-58`) reroutes the two pockets-
+specific entries onto the new model exports, importing them alongside the
+existing `run, write as rw`:
 
-`shell/input.js`'s digit-arm block (`:366-372`) replaces `ui.quickbar[qslot]`
-with `heldPairs()[qslot]`.
+```js
+import { pocketedBest, pocketedPair, run, write as rw } from '../model/run.js';
+// ...
+const api = {
+  buffered: (m, sel) => best(m.buf, sel),          // unchanged -- m.buf stays a dict
+  pocketed: (sel) => pocketedBest(sel),
+  takeBuffered: /* unchanged */,
+  takePocketed: (sel, n) => {
+    const pair = pocketedPair(sel, n);
+    if (!pair || !rw.spend(pair.sub, pair.form, n)) return null;
+    return pair;
+  },
+};
+```
 
-`shell/ui.js` deletes `ui.quickbar` (`:50`), `assignQuickbar`/`clearQuickbar`
-(`:247-252`). `shell/main.js#applyUiIntents` deletes the quickbar-assign drag
-branch (`:493-494`).
+`best`/`bestPair` (`:72-88`) are UNCHANGED — still generic, still serve
+`m.buf` only now.
 
-The digit-to-slot **mapping** itself (`DIGITS`, `digitOf`, `slotForDigit`,
-`quickbar.js:36-43`) is **unchanged** -- it still says "slot 0 is key '1'";
-only what a slot's *content* resolves to changes, from an assignment lookup
-to a live list index. "Press 3" and "the slot showing 3" still cannot
-disagree, because both still read the same one function, `heldPairs()`,
-in the same order.
+**`rules/crafting.js`** deletes `bestPocketed` (`:28-40`) outright; `choose()`
+calls `pocketedPair` directly:
+
+```js
+import { pocketedPair, run, write as rw } from '../model/run.js';
+// ...
+function choose() {
+  for (const r of HAND_RECIPES) {
+    const took = {};
+    let ok = true;
+    for (const sel in r.in) {
+      const pair = pocketedPair(sel, r.in[sel]);
+      if (!pair) { ok = false; break; }
+      took[sel] = pair;
+    }
+    if (ok) return { r, took };
+  }
+  return null;
+}
+```
+
+Its now-dead `parseKey`/`matches` imports are dropped (both were used only
+inside the deleted function — confirmed by grep, no other use in this file).
+
+**`rules/items.js#dropHeaviest`** (`:77-98`) rewrites its scan:
+
+```js
+export function dropHeaviest() {
+  if (run.dead || !player.band) return;
+  let best = null, bestMass = -1;
+  for (const slot of run.inv) {
+    if (!slot) continue;
+    const m = massOfPair(slot.sub, slot.form);
+    if (m > bestMass) { bestMass = m; best = { sub: slot.sub, form: slot.form }; }
+  }
+  if (!best) return;
+  /* ...unchanged from here... */
+}
+```
+
+Its now-dead `parseKey` import is dropped.
+
+**`rules/items.js#step`'s pickup branch** — composed with whatever Phase 12b
+has already landed there (§2.7.7: re-read the file's actual current state
+before editing; the shape below assumes 12b's `cmd.collect` gate is already
+in place around the outer `if`):
+
+```js
+if (cmd.collect && it.age > MAGNET_DELAY && !run.dead && near(it, c, pickupR)) {
+  if (burdenOf() + massOfPair(it.sub, it.form) > eff('burden') + MASS_EPS) {
+    if (refusalDue(it))
+      push('refused', { x: it.x, y: it.y }, { sub: it.sub, form: it.form, why: 'TOO HEAVY TO CARRY' });
+  } else if (!rw.collect(it.sub, it.form, 1)) {
+    if (refusalDue(it))
+      push('refused', { x: it.x, y: it.y }, { sub: it.sub, form: it.form, why: 'INVENTORY FULL' });
+  } else {
+    push('pickup', { x: it.x, y: it.y }, { sub: it.sub, form: it.form });
+    iw.remove(it);
+  }
+}
+```
+
+Reuses the existing `'refused'` journal kind (§2.7.4) with a second `why`
+string; `shell/notify.js` needs no change (`row.data?.why` is already
+displayed verbatim).
+
+**`view/ui/mainPanel.js#drawCharacterTab`**'s inventory grid (`:160-182`)
+switches from `pocketRows().filter(r => r.n > 0)` to one cell per slot:
+
+```js
+const invSlots = run.inv.slice(0, run.mainSlots);
+const items = invSlots.map(slot => !slot ? null : {
+  sub: slot.sub, form: slot.form, n: slot.n, mass: massOfPair(slot.sub, slot.form) * slot.n,
+  colour: swatchOf(slot.sub),
+  glyph: FORM[slot.form].tile ? '#' : glyphOf(slot.sub)
+});
+const grid = drawGrid(g, {
+  id: 'inv', x, y: ry, h: invRows * (SLOT_SIZE + 1) - 1, vw, vh,
+  cols: Math.max(1, Math.floor((w + 1) / (SLOT_SIZE + 1))),
+  items, scroll: f.ui.scroll['main:inv'] || 0
+});
+```
+
+`invRows`/the scroll clamp/`frameUniqueSlots`/`frameArmedSlot` calls
+immediately after are UNCHANGED — `drawGrid`'s own row/scroll math already
+works off `items.length`, now fixed at `run.mainSlots` instead of variable.
+`representativePair`/`countTowards` (`:343-360,474-488`) call the new model
+exports directly, deleting their own hand-rolled scans:
+
+```js
+function representativePair(r) {
+  const out = r.out?.[0];
+  if (!out) return null;
+  if (out.sub !== undefined) return { sub: S[out.sub], form: F[out.form] };
+  const need = r.in[out.subFrom] || 1;
+  const pair = pocketedPair(out.subFrom, need);
+  if (pair) return { sub: pair.sub, form: F[out.form] };
+  const options = expand(out.subFrom);
+  return options.length ? { sub: options[0].sub, form: F[out.form] } : null;
+}
+const countTowards = sel => pocketedBest(sel);
+```
+
+Import list at `:36` gains `pocketedBest, pocketedPair`; the now-dead
+`parseKey` import (`:31`, confirmed used only at the two deleted loops) is
+dropped.
+
+**`view/ui/quickbar.js#drawQuickbar`** (`:51-85`) sources from the tail slice
+instead of `ui.quickbar`:
+
+```js
+import { run } from '../../model/run.js';     // replaces the `invCount` import
+// ...
+export function drawQuickbar(g, f) {
+  const { W, H, ui } = f;
+  const qSlots = run.inv.slice(run.mainSlots);
+  const w = COLS * (SIZE + 1) - 1;
+  const x = Math.max(2, W - w - 6);
+  const rows = Math.ceil(qSlots.length / COLS);
+  const y = H - rows * (SIZE + 1) - 1 - 11;
+
+  const items = qSlots.map((slot, i) => !slot
+    ? { sub: null, form: null, n: 0, mass: 0, colour: mix(BACK, DIM, 0.15), glyph: digitOf(i) }
+    : { sub: slot.sub, form: slot.form, n: slot.n, mass: massOfPair(slot.sub, slot.form) * slot.n,
+        colour: SUB[slot.sub].look?.item ? colour(SUB[slot.sub].look.item[0]) : DIM, glyph: digitOf(i) });
+
+  const grid = drawGrid(g, { id: 'quickbar', x, y, h: rows * (SIZE + 1) - 1, vw: W, vh: H, cols: COLS, items, cell: SIZE });
+  /* ...armed-highlight block, hints-toggle block: UNCHANGED... */
+}
+```
+
+No scroll parameter — D-H dissolves the need entirely. `invCount` no longer
+called here at all: each occupied slot already carries its own `n`. `LEGEND`
+(`:49`) is rewritten to the final keymap, landed here (ahead of the actual key
+removals, which stay in 12d) for the identical out-of-order-docs reason old
+12c's own prompt already named.
+
+**`shell/input.js`'s digit-arm block** (`:366-372`) reads the slot array
+directly:
+
+```js
+import { invCount, run } from '../model/run.js';   // `run` added
+// ...
+const slot = run.inv[run.mainSlots + qslot];
+if (slot && (FORM[slot.form]?.tile || slot.form === F.rig || slot.form === F.phial)) armPlace(slot.sub, slot.form);
+```
+
+The `invCount(pair.sub, pair.form) > 0` staleness guard the old assignment
+model needed is gone — not merely simplified away, structurally impossible
+now: an occupied slot always has `n >= 1` by construction (`write.spend`
+clears to `null` at `n <= 0`), so there is nothing left that could disagree.
+
+**`shell/main.js`**'s drag dispatch gains the `moveSlot` branch (D-H, exact
+diff given there), replacing the deleted `assignQuickbar` branch (`:505`).
+The `__mf.ui` test-hook projection (`:731`) changes:
+
+```js
+quickbar: run.inv.slice(run.mainSlots).map(s => s ? { ...s } : null),
+```
+
+— a deliberate, named breaking change to the test hook's own public shape,
+from `{sub,form}|null` to `{sub,form,n}|null`. `shell/ui.js` deletes
+`ui.quickbar`, `assignQuickbar`, `clearQuickbar` (`:50,247-252`) — unchanged
+from the old design's own instruction, just for a different reason (storage
+moved into `model`, not into a live derived view).
 
 ### 4.7 What is explicitly unchanged in this design
 
@@ -792,40 +1385,54 @@ in the same order.
 
 | file | change | required by |
 |---|---|---|
-| `src/shell/input.js` | `KEYS`/`set()` rewritten per §4.1; new `cmd.collect` hold; `pointerdown`'s LMB branch per §4.4; digit-arm block reads `heldPairs()`; wheel listener widened for the quickbar (D-H); own inline "live binding set" comment rewritten | D-A, D-E, D-G, D-H, §4.4, §4.6 |
-| `src/shell/main.js` | `step()`'s narrowed command object gains `collect`/renamed `action` field; `applyIntents()`'s `cmd.place` branch gains the miracle special-case (§4.4); `applyUiIntents`'s quickbar-assign drag branch deleted; a new death-screen restart button dispatch | D-A, D-C, D-F, D-G, §4.4-4.6 |
+| `src/shell/input.js` | `KEYS`/`set()` rewritten per §4.1; new `cmd.collect` hold; `pointerdown`'s LMB branch per §4.4; digit-arm block reads `run.inv[run.mainSlots+qslot]` directly (no scroll widening needed, D-H); own inline "live binding set" comment rewritten | D-A, D-E, D-H, §4.4, §4.6 |
+| `src/shell/main.js` | `step()`'s narrowed command object gains `collect`/renamed `action` field; `applyIntents()`'s `cmd.place` branch gains the miracle special-case (§4.4); the quickbar-assign drag branch deleted and replaced by a single `runw.moveSlot(...)` call resolving 'inv'/'quickbar' drag-and-drop uniformly (D-H); `__mf.ui.quickbar` projection switched to the new `{sub,form,n}|null` slot shape; a new death-screen restart button dispatch | D-A, D-C, D-F, D-H, §4.4-4.6 |
 | `src/shell/ui.js` | delete `ui.quickbar`/`assignQuickbar`/`clearQuickbar`; add `ui.autoCollect`/`toggleAutoCollect`; `ui.armedPlace`'s header comment updated (not renamed, D-A) | D-F, D-G |
 | `src/shell/schedule.js` | `items` row's `step` signature gains `cmd` | §4.5 |
-| `src/rules/items.js` | `step(dt, cmd)` signature; pickup branch gated on `cmd.collect` | D-E, D-F |
+| `src/data/tuning.js` | two new rows, `invSlots` (base 30) and `quickbarSlots` (base 10) | D-G |
+| `src/model/run.js` | `RUN_SCHEMA` gains `mainSlots`; `inv`'s comment rewritten (dict -> fixed-length slot array); `write.reset()` builds `run.inv` at the new length and sets `run.mainSlots`; `write.collect` rewritten (now returns bool), `write.spend` rewritten, new `write.moveSlot`; `invCount`/`burdenOf`/`pocketsHave`/`bestTool`/`pocketRows` rewritten to scan the array; two new exports `pocketedBest`/`pocketedPair`; now-dead `parseKey` import dropped | D-G, D-H |
+| `src/rules/items.js` | `step(dt, cmd)` signature; pickup branch gated on `cmd.collect`, AND gains the slot-capacity refusal (`'refused'`/`'INVENTORY FULL'`) alongside the existing burden refusal; `dropHeaviest` rewritten for the array; now-dead `parseKey` import dropped | D-E, D-F, D-G |
+| `src/rules/machines.js` | `api.pocketed`/`api.takePocketed` reroute onto the new `pocketedBest`/`pocketedPair` model exports; `best`/`bestPair` themselves untouched (still serve `m.buf`) | D-G |
+| `src/rules/crafting.js` | `bestPocketed` deleted; `choose()` calls `pocketedPair` directly; now-dead `parseKey`/`matches` imports dropped | D-G |
 | `src/rules/trinkets.js` | remove `equipFirst` (dead once `p`'s caller is deleted) | §2.4, D-K's removed-keys list |
 | `src/rules/drive.js` | (optional, D-J) `cmd.turn` -> `cmd.action` rename, ~6 sites | D-J |
-| `src/model/run.js` | add `heldPairs()` | D-G |
-| `src/view/ui/quickbar.js` | source switches from `ui.quickbar` to `heldPairs()`; scroll wiring; `LEGEND` string rewritten | D-G, D-H, §7.1 |
+| `src/view/ui/mainPanel.js` | Character tab's inventory grid built from `run.inv.slice(0, run.mainSlots)` -- one cell per slot, empties included, Minecraft-style; `representativePair`/`countTowards` call `pocketedPair`/`pocketedBest` instead of hand-rolled scans; now-dead `parseKey` import dropped; new AUTO COLLECT clickable row in the Character tab | §4.5, D-G |
+| `src/view/ui/quickbar.js` | source switches from `ui.quickbar` to `run.inv.slice(run.mainSlots)`; no scroll wiring (D-H dissolves the need); `LEGEND` string rewritten | D-H, §7.1 |
 | `src/view/ui/slot.js` | `frameSlot` draws a second, inset border | D-I |
-| `src/view/ui/mainPanel.js` | new AUTO COLLECT clickable row in the Character tab | §4.5 |
 | `src/view/hud.js` | new death-screen restart button; its printed instruction text updated to match | D-C |
-| `docs/DEVELOPER_GUIDE.md` | "Input intents" section (`:1133-1179`) updated for the new keymap and the `heldPairs()`-driven quickbar | §7.1 |
+| `tools/check.mjs` | `actualHeldMass`'s mass-conservation-fuzz helper rewritten for the array shape (one loop over `run.run.inv` replaces the dict-keyed loop) | D-G |
+| `tests/visual.spec.js` | the "REAL DRAG" quickbar-assign test rewritten around move/swap semantics; `__mf.ui.quickbar[0]` assertions gain `n` | D-H |
+| `docs/DEVELOPER_GUIDE.md` | "Input intents" section (`:1133-1179`) updated for the new keymap and the digit-arm mechanism; "Buffers and pockets" section's own "`run.inv` is `{'sub/form':units}`" line corrected -- still true of `m.buf`, no longer true of the pockets half | §7.1, D-G |
 | `.claude/brain/notes.md` | "Key binding inventory" table (`:142-167`) rewritten; its stale "free letters" line corrected regardless of this phase (§2.11) | §7.3 |
 
 **Explicitly not touched:** `docs/SPEC.md`, `docs/DESIGN.md` (§2.12 -- neither
-documents a control scheme); `data/tuning.js` (§4.7 -- no new tunable);
-`data/forms.js` (the `rung` label rename is out of scope, §2.13); `rules/
-mining.js`, `rules/miracles.js`, `rules/placement.js`, `rules/machines.js`
-(§4.7).
+documents a control scheme or an inventory capacity number); `data/forms.js`
+(the `rung` label rename is out of scope, §2.13); `rules/mining.js`,
+`rules/miracles.js`, `rules/placement.js` (§4.7 -- none of these read `run.inv`
+in a shape-dependent way, only through `invCount`, whose signature is
+preserved); `view/ui/grid.js` (§2.7.5 -- the primitive already supports a
+sparse, `null`-inclusive `items` array; nothing about it needs to change for
+either the Character tab's or the quickbar's new source).
 
 ---
 
 ## 6. The phases
 
-**Four, serial.** The dependency graph is a straight line, not a tree:
-12a proves LMB fully covers mine/place/use-miracle *before anything is
-deleted*, so it must land and be verified first. 12b and 12c are
-mechanically independent of each other's *internals* but both touch
-`shell/input.js`'s key table, so they run serially to avoid two agents
-editing the same file's same region concurrently. 12d is the only phase that
-deletes a key -- it must run last, after every replacement path (12a's LMB,
-12b's collect, the drag-to-equip/click-to-queue paths already shipped) has
-been proven to actually cover what it is retiring.
+**Five, serial.** The dependency graph is still a straight line: 12a proves
+LMB fully covers mine/place/use-miracle *before anything is deleted*, so it
+lands first. 12b (manual collect) and the newly-split 12c/12c2 (the
+inventory/quickbar storage redesign, replacing the original single 12c
+outright -- see §2.7/§3 D-G/D-H for why the scope grew past a single phase)
+both touch files the others also touch -- 12b and 12c both edit
+`rules/items.js#step`'s pickup branch, and 12c2 and 12d both edit
+`shell/input.js`'s key table and `view/ui/quickbar.js` -- so all four run
+serially, in the order 12a -> 12b -> 12c -> 12c2 -> 12d, to avoid two agents
+editing the same file's same region concurrently. 12c is model/rules only,
+landing and passing `npm run check` on its own before any view code is
+layered on top of it; 12c2 is the view/drag half that depends on it. 12d is
+still the only phase that deletes a key -- it still runs last, after every
+replacement path (12a's LMB, 12b's collect, 12c2's real slot grids) has been
+proven to actually cover what it is retiring.
 
 ### 6.1 Phase 12a -- Unify LMB for mine/place/use-miracle (additive only)
 
@@ -917,64 +1524,152 @@ Acceptance: items do not auto-collect by default; holding `c` near a pile
 collects it; the AUTO COLLECT toggle restores the old behaviour; `p`/equip
 and its rules-layer primitive are gone with no dead import left behind.
 
-### 6.3 Phase 12c -- The quickbar becomes a live extension of inventory
+### 6.3 Phase 12c -- The inventory becomes a real slot grid (model and rules only)
+
+**Why this is two phases now, not one.** The original 12c was "add one derived
+function, wire three readers to it" -- small. The revised scope touches
+`model/run.js` wholesale (every query it exports), three `rules/` files, and a
+new tunable pair, before a single pixel of UI changes. Landing the storage
+change and its FULL model/rules migration first, verified green on `npm run
+check` alone (including the rewritten mass-conservation fuzz, §9), means a
+broken migration is caught by the epoch/determinism/mass-conservation checks
+before any view or drag code is layered on top of it -- the same
+"verify at each step, do not stack unverified changes" discipline this plan's
+own 12a->12b->12d sequencing already follows. **12c2 (next) is the view/drag
+half, and depends on 12c having already landed and passed `npm run check`.**
 
 Paste-ready prompt:
 
-> You are implementing Phase 12c of `docs/PLAN-phase12.md`. Phase 12b must
-> already be landed -- this phase's digit-arm rewrite touches the same file
-> region 12b's key-table edit did. Read `docs/PLAN-phase12.md` §2.7, §2.8,
-> §3 D-G, D-H, D-I, and §4.6 in full. **This is the only phase in this wave
-> that touches `src/view/` -- nothing else may run concurrently.**
+> You are implementing Phase 12c of `docs/PLAN-phase12.md` in the
+> mythos-factory repo. Phase 12a is landed; Phase 12b must already be landed
+> too -- **this phase edits the exact same `rules/items.js#step` pickup branch
+> 12b just finished editing.** Read `CLAUDE.md`, `docs/PLAN-phase12.md` §2.7,
+> §3 D-G, D-H, and §4.6 in full before touching anything, then re-read the
+> CURRENT (post-12b) body of `rules/items.js#step`'s pickup branch directly
+> from the file -- do not trust this document's own pre-12b line citations.
+> **This phase touches no `src/view/` file and no `src/shell/` file.**
 >
-> 1. `model/run.js`: add `heldPairs()` immediately after `pocketRows()`.
-> 2. `view/ui/quickbar.js`: source from `heldPairs()` instead of
->    `ui.quickbar`. Wire the grid's `scroll` parameter to a new
->    `ui.scroll['quickbar:quickbar']` entry (D-H) -- if you judge the wheel-
->    routing widening (`shell/input.js`'s wheel listener, `shell/main.js`'s
->    `applyUiIntents` early-return, both currently gated on a panel being
->    open) too large for this phase's budget, fall back to D-H's named
->    alternative (cap at 10, no scroll) and say so explicitly in your report
->    -- do not silently drop scrolling without naming the trade.
-> 3. `shell/ui.js`: delete `ui.quickbar`, `assignQuickbar`, `clearQuickbar`.
->    `shell/main.js#applyUiIntents`: delete the quickbar-assign drag branch.
-> 4. `shell/input.js`'s digit-arm block: read `heldPairs()[qslot]` instead of
->    `ui.quickbar[qslot]`. Confirm `mapDigit`'s pre-emption (§2.10) still
->    runs first while the map is open -- this needs no code change, only
->    verification that you have not moved anything above it.
-> 5. `view/ui/slot.js#frameSlot`: draw a second, inset-by-one-pixel border in
->    the same colour (D-I). Verify against both existing callers
->    (`mainPanel.js#frameArmedSlot`, the quickbar's own armed-highlight).
-> 6. Rewrite `quickbar.js`'s `LEGEND` string to match the final keymap
->    (§4.1) -- even though the key removals themselves land in 12d, write the
->    legend for the END STATE now, since 12d has nothing left to change here
->    once this lands (name this explicitly as an out-of-order docs edit in
->    your commit message, so the discrepancy between the drawn legend and
->    the still-live old keys is not mistaken for a bug in review).
-> 7. New baselines at both viewports (desktop + the 200 px phone floor,
->    CLAUDE.md's own binding constraint): a quickbar showing more than 10
->    held pairs if you implemented scrolling, or exactly 10 with the
->    Character tab open behind it if you took the fallback; an armed slot
->    showing the new double-frame border, in both the quickbar and the
->    Character tab's inventory grid, for visual comparison.
+> 1. `data/tuning.js`: add the `invSlots` (base 30) and `quickbarSlots` (base
+>    10) rows exactly as §4.6 gives them.
+> 2. `model/run.js`: add `mainSlots: 0` to `RUN_SCHEMA`; rewrite `inv`'s own
+>    comment (D-G); rewrite `write.reset()` to build `run.inv` as a fixed-
+>    length array and set `run.mainSlots`, exactly as §4.6 gives it. Rewrite
+>    `write.collect` (now returns bool), `write.spend`, and add `write.
+>    moveSlot` exactly as D-G/D-H give them. Rewrite `invCount`, `burdenOf`,
+>    `pocketsHave`, `bestTool`, `pocketRows` to scan the array (D-G's exact
+>    bodies). Add the two new exports `pocketedBest`/`pocketedPair`. Drop the
+>    now-dead `parseKey` import.
+> 3. `rules/machines.js`: reroute `api.pocketed`/`api.takePocketed` onto the
+>    two new model exports, exactly as §4.6 gives it. Leave `best`/`bestPair`
+>    themselves untouched -- they still serve `m.buf`.
+> 4. `rules/crafting.js`: delete `bestPocketed`; `choose()` calls
+>    `pocketedPair` directly. Drop the now-dead `parseKey`/`matches` imports
+>    (confirm by grep that neither is used anywhere else in this file before
+>    removing).
+> 5. `rules/items.js`: rewrite `dropHeaviest`'s scan (§4.6). In the pickup
+>    branch you re-read in step 0, add the slot-capacity refusal alongside
+>    whatever burden-refusal/`cmd.collect` gating 12b already landed, exactly
+>    as §4.6's composed branch shows -- reusing the `'refused'` journal kind
+>    with a new `why: 'INVENTORY FULL'`. Drop the now-dead `parseKey` import.
+> 6. `tools/check.mjs`: rewrite `actualHeldMass`'s `run.inv` half (currently
+>    `for (const k in run.run.inv) { ... run.run.inv[k] ... }`, around line
+>    876) to a single `for (const slot of run.run.inv) if (slot) m +=
+>    items.massOfPair(slot.sub, slot.form) * slot.n;` loop. Grep the whole
+>    file for every remaining `run.inv[` / `for (const k in run.inv)` /
+>    `for (const k in run.run.inv)` outside `model/run.js` itself and confirm
+>    zero remain -- a missed conversion does not throw (an array's `for...in`
+>    yields valid string indices; comparing a slot OBJECT against a number
+>    silently coerces to `NaN` and evaluates false), so this must be checked
+>    by grep, not by trusting a green run.
+> 7. Verify by hand, via the test hook (`give`, `invCount`, `__mf.frames`):
+>    mine/give `eff('invSlots')` distinct pairs, one per main slot, confirm
+>    all fill; give one more distinct pair, confirm `write.collect` returns
+>    `false` and a `'refused'`/`'INVENTORY FULL'` journal row fires and the
+>    pair is NOT credited; confirm giving MORE of an already-held pair still
+>    succeeds even with every slot full (merge-first). Confirm mining,
+>    hand-crafting, the burden bar, and the trinket-equip gate (`invCount`-
+>    driven) all still behave exactly as before on an ordinary, non-full run.
 >
 > Run `npm run check`, `npm run lint`, `npm run test:visual`. Report exactly
-> what each says, and for every baseline that moved, say why the pixels
-> moved -- the double-frame border and the quickbar's new content source both
-> legitimately move pixels; anything else moving is a regression.
+> what each says. **No visual baseline should move** -- this phase changes no
+> `view/` file, so any screenshot diff is a bug (most likely: a test that
+> pokes `run.inv` directly and now gets an array where it expected a dict),
+> not an intended change.
 
-Acceptance: a human looks at the quickbar with nothing manually assigned and
-sees it already showing everything they hold, live, in the same order the
-Character tab lists it. The armed-slot border reads clearly as "selected" at
-both viewports. Digit keys arm live pairs with no assignment step anywhere in
-the game.
+Acceptance: `npm run check` is green, including the rewritten mass-
+conservation fuzz. A scripted scenario (test-hook driven) proves refusal-on-
+full exactly as step 7 describes. Every existing `invCount`/`burdenOf`/
+`pocketsHave`/`canCraft`/`bestTool`/`pocketRows`-dependent mechanic (mining
+tool gate, hand-crafting, trinket equip, machine placement, burden lockout,
+brand lighting) is unchanged in behaviour on a scripted, non-full playthrough.
+
+### 6.3a Phase 12c2 -- The quickbar and Character tab become real slot grids, with drag-to-rearrange
+
+Depends on 12c having landed and passed `npm run check`. This is the view/
+drag half: nothing here changes what a number means, only how it is drawn and
+how a player repositions it.
+
+Paste-ready prompt:
+
+> You are implementing Phase 12c2 of `docs/PLAN-phase12.md`. Phase 12c must
+> already be landed and its `npm run check` pass confirmed. Read
+> `docs/PLAN-phase12.md` §2.7.5, §3 D-H, and §4.6 in full. **This is the only
+> phase in this wave that touches `src/view/` -- nothing else may run
+> concurrently.**
+>
+> 1. `view/ui/mainPanel.js#drawCharacterTab`: replace the `pocketRows().
+>    filter(r => r.n > 0)` inventory grid with the slot-sliced version in
+>    §4.6 -- one cell per `run.inv.slice(0, run.mainSlots)` entry, empty slots
+>    drawn empty. Rewrite `representativePair`/`countTowards` to call
+>    `pocketedPair`/`pocketedBest` (add both to the existing `model/run.js`
+>    import list). Drop the now-dead `parseKey` import (confirm by grep no
+>    other use remains in this file).
+> 2. `view/ui/quickbar.js`: rewrite per §4.6 -- source from `run.inv.slice
+>    (run.mainSlots)`, drop the `invCount` import (add `run` instead), drop
+>    any scroll wiring (D-H dissolves the need). Rewrite `LEGEND` to the
+>    final keymap (§4.1) -- even though the key removals land in 12d, write it
+>    for the END STATE now and say so explicitly in your commit message, the
+>    same out-of-order-docs note old 12c's own prompt required.
+> 3. `shell/input.js`'s digit-arm block: read `run.inv[run.mainSlots +
+>    qslot]` directly per §4.6 (add `run` to the existing `invCount` import).
+>    Confirm `mapDigit`'s pre-emption (§2.10) still runs first while the map
+>    is open -- no code change, verification only.
+> 4. `shell/main.js`: delete the `assignQuickbar` drag-target branch (`:505`
+>    pre-12c2); add the `moveSlot` branch and the `absIndex` helper exactly
+>    as D-H gives them. Update the `__mf.ui` test-hook's `quickbar` projection
+>    to the new `{sub,form,n}|null` shape per §4.6. `shell/ui.js`: delete
+>    `ui.quickbar`, `assignQuickbar`, `clearQuickbar`.
+> 5. `tests/visual.spec.js`: rewrite the "REAL DRAG" quickbar test
+>    (currently asserting a drag "assigns" a bare `{sub,form}` into
+>    `__mf.ui.quickbar[0]`) around the new move/swap semantics and the new
+>    `{sub,form,n}` shape. Grep the file for any other `ui.quickbar` reference
+>    and update it the same way.
+> 6. New baselines at both viewports (desktop + the 200 px phone floor): the
+>    Character tab open on a fresh run, showing `eff('invSlots')` mostly-
+>    empty cells rather than a packed, gapless list; a drag-to-rearrange
+>    result (two occupied cells swapped, or one moved into an empty one); the
+>    quickbar showing exactly `eff('quickbarSlots')` cells with no scrollbar
+>    or truncation indicator of any kind.
+>
+> Run `npm run check`, `npm run lint`, `npm run test:visual`. Report exactly
+> what each says, and for every baseline that moved, say why -- the Character
+> tab's grid now drawing empty cells is a large, deliberate, expected diff;
+> anything else moving is a regression.
+
+Acceptance: a human looks at the Character tab on a fresh run and sees
+exactly `eff('invSlots')` cells, almost all empty. Dragging an item onto an
+empty cell (main grid or quickbar) moves it there and it stays; dragging onto
+an occupied cell swaps the two. The quickbar never has more or fewer than
+`eff('quickbarSlots')` cells and never scrolls or truncates. Digit keys arm
+whatever currently occupies that quickbar slot, with no assignment step
+anywhere in the game.
 
 ### 6.4 Phase 12d -- Keymap close-out: retire, rename, relocate, document
 
 Paste-ready prompt:
 
 > You are implementing Phase 12d of `docs/PLAN-phase12.md`, the close-out
-> phase. Phases 12a-12c must already be landed and their acceptance criteria
+> phase. Phases 12a-12c2 must already be landed and their acceptance criteria
 > confirmed -- this phase deletes keys that are only safe to delete because
 > those phases proved their replacements work. Read `docs/PLAN-phase12.md`
 > in full, especially §3 D-C, D-J, D-K, and §4.1.
@@ -1087,7 +1782,10 @@ plan.
 | **Arming a miracle silently blocks LMB-mining for as long as it stays armed.** D-A's rule 1 always wins. | This is a real, stated consequence of overloading one physical control for two verbs that used to be independent keys. | Clearing an arm is one `z`/Escape press. Named explicitly in D-A rather than discovered in play; 12a's acceptance walkthrough exercises exactly this case. |
 | **Holding LMB through a successful placement, without releasing, cannot then mine the tile just placed.** §4.2/§4.4's accepted trade. | The pointerdown-time, decide-once design (chosen specifically to *avoid* a worse regression, §3 D-A) has this one acknowledged edge case. | Documented in the design section and the phase 12a prompt's own verification step, not discovered by a playtester first. |
 | **Retiring `equipFirst` (`rules/trinkets.js`) leaves dead code if the grep in 12b's step 4 is wrong about its only caller.** | A second, unnoticed caller would make the removal a silent regression rather than a clean one. | 12b's prompt requires the grep-then-lint verification explicitly, and `npm run lint` (unused/undefined identifiers, per CLAUDE.md's own verification table) is run immediately after. |
-| **The quickbar's wheel-scroll widening (D-H) touches the same always-on-UI carve-out (`onAlwaysOnUi`) the hints-toggle already depends on.** | Two features sharing one narrow exception path is exactly the kind of edit that silently breaks the other. | 12c's prompt names the fallback (cap at 10, no scroll) as an explicit, reportable choice rather than requiring the widening unconditionally -- the risk is bounded by making it optional, not by hoping it goes smoothly. |
-| **Baseline churn from the double-frame border and the quickbar's new content source.** | Two independent, legitimate pixel changes land in the same phase. | 12c's prompt requires every moved baseline to be reviewed as an image and its cause stated, the same discipline `docs/PLAN-phase10.md`'s 10c phase already used. |
 | **A test asserting automatic pickup silently starts failing once `cmd.collect`/`ui.autoCollect` gates it.** | `MAGNET_DELAY`/`pickupR` are exercised by name in `.claude/brain/notes.md:181` and almost certainly by existing Playwright/`check.mjs` scenes that drop material and expect it to vanish into the pockets on its own. | 12b's prompt requires grepping for exactly these terms and reporting which tests needed `cmd.collect`/`ui.autoCollect = true` added, rather than discovering test failures after the fact. |
 | **`rules/items.js#step`'s new second parameter (`cmd`) is not threaded correctly through every call site.** | It has exactly one caller today (`schedule.js`'s `STEPS` array) but any test harness calling `items.step(dt)` directly (bypassing `stepAll`) would silently get `cmd === undefined` and crash on `cmd.collect`. | 12b's prompt requires a full `npm run check` pass (which imports and exercises every module, per CLAUDE.md's own "mistakes already made" section on exactly this class of bug) before reporting success. |
+| **12b and 12c both edit `rules/items.js#step`'s exact pickup branch.** | Two independent phases changing the same handful of lines, landing close together in time, is exactly the shape of edit that silently reverts or double-applies a change. | Strict serial ordering (12b lands first); 12c's own prompt requires re-reading the branch's actual post-12b shape from the file, not trusting this document's pre-12b line citations. |
+| **Converting `run.inv` from a dict to an array leaves a stray `for (const k in run.inv)` or `run.inv[k]` somewhere the recon in §2.7.3 missed.** | A missed conversion does not throw -- an array's `for...in` yields valid string indices, and comparing a slot OBJECT against a number silently coerces to `NaN` and evaluates false, so the bug is a silently-wrong answer (an under-counted burden, a recipe reading as unaffordable, a tool going undetected), not a crash `npm run check` would surface on its own. | 12c's prompt requires an explicit post-rewrite grep for every remaining `run.inv[`/`for (const k in run.inv)` occurrence outside `model/run.js` itself, as a named verification step distinct from "the checker was green." |
+| **A player fills every one of `eff('invSlots')` main slots with distinct pairs, and the next new material mined is refused, silently, forever, if they never notice.** | This is a genuinely new failure mode the current unlimited dict cannot produce at all. | Reuses the exact `'refused'` journal-kind/toast precedent the burden-cap refusal already established (`why: 'TOO HEAVY TO CARRY'` -> `why: 'INVENTORY FULL'`), so the player gets the identical class of feedback they already get for the existing refusal; no new UI affordance invented, none needed. Named explicitly in D-G/§4.6 rather than left as an emergent surprise. |
+| **A drafted trinket or miracle physically falls (invariant 5) and lands while the pockets are full, and now sits refused on the ground like ordinary ore.** | `write.collect`'s refusal is uniform across every pickup, including the two non-mining paths that reach it (`rules/trinkets.js#grant`, machine-grant/tribute drops) -- there is no special-case exemption for a "special" item. | Accepted deliberately, not patched around: it is the direct, correct consequence of D-G's single choke-point design (§2.7.6 confirms `write.collect` has exactly two callers in the whole codebase), and inventing a bypass for "important" pickups would be a second, silently-different collection rule. Named here so it is a documented trade, not a discovered one. |
+| **Baseline churn from the Character tab's grid now always drawing `eff('invSlots')` cells (most empty) instead of only occupied ones, on top of the pre-existing double-frame-border and armed-highlight changes.** | Three independent, legitimate pixel changes can land across 12c2 and the already-shipped D-I work. | 12c2's prompt requires every moved baseline to be reviewed as an image and its cause stated, the same discipline `docs/PLAN-phase10.md`'s 10c phase and old-12c's own prompt already used. |
