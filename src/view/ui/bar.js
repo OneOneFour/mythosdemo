@@ -5,7 +5,7 @@
    `view/hud.js#burden` already picks `UI.amber`/`UI.heart` itself today. A
    generic widget must not learn what "burden" means.
    See docs/DEVELOPER_GUIDE.md#widget-primitives */
-import { drawText } from '../../core/font.js';
+import { drawText, textWidth } from '../../core/font.js';
 import { R } from '../../core/pixels.js';
 import { mix } from '../../core/palette.js';
 import { colour } from '../../data/palette.js';
@@ -35,7 +35,24 @@ export function drawBar(g, opts) {
 
   R(g, x, barY, w, h, TRACK);
   R(g, x, barY, Math.round(w * clamped), h, fillColour);
-  if (valueText) drawText(g, valueText, x + w + 3, barY - 2, DIM, 1, 1);
+
+  /* FINDINGS #13: a fixed `x + w + 3` put the value flush past the BAR alone,
+     so a `label` wider than the bar (every TRIBUTE demand row: "COPPER
+     PLATE" is 71 px, the bar under it is 50) let the value text start
+     underneath the label's own tail end rather than clear of it -- the
+     bar and the label share one x origin, and only the bar's own width was
+     ever measured against. Clearing the wider of the two, then clamping the
+     whole string against `vw`, is what actually keeps a wide value off both
+     the label above it and the edge of a narrow viewport, instead of just
+     moving the failure from "overlaps the bar" (never true here -- the bar's
+     own track ends 3 px before either screenshot's value text starts, by
+     measurement) to "overlaps the label" or "runs off the canvas". */
+  if (valueText) {
+    const startX = x + Math.max(w, label ? textWidth(label) : 0) + 3;
+    const vtw = textWidth(valueText);
+    const tx = Math.min(startX, Math.max(x, vw - vtw - 2));
+    drawText(g, valueText, tx, barY - 2, DIM, 1, 1);
+  }
 
   const rect = { id, x, y, w, h: barY + h - y, frac: clamped, label, valueText };
   drawn.bars.push(rect);
