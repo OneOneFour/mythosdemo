@@ -33,6 +33,39 @@ const shot = (page, name) => expect(page.locator('#stage')).toHaveScreenshot(nam
 const settle = async (page, seed = 1337) =>
   page.evaluate(s => { __mf.newRun(s); __mf.clock.t = 10; __mf.frames(2); }, seed);
 
+/* TEST-ONLY QUICKBAR SETUP (docs/PLAN-phase12.md §3 D-H, Phase 12c2): the
+   quickbar is `run.inv`'s own tail now, not a `shell/ui.js#assignQuickbar`
+   assignment table -- that function is gone. Putting a held pair into a
+   SPECIFIC quickbar slot for a test's own setup means collecting it (which
+   only ever lands in a MAIN slot, `write.collect` never allocates into the
+   quickbar's index range) and then moving it there directly with
+   `write.moveSlot`, exactly the mechanism a real drag now also drives. */
+async function putInQuickbar(page, slot, subKey, formKey, n = 1) {
+  await page.evaluate(async ({ slot, subKey, formKey, n }) => {
+    const { run, write } = await import('/src/model/run.js');
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const sub = S[subKey], form = F[formKey];
+    write.collect(sub, form, n);
+    const idx = run.inv.findIndex(s => s && s.sub === sub && s.form === form);
+    write.moveSlot(idx, run.mainSlots + slot);
+  }, { slot, subKey, formKey, n });
+}
+
+/* The other half of the same idiom: a pair ALREADY held (e.g. just crafted,
+   not freshly given) wherever `write.collect` happened to put it, moved into
+   a quickbar slot without collecting a second one on top of it. */
+async function moveHeldToQuickbar(page, slot, subKey, formKey) {
+  await page.evaluate(async ({ slot, subKey, formKey }) => {
+    const { run, write } = await import('/src/model/run.js');
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const sub = S[subKey], form = F[formKey];
+    const idx = run.inv.findIndex(s => s && s.sub === sub && s.form === form);
+    write.moveSlot(idx, run.mainSlots + slot);
+  }, { slot, subKey, formKey });
+}
+
 
 test('boots with no console or page errors', async ({ page }) => {
   const errors = await boot(page);
@@ -335,24 +368,20 @@ test('a placed furnace', async ({ page }) => {
     const { bandOf } = await import('/src/model/world.js');
     __mf.revealAll(bandOf('surface'));
   });
-  /* The held `furnace/rig` is given directly, and assigned to quickbar slot 0
-     through `shell/ui.js#assignQuickbar` rather than by a real drag, because
-     this test's own point is the furnace's LOOK -- not the crafting grind or
-     the drag-assignment, both of which other tests cover. Then '1'
-     (`view/ui/quickbar.js#slotForDigit`: '1' is slot 0) arms it and 'e'
-     places it. */
+  /* The held `furnace/rig` is given directly, and moved into quickbar slot 0
+     (docs/PLAN-phase12.md §3 D-H, `write.moveSlot`) rather than by a real
+     drag, because this test's own point is the furnace's LOOK -- not the
+     crafting grind or the drag-to-rearrange gesture, both of which other
+     tests cover. Then '1' (`view/ui/quickbar.js#slotForDigit`: '1' is slot 0)
+     arms it and 'e' places it. */
   await page.evaluate(async () => {
     const { write } = await import('/src/model/run.js');
-    const { S } = await import('/src/data/substances.js');
-    const { F } = await import('/src/data/forms.js');
-    const { assignQuickbar } = await import('/src/shell/ui.js');
     /* Phase 10b (D-H): the furnace is cycle 1's reward and no longer a
        starting grant -- this test's own point is the furnace's LOOK, not
        whether a trial has been paid, so grant it directly. */
     write.grant('furnace');
-    write.collect(S.furnace, F.rig, 1);
-    assignQuickbar(0, { sub: S.furnace, form: F.rig });
   });
+  await putInQuickbar(page, 0, 'furnace', 'rig');
   await page.keyboard.press('1');
   await page.keyboard.press('e');
   await page.evaluate(() => __mf.frames(240));
@@ -380,14 +409,18 @@ test('a placed furnace', async ({ page }) => {
    test that measures the wrong thing. Also covers the "empty slot" and
    "pressed digit but the panel was never opened" cases along the way, since
    this mechanism (unlike the old menu) works with no panel gate at all. */
-/* Every other quickbar test assigns through `shell/ui.js#assignQuickbar`
-   directly, "because the drag-to-assign gesture itself is exercised
-   elsewhere" -- there was no "elsewhere". This is that test: a REAL
-   drag (`realDrag`, actual `page.mouse` events) from the Character tab's
-   inventory grid onto a quickbar slot, then closing the panel for real
-   (`Escape`) and using the result exactly the way a player does -- digit key
-   arms, `E` places. */
-test('REAL DRAG: dragging a held item from the inventory grid onto a quickbar slot assigns it, and the assignment survives closing the panel', async ({ page }) => {
+/* Every other quickbar test fills a slot through `putInQuickbar` (this
+   file's own `write.collect` + `write.moveSlot` helper) directly, "because
+   the drag gesture itself is exercised elsewhere" -- there was no
+   "elsewhere". This is that test: a REAL drag (`realDrag`, actual
+   `page.mouse` events) from the Character tab's inventory grid onto an
+   EMPTY quickbar slot, then closing the panel for real (`Escape`) and using
+   the result exactly the way a player does -- digit key arms, `E` places.
+   Rewritten for Phase 12c2 (docs/PLAN-phase12.md §3 D-H): the quickbar is
+   `run.inv`'s own tail now, so a drag MOVES the pair (real storage, not an
+   assignment table), and `__mf.ui.quickbar[0]` carries `n` -- a deliberate,
+   named breaking change to this test hook's own shape. */
+test('REAL DRAG: dragging a held item from the inventory grid onto an empty quickbar slot moves it there, and the move survives closing the panel', async ({ page }) => {
   await boot(page);
   await settle(page);
   await page.evaluate(async () => {
@@ -417,17 +450,18 @@ test('REAL DRAG: dragging a held item from the inventory grid onto a quickbar sl
   });
   expect(invSlot).toBeTruthy();
   expect(qSlot).toBeTruthy();
+  expect(qSlot.sub).toBeNull();     // the quickbar starts empty -- nothing to swap with
 
   await realDrag(page, invSlot.x + invSlot.w / 2, invSlot.y + invSlot.h / 2, qSlot.x + qSlot.w / 2, qSlot.y + qSlot.h / 2);
-  expect(await page.evaluate(() => __mf.ui.quickbar[0])).toEqual({ sub: S.furnace, form: F.rig });
+  expect(await page.evaluate(() => __mf.ui.quickbar[0])).toEqual({ sub: S.furnace, form: F.rig, n: 1 });
 
   /* Close the panel for real -- Escape, not `closeTop()` called from the
-     test -- so this also proves the assignment is UI state that outlives
-     the window, not something the panel itself was quietly holding. */
+     test -- so this also proves the move is real storage (`run.inv`) that
+     outlives the window, not something the panel itself was quietly holding. */
   await page.keyboard.press('Escape');
   await page.evaluate(() => __mf.frames(1));
   expect(await page.evaluate(() => __mf.ui.open)).toEqual([]);
-  expect(await page.evaluate(() => __mf.ui.quickbar[0])).toEqual({ sub: S.furnace, form: F.rig });
+  expect(await page.evaluate(() => __mf.ui.quickbar[0])).toEqual({ sub: S.furnace, form: F.rig, n: 1 });
 
   await page.keyboard.press('1');
   await page.evaluate(() => __mf.frames(1));
@@ -442,6 +476,10 @@ test('REAL DRAG: dragging a held item from the inventory grid onto a quickbar sl
     const { M } = await import('/src/data/machines.js');
     return __mf.machines.filter(m => m.def !== M.altar).length;
   })).toBe(1);
+  /* The move never duplicated storage -- placing spent the one furnace that
+     was IN the quickbar slot, so it is empty again, not still showing a
+     stale `n`. */
+  expect(await page.evaluate(() => __mf.ui.quickbar[0])).toBeNull();
 });
 
 test('a digit key arms the matching quickbar slot, not just any held item', async ({ page }) => {
@@ -472,20 +510,12 @@ test('a digit key arms the matching quickbar slot, not just any held item', asyn
      `view/ui/quickbar.js#slotForDigit`'s own digit-to-slot mapping. Both are
      held `<id>/rig` items (`data/recipes.js#furnace`/`press_machine`), given
      directly here -- this test's own point is WHICH machine a digit arms and
-     places, not the crafting grind to earn either. Assigned through
-     `shell/ui.js#assignQuickbar` directly rather than a real drag -- the
-     drag-to-assign gesture itself is exercised elsewhere; this test's point
-     is the digit key. */
-  await page.evaluate(async () => {
-    const { write } = await import('/src/model/run.js');
-    const { S } = await import('/src/data/substances.js');
-    const { F } = await import('/src/data/forms.js');
-    const { assignQuickbar } = await import('/src/shell/ui.js');
-    write.collect(S.furnace, F.rig, 1);
-    write.collect(S.press, F.rig, 1);
-    assignQuickbar(0, { sub: S.furnace, form: F.rig });
-    assignQuickbar(2, { sub: S.press, form: F.rig });
-  });
+     places, not the crafting grind to earn either. Put there through
+     `putInQuickbar` (this file's own `write.collect` + `write.moveSlot`
+     helper) rather than a real drag -- the drag gesture itself is exercised
+     elsewhere; this test's point is the digit key. */
+  await putInQuickbar(page, 0, 'furnace', 'rig');
+  await putInQuickbar(page, 2, 'press', 'rig');
 
   await page.keyboard.press('3');
   const armed = await page.evaluate(async () => {
@@ -1346,6 +1376,114 @@ test('the Character tab', async ({ page }) => {
   await shot(page, 'ui-character.png');
 });
 
+/* ============================================================
+   PHASE 12c2: THE SLOT-GRID INVENTORY AND QUICKBAR
+   docs/PLAN-phase12.md §3 D-G/D-H, §4.6. Three new baselines: the grid on a
+   totally fresh run (nothing collected at all), so `eff('invSlots')` reads
+   as a real capacity fact rather than a display-order preference over a
+   packed list; a real drag-driven SWAP between two occupied main-grid slots
+   (the acceptance criterion's other half -- an empty-slot MOVE is already
+   proven, without a screenshot, by the "REAL DRAG" test below); and the
+   quickbar fully populated with `eff('quickbarSlots')` distinct pairs,
+   proving there is no ordinal past the last real cell and nothing scrolls or
+   truncates. Each at the desktop viewport and the 200 px phone floor, per
+   this file's own Phase 10c precedent (`phoneFloor`, defined below at its
+   original point of use but hoisted, so it is callable here too). */
+
+test('the Character tab on a fresh run: eff(invSlots) mostly-empty cells, not a packed list', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { open, setTab } = await import('/src/shell/ui.js');
+    const { banner } = await import('/src/view/fx.js');
+    open('main');
+    setTab('main', 'char');
+    __mf.cmd.hasMouse = false;
+    banner.fade = 0;
+    __mf.frames(2);
+  });
+  await shot(page, 'ui-character-fresh.png');
+  await phoneFloor(page);
+  await shot(page, 'ui-character-fresh-phone.png');
+});
+
+test('dragging one occupied inventory slot onto another swaps them in place', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { write: rw } = await import('/src/model/run.js');
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { open, setTab } = await import('/src/shell/ui.js');
+    const { banner } = await import('/src/view/fx.js');
+    rw.collect(S.copper, F.ore, 5);
+    rw.collect(S.timber, F.log, 3);
+    open('main');
+    setTab('main', 'char');
+    __mf.cmd.hasMouse = false;
+    banner.fade = 0;
+    __mf.frames(1);
+  });
+
+  const { slot0, slot1 } = await page.evaluate(() => {
+    const inv = __mf.ui.grids.find(g => g.id === 'inv').slots;
+    return { slot0: inv[0], slot1: inv[1] };
+  });
+  expect(slot0.sub).not.toBeNull();
+  expect(slot1.sub).not.toBeNull();
+  const before = {
+    a: { sub: slot0.sub, form: slot0.form }, b: { sub: slot1.sub, form: slot1.form }
+  };
+  expect(before.a).not.toEqual(before.b);
+
+  await realDrag(page, slot0.x + slot0.w / 2, slot0.y + slot0.h / 2, slot1.x + slot1.w / 2, slot1.y + slot1.h / 2);
+
+  const after = await page.evaluate(() => {
+    const inv = __mf.ui.grids.find(g => g.id === 'inv').slots;
+    return { a: { sub: inv[0].sub, form: inv[0].form }, b: { sub: inv[1].sub, form: inv[1].form } };
+  });
+  expect(after.a).toEqual(before.b);
+  expect(after.b).toEqual(before.a);
+
+  await shot(page, 'ui-character-swap.png');
+  await phoneFloor(page);
+  await shot(page, 'ui-character-swap-phone.png');
+});
+
+test('the quickbar shows exactly eff(quickbarSlots) cells, fully populated, with no scrollbar or truncation', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const qslots = await page.evaluate(async () => {
+    const { eff } = await import('/src/model/mods.js');
+    return Math.round(eff('quickbarSlots'));
+  });
+  expect(qslots).toBe(10);
+  /* Ten DISTINCT pairs -- `write.collect`'s merge-first search means giving
+     the SAME pair twice tops up one slot rather than filling a second, so
+     "fully populated" needs ten different substances, not one repeated. */
+  const pairs = [
+    ['copper', 'ore'], ['tin', 'ore'], ['timber', 'log'], ['stone', 'gravel'],
+    ['soil', 'gravel'], ['granite', 'gravel'], ['adamant', 'gravel'],
+    ['pick', 'relic'], ['auger', 'relic'], ['bellows', 'relic']
+  ];
+  for (let i = 0; i < pairs.length; i++) await putInQuickbar(page, i, pairs[i][0], pairs[i][1]);
+  await page.evaluate(async () => {
+    const { banner } = await import('/src/view/fx.js');
+    __mf.cmd.hasMouse = false;
+    banner.fade = 0;
+    __mf.frames(1);        // draw once so __mf.ui reflects the fill
+  });
+
+  const grid = await page.evaluate(() => __mf.ui.grids.find(g => g.id === 'quickbar'));
+  expect(grid.slots.length).toBe(10);
+  expect(grid.slots.every(s => s.sub != null)).toBe(true);
+  expect(grid.rows).toBe(2);            // two rows of five, never more
+
+  await shot(page, 'ui-quickbar-full.png');
+  await phoneFloor(page);
+  await shot(page, 'ui-quickbar-full-phone.png');
+});
+
 /* No HAND recipe is genuinely lockable in this build -- `model/run.js
    #RUN_SCHEMA.known` is seeded with EVERY `HAND_RECIPES` id in
    `write.reset()`. The silhouette-rendering CODE PATH is real and wired
@@ -1434,21 +1572,18 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
 
   /* Place through the quickbar's own digit keys, per `docs/FINDINGS.md`: the
      old digit-driven BUILD menu is retired, and click-to-arm (mouse or
-     digit) against the quickbar is the one placement path now. Assigned
-     directly through `shell/ui.js#assignQuickbar` -- the drag-to-assign
-     gesture itself is exercised elsewhere; this flow's point is the smelt
-     chain, not a second proof of drag-and-drop. */
+     digit) against the quickbar is the one placement path now. Moved into
+     slot 0 directly through `moveHeldToQuickbar` (this file's own helper) --
+     the drag gesture itself is exercised elsewhere; this flow's point is the
+     smelt chain, not a second proof of drag-and-drop. */
   await page.evaluate(async () => {
-    const { S } = await import('/src/data/substances.js');
-    const { F } = await import('/src/data/forms.js');
     const { write } = await import('/src/model/run.js');
-    const { assignQuickbar } = await import('/src/shell/ui.js');
     /* Phase 10b (D-H): the furnace is cycle 1's reward, not a starting
        grant -- this flow's point is the smelt chain, so grant it directly
        rather than routing through the cycle director. */
     write.grant('furnace');
-    assignQuickbar(0, { sub: S.furnace, form: F.rig });
   });
+  await moveHeldToQuickbar(page, 0, 'furnace', 'rig');
   await page.keyboard.press('1');        // arms slot 0's furnace (`view/ui/quickbar.js#slotForDigit`)
   await page.keyboard.press('e');        // places it
   const result = await page.evaluate(async () => {
@@ -3914,7 +4049,6 @@ test('the Cloud Dock', async ({ page }) => {
     const { write: rw, run } = await import('/src/model/run.js');
     const { write: pw, PH } = await import('/src/model/player.js');
     const { bandOf, worldX, worldY } = await import('/src/model/world.js');
-    const { assignQuickbar } = await import('/src/shell/ui.js');
 
     while (run.tutorialBeat < 4) rw.advanceBeat();
 
@@ -3932,8 +4066,8 @@ test('the Cloud Dock', async ({ page }) => {
 
     rw.grant('cloud_dock');
     rw.collect(S.cloud_dock, F.rig, 1);
-    assignQuickbar(0, { sub: S.cloud_dock, form: F.rig });
   });
+  await moveHeldToQuickbar(page, 0, 'cloud_dock', 'rig');
   await page.keyboard.press('1');
   await page.keyboard.press('e');
   await page.evaluate(() => __mf.frames(10));
