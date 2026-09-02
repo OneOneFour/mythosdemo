@@ -26,10 +26,14 @@
    panel reuses it, not the other way round. So:
 
      `masked(label, known)`  the mask itself: the label, or `????????`
-     `bandKnown(b)`          has the player ever ENTERED this band
+     `bandKnown(b)`          has the player ever ENTERED this band, OR has a
+                             cycle reward CHARTED it for them (Phase 10b,
+                             docs/PLAN-phase10.md 3.4/D-D)
 
    A future cycle-director phase's FAVOUR panel should import `masked` from
    this file (same-layer imports are legal) rather than write a second one.
+   The cycle director landed in Phase 10b; the FAVOUR panel itself is
+   Phase 10c and should still reuse this `masked`, not write a second one.
    ============================================================================
 
    THE DEPTH DATUM DOES NOT MOVE (CLAUDE.md D9). Depth is measured from the
@@ -45,6 +49,7 @@ import { R } from '../../core/pixels.js';
 import { colour } from '../../data/palette.js';
 import { SPAWN_BAND } from '../../data/world.js';
 import { player } from '../../model/player.js';
+import { run } from '../../model/run.js';
 import { bandOf, bands, heightPx, seenAt, worldY } from '../../model/world.js';
 import { drawn } from './state.js';
 
@@ -98,6 +103,13 @@ export function bandKnown(b) {
   if (!b) return false;
   if (knownBands.has(b)) return true;
   if (b === player.band) { knownBands.add(b); return true; }
+  /* CHARTING IS KNOWLEDGE, NOT ACCESS (docs/PLAN-phase10.md 3.4/D-D): a cycle
+     reward's `charts:[bandId]` (`run.charted`, written by `rules/cycles.js`
+     via `write.chart`) takes the mask off a band's NAME alone, same as
+     actually having stood in it -- it does not gate digging into that band,
+     which nothing in this game does. Checked by id, since `run.charted` holds
+     ids and this cache is keyed on the band RECORD. */
+  if (run.charted.includes(b.id)) { knownBands.add(b); return true; }
   for (let ty = 0; ty < b.th; ty++)
     for (let tx = 0; tx < b.tw; tx++)
       if (seenAt(b, tx, ty)) { knownBands.add(b); return true; }
