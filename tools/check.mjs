@@ -4309,6 +4309,73 @@ console.log('\n8c. HEAVENS LEDGER: cycle completion unlocks exactly one band');
        'and re-charting an already-charted band is a no-op');
 }
 
+/* --- HEAVENS LEDGER, sub-bullet: two misses ends the run. `rules/cycles.js#miss`'s
+   own comment: a punishment applies on every miss, and a SECOND ONE tops
+   hearts off to zero outright, "regardless of which cycle it was" -- so this
+   drives the SAME cycle (2, `first-delivery`, `deadlineSecs:480`) past its
+   own deadline TWICE, through the real schedule (`rules/cycles.js#step`'s
+   own `tickDeadline`/`resolve`, never `run.write.miss()` called directly --
+   the one existing caller of that, in the reset-fingerprint probe elsewhere
+   in this file, never drives it through gameplay at all). Cycle 1 is
+   completed first, for real (the same hand-feed idiom as above), so cycle 2
+   is actually the LIVE one with a real clock counting down. */
+console.log('\n8d. HEAVENS LEDGER: two misses ends the run');
+{
+  let bad = 0;
+  boot.newRun(9590);
+  const topsoil = world.bandOf('topsoil');
+  for (let ty = 110; ty <= 119; ty++)
+    for (let tx = 16; tx <= 29; tx++) tiles.write.clear(topsoil, tx, ty);
+  for (let tx = 16; tx <= 29; tx++) tiles.write.set(topsoil, tx, 119, D_sub.S.stone);
+  footUnder(machs.write.place(topsoil, D_mach.M.altar, 22, 117));
+  player.write.band(topsoil);
+  player.write.move(world.worldX(topsoil, 21), world.worldY(topsoil, 117));
+  player.write.vel(0, 0);
+  player.write.set('onGround', true);
+  run.write.collect(D_sub.S.copper, D_form.F.ore, 10);
+  runReal(240, 1 / 120, { hasMouse: false });
+
+  if (run.run.cycle <= 1 || !run.run.tribute || run.run.tribute.left === null) {
+    fail(`TWO MISSES: cycle 1 never completed into a clocked cycle 2 -- run.cycle ${run.run.cycle}, ` +
+         `tribute ${JSON.stringify(run.run.tribute)}`);
+    bad++;
+  } else {
+    const deadline = run.run.tribute.left;
+    const framesToMiss = Math.ceil(deadline * 120) + 240;   // margin past the exact zero-crossing
+
+    /* THE FIRST MISS. Nothing is fed -- cycle 2's demand (3 copper/plate) is
+       never satisfied -- so the clock alone decides this. */
+    runReal(framesToMiss, 1 / 120, { hasMouse: false });
+    const heartsAfterFirst = run.run.hearts;
+    if (run.run.misses !== 1 || run.run.dead || run.run.cycle !== 2) {
+      fail(`TWO MISSES: after the FIRST expiry, run.misses is ${run.run.misses} (want 1), dead is ` +
+           `${run.run.dead} (want false), cycle is ${run.run.cycle} (want still 2, re-armed as a retry)`);
+      bad++;
+    } else {
+      console.log(`  ..  two misses: the first expiry cost ${5 - heartsAfterFirst} heart(s) (${heartsAfterFirst} ` +
+                  'left), the run survives, and the SAME cycle re-armed as its own retry');
+
+      /* THE SECOND MISS, on the re-armed cycle's OWN fresh clock. */
+      const deadline2 = run.run.tribute?.left ?? deadline;
+      const framesToMiss2 = Math.ceil(deadline2 * 120) + 240;
+      runReal(framesToMiss2, 1 / 120, { hasMouse: false });
+      if (run.run.misses !== 2 || !run.run.dead) {
+        fail(`TWO MISSES: after the SECOND expiry, run.misses is ${run.run.misses} (want 2) and dead is ` +
+             `${run.run.dead} (want true) -- ${run.run.hearts} heart(s) left, cause '${run.run.deathCause}'`);
+        bad++;
+      } else {
+        console.log(`  ..  two misses: the second expiry left run.hearts at ${run.run.hearts} and killed ` +
+                    `the run, cause '${run.run.deathCause}'`);
+      }
+    }
+  }
+
+  if (!bad)
+    ok('TWO MISSES: a real cycle, missed twice on its own real clock (never run.write.miss() called ' +
+       'directly), survives the first and ends the run on the second, exactly as rules/cycles.js#miss ' +
+       'documents');
+}
+
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +
             `journal ${journal.peek ? journal.peek().length : 0} undrained`);
