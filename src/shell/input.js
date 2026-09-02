@@ -96,22 +96,28 @@ let hopHeld = false, dropHeld = false, deconHeld = false, linkHeld = false;
    rather than leaving it to be reconstructed from every `if (key === ...)`
    clause below: wasd/arrows (move), space (hop), e (open/close the main
    panel), q (drop), backspace (deconstruct), r (hold to act on a placed
-   machine -- turn a crank), c (hold to collect), u (hand-craft, redundant
-   with the recipe-click queue), l (link/unlink two hubs), g/h (grid/debug
-   overlays), o (map overview), m (mute), z (cancel a selection, additive to
-   Escape), Escape (close panel / cancel selection), the digits (arm the
-   quickbar slot at that index), and t/b/k/y/p behind `flags.showDebug`
-   (debug drafts, and the chunk overlay). Mining, placing and using a held
-   miracle have no dedicated key at all -- they are LMB, resolved once at
-   `pointerdown` (D-A) -- and restart is a clickable button on the death
-   screen (D-C), not a key. `x`/`j` (dig), `v` (use miracle), `i` (open
-   panel) and `f` (crank) are RETIRED; `p` (equip) was retired in Phase 12b
-   and its letter reused for the chunk toggle. */
+   machine -- turn a crank), c (hold to collect), l (link/unlink two hubs),
+   g/h (grid/debug overlays), o (map overview), m (mute), z (cancel a
+   selection, additive to Escape), Escape (close panel / cancel selection),
+   the digits (arm the quickbar slot at that index), and t/b/k/y/p behind
+   `flags.showDebug` (debug drafts, and the chunk overlay). Mining, placing
+   and using a held miracle have no dedicated key at all -- they are LMB,
+   resolved once at `pointerdown` (D-A) -- and restart is a clickable button
+   on the death screen (D-C), not a key. `x`/`j` (dig), `v` (use miracle),
+   `i` (open panel) and `f` (crank) are RETIRED; `p` (equip) was retired in
+   Phase 12b and its letter reused for the chunk toggle; `u` (hand-craft) is
+   RETIRED too -- the recipe-click queue already covers it with no key held
+   at all, so its own hold was fully redundant (D-B). */
 function set(k, down) {
   const key = k.toLowerCase();
   if (KEYS[key]) cmd[KEYS[key]] = down;
   if (key === ' ')                  { if (down && !hopHeld) cmd.hop = true; hopHeld = down; }
-  if (key === 'u')                  cmd.craft = down;
+  /* `u` (a manual craft hold) is RETIRED, docs/PLAN-phase12.md D-B: a click
+     on the recipe grid already queues and auto-completes a craft
+     (`shell/ui.js#ui.craftQueue`, `shell/main.js#step`'s own re-assertion of
+     `cmd.craft` every substep the queue is non-empty) with no key held at
+     all, so `u`'s own hold was fully redundant. `cmd.craft` itself is kept
+     -- the queue's re-assertion still writes it every substep it runs. */
   /* 'r' to ACT on a placed machine within reach -- turn a crank, today's only
      such machine (Phase 8f, docs/PLAN-gears-and-winches.md section 4.2),
      renamed from `f`/`cmd.turn` per docs/PLAN-phase12.md §3 D-J: the brief
