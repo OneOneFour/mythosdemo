@@ -36,12 +36,23 @@
 export const BANDS = [
 
   /* ---- ASTRAL --------------------------------------------------------------
-     Narrower than the surface and inset, so it reads as a platform in the sky
-     rather than a mirror of the ground. No heat: nothing burns up here, which
-     is a content statement made by omitting one array entry. ---- */
+     FULL WIDTH, and it was 96 columns inset by 128 px until Phase 10b. The
+     inset was meant to read as a platform in the sky rather than a mirror of
+     the ground; what it actually produced was two 16-column DEAD STRIPS --
+     surface columns 0-15 and 111-127 -- in which nothing above world y 320
+     resolves to a band at all (`model/world.js#bandAt` is a range test), so no
+     hub could be placed above the surface there and no span could rise past
+     y 320 without `'OUTSIDE THE WORLD'`. That is 25% of the world's width in
+     which the game's own destination is unreachable, for a silhouette nothing
+     draws: astral's floor is a solid slab spanning the whole band either way.
+     Measured before the change (docs/PLAN-phase10.md 2.2): `bandAt(x, 100)`
+     was `null` for surface columns 0-15 and 111-127, `astral` for 16-110.
+
+     No heat: nothing burns up here, which is a content statement made by
+     omitting one array entry. ---- */
   { id:'astral', name:'THE MINOR HEAVENS',
-    tw:96, th:40, tile:8, chunk:16,
-    origin:{ x:128, y:0 },
+    tw:128, th:40, tile:8, chunk:16,
+    origin:{ x:0, y:0 },
     floorTy:30,
     fields:[],
     strata:[

@@ -2149,10 +2149,11 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
   const REACH = D_mach.MACH[D_mach.M.hub].hub.reach;
 
   /* Each family returns two [bandId, tx, ty] placements. The astral/surface
-     pair shares a WORLD column, which is 16 tiles of offset because astral's
-     own origin is x:128 (`data/world.js:44`) -- the 32-column dead zone
-     docs/PLAN section 4.5 warns about, kept away from on purpose here so that
-     this section measures blockage and not band geometry. */
+     pair shares a WORLD column with NO offset since Phase 10b: astral is now
+     `tw:128` at `origin.x:0` like every other band (`data/world.js`), so band
+     column N is world column N in all three. It used to need `- 16`, and the
+     16 was astral's old 128 px inset -- see the OUTSIDE THE WORLD case below
+     for what that inset cost. */
   const FAMILIES = [
     { id: 'topsoil only', pick: r => [
       ['topsoil', 16 + (r() * 24 | 0), 100 + (r() * 12 | 0)],
@@ -2162,7 +2163,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
       ['topsoil', 30 + (r() * 14 | 0), (r() * 6 | 0)]] },
     { id: 'astral/surface seam', pick: r => {
       const col = 40 + (r() * 14 | 0);
-      return [['astral', col - 16 + (r() * 3 | 0) - 1, 33 + (r() * 6 | 0)],
+      return [['astral', col + (r() * 3 | 0) - 1, 33 + (r() * 6 | 0)],
               ['surface', col + (r() * 3 | 0) - 1, (r() * 6 | 0)]];
     } }
   ];
@@ -2389,7 +2390,11 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
 
   /* CASE 2 -- commit b48203d's repro, the astral/surface seam. */
   {
-    const astralHub = ['astral', 45, 37], surfaceHub = ['surface', 61, 2];
+    /* astral column 61, not 45: Phase 10b moved astral's origin from x:128 to
+       x:0, so the band-local column that sits over surface column 61 is 61
+       and no longer 45. The WORLD anchors this case is about (496, 304) and
+       (496, 344) are unchanged, which is what the guard below is for. */
+    const astralHub = ['astral', 61, 37], surfaceHub = ['surface', 61, 2];
     const h = handSpan(8801, astralHub, surfaceHub);
     if (h.ea.x !== 496 || h.ea.y !== 304 || h.eb.x !== 496 || h.eb.y !== 344) {
       fail(`LINK LEGALITY (cross-band): b48203d's repro no longer anchors at (496,304)->(496,344) but ` +
@@ -2410,30 +2415,69 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     }
   }
 
-  /* CASE 3 -- OUTSIDE THE WORLD, in astral's own 32-column dead zone
-     (docs/PLAN-gears-and-winches.md section 4.5: astral is tw:96 at
-     origin.x:128, so world x < 128 above y 320 is no band at all). A surface
-     hub at column 11 linking up to astral's leftmost column has a span that
-     leaves the world for a few pixels before it arrives. Nothing can carve
-     that clear, which is the point: it is the one refusal that is about the
-     WORLD's shape rather than its contents, and Phase 10 Step 1 is what
-     closes it. */
+  /* CASE 3 -- OUTSIDE THE WORLD, AND THE DEAD ZONE THAT USED TO PRODUCE IT.
+     Until Phase 10b astral was `tw:96` at `origin.x:128`, so world x < 128 and
+     x >= 896 above y 320 were no band at all, and a surface hub at column 11
+     linking up to astral's leftmost column left the world for a few pixels on
+     the way. That case is GONE, deliberately: the widening closed two
+     16-column strips in which the game's own destination was unreachable.
+
+     ASSERTED IN BOTH DIRECTIONS, because "the dead zone is closed" and "the
+     refusal still works" are two different claims and the first one is what
+     silently retires the second:
+
+       3a. THE THREE BANDS NOW TILE ONE RECTANGLE. Every world column, at a
+           height in every band, resolves to a band -- so no span between two
+           in-bounds anchors can leave the world, and the old case cannot be
+           written any more. This is the assertion that would fail if a future
+           band were added narrower than the rest, which is exactly when
+           someone needs to be told.
+       3b. THE BRANCH IS STILL LIVE. Off-world therefore has to be reached
+           through a hub whose ANCHOR is off-world, which needs a footprint
+           straddling the band's own edge -- `model/machines.js#write.place`
+           allows it and `placementCheck` refuses it ('NOT THERE'), so this is
+           a deliberate bypass of the legality this file otherwise insists on.
+           Stated, because `data/machines.js:465-467` records what happens when
+           a harness places what the game cannot. */
   {
-    const h = handSpan(8802, ['surface', 11, 1], ['astral', 0, 38]);
-    expect('a span through the strip where astral does not exist', h.A, h.B, 'OUTSIDE THE WORLD');
+    /* 3a */
+    const cols = [];
+    for (const b of world.bands) {
+      const midY = b.origin.y + (b.cfg.th * b.tile) / 2;
+      for (let tx = 0; tx < 128; tx++)
+        if (!world.bandAt(tx * 8 + 4, midY)) cols.push(`${b.id} x${tx}`);
+    }
+    if (cols.length) {
+      fail(`LINK LEGALITY (cross-band): ${cols.length} world column(s) resolve to no band at some ` +
+           `band's own mid-height (${cols.slice(0, 6).join(', ')}) -- the bands no longer tile one ` +
+           `rectangle, so a span between two in-bounds hubs can leave the world again`);
+      bad++;
+    }
+
+    /* 3b. `topsoil` column 127 with a `tw:2` footprint: the second column is
+       out of bounds, so the anchor lands on world x 1024, one pixel past the
+       world's right edge. */
+    const h = handSpan(8802, ['topsoil', 120, 100], ['topsoil', 127, 100]);
+    if (h.eb.x !== 1024) {
+      fail(`LINK LEGALITY (cross-band): the off-world hub anchors at x ${h.eb.x}, not 1024 -- the ` +
+           `world is not 1024 px wide any more and this case is testing something else`);
+      bad++;
+    }
+    expect('a span whose far anchor is past the world\'s right edge', h.A, h.B, 'OUTSIDE THE WORLD');
 
     /* CASE 4 -- and when a span is BOTH blocked and off-world, 17.6's order
        says it reports the blockage: the rock is the thing the player can do
        something about. */
-    const h2 = handSpan(8802, ['surface', 11, 1], ['astral', 0, 38]);
-    tiles.write.set(world.bandOf('surface'), 13, 1, STONE);
+    const h2 = handSpan(8802, ['topsoil', 120, 100], ['topsoil', 127, 100]);
+    tiles.write.set(world.bandOf('topsoil'), 123, 100, STONE);
     expect('a span that is both blocked and off-world', h2.A, h2.B, 'THE PATH IS BLOCKED');
   }
 
   if (!bad)
     ok('LINK LEGALITY (cross-band): a clear span crosses either seam; b48203d\'s boundary-exact repro ' +
-       'blocks on BOTH shared columns at both seams; astral\'s dead zone reads OUTSIDE THE WORLD; and a ' +
-       'span that is both reports the rock');
+       'blocks on BOTH shared columns at both seams; the three bands now tile one rectangle so astral\'s ' +
+       'dead zone is closed; an anchor past the world\'s edge still reads OUTSIDE THE WORLD; and a span ' +
+       'that is both reports the rock');
 }
 
 /* --- THE HEADFRAME EXEMPTION: A LEGALLY PLACED VERTICAL PAIR LINKS
