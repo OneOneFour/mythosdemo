@@ -838,18 +838,30 @@ function drawPlayerMark(g, v) {
   if (!player.band) return;
   const c = playerCentre();
   const px = sxOf(v, c.x), py = syOf(v, c.y);
-  const x = Math.max(v.vx + 2, Math.min(px, v.vx + v.vw - 3));
-  const y = Math.max(v.vy + 3, Math.min(py, v.vy + v.vh - 4));
 
   if (py >= v.vy && py < v.vy + v.vh && px >= v.vx && px < v.vx + v.vw) {
     R(g, px - 1, py - 1, 3, 3, INK.mark);
     return;
   }
 
-  /* The edge indicator: a 5-wide arrow pointing the way the player lies. */
-  const up = py < v.vy;
-  for (let i = 0; i < 3; i++)
-    R(g, x - (2 - i), up ? y + i : y - i, 1 + i * 2, 1, INK.mark);
+  /* THE EDGE INDICATOR POINTS ALONG THE AXIS THE PLAYER ACTUALLY LEFT THROUGH,
+     which is a fix rather than a flourish: this used to be a vertical arrow
+     unconditionally, so a player off the LEFT edge -- ordinary at zoom 8, where
+     the world is 8,192 px wide against a 609 px viewport -- was announced by an
+     arrow pointing DOWN at the left margin. Whichever axis the player is further
+     outside decides the direction, so a corner reads as the axis that is more
+     wrong, and the tip sits on the edge with the arrow widening inward. */
+  const x = Math.max(v.vx + 3, Math.min(px, v.vx + v.vw - 4));
+  const y = Math.max(v.vy + 3, Math.min(py, v.vy + v.vh - 4));
+  const dx = px < v.vx ? -1 : px >= v.vx + v.vw ? 1 : 0;
+  const dy = py < v.vy ? -1 : py >= v.vy + v.vh ? 1 : 0;
+  const overX = dx ? (dx < 0 ? v.vx - px : px - (v.vx + v.vw)) : -1;
+  const overY = dy ? (dy < 0 ? v.vy - py : py - (v.vy + v.vh)) : -1;
+
+  for (let i = 0; i < 3; i++) {
+    if (overX >= overY) R(g, x - dx * i, y - i, 1, 1 + i * 2, INK.mark);
+    else                R(g, x - i, y - dy * i, 1 + i * 2, 1, INK.mark);
+  }
 }
 
 /* ---------- the header line ----------
