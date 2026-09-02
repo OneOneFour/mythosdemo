@@ -297,6 +297,15 @@ export function mapMoveTo(x, y) {
 }
 
 export function setMapZoom(k) { ui.map.zoom = k; }
+
+/* Set the offset WITHOUT touching FOLLOW, which is the one thing `mapScroll`
+   and `mapMoveTo` above both deliberately do. A zoom step is not a scroll: it
+   re-anchors the stored offset so the view keeps its CENTRE rather than its
+   top-left corner, and doing that through `mapScroll` would silently cancel
+   FOLLOW on a keypress the player never meant as one. Only the zoom path calls
+   this, and only while FOLLOW is already off -- with FOLLOW on there is nothing
+   to re-anchor, because the transform recentres on the player anyway. */
+export function mapPark(x, y) { ui.map.x = x; ui.map.y = y; }
 export function toggleMapFollow() { ui.map.follow = !ui.map.follow; }
 export function setMapFollow(v) { ui.map.follow = !!v; }
 

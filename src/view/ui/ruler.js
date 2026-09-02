@@ -179,7 +179,14 @@ export function drawRuler(g, opts) {
     const ny = y0 + Math.max(0, Math.min(sh - 8, (sh >> 1) - 3));
     if (sh >= 8) drawText(g, num, nx, ny, known ? INK : DIM, 1, 1);
 
-    const rect = { id: id + '-band-' + b.id, x, y: y0, w: RULER_W, h: sh, title: num };
+    /* THE RECT CARRIES THE BAND'S WORLD RANGE WITH IT (`wy0`/`wy1`, world px).
+       `shell` hit-tests this rect and jumps the overview to the band, and it
+       must not have to re-derive which band a rect belongs to from its `id`
+       string or re-read `bands` to find the extent -- `view` reports what it
+       drew, including WHERE in the world it drew it from, and `shell` decides
+       what a click on it means (CLAUDE.md D2). Two readers, one number. */
+    const rect = { id: id + '-band-' + b.id, x, y: y0, w: RULER_W, h: sh, title: num,
+                   wy0: b.origin.y, wy1: b.origin.y + heightPx(b) };
     drawn.panels.push(rect);
     segs.push(rect);
 

@@ -26,8 +26,13 @@ import { machineAt } from '../model/machines.js';
 import { invCount } from '../model/run.js';
 import { drawn as uiDrawn } from '../view/ui/state.js';
 import { slotForDigit } from '../view/ui/quickbar.js';
+import { MAP_ZOOM, mapView } from '../view/overview.js';
 import { audio, unlockAudio } from './audio.js';
-import { armPlace, clearArmedPlace, clearLink, closeTop, isOpen, setSearch, setSearchFocus, top, toggle, ui } from './ui.js';
+import {
+  armPlace, clearArmedPlace, clearLink, closeTop, isOpen, mapDragEnd, mapDragStart,
+  mapDragTo, mapMoveTo, mapPark, mapScroll, setMapZoom, setSearch, setSearchFocus,
+  toggleMapFollow, toggleMapLayer, top, toggle, ui
+} from './ui.js';
 
 /* The command set the rules read. One object, mutated by property, per
    docs/DEVELOPER_GUIDE.md#cross-module-mutable-state. `craft` is a HOLD, like
@@ -137,6 +142,86 @@ function set(k, down) {
   if (key === 'l')                  { if (down && !linkHeld) cmd.link = true; linkHeld = down; }
 }
 
+/* ============================================================================
+   THE OVERVIEW'S OWN INPUT (docs/BUILD_PLAN.md Phase 9 section 2).
+
+   THE MAP IS A MODE, SO IT TAKES THE KEYBOARD. While `flags.showMap` is true
+   `shell/main.js#step` returns immediately -- nothing simulates -- so the
+   movement keys have nothing to move and are free to mean "scroll". They are
+   pre-empted BEFORE `set()` below rather than doubled up on top of it, for the
+   reason that function's own header gives: a key that latched `cmd.up` on the
+   way into the map would still be latched on the way out, and the player would
+   come back to a character climbing a ladder they never asked to climb. The
+   same pre-emption is why the digits do not also arm a quickbar slot.
+
+   Unrecognised keys FALL THROUGH to the ordinary handler on purpose, so 'o'
+   still closes the map, 'r' still restarts and 'm' still mutes: this function
+   claims the keys the map has a use for and no others.
+
+   PAN AND ZOOM ARE MEASURED IN SCREEN PIXELS, converted to world px through
+   `mapView.scale`, so one press moves the view the same visible distance at
+   every zoom level -- a fixed world-px step would crawl at x8 and leap a third
+   of the world at x1.
+   ============================================================================ */
+const MAP_PAN = 24;        // screen px per arrow/WASD press
+const MAP_WHEEL_PAN = 48;  // screen px per wheel notch
+const MAP_FAST = 4;        // shift multiplier
+
+/* World px for a screen-px distance, or 0 before the map has ever drawn (there
+   is no scale to divide by yet, and nothing to look at either). */
+const mapWorld = px => (mapView.active && mapView.scale > 0 ? px / mapView.scale : 0);
+
+/* ZOOM KEEPS THE CENTRE, not the top-left corner. The new scale is derived from
+   the recorded one by ratio rather than recomputed from `minTile` -- one file
+   owns that arithmetic (`view/overview.js`) and this is the same number it just
+   used. FOLLOW ON MEANS THERE IS NOTHING TO RE-ANCHOR: the transform recentres
+   on the player every frame, so parking an offset would be writing a value
+   nothing reads. See `shell/ui.js#mapPark`. */
+function mapZoomBy(dir) {
+  const i = MAP_ZOOM.indexOf(mapView.zoom);
+  const next = MAP_ZOOM[Math.max(0, Math.min(MAP_ZOOM.length - 1, (i < 0 ? 0 : i) + dir))];
+  if (next === mapView.zoom) return;
+  if (!ui.map.follow && mapView.scale > 0) {
+    const s2 = mapView.scale * (next / mapView.zoom);
+    const cx = mapView.wx + mapView.vw / mapView.scale / 2;
+    const cy = mapView.wy + mapView.vh / mapView.scale / 2;
+    mapPark(cx - mapView.vw / s2 / 2, cy - mapView.vh / s2 / 2);
+  }
+  setMapZoom(next);
+}
+
+/* A DIGIT TOGGLES THE NTH LAYER, and the order is `ui.map.layers`' own key
+   order -- the single declaration in `shell/ui.js`, which `view/overview.js`'s
+   legend also iterates. One list, so "press 3" and "the third row of the
+   legend" cannot disagree about which layer that is. Every digit is swallowed
+   whether or not a layer sits at that index, because falling through to the
+   quickbar while the world is frozen behind a full-screen map would arm a
+   placement the player cannot see. */
+function mapDigit(k) {
+  const i = '1234567890'.indexOf(k);
+  if (i < 0) return false;
+  const ids = Object.keys(ui.map.layers);
+  if (ids[i]) toggleMapLayer(ids[i]);
+  return true;
+}
+
+function mapKey(k, shift) {
+  const step = mapWorld(MAP_PAN) * (shift ? MAP_FAST : 1);
+  switch (k) {
+    case 'w': case 'arrowup':    mapScroll(0, -step); return true;
+    case 's': case 'arrowdown':  mapScroll(0,  step); return true;
+    case 'a': case 'arrowleft':  mapScroll(-step, 0); return true;
+    case 'd': case 'arrowright': mapScroll( step, 0); return true;
+    case '=': case '+': case ']': mapZoomBy(1);  return true;
+    case '-': case '_': case '[': mapZoomBy(-1); return true;
+    /* 'f' is the crank hold in play. It is not doubled up here: this branch
+       returns before `set()` ever sees the press, so `cmd.turn` cannot latch,
+       and nothing is cranking anyway while the run is frozen. */
+    case 'f': toggleMapFollow(); return true;
+    default: return mapDigit(k);
+  }
+}
+
 export function installInput() {
   if (typeof addEventListener !== 'function') return;
 
@@ -183,8 +268,18 @@ export function installInput() {
       return;
     }
 
-    set(e.key, true);
     const k = e.key.toLowerCase();
+
+    /* THE MAP CLAIMS ITS KEYS FIRST -- see `mapKey`'s own header for why this
+       pre-empts `set()` rather than running alongside it. Escape leaves the
+       mode, so a player who opened the map has the same one way out of it
+       every other panel in this game has. */
+    if (flags.showMap) {
+      if (k === 'escape') { flags.showMap = false; e.preventDefault(); return; }
+      if (mapKey(k, e.shiftKey)) { e.preventDefault(); return; }
+    }
+
+    set(e.key, true);
     if (k === 'g') flags.showGrid   = !flags.showGrid;
     if (k === 'c') flags.showChunks = !flags.showChunks;
     if (k === 'h') flags.showDebug  = !flags.showDebug;
@@ -260,6 +355,7 @@ export function installInput() {
     cmd.uiCtrl = false; cmd.uiShift = false; cmd.uiWheel = 0;
     hopHeld = false; placeHeld = false; dropHeld = false; deconHeld = false;
     miracleHeld = false; equipHeld = false; linkHeld = false;
+    mapDragEnd();
   });
 
   const cv = stage.cv;
@@ -285,17 +381,68 @@ export function installInput() {
      to be aimed at. Hit-tested in SCREEN space (pre-camera), matching exactly
      the space `view/ui/state.js#drawn` records rects in -- this is the same
      conversion `toWorld` below does, minus the `cam` offset it adds. */
-  const onAlwaysOnUi = e => {
+  /* Pointer position in the SCREEN space `view/ui/state.js#drawn` records its
+     rectangles in: the same conversion `toWorld` above does, minus the camera
+     offset it adds. Shared by the always-on-UI test and by the map, which has
+     no camera at all and could not use `toWorld`'s answer if it wanted to. */
+  const toScreen = e => {
     const r = cv.getBoundingClientRect();
-    const sx = (e.clientX - r.left) / VIEW.scale, sy = (e.clientY - r.top) / VIEW.scale;
+    return { sx: (e.clientX - r.left) / VIEW.scale, sy: (e.clientY - r.top) / VIEW.scale };
+  };
+
+  const onAlwaysOnUi = e => {
+    const { sx, sy } = toScreen(e);
     const p = uiDrawn.panels.find(p => p.id === 'hints-toggle');
     return !!p && sx >= p.x && sx < p.x + p.w && sy >= p.y && sy < p.y + p.h;
   };
 
-  cv.addEventListener('pointermove', e => toWorld(e, pointer.cam));
+  /* A CLICK ON THE BAND RULER JUMPS TO THAT BAND, centred rather than pinned to
+     the band's top edge -- the question a click there asks is "show me that
+     band", and a band shorter than the viewport pinned to its top would show
+     mostly the band after it. The rect carries its own world range
+     (`view/ui/ruler.js` records `wy0`/`wy1`), so nothing here re-derives which
+     band a click landed on.
+
+     THE HIT AREA IS WIDER THAN THE BAR. The bar is 6 px and the numeral column
+     sits beside it, which is a 6 px target at the very edge of the canvas --
+     unhittable in practice. Nothing else on the map's right edge is clickable,
+     so the strip is generous on both sides of it. */
+  const mapRulerJump = (sx, sy) => {
+    const p = uiDrawn.panels.find(p =>
+      typeof p.id === 'string' && p.id.startsWith('map-ruler-band-') &&
+      sx >= p.x - 4 && sx < p.x + p.w + 12 && sy >= p.y && sy < p.y + p.h);
+    if (!p || p.wy0 == null) return false;
+    mapMoveTo(mapView.wx, (p.wy0 + p.wy1) / 2 - mapWorld(mapView.vh) / 2);
+    return true;
+  };
+
+  cv.addEventListener('pointermove', e => {
+    /* `toWorld` STILL RUNS IN MAP MODE, even though the map has no camera:
+       `cmd.mx`/`my` are what `shell/main.js` hands `view` as the frame's mouse
+       position, and the overview's HOVER layer subtracts the (frozen, rounded)
+       camera back off it to recover this exact screen point. Skipping it would
+       leave the hover reading a stale position from before the map opened. */
+    toWorld(e, pointer.cam);
+    if (flags.showMap && ui.map.drag) {
+      const { sx, sy } = toScreen(e);
+      mapDragTo(sx, sy, mapView.scale);
+    }
+  });
   cv.addEventListener('pointerdown', e => {
     unlockAudio();
     toWorld(e, pointer.cam);
+
+    /* THE MAP TAKES THE POINTER TOO, and it is the first branch for the same
+       reason it is the first branch on the keyboard: there is no world to dig
+       or place into while the run is frozen behind a full-screen map. A press
+       on the ruler jumps; a press anywhere else grabs the map and drags it. */
+    if (flags.showMap) {
+      const { sx, sy } = toScreen(e);
+      if (!mapRulerJump(sx, sy)) mapDragStart(sx, sy, mapView.wx, mapView.wy);
+      cv.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      return;
+    }
     /* THE OPEN PANEL STACK CAPTURES INPUT: route to the UI intents instead of
        the gameplay ones whenever a panel is open, so a click meant for a slot
        can never also dig, mine or place through to the world underneath it.
@@ -320,12 +467,20 @@ export function installInput() {
     e.preventDefault();
   });
   cv.addEventListener('pointerup', e => {
+    if (flags.showMap) { mapDragEnd(); return; }
     if (isOpen(top()) || onAlwaysOnUi(e)) {
       if (e.button === 2) cmd.uiRight = false; else { cmd.uiClick = false; cmd.uiDown = false; }
     } else if (e.button === 2) { cmd.place = false; cmd.deconstruct = false; } else cmd.mouse = false;
   });
   cv.addEventListener('contextmenu', e => e.preventDefault());
-  cv.addEventListener('pointerleave', () => { cmd.hasMouse = false; cmd.mouse = false; });
+  /* A drag ends when the pointer leaves too, or a press released outside the
+     canvas leaves the map stuck to the cursor for the rest of the session --
+     the same "losing focus must release everything" rule the `blur` handler
+     above states for the keyboard. */
+  cv.addEventListener('pointerleave', () => {
+    cmd.hasMouse = false; cmd.mouse = false;
+    mapDragEnd();
+  });
 
   /* Wheel scrolls a panel's grid, never the page -- only routed, and only
      preventDefault'd, while a panel is open; with none open the wheel does
@@ -333,6 +488,17 @@ export function installInput() {
      signed delta (see its declaration above), consumed and zeroed in
      `clearEdges()`. */
   cv.addEventListener('wheel', e => {
+    /* THE MAP SCROLLS, AND CTRL-WHEEL ZOOMS. Ctrl is not a second binding
+       invented here: a trackpad pinch arrives as exactly this event, so the
+       gesture a player already makes to zoom a page zooms the map. */
+    if (flags.showMap) {
+      const dir = Math.sign(e.deltaY);
+      if (e.ctrlKey || e.metaKey) mapZoomBy(-dir);
+      else if (e.shiftKey) mapScroll(mapWorld(MAP_WHEEL_PAN) * dir, 0);
+      else mapScroll(0, mapWorld(MAP_WHEEL_PAN) * dir);
+      e.preventDefault();
+      return;
+    }
     if (!isOpen(top())) return;
     cmd.uiWheel += Math.sign(e.deltaY);
     e.preventDefault();
