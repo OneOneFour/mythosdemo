@@ -109,6 +109,7 @@ const D_cycles = await import('../src/data/cycles.js');
 const D_src  = await import('../src/data/sources.js');
 const D_world = await import('../src/data/world.js');
 const D_recipes = await import('../src/data/recipes.js');
+const D_callouts = await import('../src/data/callouts.js');
 const world  = await import('../src/model/world.js');
 const tiles  = await import('../src/model/tiles.js');
 const mining = await import('../src/model/mining.js');
@@ -141,6 +142,12 @@ const R_place = await import('../src/rules/placement.js');
    never exposes -- it composites many chunks into the visible viewport and
    throws each cached canvas away behind that. */
 const viewPaint = await import('../src/view/paint.js');
+/* Same exception, for the RENDER PURITY (overview/ruler/callout) probe below:
+   proving the ruler and the quickbar are actually ON SCREEN this frame (not
+   merely that drawing whatever IS there is pure) needs `view/ui/state.js#drawn`,
+   the same "what did the last render do" scratch space `view/hud.js` itself
+   reads from for the identical reason (`hudRuler`'s own `qb = uiDrawn.grids...`). */
+const uiState = await import('../src/view/ui/state.js');
 const boot   = await import('../src/shell/boot.js');
 const main   = await import('../src/shell/main.js');
 const sched  = await import('../src/shell/schedule.js');
@@ -3942,6 +3949,93 @@ console.log('\n8. Phase 11 TIER 2 harness gaps');
     ok(`DATUM: the HUD gauge's transcribed formula and placementCheck's own REAL decision agree at the ` +
        `surface band, the astral band, and topsoil row 220 (${row220.toFixed(1)} tiles, matching ` +
        `data/machines.js's own note on cyclops_maw)`);
+}
+
+/* --- RENDER PURITY, extended to the map overview, the band ruler, and an
+   active tutorial callout (invariants 9 and 7). Section 2 proves this for
+   the plain HUD and the terrain; section 4's own extension (the drivetrain,
+   above) proves it again for the `view/ui/` panel tree and the segment
+   drawing. Neither probe has ever set `flags.showMap`, and the band ruler
+   and the callout hint both draw INSIDE every one of those frames without
+   either ever having been the thing under test on purpose -- this points
+   the SAME two instruments (the epoch counter, the seeded `rand()` stream)
+   at all three, proven non-vacuous first the same way section 4's cable
+   probe is: checked to have actually drawn something, not merely drawn
+   without complaint. */
+{
+  const drawTwice = label => {
+    const before = epoch.epoch.n;
+    main.draw();
+    main.draw();
+    if (epoch.epoch.n !== before) {
+      fail(`RENDER PURITY (${label}): drawing it twice performed ${epoch.epoch.n - before} model write(s) ` +
+           `-- view may never mutate model (invariant 9)`);
+      return false;
+    }
+    return true;
+  };
+  const noRand = label => {
+    rng.seedRng(9540);
+    const expected = [rng.rand(), rng.rand(), rng.rand()];
+    rng.seedRng(9540);
+    const got = [];
+    for (let i = 0; i < 3; i++) { main.draw(); main.draw(); got.push(rng.rand()); }
+    if (got.join() !== expected.join()) {
+      fail(`RENDER PURITY (${label}): drawing it consumed randomness -- a screenshot now depends on how ` +
+           `many times you have drawn (invariant 7)`);
+      return false;
+    }
+    return true;
+  };
+
+  let bad = 0;
+
+  /* THE MAP OVERVIEW: `flags.showMap` gates a genuinely different render
+     path (`view/scene.js#drawMap`, reading the tile grid directly rather
+     than the per-chunk canvas cache normal play uses) that neither probe
+     above has ever exercised. */
+  boot.newRun(9540);
+  input.flags.showMap = true;
+  if (!drawTwice('the map overview')) bad++;
+  if (!noRand('the map overview')) bad++;
+  input.flags.showMap = false;
+
+  /* THE BAND RULER: `view/hud.js#hudRuler` draws whenever there is room
+     (`HUD_RULER_MIN_H`), which this harness's 1600x900 headless viewport
+     always has -- proven ON SCREEN, not assumed, by requiring one of its
+     own per-band rects (`view/ui/ruler.js#drawRuler` -- `id + '-band-' + ...`)
+     actually landed in `drawn.panels` this frame, the same record
+     `hudRuler` itself trusts for the quickbar's rect immediately above it. */
+  main.draw();
+  const ruled = uiState.drawn.panels.some(p => p.id.startsWith('hud-ruler-band-'));
+  if (!ruled) {
+    fail('RENDER PURITY (the band ruler): no \'hud-ruler-band-*\' rect was drawn this frame -- the purity ' +
+         'probe below would be proving nothing was ever on screen');
+    bad++;
+  } else {
+    if (!drawTwice('the band ruler')) bad++;
+    if (!noRand('the band ruler')) bad++;
+  }
+
+  /* AN ACTIVE TUTORIAL CALLOUT: a fresh run's `tutorialBeat` is 0 and
+     `data/callouts.js#CALLOUTS[0]` is 'TAKE THE PICKAXE', so this is already
+     true the instant `newRun` returns -- asserted rather than assumed, since
+     a callout that happened to be `null` here would leave the probe below
+     pointed at nothing. */
+  boot.newRun(9541);
+  if (D_callouts.CALLOUTS[run.run.tutorialBeat] == null) {
+    fail(`RENDER PURITY (a tutorial callout): CALLOUTS[${run.run.tutorialBeat}] is null on a fresh run -- ` +
+         'there is nothing on screen for the probe below to test');
+    bad++;
+  } else {
+    if (!drawTwice('a tutorial callout')) bad++;
+    if (!noRand('a tutorial callout')) bad++;
+  }
+
+  if (!bad)
+    ok('RENDER PURITY: the map overview, the band ruler (proven on screen via its own drawn rect), and an ' +
+       'active tutorial callout all draw with 0 model writes and no randomness consumed, same as the plain ' +
+       'HUD and the view/ui/ tree above');
 }
 
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
