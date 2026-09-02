@@ -241,7 +241,7 @@ function solidNear(band, wx, wy, exempt) {
   const xs = Math.abs(fx - Math.round(fx)) < EPS ? [Math.round(fx) - 1, Math.round(fx)] : [Math.floor(fx)];
   const ys = Math.abs(fy - Math.round(fy)) < EPS ? [Math.round(fy) - 1, Math.round(fy)] : [Math.floor(fy)];
   for (const tx of xs) for (const ty of ys) {
-    if (exemptTile(exempt, band, tx, ty)) continue;
+    if (inHeadframe(exempt, band, tx, ty)) continue;
     if (solidAt(band, tx, ty)) return true;
   }
   return false;
@@ -284,8 +284,18 @@ function solidNear(band, wx, wy, exempt) {
    Stated as TILES, not as a sample window, so "exactly two tiles per endpoint"
    is the code and not a consequence of it: a tile is exempt when it is in the
    endpoint's own band, in its footprint's columns, and in a row from the
-   anchor's own row down to the footprint's bottom plus one. */
-function headframe(m) {
+   anchor's own row down to the footprint's bottom plus one.
+
+   ONE DECISION, TWO READERS (docs/DEVELOPER_GUIDE.md, and the same argument
+   `linkCheck`/`placementCheck` above already stand on). Phase 10a exempted the
+   CABLE and left the RIDER refused -- `rules/drive.js#ride` would not translate
+   a player whose 6 px box straddles the anchor's own column boundary across the
+   very tile the cable now crosses, so a rider arrived 34 px short of the deck
+   and the carrier left without them (docs/FINDINGS.md #17). Phase 10b fixes
+   that in `rules/drive.js`, and it reads THESE TWO FUNCTIONS rather than
+   re-deriving the range: a second copy of "which tiles a headframe hides" is a
+   second copy that can widen on its own. Exported for that one reader. */
+export function headframe(m) {
   const def = defOf(m);
   return {
     band: m.band,
@@ -294,7 +304,7 @@ function headframe(m) {
   };
 }
 
-const exemptTile = (exempt, band, tx, ty) => exempt.some(e =>
+export const inHeadframe = (exempt, band, tx, ty) => exempt.some(e =>
   e.band === band && tx >= e.tx0 && tx <= e.tx1 && ty >= e.ty0 && ty <= e.ty1);
 
 /* THE HALF-TILE SWEEP, not a Bresenham. `rules/items.js` already states the

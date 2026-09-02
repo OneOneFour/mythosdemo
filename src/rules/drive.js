@@ -81,7 +81,7 @@ import { defOf, machines, write as mw } from '../model/machines.js';
 import { eff } from '../model/mods.js';
 import { PH, PW, player, playerBox, write as pw } from '../model/player.js';
 import { burdenOf, run } from '../model/run.js';
-import { carrierBox, carrierPos, carries, riddenSegment, segments, write as segw } from '../model/segments.js';
+import { carrierBox, carrierPos, carries, headframe, inHeadframe, riddenSegment, segments, write as segw } from '../model/segments.js';
 import { solidAt } from '../model/tiles.js';
 import { bandAt, bands, tileX, tileY } from '../model/world.js';
 
@@ -337,17 +337,59 @@ function ride(s, dx, dy) {
      `rules/machines.js`'s own `HARD_BREAK` mirror already accepted, and for
      the identical reason. Both read `model/tiles.js#solidAt` and the hitbox
      from `model/player.js`, so the two can only disagree if someone edits one
-     of them alone. */
-  if (b && boxSolid(b, nx, ny)) return;
+     of them alone.
+
+     THE ONE EXCEPTION IS THIS SEGMENT'S OWN TWO HEADFRAMES, and it is Phase
+     10a's cable exemption applied to the rider (docs/FINDINGS.md #17,
+     docs/SPEC.md 17.6). Measured before the fix, a 12-tile vertical pair built
+     on real footing tiles with the player aboard and a crank held: the rider
+     stopped dead at world y 1632 with the carrier still climbing, **34 px --
+     4.25 tile rows -- below the deck it was supposed to arrive on**, then
+     detached and fell back down the shaft. The cause is the same three facts
+     that blocked the cable, one of them swapped: the anchor sits on a tile
+     COLUMN boundary, the player's 6 px box straddles that boundary, and
+     `footing:1` requires a solid tile directly under the upper hub's
+     footprint. So a rider approaching the top of a segment always has that
+     footing tile inside their box, whichever of the two columns holds it, and
+     the translation was always refused. That made
+     docs/PLAN-phase10.md 4.4 -- "the player rides up and steps off onto
+     astral's floor" -- physically unreachable, which is what makes this
+     Phase 10b's and not a nicety.
+
+     WHY IT IS THE SAME NARROW EXEMPTION AND NOT A COLLISION CHANGE. The
+     exempt tiles are `model/segments.js#headframe`'s, unchanged and imported
+     rather than re-derived, so the rider may pass exactly the tiles the cable
+     may pass and not one more: the two endpoint hubs' own footprint columns,
+     from the anchor's row down to the footprint's bottom plus one. Of those,
+     the rows inside the footprint are required CLEAR by `placementCheck`, so
+     the only tile that can actually be solid is the footing row -- one row,
+     two tiles, per endpoint. `solidAt` is untouched; `rules/player.js`'s own
+     `boxSolid` is untouched; nothing outside a ride translation on THIS
+     segment sees any of it.
+
+     AND A RIDER CANNOT GET STUCK IN THE TILE THEY PASS THROUGH, which is the
+     one thing that would make this a worse bug than the one it fixes. The
+     rows above the footing row are required clear, so a box overlapping it
+     always has its top half in proven air, and every way out resolves in one
+     frame through code this exemption does not touch: gravity moves them down
+     into the clear row below (`rules/player.js#moveY`, step > 0, no
+     exemption); a hop bonks the ceiling case and snaps them flush to the
+     footing row's own lower boundary, also clear; and `moveX` refuses, so
+     they cannot walk further in. Measured: a rider who hops mid-headframe is
+     out of the tile on the next frame. */
+  const exempt = [headframe(s.seg.a), headframe(s.seg.b)];
+  if (b && boxSolid(b, nx, ny, exempt)) return;
   pw.move(nx, ny);
 }
 
-function boxSolid(b, x, y) {
+function boxSolid(b, x, y, exempt) {
   const t0 = tileX(b, x), t1 = tileX(b, x + PW - 1);
   const r0 = tileY(b, y), r1 = tileY(b, y + PH - 1);
   for (let ty = r0; ty <= r1; ty++)
-    for (let tx = t0; tx <= t1; tx++)
+    for (let tx = t0; tx <= t1; tx++) {
+      if (inHeadframe(exempt, b, tx, ty)) continue;
       if (solidAt(b, tx, ty)) return true;
+    }
   return false;
 }
 

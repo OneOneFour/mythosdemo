@@ -1670,3 +1670,53 @@ fixes are not equal — making the ride translation resolve against the grid
 rather than refuse would be a collision change with fuzz consequences, whereas
 letting a rider *arrive* by clamping them to the deck for the last two rows is
 local to `rules/drive.js#ride`. Neither is designed here.
+
+## Phase 10b (the loop)
+
+**17 — CLOSED in Phase 10b.** Fixed in `rules/drive.js#boxSolid`, which now
+takes the exempt tile ranges and gets them from `model/segments.js#headframe`
+(exported for that one reader) rather than re-deriving them, so the rider passes
+**exactly** the two rows the cable does. Reproduced first, on the same 12-tile
+pair on real footing tiles: riding **up** under a held crank the rider stopped
+dead at world y 1632 — 34 px, 4.25 tile rows, below the deck — then detached and
+fell back down the shaft; riding **down** from `t = 1` they descended 10 px and
+stopped, exactly as #17 measured. After the fix the descent drift off the deck
+is 0.000 px over 3 s and the ascent arrives flush. `check.mjs` gained a RIDER
+EXEMPTION section with three claims, and `belowHeadframe` — the helper that
+existed only to park carriers clear of the defect — is deleted, so both ride
+rigs now start at `t = 1` and the fix is load-bearing in five assertions rather
+than two. Seen to fail both ways: without the exemption, four failures
+(including two pre-existing ones that had been passing only because of
+`belowHeadframe`); with the exemption widened by four rows, claim 3 fails.
+`docs/SPEC.md` §17.6 holds the measurement.
+
+**18. A RIDER CANNOT POWER THE SEGMENT THEY ARE RIDING, so nothing in the game
+can lift a player.** Found while fixing #17 and it is not a bug — it is D10's
+"manual only" meeting `crank.reach`. `rules/drive.js#supplyOf` requires
+`overlaps(playerBox(), crank.box, crank.reach)`, `crank.reach` is 12 px, and a
+carrier at `t = 0` sits at the lower hub's anchor, which is just within reach of
+a crank placed against that hub. Measured, base torque, a 12-tile vertical span
+with one crank at its foot and the player aboard holding `turn` for 40 s: the
+carrier rose **18.0 px — 2.25 tiles — and stalled there**, oscillating at the
+edge of reach for the remaining 38 s.
+
+Consequences, in the order they bite:
+
+- **`docs/PLAN-phase10.md` §4.5's ascent is a CLIMB, not a ride.** Its own stage
+  table already has the player mining and laying scaffold up each stage; what it
+  does not say is that this is *mandatory*, and that a segment is a cargo lift
+  the player walks beside. The phase's acceptance walkthrough asks the player to
+  "ride up to the dock", and that step is not performable — not because of #17,
+  which is fixed, but because of this.
+- **Riding is a DESCENT verb.** It is free, it is fast, it costs no hearts (a
+  carrier is a one-way platform), and it is the cheapest way down a shaft the
+  player has already built. Which is exactly "down is free, up is expensive"
+  expressed in the drivetrain, so this is arguably the right answer and not a
+  gap. It is written down because it reads as a bug when you hit it cold: you
+  stand on the bucket, hold the crank, rise two tiles and stop.
+- **The fix, if it is ever wanted, is content and not code.** `crank.reach` is a
+  `data/machines.js` number and `segReach` is already a scoped tunable, so a
+  long-reach crank tier (a `variantOf` row) or a `reach` wide enough to cover a
+  stage would make a self-lifting ride possible without touching
+  `rules/drive.js`. Adding a passive power source would not: D10 rejects it
+  explicitly.

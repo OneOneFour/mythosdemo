@@ -967,9 +967,38 @@ column per stage (the obvious build always refuses, and 11 tiles per stage is
 not enough to reach astral), and `footing:0` (hubs float, and the headframe
 reading dies).
 
-**A rider still cannot pass that tile**, because `rules/drive.js#ride` refuses
-any translation that would put the player's box inside solid rock. That is a
-separate defect, out of Phase 10a's scope, recorded in `docs/FINDINGS.md`.
+**The rider passes the same two tiles, and no others (Phase 10b).** Phase 10a
+exempted only the cable; `rules/drive.js#ride` still refused any translation
+that would put the player's box inside solid rock, and a 6 px box centred on
+the anchor straddles the anchor's own column boundary, so the footing tile was
+inside that box whichever column held it. Measured, the same 12-tile pair on
+real footing tiles:
+
+| direction | before Phase 10b | after |
+|---|---|---|
+| riding **up** under a held crank | stops at world y 1632, **34 px (4.25 rows) below the deck**, then detaches and falls back down the shaft | arrives flush on the deck at `t = 1` |
+| riding **down** from `t = 1` | descends **10 px** and stops; the carrier leaves without them | tracks the deck for the whole descent, drift **0.000 px** over 3 s |
+
+`rules/drive.js#boxSolid` now takes the exempt ranges and gets them from
+`model/segments.js#headframe` — the **same function** `linkCheck` uses, exported
+for this one reader rather than re-derived, so the rider can never be exempted
+from a tile the cable is not. `model/tiles.js#solidAt` and
+`rules/player.js#boxSolid` are untouched: nothing outside a ride translation on
+that segment sees any of it. A rider whose box overlaps the footing row cannot
+get stuck in it — the rows above are required clear, so their top half is
+always in proven air, and gravity, a hop and `moveX` all resolve out of it on
+the next frame through code the exemption does not touch (measured).
+
+**A rider cannot power the segment they are riding, and that is by design, not
+by this defect.** `rules/drive.js#supplyOf` requires the player's box to
+overlap a crank inflated by `crank.reach` (12 px), and a rising carrier leaves
+that reach within two tiles. Measured on a 12-tile span with one crank at its
+foot and the player aboard holding `turn`: the carrier rose **18.0 px — 2.25
+tiles — and stalled there**, oscillating at the edge of the crank's reach for
+the remaining 40 s. So **cargo rides up and the player
+climbs** — a segment carries a player *downward* for free and *upward* only if
+something else is turning the crank. D10's "manual only" is what makes that
+true, and §18.2's ascent costing is priced on the player climbing scaffold.
 
 The clear-path test is the **half-tile sweep** `rules/items.js` already states
 ("no substep longer than half a tile, in either axis") — `n = max(1, ceil(len /

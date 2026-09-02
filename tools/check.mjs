@@ -1319,22 +1319,19 @@ function headframeOf(m) {
            ty0: m.ty + Math.floor(def.th / 2), ty1: m.ty + def.th };
 }
 
-/* A CARRIER PARKED CLEAR OF ITS UPPER HEADFRAME, and the reason is a defect
-   this phase does NOT fix. The cable may now pass the upper headframe's own
-   footing tile; a RIDER still may not. `rules/drive.js#ride` refuses any
-   translation that would put the player's box inside a solid tile, and a 6 px
-   box centred on the anchor straddles the anchor's own column boundary, so the
-   footing tile is inside it whichever of the two columns holds it. Measured
-   with the footing tiles above in place and the carrier at t = 1: the rider
-   descends 10 px and stops while the carrier leaves without them. Phase 10a's
-   scope is `linkCheck`; this is parked in docs/FINDINGS.md for Phase 10b,
-   which is the phase that has to make a player ride up to a dock.
-
-   40 px is derived, not chosen: the exempt band is two rows (16 px), the
-   rider's own box is `PH` (16 px) and their feet sit 2 px under the deck line,
-   so a rider entirely below the footing row starts 34 px down -- 40 is the
-   next whole row. `rows` is how many tile rows apart the two hubs are. */
-const belowHeadframe = rows => 1 - 40 / (rows * 8);
+/* A RIDER MAY NOW START AT THE VERY TOP OF A SPAN (`t = 1`), and until Phase
+   10b they could not. Phase 10a's exemption let the CABLE cross the upper hub's
+   own footing tile; `rules/drive.js#ride` still refused to translate a player
+   across it, because a 6 px box centred on the anchor straddles the anchor's
+   column boundary and the footing tile is inside that box whichever of the two
+   columns holds it. Measured then: the rider descended 10 px from `t = 1` and
+   stopped while the carrier left without them, so every ride probe in this file
+   had to park its carrier 40 px down (`belowHeadframe`, now deleted) to keep
+   measuring what it claimed to measure. docs/FINDINGS.md #17 recorded it and
+   Phase 10b fixed it in `rules/drive.js#boxSolid`, which now reads
+   `model/segments.js#headframe` -- the same two rows per endpoint, not one
+   more. So `carriers: [[0, 1]]` below is load-bearing in both directions: it is
+   the honest scene, and it fails if the rider exemption regresses. */
 
 function driveRig(spec) {
   boot.newRun(spec.seed ?? 8080);
@@ -1469,7 +1466,7 @@ function predictV(supply, mass, slope, demand = null) {
       seed: 8081, reachMul: 5,
       room: { ty0: 60, h: 58 },
       machines: [['hub', 20, 115], ['hub', 20, 75]],
-      links: [[0, 1]], carriers: [[0, belowHeadframe(40)]], ride: 0
+      links: [[0, 1]], carriers: [[0, 1]], ride: 0
     });
     const y0 = player.player.y;
     runReal(Math.round(10 * fps), dt, { hasMouse: false });
@@ -2563,6 +2560,128 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
        'exemption is exactly two rows deep -- one row lower still blocks');
 }
 
+/* --- THE RIDER'S HALF OF THE SAME EXEMPTION (docs/FINDINGS.md #17,
+   docs/SPEC.md 17.6). Phase 10a exempted the CABLE and left the RIDER refused,
+   which is the one thing standing between that fix and
+   docs/PLAN-phase10.md 4.4's "the player rides to the dock and steps off onto
+   astral's floor".
+
+   THE DEFECT, measured before the fix on a 12-tile pair on real footing tiles
+   with the player aboard: riding UP under a held crank the rider stopped dead
+   at world y 1632 -- 34 px, 4.25 tile rows, below the deck -- and then
+   detached and fell back down the shaft; riding DOWN from `t = 1` they
+   descended 10 px and stopped while the carrier left. Same three facts as the
+   cable's, one swapped: the anchor is on a tile COLUMN boundary, the player's
+   6 px box straddles it, and `footing:1` puts a solid tile directly under the
+   upper hub.
+
+   THREE CLAIMS, and the third is what keeps this from being "riders ignore
+   rock":
+
+     1. A RIDER TRACKS THE CARRIER THROUGH THE UPPER HEADFRAME. Measured as
+        displacement equal to the carrier's own, flush to the deck, for the
+        whole descent -- not merely "moved further than 10 px".
+     2. THEY REACH BELOW THE FOOTING ROW. Stated as a tile row rather than a
+        pixel count, because the pixel count is what the old defect passed
+        with.
+     3. THE RIDER'S EXEMPTION IS EXACTLY THE CABLE'S TWO ROWS. One stone ONE
+        ROW BELOW the exempt range, in the footprint's own columns, still stops
+        the rider. Without this row, "exempt the footing tile" and "exempt
+        everything under a hub" pass identically -- the same claim 4 the cable
+        block above makes, in the rider's own units.
+
+   Claim 3's segment is linked through `model/segments.js#write.link` rather
+   than `linkCheck`, and that bypass is the point: a stone one row below the
+   exemption BLOCKS THE CABLE too (claim 4 above proves it), so there is no way
+   to build this scene legally, and what is under test here is the ride
+   translation and not the link. --- */
+{
+  const STONE = D_sub.S.stone;
+  let bad = 0;
+
+  /* The same upright pair the cable block uses, minus `placeMachine`: this
+     needs a rider aboard and a carrier parked at the top, which `driveRig`
+     already assembles, and `footUnder` lays the real footing tiles that are
+     the whole subject. Unpowered, so the carrier descends under its own weight
+     at the full `segDown` -- no crank, no supply, and therefore no question of
+     whether the rider is still in reach of one. */
+  function rideDown(rock = []) {
+    const r = driveRig({
+      seed: 8181,
+      room: { ty0: 100, h: 20 },
+      machines: [['hub', 20, 117], ['hub', 20, 105]],
+      links: [[0, 1]], carriers: [[0, 1]], ride: 0
+    });
+    for (const [tx, ty] of rock) tiles.write.set(r.band, tx, ty, STONE);
+    return r;
+  }
+
+  /* CLAIMS 1 and 2. Three seconds at `segDown` is 78 px, comfortably past the
+     footing row 34 px down and comfortably short of the floor. */
+  {
+    const r = rideDown();
+    const y0 = player.player.y;
+    const deck = () => segs.carrierTop(r.seg) - player.PH;
+    let worst = 0;
+    for (let i = 0; i < 360; i++) {
+      stepReal(1 / 120, { hasMouse: false });
+      worst = Math.max(worst, Math.abs(player.player.y - deck()));
+    }
+    const fell = player.player.y - y0;
+    const footingTop = world.worldY(r.band, 107);
+
+    if (worst > 1) {
+      fail(`RIDER EXEMPTION: a rider descending from t = 1 drifted ${worst.toFixed(2)} px off the deck ` +
+           `-- before Phase 10b they stopped 10 px down and the carrier left without them`);
+      bad++;
+    }
+    if (!(player.player.y > footingTop)) {
+      fail(`RIDER EXEMPTION: after 3 s of descent the rider's box top is at y ${player.player.y.toFixed(2)}, ` +
+           `still at or above the upper hub's footing row (y ${footingTop}) -- they have not passed their ` +
+           `own headframe`);
+      bad++;
+    }
+    console.log(`  ..  rider exemption: 3 s of unpowered descent from t = 1 moved the rider ` +
+                `${fell.toFixed(2)} px (segDown x 3 = ${(mods.eff('segDown') * 3).toFixed(2)}), ` +
+                `worst deck drift ${worst.toFixed(3)} px`);
+  }
+
+  /* CLAIM 3. Rows 106-107 are the exempt range for a hub at ty 105 (`th:2`),
+     so 108 is one row lower. Stated as "the rider's box never overlaps the
+     stone", not as an exact resting pixel: once the translation is refused the
+     carrier leaves and `rules/player.js` -- which has no exemption of any kind
+     and is not touched by this fix -- takes over, so where they finally come to
+     rest is that module's answer and not this one's. What this asserts is the
+     only thing the exemption could have broken: that they did not go THROUGH
+     it. */
+  {
+    const r = rideDown([[20, 108], [21, 108]]);
+    const y0 = player.player.y;
+    const stoneTop = world.worldY(r.band, 108);
+    let deepest = player.player.y;
+    for (let i = 0; i < 360; i++) {
+      stepReal(1 / 120, { hasMouse: false });
+      deepest = Math.max(deepest, player.player.y);
+    }
+    if (deepest + player.PH - 1 >= stoneTop) {
+      fail(`RIDER EXEMPTION: a stone ONE ROW below the exemption (row 108, both footprint columns) did ` +
+           `not stop the rider -- their box reached y ${deepest.toFixed(2)}..` +
+           `${(deepest + player.PH - 1).toFixed(2)}, which overlaps the stone at y ${stoneTop} -- the ` +
+           `rider's exemption is deeper than the cable's two rows`);
+      bad++;
+    } else {
+      console.log(`  ..  rider exemption: one row lower still stops them -- 3 s of descent moved the ` +
+                  `rider ${(player.player.y - y0).toFixed(2)} px and their box never passed y ` +
+                  `${stoneTop} (deepest box bottom ${(deepest + player.PH - 1).toFixed(2)})`);
+    }
+  }
+
+  if (!bad)
+    ok('RIDER EXEMPTION: a rider descending from the very top of a span tracks the deck through their ' +
+       'own upper headframe within a pixel and passes below its footing row, and a stone one row lower ' +
+       'still stops them -- the rider passes exactly the two rows the cable does');
+}
+
 /* --- BREAK-EVEN, REPRICED AND NOW MEASURED. Section 3's BREAK-EVEN DEPTH is
    ARITHMETIC: it prices ascent in seconds of cranking straight from the tuning
    rows, and asserts `ore < ingot < plate`. What it cannot tell you is whether
@@ -2990,16 +3109,16 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
         docs/SPEC.md's seven rows, so this inherits that pinning instead of
         restating the table. --- */
 {
-  /* A 46-ROW SPAN RIDDEN FROM FIVE ROWS DOWN, so the forty tiles below the
-     start are clear: `belowHeadframe` states why a rider may not start at the
-     very top. FORTY IS THE NUMBER CLAIM A IS ABOUT (docs/SPEC.md section 3
-     makes 20 tiles a lethal fall), so the span grew rather than the claim
-     shrinking. */
+  /* A 46-ROW SPAN RIDDEN FROM THE VERY TOP. Forty is the number claim A is
+     about (docs/SPEC.md section 3 makes 20 tiles a lethal fall) and 46 rows
+     leaves room for it; the span grew rather than the claim shrinking. The
+     start at `t = 1` is only possible since Phase 10b -- see the rider
+     exemption note above `driveRig`. */
   const TALL = {
     seed: 8980, reachMul: 5,
     room: { ty0: 60, h: 58 },
     machines: [['hub', 20, 115], ['hub', 20, 69]],
-    links: [[0, 1]], carriers: [[0, belowHeadframe(46)]], ride: 0
+    links: [[0, 1]], carriers: [[0, 1]], ride: 0
   };
   let bad = 0;
 
