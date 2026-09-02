@@ -68,9 +68,13 @@
 
 import { drawText, textWidth } from '../core/font.js';
 import { mix } from '../core/palette.js';
-import { R } from '../core/pixels.js';
+import { lineTo, R } from '../core/pixels.js';
 import { colour } from '../data/palette.js';
+import { machines } from '../model/machines.js';
 import { player, playerCentre } from '../model/player.js';
+import {
+  breaks, carrierPos, chains, isHub, linkCheck, segments, segmentsAt
+} from '../model/segments.js';
 import { rowAt } from '../model/tiles.js';
 import { bands, heightPx, seenAt, widthPx } from '../model/world.js';
 import { drawRuler, rulerWidth } from './ui/ruler.js';
@@ -85,7 +89,13 @@ const INK = {
      uses for anything meant to read as "special, look here", reused rather
      than invented, and it reads against soil, stone and abyssal rock alike --
      none of which are gold. */
-  mark:  colour('ichor')
+  mark:  colour('ichor'),
+  /* The same three state colours `view/ui/mainPanel.js`'s LOGISTICS tab already
+     uses, by the same palette names, so a machine that reads STALLED in the tab
+     is the same amber on the map. */
+  good:  colour('uiGood'),
+  warn:  colour('uiAmber'),
+  bad:   colour('uiHeart')
 };
 
 /* SCREEN PIXELS PER SMALLEST BAND TILE. Integers only, and powers of two so
@@ -222,6 +232,7 @@ export function drawOverview(g, f) {
 
   R(g, 0, 0, f.W, f.H, INK.void);
   drawTerrain(g, v);
+  drawLayers(g, v, f);
   drawPlayerMark(g, v);
 
   drawRuler(g, {
@@ -230,6 +241,7 @@ export function drawOverview(g, f) {
   });
 
   header(g, f, v);
+  legend(g, f);
 }
 
 /* ---------- terrain ----------
@@ -294,6 +306,176 @@ function cellColour(b, tx, ty) {
   return hexOf(look.base);
 }
 
+/* ============================================================================
+   THE METADATA LAYERS (docs/BUILD_PLAN.md Phase 9 section 4)
+
+   Each one is individually toggleable through `shell/ui.js#ui.map.layers`, and
+   the ORDER THEY DRAW IN IS FIXED HERE while the order they are LISTED in (the
+   legend, and which digit key toggles which) is `ui.map.layers`' own key order.
+   Two different orders on purpose: shading has to go under the markers it
+   shades, but a legend wants a stable list a player can learn.
+
+   EVERY LAYER FILTERS ON `seenAt` (section 5, and this file's own header). A
+   machine, a pile or a cable in a tile the player has never revealed is not
+   drawn, no matter that `machines` and `items` would happily hand it over. The
+   filter is applied per DRAWN THING rather than once at the top, because each
+   layer's unit is different: a tile for ore, a footprint for a machine, a
+   resting position for a pile, and BOTH anchors for a segment.
+   ============================================================================ */
+
+function drawLayers(g, v, f) {
+  const L = f.ui.map.layers;
+  if (L.chain) drawChain(g, v);
+}
+
+/* A dashed line, integer pixels, walked parametrically so the dash phase is a
+   function of distance along the line and nothing else -- no `rand()` (invariant
+   7) and no dependence on how many times the map has been drawn. */
+function dashTo(g, x0, y0, x1, y1, col, on = 3, off = 3, thick = 1) {
+  const dx = x1 - x0, dy = y1 - y0;
+  const len = Math.max(1, Math.round(Math.hypot(dx, dy)));
+  for (let i = 0; i <= len; i++) {
+    if (i % (on + off) >= on) continue;
+    R(g, (x0 + (dx * i) / len) | 0, (y0 + (dy * i) / len) | 0, thick, thick, col);
+  }
+}
+
+/* ---------- LIFT CHAIN ----------
+   The single most useful layer in the mode, and the one the acceptance test is
+   written about: open the map on four hubs with a gap where a fourth segment
+   should be, and THE GAP IS THE FIRST THING YOU SEE.
+
+   A CHAIN IS DERIVED, NEVER STORED (CLAUDE.md D10). `model/segments.js#chains()`
+   and `#breaks()` are the queries and this file does not keep a second answer
+   between frames. There is no `rules/lift.js` and `view` may not import `rules`
+   in any case, so everything drawn here is a `model` reading:
+
+     the cable        `seg.ax/ay -> seg.bx/by`, the segment's own geometry, so
+                      the ANGLE is the line and needs no separate encoding
+     the two hubs     `seg.a` / `seg.b`, the machine records themselves
+     the carrier      `carrierPos(seg)`
+     the break        `breaks()` -- every hub anchoring exactly ONE segment --
+                      UNIONED with every hub anchoring NONE, because a lone hub
+                      is an open end by any reading and `breaks()` deliberately
+                      only answers the question it is asked
+     the gap          a PAIR of open ends that `linkCheck` says could be joined
+                      right now. WHICH pair of open ends is a gap worth drawing
+                      is this phase's decision, not `model`'s (that file's own
+                      comment says so), and the decision is: the ones the player
+                      could actually bridge. Reach and blockage are already one
+                      answer in `linkCheck`, the same one `view/hud.js`'s cable
+                      ghost tints itself with, so the map cannot promise a cable
+                      the ghost would refuse.
+
+   WHICH BANDS A SEGMENT SPANS is the line itself: this is a true world map with
+   the band ruler beside it at the same vertical scale, so a cable crossing a
+   seam visibly crosses it. What the line cannot show is a chain whose ends are
+   both off-screen, so each chain also gets a BRACKET down the left edge of the
+   body spanning its full world-y extent, labelled with its segment count.
+
+   UNPOWERED MEANS NOT TURNING NOW. `m.torque` is the drive `rules/drive.js`
+   actually delivered this frame -- the same field `view/paint.js` already reads
+   to spin a gear sprite -- and it is the only power question answerable without
+   the drivetrain solve that rule owns. So a driven cable is solid and bright and
+   an idle one is dashed and dim, and a COMPLETE chain with nothing turning still
+   reads as complete: brokenness is drawn in red at the ENDS and nowhere else. */
+const HUB = 3;
+
+function drawChain(g, v) {
+  if (!segments.length && !openHubs().length) return;
+
+  for (const chain of chains()) {
+    for (const seg of chain) {
+      if (!hubSeen(seg.a) || !hubSeen(seg.b)) continue;
+      const x0 = sxOf(v, seg.ax), y0 = syOf(v, seg.ay);
+      const x1 = sxOf(v, seg.bx), y1 = syOf(v, seg.by);
+      const driven = seg.a.torque > 0 || seg.b.torque > 0;
+      if (driven) lineTo(g, x0, y0, x1, y1, INK.mark);
+      else dashTo(g, x0, y0, x1, y1, mix(INK.back, INK.ui, 0.7));
+
+      const c = carrierPos(seg);
+      R(g, sxOf(v, c.x) - 1, syOf(v, c.y) - 1, 3, 3, driven ? INK.good : INK.ui);
+    }
+    bracket(g, v, chain);
+  }
+
+  /* THE HUBS LAST, over their own cables, so a hub is never half a cable wide.
+     An open end is a filled red box; a joined one is a hollow pale box. */
+  const open = new Set(openHubs());
+  for (const m of hubsPlaced()) {
+    if (!hubSeen(m)) continue;
+    const x = sxOf(v, m.box.x + m.box.w / 2) - (HUB >> 1);
+    const y = syOf(v, m.box.y + m.box.h / 2) - (HUB >> 1);
+    if (open.has(m)) {
+      R(g, x - 1, y - 1, HUB + 2, HUB + 2, INK.bad);
+      R(g, x, y, HUB, HUB, INK.back);
+    } else {
+      R(g, x, y, HUB, HUB, INK.ui);
+    }
+  }
+
+  gaps(g, v, openHubs());
+}
+
+/* Every placed hub, and every hub that anchors 0 or 1 segments. Two small
+   filters over `model` queries rather than a cached list: `machines` is tens of
+   rows and a stale copy of it is the bug class `ui.linkFrom`'s own header warns
+   about. */
+const hubsPlaced = () => machines.filter(isHub);
+const openHubs = () => [
+  ...breaks(),
+  ...hubsPlaced().filter(m => segmentsAt(m).length === 0)
+];
+
+/* A machine sits in a tile the player revealed to place it, and `seen` is
+   permanent and one-way -- so this is nearly always true. It is checked anyway,
+   once, here: section 5 is an invariant about what the mode may draw, not a
+   statement about what is likely, and a future machine that arrives without the
+   player standing next to it (a god's gift, a pre-placed ruin) would otherwise
+   quietly become the exception. */
+const hubSeen = m => seenAt(m.band, m.tx, m.ty);
+
+/* THE GAP: a red dashed cable exactly where the missing one would go, drawn
+   between the two open ends `linkCheck` says could be joined. Both orderings of
+   a pair give the same answer (`linkCheck` is symmetric by construction), so the
+   inner loop starts past the outer one. O(k^2) over open ENDS, which is a
+   handful even in a world full of cable. */
+function gaps(g, v, open) {
+  for (let i = 0; i < open.length; i++) {
+    for (let j = i + 1; j < open.length; j++) {
+      const a = open[i], b = open[j];
+      if (!hubSeen(a) || !hubSeen(b)) continue;
+      if (!linkCheck(a, b).ok) continue;
+      /* TWO PIXELS WIDE, against the cable's one. The gap is supposed to be the
+         first thing you see, and colour alone is a weak signal on a map that is
+         already brown and grey -- doubling the stroke makes it the boldest line
+         in the frame at every zoom level. */
+      dashTo(g, sxOf(v, a.box.x + a.box.w / 2), syOf(v, a.box.y + a.box.h / 2),
+             sxOf(v, b.box.x + b.box.w / 2), syOf(v, b.box.y + b.box.h / 2),
+             INK.bad, 3, 2, 2);
+    }
+  }
+}
+
+/* One chain's vertical extent, as a bracket down the left edge of the map body
+   with its segment count beside it -- the answer to "how far does this thing
+   actually reach" for a chain whose ends are both scrolled off screen. */
+function bracket(g, v, chain) {
+  let lo = Infinity, hi = -Infinity;
+  for (const seg of chain) {
+    lo = Math.min(lo, seg.ay, seg.by);
+    hi = Math.max(hi, seg.ay, seg.by);
+  }
+  const y0 = Math.max(v.vy, syOf(v, lo)), y1 = Math.min(v.vy + v.vh - 1, syOf(v, hi));
+  if (y1 < y0) return;
+  const x = v.vx + 1;
+  R(g, x, y0, 1, y1 - y0 + 1, INK.dim);
+  R(g, x, y0, 3, 1, INK.dim);
+  R(g, x, y1, 3, 1, INK.dim);
+  const s = String(chain.length);
+  if (y1 - y0 >= 10) drawText(g, s, x + 3, ((y0 + y1) >> 1) - 3, INK.dim, 1, 1);
+}
+
 /* ---------- the player ----------
    ALWAYS DRAWN, EVEN OFF-SCREEN. A map whose one "you are here" mark silently
    vanishes the moment the view scrolls away from it is a map that cannot
@@ -327,7 +509,46 @@ function header(g, f, v) {
   R(g, 0, 0, f.W, bar, INK.back);
   R(g, 0, bar, f.W, 1, mix(INK.back, INK.dim, 0.6));
 
-  drawText(g, 'OVERVIEW', 4, 2, INK.ui, 1, 1);
-  const z = 'X' + v.zoom;
-  drawText(g, z, 4 + textWidth('OVERVIEW') + 6, 2, INK.dim, 1, 1);
+  /* LAID OUT BY MEASURING, never by hardcoded origins (CLAUDE.md D8): each
+     field starts where the last one ended, so a two-digit zoom or a longer word
+     pushes the rest along instead of overlapping it. */
+  let x = 4;
+  const put = (s, col) => { drawText(g, s, x, 2, col, 1, 1); x += textWidth(s) + 6; };
+  put('OVERVIEW', INK.ui);
+  put('X' + v.zoom, INK.dim);
+  /* FOLLOW is a state, so it is drawn as one: lit when on, dim when a manual
+     scroll has turned it off (`shell/ui.js#mapScroll` does that, once, for every
+     input path). */
+  put('FOLLOW', f.ui.map.follow ? INK.good : INK.dim);
+  /* 'F' is not spelled out as "F FOLLOW" here because the word FOLLOW is
+     already on this line as a STATE, two fields to the left, and one line
+     saying it twice reads as two different things. */
+  put('WASD/DRAG SCROLL  -/+ ZOOM  F  1-9 LAYERS  O CLOSE', INK.dim);
+}
+
+/* ---------- the layer legend ----------
+   WHICH DIGIT TOGGLES WHICH LAYER IS NOT RESTATED HERE. The rows are
+   `ui.map.layers`' own key order -- the single declaration in `shell/ui.js`,
+   which `shell/input.js#mapDigit` indexes with the same key order -- so the
+   list a player reads and the key they press cannot drift apart. A layer added
+   to that object appears here, numbered, with no edit to this file.
+
+   BOTTOM-LEFT, over a backing rect. Bottom-left because the other three corners
+   are taken: the header owns the top strip, the ruler and its footer own the
+   right edge, and the TOP-left is where a chain's own extent bracket is drawn.
+   A legend the terrain shows through is a legend nobody reads, and this is the
+   one panel in the mode allowed to cover the map, because it is what tells you
+   what the map is showing you. */
+function legend(g, f) {
+  const ids = Object.keys(f.ui.map.layers);
+  let w = 0;
+  const rows = ids.map((id, i) => {
+    const s = (i + 1) + ' ' + id.toUpperCase();
+    w = Math.max(w, textWidth(s));
+    return { s, on: f.ui.map.layers[id] };
+  });
+  const h = rows.length * 8 + 4;
+  const x = 3, y = Math.max(HEADER_H + 2, f.H - h - 3);
+  g.globalAlpha = 0.72; R(g, x, y, w + 6, h, INK.back); g.globalAlpha = 1;
+  rows.forEach((r, i) => drawText(g, r.s, x + 3, y + 2 + i * 8, r.on ? INK.ui : INK.dim, 1, 1));
 }
