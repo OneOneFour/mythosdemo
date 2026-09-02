@@ -81,7 +81,7 @@ import { defOf, machines, write as mw } from '../model/machines.js';
 import { eff } from '../model/mods.js';
 import { PH, PW, player, playerBox, write as pw } from '../model/player.js';
 import { burdenOf, run } from '../model/run.js';
-import { carrierBox, carrierPos, carries, headframe, inHeadframe, riddenSegment, segments, write as segw } from '../model/segments.js';
+import { carrierBox, carrierPos, carries, headframe, inHeadframe, riddenSegment, segments, segmentsAt, write as segw } from '../model/segments.js';
 import { solidAt } from '../model/tiles.js';
 import { bandAt, bands, tileX, tileY } from '../model/world.js';
 
@@ -261,6 +261,21 @@ function drive(s, dt) {
   for (const it of aboard) it.rest = 0;
   push('winch', { x: after.x, y: after.y },
        { to: (seg.band || player.band)?.id, units: aboard.length });
+
+  /* THE CHAIN CAN DEAD-END, AND UNTIL NOW NOTHING SAID SO. The 'winch' row
+     just above fires on every arrival at every segment's own top hub,
+     relay leg or not -- so a haul arriving at a hub that is neither a
+     RECEIVER (`tribute:{}`/`ports`) nor anchors any OTHER segment reads as
+     "delivered" when it is actually STRANDED: nothing will ever move it
+     again except a player who walks up and carries it by hand. One more
+     journal row, the SAME 'refused' kind `'TOO HEAVY TO LIFT'` above already
+     uses, so `shell/notify.js#TEXT.refused` needs no new case -- and it
+     fires once, on the SAME edge-triggered `arrived` this whole block is
+     already gated on, never once per frame the haul sits there. */
+  const topHub = seg.hi === 'a' ? seg.a : seg.b;
+  const topDef = defOf(topHub);
+  if (!topDef.tribute && !topDef.ports && segmentsAt(topHub).every(other => other === seg))
+    push('refused', { x: after.x, y: after.y }, { why: 'THE CHAIN ENDS HERE -- NOTHING WAITS TO CARRY IT ON' });
 }
 
 const pick = (a, b) => (!a ? b : !b ? a : (b.supply > a.supply ? b : a));

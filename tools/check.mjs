@@ -4136,6 +4136,106 @@ console.log('\n8. Phase 11 TIER 2 harness gaps');
        'well inside the flood\'s own radius, and the flood stops exactly there -- the light gate, not the cap');
 }
 
+/* --- HEAVENS LEDGER, sub-bullet: delivery with a broken lift chain fails and
+   says why. CHECKED FIRST, BEFORE WRITING A TEST: does anything in
+   `rules/drive.js` or `rules/cycles.js` surface a "why" when a haul arrives
+   at a hub with nowhere further to go? It did not -- `drive(s, dt)`'s own
+   'winch' journal row (`"<n> DELIVERED TO <BAND>"`) fires on arrival at
+   EVERY segment's own top hub, relay leg or not, so a haul stranded at a
+   dead-end hub read exactly like a real delivery. That is a real gap in the
+   GAME, not only in this test suite (CLAUDE.md's own caution against a test
+   that asserts behaviour that is not there), so `rules/drive.js` gains the
+   minimal fix first: the SAME 'refused' journal kind `'TOO HEAVY TO LIFT'`
+   already uses, fired once, on the same edge-triggered arrival, when the
+   top hub is neither a receiver (`tribute:{}`/`ports`) nor anchors any
+   OTHER segment. Tested here in three shapes: the dead end itself, a real
+   receiver (must NOT fire), and a mid-chain hub with a segment still beyond
+   it (must NOT fire either -- a relay leg is not a dead end). */
+console.log('\n8b. broken-chain delivery (rules/drive.js fix, checked here)');
+{
+  let bad = 0;
+
+  /* A. THE DEAD END: one segment, cranked to arrival, nothing beyond it. */
+  {
+    const r = driveRig({
+      seed: 9570, room: { ty0: 100, h: 18 },
+      machines: [['hub', 20, 115], ['hub', 20, 105], ['crank', 19, 115]],
+      links: [[0, 1]], player: [18, 115], cargo: [[0, 'copper', 'ore', 1]]
+    });
+    journal.write.drain();
+    for (let i = 0; i < 120 * 30 && r.seg.t < 1; i++) stepReal(1 / 120, { turn: true, hasMouse: false });
+    runReal(5, 1 / 120, { turn: true, hasMouse: false });
+    const rows = journal.write.drain().filter(j => j.kind === 'refused' && /CHAIN ENDS HERE/.test(j.data?.why ?? ''));
+    if (r.seg.t < 1) {
+      fail(`BROKEN CHAIN: the rig only reached t = ${r.seg.t.toFixed(3)} in 30 s of cranking -- the ` +
+           'arrival this test needs never happened');
+      bad++;
+    } else if (!rows.length) {
+      fail('BROKEN CHAIN: a haul arrived at a dead-end hub (no receiver, no onward segment) and no ' +
+           "'refused'/'THE CHAIN ENDS HERE' journal row was pushed -- the delivery failed silently");
+      bad++;
+    } else {
+      console.log(`  ..  broken chain: a dead-end arrival pushed ${JSON.stringify(rows[0].data)}`);
+    }
+  }
+
+  /* B. A REAL RECEIVER: the SAME shape, `cloud_dock` in place of the second
+     hub. Must NOT fire -- a dock is somewhere, not nowhere. */
+  {
+    const r = driveRig({
+      seed: 9571, room: { ty0: 100, h: 18 },
+      machines: [['hub', 20, 115], ['cloud_dock', 20, 105], ['crank', 19, 115]],
+      links: [[0, 1]], player: [18, 115], cargo: [[0, 'copper', 'ore', 1]]
+    });
+    journal.write.drain();
+    for (let i = 0; i < 120 * 30 && r.seg.t < 1; i++) stepReal(1 / 120, { turn: true, hasMouse: false });
+    runReal(5, 1 / 120, { turn: true, hasMouse: false });
+    const rows = journal.write.drain().filter(j => j.kind === 'refused' && /CHAIN ENDS HERE/.test(j.data?.why ?? ''));
+    if (r.seg.t < 1) {
+      fail(`BROKEN CHAIN: the dock rig only reached t = ${r.seg.t.toFixed(3)} in 30 s of cranking -- the ` +
+           'arrival this negative case needs never happened');
+      bad++;
+    } else if (rows.length) {
+      fail(`BROKEN CHAIN: a haul arrived at a real receiver (cloud_dock) and still got ` +
+           `${JSON.stringify(rows[0].data)} -- the new refusal is firing somewhere it should not`);
+      bad++;
+    } else {
+      console.log('  ..  broken chain: a real receiver (cloud_dock) gets no dead-end refusal');
+    }
+  }
+
+  /* C. A MID-CHAIN HUB: A-B-C, two segments, cranked to arrival at B. B
+     anchors a SECOND segment onward (to C), so this is a relay leg, not a
+     dead end, and must NOT fire either. */
+  {
+    const r = driveRig({
+      seed: 9572, room: { ty0: 90, h: 28 },
+      machines: [['hub', 20, 115], ['hub', 20, 105], ['hub', 20, 95], ['crank', 19, 115]],
+      links: [[0, 1], [1, 2]], player: [18, 115], cargo: [[0, 'copper', 'ore', 1]]
+    });
+    journal.write.drain();
+    for (let i = 0; i < 120 * 30 && r.segs[0].t < 1; i++) stepReal(1 / 120, { turn: true, hasMouse: false });
+    runReal(5, 1 / 120, { turn: true, hasMouse: false });
+    const rows = journal.write.drain().filter(j => j.kind === 'refused' && /CHAIN ENDS HERE/.test(j.data?.why ?? ''));
+    if (r.segs[0].t < 1) {
+      fail(`BROKEN CHAIN: the A-B-C rig only reached t = ${r.segs[0].t.toFixed(3)} on its lower segment in ` +
+           '30 s of cranking -- the arrival this negative case needs never happened');
+      bad++;
+    } else if (rows.length) {
+      fail(`BROKEN CHAIN: a haul arrived at hub B, which anchors a SECOND segment onward to C, and still ` +
+           `got ${JSON.stringify(rows[0].data)} -- a relay leg is being flagged as a dead end`);
+      bad++;
+    } else {
+      console.log('  ..  broken chain: a mid-chain hub (a second segment still beyond it) gets no dead-end refusal');
+    }
+  }
+
+  if (!bad)
+    ok('BROKEN CHAIN: rules/drive.js now pushes a \'refused\'/\'THE CHAIN ENDS HERE\' row exactly when a ' +
+       'haul arrives at a hub with no receiver and no onward segment, and never for a real receiver or a ' +
+       'mid-chain relay leg');
+}
+
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +
             `journal ${journal.peek ? journal.peek().length : 0} undrained`);
