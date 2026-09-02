@@ -609,6 +609,79 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
+  /* ---- 18. THE TRANSPORT INTERPRETER BLOCKS ARE WELL FORMED (Phase 8g).
+     `hub`, `crank` and `gear` are read by exactly the generic-interpreter
+     route every other key here takes, which means a typo in one of them fails
+     SILENTLY and permanently rather than loudly: `hub:{ carries:['players'] }`
+     makes `model/segments.js#carries(seg,'player')` answer false for ever, so
+     every carrier in the game quietly refuses to bear a rider and nothing
+     anywhere throws. That is the exact failure mode this file exists for -- a
+     typo in `data/` must fail here, not at 3am.
+
+     `tools/check.mjs` asserts the BEHAVIOUR of these numbers (torque
+     conservation, gear-loss monotonicity, the diagonal zero); this asserts
+     they are numbers at all, and in the range the behaviour assumes. The
+     `carries` vocabulary is hardcoded for the same reason assertion 10
+     hardcodes 'suppress'/'invert': it is a closed set defined by
+     `rules/drive.js`'s two call sites, and a lint may not learn its
+     vocabulary from the data it is linting.
+
+     Plus one existence check per key. Every one of them is a whole mechanic --
+     no hub row means no cable can ever be anchored, no crank row means no
+     torque can ever be supplied -- and CLAUDE.md's own list of mistakes
+     includes a tool that was moved and left the project unable to build for
+     two commits. A deleted row should say so here. ---- */
+  const CARRIES = ['material', 'player'];
+  const finitePos = v => typeof v === 'number' && Number.isFinite(v) && v > 0;
+  const seen = { hub: 0, crank: 0, gear: 0 };
+  for (const m of MACH) {
+    if (m.hub) {
+      seen.hub++;
+      checks++;
+      if (!finitePos(m.hub.reach))
+        fail(`machine "${m.id}": hub.reach is ${JSON.stringify(m.hub.reach)}, not a finite positive ` +
+             `number of px -- model/segments.js#reachOf multiplies it by eff('segReach') and compares ` +
+             `a length against it, so a link would be refused or accepted at every distance`);
+      checks++;
+      if (!Array.isArray(m.hub.carries) || m.hub.carries.length === 0)
+        fail(`machine "${m.id}": hub.carries is ${JSON.stringify(m.hub.carries)}, not a non-empty ` +
+             `array -- a carrier that may bear nothing is a cable with no purpose`);
+      else for (const what of m.hub.carries) {
+        checks++;
+        if (!CARRIES.includes(what))
+          fail(`machine "${m.id}": hub.carries names "${what}", which nothing reads. The only two ` +
+               `values rules/drive.js ever asks for are ${CARRIES.map(c => `"${c}"`).join(' and ')}, ` +
+               `and an unknown one fails silently for the whole run`);
+      }
+    }
+    if (m.crank) {
+      seen.crank++;
+      checks++;
+      if (!finitePos(m.crank.torque))
+        fail(`machine "${m.id}": crank.torque is ${JSON.stringify(m.crank.torque)}, not a finite ` +
+             `positive drive figure -- docs/SPEC.md 17.9 denominates supply in these units`);
+      checks++;
+      if (!finitePos(m.crank.reach))
+        fail(`machine "${m.id}": crank.reach is ${JSON.stringify(m.crank.reach)}, not a finite ` +
+             `positive number of px -- it is the slack in the same overlaps() call handFeed uses`);
+    }
+    if (m.gear) {
+      seen.gear++;
+      checks++;
+      const loss = m.gear.loss;
+      if (typeof loss !== 'number' || !Number.isFinite(loss) || loss < 0 || loss >= 1)
+        fail(`machine "${m.id}": gear.loss is ${JSON.stringify(loss)}; it is a FRACTION lost per hop ` +
+             `and must be in [0, 1). At 0 a drivetrain sprawls for free (docs/PLAN-gears-and-winches.md ` +
+             `section 4.1's whole reason for the key) and at 1 or more it delivers nothing or negates`);
+    }
+  }
+  for (const [key, n] of Object.entries(seen)) {
+    checks++;
+    if (n === 0)
+      fail(`no machine row carries a \`${key}\` block -- that is a whole mechanic with no content ` +
+           `behind it (a hub anchors every cable, a crank supplies all torque, a gear carries it)`);
+  }
+
   if (!quiet) {
     for (const v of violations) console.error(`  FAIL ${v}`);
     const verdict = violations.length ? 'FAIL' : 'ok  ';

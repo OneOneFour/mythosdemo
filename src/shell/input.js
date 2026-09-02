@@ -26,7 +26,7 @@ import { machineAt } from '../model/machines.js';
 import { invCount } from '../model/run.js';
 import { drawn as uiDrawn } from '../view/ui/state.js';
 import { slotForDigit } from '../view/ui/quickbar.js';
-import { MAP_ZOOM, mapView } from '../view/overview.js';
+import { MAP_ZOOM, mapClamp, mapView } from '../view/overview.js';
 import { audio, unlockAudio } from './audio.js';
 import {
   armPlace, clearArmedPlace, clearLink, closeTop, isOpen, mapDragEnd, mapDragStart,
@@ -171,6 +171,37 @@ const MAP_FAST = 4;        // shift multiplier
    is no scale to divide by yet, and nothing to look at either). */
 const mapWorld = px => (mapView.active && mapView.scale > 0 ? px / mapView.scale : 0);
 
+/* EVERY PAN GOES THROUGH HERE, and it seeds the offset from WHERE THE VIEW
+   ACTUALLY IS before adding the delta. Two bugs, one fix, both found by driving
+   the real key events rather than by reading the code:
+
+     HANDING OFF FROM FOLLOW. `ui.map.x/y` is whatever it was last set to, which
+     while FOLLOW is on is nothing to do with what is on screen -- so the first
+     manual scroll used to JUMP to a stale offset (0,0 on a fresh run) instead of
+     nudging the view the player was looking at. Seeding from `mapView.wx/wy`,
+     the clamped position the last frame actually drew, makes the handoff
+     seamless.
+
+     NO OVERSCROLL (Phase 9 section 2 says so in as many words). The stored
+     offset is deliberately unclamped -- `view` owns the clamp -- so holding the
+     pan key at the bottom of the world parked it thousands of pixels past the
+     edge, and it then took as many presses the other way before anything moved.
+     Clamping the SEED through `view/overview.js#mapClamp` (the same `fit` the
+     transform uses, not a second copy) bounds the stored value to one press
+     outside the world at worst.
+
+   Two presses inside one frame still both count: the first leaves a value
+   already inside the bounds, so clamping it again is a no-op and the second adds
+   to it. */
+function mapPan(dx, dy) {
+  const m = ui.map;
+  const seed = m.follow && mapView.active
+    ? { x: mapView.wx, y: mapView.wy }
+    : mapClamp(m.x, m.y);
+  mapPark(seed.x, seed.y);
+  mapScroll(dx, dy);
+}
+
 /* ZOOM KEEPS THE CENTRE, not the top-left corner. The new scale is derived from
    the recorded one by ratio rather than recomputed from `minTile` -- one file
    owns that arithmetic (`view/overview.js`) and this is the same number it just
@@ -208,10 +239,10 @@ function mapDigit(k) {
 function mapKey(k, shift) {
   const step = mapWorld(MAP_PAN) * (shift ? MAP_FAST : 1);
   switch (k) {
-    case 'w': case 'arrowup':    mapScroll(0, -step); return true;
-    case 's': case 'arrowdown':  mapScroll(0,  step); return true;
-    case 'a': case 'arrowleft':  mapScroll(-step, 0); return true;
-    case 'd': case 'arrowright': mapScroll( step, 0); return true;
+    case 'w': case 'arrowup':    mapPan(0, -step); return true;
+    case 's': case 'arrowdown':  mapPan(0,  step); return true;
+    case 'a': case 'arrowleft':  mapPan(-step, 0); return true;
+    case 'd': case 'arrowright': mapPan( step, 0); return true;
     case '=': case '+': case ']': mapZoomBy(1);  return true;
     case '-': case '_': case '[': mapZoomBy(-1); return true;
     /* 'f' is the crank hold in play. It is not doubled up here: this branch
@@ -494,8 +525,8 @@ export function installInput() {
     if (flags.showMap) {
       const dir = Math.sign(e.deltaY);
       if (e.ctrlKey || e.metaKey) mapZoomBy(-dir);
-      else if (e.shiftKey) mapScroll(mapWorld(MAP_WHEEL_PAN) * dir, 0);
-      else mapScroll(0, mapWorld(MAP_WHEEL_PAN) * dir);
+      else if (e.shiftKey) mapPan(mapWorld(MAP_WHEEL_PAN) * dir, 0);
+      else mapPan(0, mapWorld(MAP_WHEEL_PAN) * dir);
       e.preventDefault();
       return;
     }

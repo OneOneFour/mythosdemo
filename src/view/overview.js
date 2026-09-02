@@ -217,6 +217,28 @@ function transform(f) {
 const sxOf = (v, wx) => (v.vx + (wx - v.wx) * v.scale) | 0;
 const syOf = (v, wy) => (v.vy + (wy - v.wy) * v.scale) | 0;
 
+/* THE CLAMP, EXPOSED, and it is the same `fit` over the same `unionBox` the
+   transform above uses -- one implementation, two callers, which is the whole
+   reason `shell` is not allowed its own copy (`shell/ui.js`'s own header, and
+   `shell/main.js#clampCam`'s bug history behind that).
+
+   `shell/input.js` needs it because `ui.map.x/y` is stored UNCLAMPED: a player
+   who holds the pan key at the bottom of the world parks the stored offset
+   thousands of pixels past the edge, and then has to press the other way just as
+   many times before the view moves at all. That is overscroll, which Phase 9
+   section 2 rules out. So a pan seeds from the clamped position first and adds
+   its delta to that -- the same "absolute, not incremental" shape `mapDragTo`
+   already has. Before the first draw there is no transform to clamp against and
+   the offset is returned unchanged; the next draw clamps it anyway. */
+export function mapClamp(x, y) {
+  if (!mapView.active || !(mapView.scale > 0)) return { x, y };
+  const box = unionBox();
+  return {
+    x: fit(x, box.left, box.w, mapView.vw / mapView.scale),
+    y: fit(y, box.top, box.h, mapView.vh / mapView.scale)
+  };
+}
+
 /* And back again, for `shell`'s drag-to-scroll and hover. Exported because
    the pointer dispatcher lives in `shell` and must invert exactly this. */
 export const mapWorldAt = (sx, sy) => ({
