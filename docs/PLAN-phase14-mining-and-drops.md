@@ -621,6 +621,32 @@ Every one of these numbers goes into `docs/SPEC.md` **first** (§19 -- see
 the correction note in §5),
 per that file's own header rule.
 
+**CORRECTION, made while 14d was implemented. Every `blobs` count in the table
+above is wrong, and the reason is one this document did not see.** The table
+says "÷ charge", and for the counts that is not the arithmetic. Hollow-wall
+lining (SPEC §16.4) is opted into by `line:true`, not by `count` -- and
+`rules/generate.js#blobs` scatters `count` clusters and *then* lines every
+hollow it claimed, so a row with `count:0` still lines. The lining term is
+therefore a **fixed floor that the retune does not touch**, and dividing only
+the count leaves it whole. Measured over 200 seeds, this table lands
+**+43.2% / +34.5% / +36.5% / +35.7% / +31.7%** against the pre-14b cell totals
+-- outside the ±10% band 6.4 sets, on all five rows.
+
+The shipped counts, solved against the measurement instead, are
+**5 / 34 / 26 / 19 / 15** (surface copper, topsoil copper/tin/granite/adamant)
+and land **+2.6% / −1.4% / −1.3% / −0.6% / −2.9%**. Two iterations: one linear
+fit per row against two measured points, then one verification pass. The real
+numbers, the measurement method and the lining breakdown are
+**`docs/SPEC.md` §19.7**, which is the source of truth; the table above is
+kept as written so the mistake is legible rather than erased.
+
+**The `vein` row is the one this document got right first time.** `r:2.4, n:1`
+measures 6.0 cells and 24.0 units over 200 seeds, exactly as predicted, and
+its "~30 cells" for the old `r:3.6, n:3` was 23.9. Two smaller slips in the
+same row: the furnace bill is SPEC **§13**, not §15 (§15 is the machine-item
+reversal), and 12 `copper/ore` is a *build* bill, so the assertion 14d added
+treats 22 units as the floor and 10 as the beat-3 floor separately.
+
 ### D14-G — the depletion cue is a live overlay, not a chunk bake
 
 A player must be able to see that a vein is half spent. Two things say where

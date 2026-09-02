@@ -108,18 +108,33 @@ export const BANDS = [
          fistfight between the first ladder and the first smelt (`log` is the
          only fuel). */
       { kind:'trees', sub:'timber', fromTy:10, toTy:28, chance:0.06, height:[3, 5] },
-      /* `count` is up from 14 and `r` slightly wider because a cruciform
-         cluster is roughly half the cells a same-radius disc was: the total
-         copper in the band is held near where it was, deliberately, since
-         docs/SPEC.md section 5's first trial asks for 10 raw copper and
-         section 15's furnace bill for 12 more. */
-      { kind:'blobs', sub:'copper', fromTy:26, toTy:56, count:26, r:[1.6, 3.4], line:true },
+      /* `count` is DOWN from 26 -- and was up from 14 before that. Both moves
+         are the same move: a `count` here buys CELLS, and what docs/SPEC.md
+         section 16.5 holds near constant is total ore UNITS. Phase 7 made a
+         cell smaller (cruciform, ~half the cells of a same-radius disc) so
+         every count rose; Phase 14b made a cell worth `tile.charge` units
+         (copper 4) so every count falls again. Measured over 200 seeds, this
+         band's copper is 239.6 units against the 233.6 cells it was before
+         charge existed (+2.6%) -- see docs/SPEC.md section 19.7 for the whole
+         table. The bill this has to cover is unchanged: section 5's first
+         trial asks for 10 raw copper and section 13's furnace bill for 12
+         more (section 13, not 15 -- the bill is in the buildable-machine-cost
+         table; docs/PLAN-phase14-mining-and-drops.md D14-F cites 15). */
+      { kind:'blobs', sub:'copper', fromTy:26, toTy:56, count:5, r:[1.6, 3.4], line:true },
       /* The guaranteed first vein, so the first two minutes cannot fail to
-         find copper. `near:'spawn'` is resolved by worldgen, not here. `dy:6`
-         with `n:3` overlapping stars puts the vein's top at row 25 even on the
-         unluckiest arm roll -- a 5-tile dig, which is the beat docs/SPEC.md
-         section 5 promises -- and makes it a body rather than a plus sign. */
-      { kind:'vein',  sub:'copper', near:'spawn', dy:6, r:3.6, n:3 }
+         find copper. `near:'spawn'` is resolved by worldgen, not here.
+         `r:2.4, n:1` is ONE star of exactly 6 cells -- `star()` gives
+         `clamp(round(2.4*2),4,8)` = 5 arms, and 2.4 is not ABOVE `ORE_LONG`
+         (2.4) so no arm is 2 long and no shoulder grows -- which puts its top
+         at row 25, the 5-tile dig docs/SPEC.md section 5's beat 3 promises,
+         with no arm roll left to be unlucky about. At charge 4 that is 24
+         copper units, asserted as a floor over 200 seeds by
+         `tools/worldgen-check.mjs`'s VEIN UNITS property.
+         It was `r:3.6, n:3` -- three overlapping stars, 23.9 cells over 200
+         seeds -- which at charge 4 is 95.5 units against a cycle-1 demand of
+         10, i.e. the first trial paid for nine times over by the tutorial
+         hole before the player has met a machine. */
+      { kind:'vein',  sub:'copper', near:'spawn', dy:6, r:2.4, n:1 }
     ],
     look:{ sky:'skyLo', tint:'soilA', ambient:0.95 } },
 
@@ -151,20 +166,28 @@ export const BANDS = [
          The 2-row ceiling rule in `rules/generate.js` is what actually keeps a
          hollow off this band's own top rows. */
       { kind:'hollows', fromTy:4, toTy:320, count:180, r:[1.6, 3.8], steps:[2, 4], bias:0.85 },
-      /* `count` up across the board because a cruciform cluster is about half
-         the cells the same-radius disc was; see the surface band's copper row.
+      /* `count` DOWN across the board, because a cell is now worth
+         `tile.charge` units (copper/tin 4, granite 3, adamant 2) and what
+         docs/SPEC.md section 16.5 holds constant is UNITS, not cells; see the
+         surface band's copper row for the same argument at length, and
+         section 19.7 for the measured table. These are NOT charge division
+         sums: the hollow-lining pass below does not scale with `count`, so a
+         naive count/charge overshoots by a third. They were solved against
+         the measurement -- 160/126/78/40 before charge, and docs/PLAN-phase14
+         -mining-and-drops.md D14-F's first guess of 48/38/30/22 landed +32..37%.
          `line:true` opts a row into hollow-wall lining, and the DEEPEST such
          row whose window holds a hollow claims it -- so the jackpot behind a
          fall in the dark is graded by depth: copper shallow, then tin, then
-         granite, then adamant. */
-      { kind:'blobs', sub:'copper', fromTy:4,  toTy:180, count:160, r:[1.6, 3.8], line:true },
-      { kind:'blobs', sub:'tin',    fromTy:60, toTy:320, count:126, r:[1.6, 3.8], line:true },
+         granite, then adamant. Note that lining is opted in by the FLAG and
+         not by the count, so a row still lines its hollows at any `count`. */
+      { kind:'blobs', sub:'copper', fromTy:4,  toTy:180, count:34, r:[1.6, 3.8], line:true },
+      { kind:'blobs', sub:'tin',    fromTy:60, toTy:320, count:26, r:[1.6, 3.8], line:true },
       /* Deeper strata for Phase 2c's pick-tier gate: granite uncommon below
          the copper/tin bands, adamant rarer still and deeper again, so the
          tier gate has somewhere meaningful to bite once a bronze pickaxe
          cannot break either. */
-      { kind:'blobs', sub:'granite', fromTy:120, toTy:320, count:78, r:[1.4, 3.0], line:true },
-      { kind:'blobs', sub:'adamant', fromTy:220, toTy:320, count:40, r:[1.2, 2.4], line:true }
+      { kind:'blobs', sub:'granite', fromTy:120, toTy:320, count:19, r:[1.4, 3.0], line:true },
+      { kind:'blobs', sub:'adamant', fromTy:220, toTy:320, count:15, r:[1.2, 2.4], line:true }
     ],
     look:{ sky:'abyB', tint:'irD', ambient:0.6 } }
 ];

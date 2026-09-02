@@ -1840,3 +1840,48 @@ Consequences, in the order they bite:
    `view/scene.js#tileWindow`. Pure extraction: every one of the 100 visual
    baselines is bit-identical across it, which is the only evidence worth
    having for a refactor of a renderer.
+
+---
+
+## Phase 14d (the worldgen rebalance) — three things parked
+
+1. **`count / charge` is the wrong arithmetic, and the plan's own indicative
+   table is the worked example.** `docs/PLAN-phase14-mining-and-drops.md`
+   D14-F proposed 8 / 48 / 38 / 30 / 22 as "÷ charge"; measured over 200 seeds
+   those land **+43.2% / +34.5% / +36.5% / +35.7% / +31.7%** against the
+   pre-14b cell totals. The reason is `rules/generate.js#blobs`: hollow-wall
+   lining is opted in by `line:true` and runs *after* the `count` loop in the
+   same call, so a row with `count:0` still lines every hollow it claimed.
+   The lining term is a **fixed floor that no count change touches** — at the
+   shipped counts it is 34% of `topsoil` granite's ore and 36% of its adamant
+   — so dividing the count alone leaves it whole. Shipped: 5 / 34 / 26 / 19 /
+   15, all within ±2.9%. Written up as `docs/SPEC.md` §19.7 with a correction
+   note in the plan. **Anyone retuning ore again should solve against the
+   measurement, not against the charge.**
+
+2. **The beat-3 margin is 2 units, and that is thinner than it looks.**
+   `tools/worldgen-check.mjs`'s new VEIN UNITS property measures 24 copper
+   units within a 5-break dig on **every** seed of 200 — min, median and mode
+   all 24, because at `r:2.4` the guaranteed vein's star has no random arm
+   length and no shoulder, so it is exactly 6 cells forever. The bill is 10
+   (§5 beat 3) + 12 (§13's furnace) = 22. **Not fixed here** because 24 ≥ 22
+   and the vein shape is D14-F's own decision, but note what the zero variance
+   means: the margin is not a distribution with a bad tail, it is a constant.
+   Any future change to `charge`, to the furnace bill, or to `ORE_LONG` moves
+   it in one step, and the assertion is deliberately placed to fail loudly
+   when it does. If more slack is ever wanted, `r:2.6` crosses `ORE_LONG` and
+   makes the vein 6–11 cells (24–44 units) at the cost of putting its top row
+   at 24 on some seeds — i.e. a 4-tile dig, which contradicts §5's "5 tiles".
+
+3. **`surface` copper is now 5 clusters in a 128 × 30 band, and nothing
+   asserts that a wandering player ever meets one.** The unit total is right
+   (239.6 vs 233.6 cells, +2.6%) and 66 of those units come from hollow
+   lining, so most of the band's copper is *inside rooms* rather than in the
+   open rock a surface-walking player breaks. That is the intended "fewer,
+   smaller, richer" consequence D14-F names, and the guaranteed vein covers
+   the tutorial regardless — but it does change what the surface band *reads*
+   as, and no harness has an opinion about discoverability as distinct from
+   reachability (property 9 only asks whether an ore body can be reached at
+   its own tier, which a body sealed in a dark room passes). **Parked**: a
+   "how far must a player walk before meeting ore they can see" property is a
+   real gap, and it is a Phase 14e-shaped question, not a 14d one.

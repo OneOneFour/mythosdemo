@@ -26,7 +26,7 @@ import { AIR } from '../src/data/forms.js';
 import { BANDS } from '../src/data/world.js';
 import * as boot from '../src/shell/boot.js';
 import { bands } from '../src/model/world.js';
-import { solidAt, subAt, tileAt, skyExposedAt } from '../src/model/tiles.js';
+import { solidAt, subAt, tileAt, skyExposedAt, baseChargeAt } from '../src/model/tiles.js';
 
 let failures = 0;
 const fail = m => { console.error('  FAIL  ' + m); failures++; process.exitCode = 1; };
@@ -50,6 +50,26 @@ const STEP_GAP = 12;  // rules/generate.js#STEP_GAP -- min columns between two b
 const HOLLOW_ROOF = 2; // rules/generate.js#HOLLOW_ROOF -- rock rows required over a hollow
 
 const SEEDS = Number(process.env.WORLDGEN_SEEDS) || 200;
+
+/* ---- THE TWO COPPER BILLS THE FIRST TWO MINUTES OWE, in UNITS.
+   `TRIAL_COPPER` is docs/SPEC.md section 5 beat 3 / section 18.4's cycle-1
+   row: "First Trial: deliver 10 raw copper". `FURNACE_COPPER` is section 13's
+   build bill for `furnace` (12 `copper/ore` + 6 `timber/log`), which is what
+   the same hole has to pay for next. Typed here rather than read off
+   `data/machines.js` on purpose: section 5's beat sheet is the thing being
+   asserted, and it names a NUMBER, not a machine -- if the furnace's bill
+   ever changes, whether the tutorial still fits is a design question that
+   should surface as a failing assertion here and be answered deliberately,
+   not tracked silently. ---- */
+const TRIAL_COPPER   = 10;
+const FURNACE_COPPER = 12;
+
+/* Copper units within a 5-break dig, per seed -- the FLOOR is asserted per
+   seed in property 3; this collects the distribution so the sweep can print
+   the CEILING too (docs/PLAN-phase14-mining-and-drops.md's risk register asks
+   for it: an absurdly rich guaranteed vein ends cycle 1 in fifteen seconds,
+   and only a max can show that). */
+const veinUnits = [];
 
 /* ============================================================
    SHARED GEOMETRY HELPERS, over the LIVE band records `boot.newRun` just
@@ -213,7 +233,8 @@ function checkSeed(seed) {
       fail(`seed ${seed}: SHELF -- column ${bad} sits at row ${groundRow(surface, bad)}, spawn row is ${want} (shelf spans ${SPAWN_TX - SHELF}..${SPAWN_TX + SHELF})`);
   }
 
-  /* ---- 3. the guaranteed copper vein: present, within a 5-tile dig.
+  /* ---- 3. the guaranteed copper vein: present, within a 5-tile dig, and
+     RICH ENOUGH -- measured in UNITS, not in cells (Phase 14d).
      "Reaching" a tile means standing next to it, ready to strike it -- the
      beat sheet's own words are "dig down 5 tiles ... mine 6 copper", so the
      fifth break delivers the player TO the vein and the sixth is the first
@@ -222,29 +243,59 @@ function checkSeed(seed) {
      seeds where the vein sits precisely 5 breaks deep, which is the depth
      `data/world.js`'s own `dy:6` comment says it is GUARANTEED to reach --
      so that first version was measuring the wrong thing (CLAUDE.md's own
-     recorded mistake), not finding a real bug. ---- */
+     recorded mistake), not finding a real bug.
+
+     WHY UNITS AND NOT CELLS. Since Phase 14b a deposit tile yields
+     `tile.charge` units (copper 4), so "is there a copper CELL down there"
+     no longer answers the question docs/SPEC.md section 5 beat 3 and
+     section 13 actually ask, which is for a QUANTITY: 10 raw copper for the
+     first trial and 12 more for the furnace bill. A cells-based check would
+     under-count what is really available by a factor of `charge` and would
+     go on passing while the delivered amount fell under 10 -- exactly the
+     silent-pass this file's own header warns about. So the copper found is
+     summed through `model/tiles.js#baseChargeAt`, the same query mining
+     itself reads, and the two floors are asserted separately so a failure
+     says WHICH promise broke.
+
+     A COPPER EDGE IS FREE. Only NON-copper rock spends the 5-break budget:
+     once the dig has arrived, mining through the vein is the reward, not
+     part of the cost of reaching it. Every cell of a 6-cell cruciform vein
+     is therefore counted, which is what makes 24 the floor rather than 4.
+     Base charge, not `eff('richness')`: this asserts what worldgen laid
+     down, and a `richness` boon cannot exist at t=0 of a fresh run. ---- */
   {
     const start = { bi: 0, tx: SPAWN_TX, ty: FLOOR_TY - 1 };
     const seen = new Map([[keyOf(start), 0]]);
     const queue = [[start, 0]];
-    let found = false;
-    for (let qi = 0; qi < queue.length && !found; qi++) {
+    const copper = new Map();               // tile key -> its units, deduped
+    for (let qi = 0; qi < queue.length; qi++) {
       const [node, cost] = queue[qi];
+      if (seen.get(keyOf(node)) < cost) continue;      // already relaxed cheaper
       for (const nb of neighboursOf(gridBands, node)) {
         const b = gridBands[nb.bi];
         const byte = tileAt(b, nb.tx, nb.ty);
         const isAir = byte === AIR;
-        if (!isAir && subAt(b, nb.tx, nb.ty) === S.copper) { found = true; break; }
-        if (!isAir && tierOf(subAt(b, nb.tx, nb.ty)) > 1) continue;   // stock pick only
-        const nc = cost + (isAir ? 0 : 1);
+        const sub = isAir ? -1 : subAt(b, nb.tx, nb.ty);
+        const isCopper = sub === S.copper;
+        if (!isAir && !isCopper && tierOf(sub) > 1) continue;   // stock pick only
+        const nc = cost + (isAir || isCopper ? 0 : 1);
         if (nc > 5) continue;
         const k = keyOf(nb);
+        if (isCopper) copper.set(k, baseChargeAt(b, nb.tx, nb.ty));
         if (seen.has(k) && seen.get(k) <= nc) continue;
         seen.set(k, nc);
         queue.push([nb, nc]);
       }
     }
-    if (!found) fail(`seed ${seed}: VEIN -- no copper reachable within a 5-tile dig from spawn (${SPAWN_TX},${FLOOR_TY})`);
+    let units = 0;
+    for (const u of copper.values()) units += u;
+    veinUnits.push(units);
+    if (!copper.size)
+      fail(`seed ${seed}: VEIN -- no copper reachable within a 5-tile dig from spawn (${SPAWN_TX},${FLOOR_TY})`);
+    else if (units < TRIAL_COPPER)
+      fail(`seed ${seed}: VEIN UNITS -- only ${units} copper unit(s) in ${copper.size} cell(s) within a 5-tile dig from spawn; docs/SPEC.md section 5 beat 3 promises ${TRIAL_COPPER}`);
+    else if (units < TRIAL_COPPER + FURNACE_COPPER)
+      fail(`seed ${seed}: VEIN UNITS -- ${units} copper unit(s) within a 5-tile dig covers the ${TRIAL_COPPER}-copper first trial but not the ${FURNACE_COPPER} more docs/SPEC.md section 13's furnace bill wants (${TRIAL_COPPER + FURNACE_COPPER} total)`);
   }
 
   /* ---- 4. within SAFE_R of spawn, no adjacent-column fall > 5 tiles ---- */
@@ -382,7 +433,22 @@ for (let seed = 1; seed <= SEEDS; seed++) {
 
 const ms = Date.now() - t0;
 console.log(`  ..  ${SEEDS} seeds in ${ms} ms (${(ms / SEEDS).toFixed(2)} ms/seed)`);
-if (!failures) ok(`${SEEDS} seeds, 0 violations -- determinism, shelf, vein, safe fall, ` +
+
+/* THE CEILING, PRINTED AND NOT ASSERTED. The floor is a promise
+   (docs/SPEC.md section 5 beat 3) and so it is a failure; "the vein is too
+   rich" is a judgement about pacing with no locked number behind it, so it is
+   a printed figure a human reads. Printing it is what makes the tightness of
+   the margin visible -- 24 against a 22-unit bill is 2 spare, and that is
+   worth seeing in the log rather than rediscovering. */
+if (veinUnits.length) {
+  const s = [...veinUnits].sort((a, b) => a - b);
+  const mean = s.reduce((a, b) => a + b, 0) / s.length;
+  console.log(`  ..  vein copper UNITS within a 5-break dig: min ${s[0]}, median ` +
+              `${s[s.length >> 1]}, mean ${mean.toFixed(1)}, max ${s[s.length - 1]} ` +
+              `(floor ${TRIAL_COPPER} + ${FURNACE_COPPER} = ${TRIAL_COPPER + FURNACE_COPPER})`);
+}
+
+if (!failures) ok(`${SEEDS} seeds, 0 violations -- determinism, shelf, vein units, safe fall, ` +
                   `step rule, relief budget, hollow roof, hollow exclusion, ore reachability`);
 else console.log(`\n  ${failures} FAILURE(S) over ${SEEDS} seeds`);
 

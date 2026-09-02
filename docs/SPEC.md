@@ -782,7 +782,18 @@ lined during the ore pass: `line:true` opts a `blobs` row in, and the DEEPEST
 such row whose window holds the hollow claims it, so the jackpot is graded by
 depth (copper, then tin, then granite, then adamant). Clusters are stamped
 into SOLID cells only, so the ore is embedded in the wall and the room stays a
-room. Worth about 155 extra ore cells per seed in `topsoil`.
+room. Worth **177 extra ore cells per seed** in `topsoil` — 35 copper, 42 tin,
+60 granite, 39 adamant, measured over 200 seeds at the §19.7 counts (it was
+"about 155" at the pre-14d counts; lining stamps into solid cells, so the
+fewer clusters a `blobs` row scatters, the fewer of a lining star's cells land
+on ore that was already there).
+
+**Lining is opted in by the FLAG, not by the `count`.** `rules/generate.js#blobs`
+scatters `count` clusters and *then* lines every hollow it claimed, so a row
+with `count:0` still lines. This is why §19.7's retune is not `count / charge`:
+the lining term is a fixed floor that does not scale, and dividing the count
+alone overshoots by roughly a third. At §19.7's counts, lining supplies 34% of
+`topsoil` granite's ore and 36% of its adamant.
 
 ### 16.5 Ore body shape
 
@@ -801,11 +812,23 @@ total ore near where it was (measured over 5 seeds: surface copper 225 -> 232,
 topsoil copper 1355 -> 1246, tin 1067 -> 1010, granite 464 -> 538, adamant
 173 -> 223; the shortfalls are the ~9% of `topsoil` that is now open room).
 
+**Those counts have since come back DOWN, and it is the same move.** A `count`
+buys CELLS; what this section holds near constant is total ore **UNITS**.
+Phase 7 made a cell smaller, so counts rose; Phase 14b made a cell worth
+`tile.charge` units, so counts fell again. The live numbers, the measurement
+and the method are **§19.7**, and `data/world.js` is the only place they are
+written down as code.
+
 `blobs` writes into SOLID cells only, so a field never fills a hollow.
 `vein` (the guaranteed first copper, `near:'spawn'`) writes into air as well,
-because the guarantee is the whole point of the row, and is now `dy:6, r:3.6,
-n:3` — three overlapping stars, which puts its top at row 25 even on the
-unluckiest arm roll. That is the 5-tile dig §5's beat 3 promises.
+because the guarantee is the whole point of the row, and is `dy:6, r:2.4,
+n:1` — ONE star of exactly 6 cells, because `arms = clamp(round(2.4 × 2), 4,
+8)` is 5 and `r` is not *above* `ORE_LONG` (2.4), so no arm doubles and no
+shoulder grows. Its top is therefore always row 25: the 5-tile dig §5's beat 3
+promises, with no arm roll left to be unlucky about. At `charge` 4 that is
+**24 copper units**, against a bill of 10 (§5 beat 3) + 12 (§13's furnace) =
+22. It was `r:3.6, n:3` — three overlapping stars, 23.9 cells and 95.5 units
+measured over 200 seeds — see §19.7.
 
 ## 17. Segment transport, cranks and gears (Phase 8d onward)
 
@@ -1717,8 +1740,74 @@ machine step:
 | `soil/block` placed where copper sat at 2.0000 s of work | work reads 0.0000 s; the block takes its full 0.5000 s |
 | `richness.copper` × 2 | 8 units over 7.6000 s |
 
-**Outstanding, and deliberate: total available ore in the world is now
-multiplied by charge.** `data/world.js` knows nothing about charge, so every
-`blobs` count and the guaranteed spawn `vein` are over-rich until **Phase 14d**
-retunes them — the mirror of the retune §16.5 records for cruciform bodies, and
-measured the same way. Nothing in §19.6 moved a worldgen number.
+**Total available ore in the world was multiplied by charge, and §19.7 is
+where that was paid back.** `data/world.js` knows nothing about charge, so
+every `blobs` count and the guaranteed spawn `vein` were over-rich between 14b
+and 14d — the mirror of the retune §16.5 records for cruciform bodies, and
+measured the same way. Nothing in §19.6 itself moved a worldgen number.
+
+### 19.7 The worldgen rebalance (Phase 14d)
+
+**A `count` in `data/world.js` buys CELLS; what is held constant is UNITS.**
+That single sentence is the whole of both retunes: §16.5's, which raised every
+count when a cruciform cell replaced a disc, and this one, which lowers every
+count now that a cell is worth `tile.charge` units. Neither `tile.charge`,
+`hard`, `tier`, `pickPower` nor any tool's `power` moved in 14d — **seconds
+per unit are exactly §19.6's**, so §8's compression table and
+`docs/DESIGN.md`'s break-evens still hold untouched.
+
+**The target** was total ore units within ~10% of the pre-14b total *cells*,
+per substance per band. Measured over 200 seeds (`SEEDS` sweep against
+`model/tiles.js#baseChargeAt`, the same query mining reads):
+
+| band / substance | `count` before | after | pre-14b CELLS (the target) | 14b UNITS, unrebalanced | 14d UNITS | vs target |
+|---|---|---|---|---|---|---|
+| `surface` copper | 26 | **5** | 233.6 | 934.2 (+300%) | 239.6 | **+2.6%** |
+| `topsoil` copper | 160 | **34** | 1261.4 | 5045.5 (+300%) | 1243.8 | **−1.4%** |
+| `topsoil` tin | 126 | **26** | 1027.9 | 4111.6 (+300%) | 1014.5 | **−1.3%** |
+| `topsoil` granite | 78 | **19** | 525.7 | 1577.2 (+200%) | 522.6 | **−0.6%** |
+| `topsoil` adamant | 40 | **15** | 222.1 | 444.2 (+100%) | 215.7 | **−2.9%** |
+| `surface` `vein` (`near:'spawn'`) | `dy:6, r:3.6, n:3` | **`dy:6, r:2.4, n:1`** | 23.9 cells | 95.5 (+300%) | 24.0 | **+0.4%** |
+
+**These are not `count / charge` sums, and that is the one real finding.**
+Hollow-wall lining (§16.4) is opted in by `line:true`, not by `count`, so its
+contribution is a fixed floor that does not scale with the retune: at these
+counts it is 66 of `surface` copper's 240 units, 141 of `topsoil` copper's
+1244, 170 of tin's 1015, 179 of granite's 523 and 78 of adamant's 216.
+Dividing the count alone leaves that floor intact and overshoots.
+`docs/PLAN-phase14-mining-and-drops.md` D14-F's indicative table (8 / 48 / 38
+/ 30 / 22) is exactly that division and measured **+43.2% / +34.5% / +36.5% /
++35.7% / +31.7%** — outside the 10% band on every row. The counts above are
+the solution of one linear fit against the measurement, verified in a second
+pass; two iterations, no third needed. The `vein` figure is the one number
+D14-F got right on the first try.
+
+**The consequence is intended: veins are fewer, smaller and richer.** Five
+copper clusters in the whole `surface` band, not twenty-six — a deposit is a
+find rather than speckle, which is the same legibility argument §16.4 makes
+for one hollow being one room.
+
+**The one hard constraint, asserted rather than eyeballed.** §5's beat 3
+promises 10 raw copper within a 5-tile dig directly below spawn, and §13's
+furnace bill wants 12 more. `tools/worldgen-check.mjs` property 3 is now a
+**units** assertion, not a cells one: a Dijkstra out of the spawn ground where
+non-copper tier-1 rock costs one break, copper and air cost nothing (arriving
+is the cost; mining the vein is the reward), budget 5, summing
+`baseChargeAt` over every copper tile touched. Measured over 200 seeds:
+
+| | units |
+|---|---|
+| floor asserted | 10, then 22 |
+| min | **24** |
+| median | 24 |
+| mean | 25.6 |
+| max | 72 |
+| seeds under 22 | **0 / 200** |
+
+24 is the vein's own 6 cells × charge 4, and it is invariant because at
+`r:2.4` the star has no random arm length and no shoulder (§16.5). The ceiling
+is **printed and not asserted**: the floor is a promise §5 makes, but "too
+rich" is a pacing judgement with no locked number behind it. Both failure
+branches were confirmed live rather than assumed — `r:1.0` (5 cells, 20 units)
+trips the furnace-bill branch on every seed, and `dy:20` trips the
+no-copper-in-reach branch on every seed.
