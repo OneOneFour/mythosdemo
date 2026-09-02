@@ -2060,6 +2060,138 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
        `'TOO FAR APART' always outranks 'THE PATH IS BLOCKED'`);
 }
 
+/* --- LINK LEGALITY, CROSS-BAND, HAND-CARVED. The seeded sweep above proves a
+   property over a cloud of spans; these are the four NAMED cases, at fixed
+   coordinates, with the answer written down beside each one -- so a failure
+   here says which geometry broke rather than which seed.
+
+   Case 2 is commit b48203d's own repro, verbatim (astral hub anchored at
+   496,304 -> surface hub at 496,344, solid tile at surface tile 61,1). It is
+   here because that bug -- a boundary-exact axis-aligned span sampling only
+   the tile column `Math.floor` happened to favour -- was found by this
+   section's earlier draft and is exactly the kind of thing that comes back.
+   BOTH columns are tested each time, the favoured one and the other one,
+   because "it blocks when the rock is in column 61" is half a test.
+
+   A CROSS-BAND CABLE IS THE ORDINARY CASE, not the exotic one: astral's floor
+   is 40 rows above the surface's ceiling, and every delivery the design is
+   about crosses a seam. So the first assertion in each case is that a
+   genuinely clear seam-crossing span is ACCEPTED -- and it is stated first
+   because a clear window carved too small makes every later assertion pass for
+   the wrong reason. --- */
+{
+  const STONE = D_sub.S.stone;
+  let bad = 0;
+
+  /* Place two hubs at named band-local tiles, carve the span genuinely clear
+     (window sized from the anchors -- see `clearAlong`), and hand back the
+     anchors so a case can put rock back at an exact world pixel. */
+  function handSpan(seed, a, b) {
+    boot.newRun(seed);
+    const A = machs.write.place(world.bandOf(a[0]), D_mach.M.hub, a[1], a[2]);
+    const B = machs.write.place(world.bandOf(b[0]), D_mach.M.hub, b[1], b[2]);
+    const ea = anchorOfM(A), eb = anchorOfM(B);
+    clearAlong(ea, eb, 1);
+    return { A, B, ea, eb };
+  }
+
+  const expect = (label, A, B, want, at = null) => {
+    const c = segs.linkCheck(A, B);
+    const got = c.ok ? 'ok' : c.why;
+    if (got !== want) {
+      fail(`LINK LEGALITY (cross-band): ${label} -- expected '${want}', got '${got}'` +
+           (c.at ? ` at (${c.at.x}, ${c.at.y})` : ''));
+      bad++;
+      return null;
+    }
+    if (at && c.at && (Math.abs(c.at.x - at.x) > 8 || Math.abs(c.at.y - at.y) > 8)) {
+      fail(`LINK LEGALITY (cross-band): ${label} -- refused correctly but reported the spot as ` +
+           `(${c.at.x}, ${c.at.y}), not near (${at.x}, ${at.y}); the cable ghost draws that point`);
+      bad++;
+    }
+    return c;
+  };
+
+  /* CASE 1 -- the surface/topsoil seam, straight down. The two anchors are
+     both at x 488, which is EXACTLY the boundary between topsoil columns 60
+     and 61, so this span runs astride a grid line for its whole length: the
+     boundary case, by construction and not by luck. */
+  {
+    const surfaceHub = ['surface', 60, 52], topsoilHub = ['topsoil', 60, 2];
+    const h = handSpan(8800, surfaceHub, topsoilHub);
+    expect('a clear span across the surface/topsoil seam', h.A, h.B, 'ok');
+
+    /* And it really does cross: the low end resolves to topsoil, the high end
+       to surface, so `rules/drive.js`'s band handoff has something to do. */
+    const seg = segs.write.link(h.A, h.B);
+    const lo = world.bandAt(...Object.values(segs.carrierPos(seg)));
+    segs.write.carrier(seg, 1, 0);
+    const hiBand = world.bandAt(...Object.values(segs.carrierPos(seg)));
+    if (lo?.id !== 'topsoil' || hiBand?.id !== 'surface') {
+      fail(`LINK LEGALITY (cross-band): the seam span's carrier reads band "${lo?.id}" at t=0 and ` +
+           `"${hiBand?.id}" at t=1 -- it is not actually crossing the seam, so nothing below tests one`);
+      bad++;
+    }
+
+    /* THE LOWER BAND'S ROW 0, both columns. This is the row a hub-relative
+       clear window misses and the row generated terrain fills with rock. */
+    for (const tx of [60, 61]) {
+      const h2 = handSpan(8800, surfaceHub, topsoilHub);
+      tiles.write.set(world.bandOf('topsoil'), tx, 0, STONE);
+      expect(`one stone in topsoil row 0, column ${tx}, on a boundary-exact seam span`,
+             h2.A, h2.B, 'THE PATH IS BLOCKED', { x: 488, y: 772 });
+    }
+  }
+
+  /* CASE 2 -- commit b48203d's repro, the astral/surface seam. */
+  {
+    const astralHub = ['astral', 45, 37], surfaceHub = ['surface', 61, 2];
+    const h = handSpan(8801, astralHub, surfaceHub);
+    if (h.ea.x !== 496 || h.ea.y !== 304 || h.eb.x !== 496 || h.eb.y !== 344) {
+      fail(`LINK LEGALITY (cross-band): b48203d's repro no longer anchors at (496,304)->(496,344) but ` +
+           `(${h.ea.x},${h.ea.y})->(${h.eb.x},${h.eb.y}) -- the hub footprint or a band origin moved, ` +
+           `and this case is now testing something else`);
+      bad++;
+    }
+    expect('a clear span across the astral/surface seam', h.A, h.B, 'ok');
+
+    /* x 496 is the boundary between surface columns 61 and 62 (496/8 = 62
+       exactly, so `Math.floor` favours 62 and 61 is the one that used to be
+       invisible). b48203d's own repro is the 61 half. */
+    for (const tx of [61, 62]) {
+      const h2 = handSpan(8801, astralHub, surfaceHub);
+      tiles.write.set(world.bandOf('surface'), tx, 1, STONE);
+      expect(`b48203d's repro with the stone in surface column ${tx}`,
+             h2.A, h2.B, 'THE PATH IS BLOCKED', { x: 496, y: 328 });
+    }
+  }
+
+  /* CASE 3 -- OUTSIDE THE WORLD, in astral's own 32-column dead zone
+     (docs/PLAN-gears-and-winches.md section 4.5: astral is tw:96 at
+     origin.x:128, so world x < 128 above y 320 is no band at all). A surface
+     hub at column 11 linking up to astral's leftmost column has a span that
+     leaves the world for a few pixels before it arrives. Nothing can carve
+     that clear, which is the point: it is the one refusal that is about the
+     WORLD's shape rather than its contents, and Phase 10 Step 1 is what
+     closes it. */
+  {
+    const h = handSpan(8802, ['surface', 11, 1], ['astral', 0, 38]);
+    expect('a span through the strip where astral does not exist', h.A, h.B, 'OUTSIDE THE WORLD');
+
+    /* CASE 4 -- and when a span is BOTH blocked and off-world, 17.6's order
+       says it reports the blockage: the rock is the thing the player can do
+       something about. */
+    const h2 = handSpan(8802, ['surface', 11, 1], ['astral', 0, 38]);
+    tiles.write.set(world.bandOf('surface'), 13, 1, STONE);
+    expect('a span that is both blocked and off-world', h2.A, h2.B, 'THE PATH IS BLOCKED');
+  }
+
+  if (!bad)
+    ok('LINK LEGALITY (cross-band): a clear span crosses either seam; b48203d\'s boundary-exact repro ' +
+       'blocks on BOTH shared columns at both seams; astral\'s dead zone reads OUTSIDE THE WORLD; and a ' +
+       'span that is both reports the rock');
+}
+
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +
             `journal ${journal.peek ? journal.peek().length : 0} undrained`);
