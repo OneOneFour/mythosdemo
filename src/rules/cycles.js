@@ -84,7 +84,7 @@ function ensureAltarPlaced() {
   if (machines.some(m => m.def === M.altar)) return;
   const band = bandOf(SPAWN_BAND);
   const def = MACH[M.altar];
-  mw.place(band, M.altar, band.spawnTx - def.tw, band.floorTy - def.th);
+  mw.place(band, M.altar, band.cfg.spawnTx - def.tw, band.cfg.floorTy - def.th);
 }
 
 /* Every machine tagged `tribute:{}` (today: the altar and the dock) empties

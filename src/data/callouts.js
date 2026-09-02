@@ -9,17 +9,19 @@
    from "hasn't moved yet" — so the first thing worth telling a player is beat
    2's goal, not a walk hint nobody needs.
 
-   Indices 5 and 6 are `null`: they name the altar and the furnace gift, and
-   neither mechanic exists yet (a future cycle-director phase). Phase 8a's
-   `rules/tutorial.js` never advances `run.tutorialBeat` past 4 today, so these
-   two are unreachable rows, not unfired ones — reserved so that phase only
-   has to fill them in, not also touch this table's shape. */
+   Index 4 stays `null`: beat 5 fires the frame after beat 4 with no player
+   action in between (`rules/cycles.js` places the altar unconditionally from
+   frame 0, so the only thing beat 4 was ever waiting on was the player), so a
+   callout there would flash for at most one frame. Index 5 is Phase 10b's:
+   the altar exists and cycle 1's own demand (docs/SPEC.md 18.4) is the
+   instruction. Index 6 stays `null` -- the beat sheet ends there and there is
+   nothing left to teach. */
 export const CALLOUTS = Object.freeze([
   'TAKE THE PICKAXE',                              // 0: before beat 1 (walk)
   'TAKE THE PICKAXE',                               // 1: walked, not yet armed
   'DIG DOWN -- MINE THE COPPER BELOW',              // 2: pickaxe taken
   'GET BACK UP -- FELL A TREE OR CUT A STAIR',      // 3: copper mined
   null,                                              // 4: climbed back up
-  null,                                              // 5: reserved -- the altar
-  null                                               // 6: reserved -- the furnace gift
+  'DELIVER 10 COPPER ORE TO THE ALTAR',             // 5: the altar has risen
+  null                                               // 6: first trial paid
 ]);

@@ -21,11 +21,15 @@
    ONE beat fires per frame, which also means the journal can never emit two
    callouts a player would see as one.
 
-   BEATS 5 AND 6 ARE RESERVED AND NEVER FIRE HERE. They name the altar and the
-   furnace gift, and neither mechanic exists yet -- that is Phase 10's cycle
-   director (docs/BUILD_PLAN.md), which is what will advance into them. A
-   stand-in altar to complete the set would be a worse lie than a beat sheet
-   that honestly stops at 4.
+   BEATS 5 AND 6 ARE `rules/cycles.js`'S BEATS, PER D-E/E1
+   (docs/PLAN-phase10.md 3.5): the director is the only writer of the STATE
+   these two predicates read (the altar's existence, `run.cycle`), but
+   `rules/tutorial.js` stays the only WRITER of `run.tutorialBeat` -- one
+   writer, two reads, the same split `model/segments.js#linkCheck` and
+   `rules/drive.js` already use for a link's own legality. `shell/schedule.js`
+   runs `cycles` immediately before this file for exactly that reason: both
+   predicates read the SAME frame's truth the director just wrote, never a
+   frame stale.
    ============================================================================
 
    NOTIFICATION FLOWS DOWNWARD: a beat firing pushes a journal row and calls
@@ -33,10 +37,12 @@
    design until something wants it audible. */
 
 import { F } from '../data/forms.js';
+import { M } from '../data/machines.js';
 import { S } from '../data/substances.js';
 import { SPAWN_BAND } from '../data/world.js';
 import { items } from '../model/items.js';
 import { push } from '../model/journal.js';
+import { machines } from '../model/machines.js';
 import { PH, player } from '../model/player.js';
 import { hasPick, invCount, run, write as rw } from '../model/run.js';
 import { bandOf, worldY } from '../model/world.js';
@@ -131,11 +137,22 @@ const BEATS = [
         && player.y + PH <= s.y + BACK_UP_TILES * s.tile;
   },
 
-  /* 5 — the altar rises. RESERVED: Phase 10 Step 4. */
-  null,
+  /* 5 — "Sky darkens a notch ... an altar rises. First Trial: deliver 10 raw
+     copper." `rules/cycles.js#ensureAltarPlaced` places the altar
+     UNCONDITIONALLY from the run's very first frame -- this predicate is
+     purely a report that it now exists, never a timer or a second copy of
+     "has the director run yet". It reads true from frame 0 in the
+     underlying data, but the monotonic evaluator above never even asks
+     until beat 4 has already fired, so the player still meets the altar
+     only after climbing back out of their own shaft, exactly as the beat
+     sheet orders it. */
+  () => machines.some(m => m.def === M.altar),
 
-  /* 6 — the altar gifts the furnace. RESERVED: Phase 10 Step 4. */
-  null
+  /* 6 — "Deliver. The altar gifts a crude furnace." `rules/cycles.js#complete`
+     is the only place `run.cycle` ever advances, and only once
+     `model/run.js#tributeMet()` is true -- so "cycle 1 is over" is exactly
+     "the first trial was paid". */
+  () => run.cycle > 1
 ];
 
 /* Run once a frame (see `shell/schedule.js`). One beat at most, and nothing at

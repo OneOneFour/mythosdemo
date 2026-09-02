@@ -1134,7 +1134,13 @@ const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate
   {
     boot.newRun(1234);
     const band = player.player.band;
-    const tx = world.tileX(band, player.player.x), ty = world.tileY(band, player.player.y);
+    /* Phase 10b: `rules/cycles.js` places the surface altar two tiles left
+       of `spawnTx` from the run's first frame, and its `handFeed` (reach 10 px)
+       is real and unconditional -- a shaft dug AT `spawnTx` itself (this
+       test's own column, before this phase) sits close enough that the altar
+       quietly ate ore out of the very pockets this test just loaded, which is
+       not what the assertion below means to measure. Dug well clear of it. */
+    const tx = world.tileX(band, player.player.x) + 15, ty = world.tileY(band, player.player.y);
     for (let dy = -1; dy <= 4; dy++) tiles.write.clear(band, tx, ty + dy);
     tiles.write.set(band, tx, ty + 4, D_sub.S.timber, D_form.F.log);   // a ladder tile to climb
     player.write.move(world.worldX(band, tx), world.worldY(band, ty + 3));
@@ -1146,6 +1152,9 @@ const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate
     runReal(30, 1 / 120, { up: true, hasMouse: false });
     if (player.player.y < y0)
       fail(`BURDEN: a climb intent at 150% burden still moved the player up (${(y0 - player.player.y).toFixed(2)} px)`);
+    else if (run.invCount(D_sub.S.copper, D_form.F.ore) !== n)
+      fail(`BURDEN: pockets hold ${run.invCount(D_sub.S.copper, D_form.F.ore)} copper/ore, not the ${n} ` +
+           `collected -- something drained them mid-test, so the climb refusal above is not proven at 150%`);
     else ok('BURDEN: a climb intent at or over the hard cap produces no upward movement');
   }
 }
@@ -3545,6 +3554,52 @@ console.log('\n6. the tribute loop (Phase 10b)');
   if (!bad)
     ok('THE ALTAR: no substance, no recipe, and placementCheck refuses it with \'NOTHING BUILT YET\' even ' +
        'when granted -- and a player standing beside one hand-feeds 10 ore into it with no key held');
+}
+
+console.log('\n7. tutorial beats 5 and 6 (Phase 10b, D-E/E1)');
+{
+  /* Beats 1-4 are somebody else's test; jumped past the same way
+     `tests/visual.spec.js`'s `driveScene` already does
+     (`while (run.tutorialBeat < 4) rw.advanceBeat()`), because what is new
+     here is only whether 5 and 6 fire off the director's own state. */
+  boot.newRun(9130);
+  while (run.run.tutorialBeat < 4) run.write.advanceBeat();
+
+  /* Beat 5: the altar exists from the director's very first step, so ONE
+     real frame past beat 4 is enough -- `rules/cycles.js` runs before
+     `rules/tutorial.js` in `shell/schedule.js` this same frame. */
+  stepReal(1 / 120, { hasMouse: false });
+  if (run.run.tutorialBeat !== 5) {
+    fail(`TUTORIAL BEAT 5: one real frame after beat 4 with a fresh run, tutorialBeat is ` +
+         `${run.run.tutorialBeat}, not 5 -- the altar should already exist by the time ` +
+         `'rules/tutorial.js' asks`);
+  } else {
+    console.log('  ..  beat 5 fired one frame after beat 4, off the altar\'s own existence');
+
+    /* Beat 6: hand-feed the whole of cycle 1's demand to the altar the
+       director already placed, and watch the SAME completion that pays the
+       trial also advance the beat -- one state, two readers. */
+    const band = world.bandOf('surface'); // SPAWN_BAND -- see data/world.js
+    if (!machs.machines.some(mm => mm.def === D_mach.M.altar))
+      fail('TUTORIAL BEAT 6: no altar exists even after beat 5 fired -- nothing to hand-feed');
+    /* One tile left of the altar's own footprint, same row as its top --
+       real, untouched surface terrain, the same ground every run spawns
+       standing on, so no tile-clearing is needed here. */
+    player.write.band(band);
+    player.write.move(world.worldX(band, band.cfg.spawnTx - 3), world.worldY(band, band.cfg.floorTy - 2));
+    player.write.vel(0, 0);
+    player.write.set('onGround', true);
+    run.write.collect(D_sub.S.copper, D_form.F.ore, 10);
+    runReal(240, 1 / 120, { hasMouse: false });
+    if (run.run.tutorialBeat !== 6 || run.run.cycle <= 1) {
+      fail(`TUTORIAL BEAT 6: fed the altar cycle 1's whole demand -- tutorialBeat is ` +
+           `${run.run.tutorialBeat} (want 6) and run.cycle is ${run.run.cycle} (want > 1) -- ` +
+           `beat 6 must fire in the exact frame the trial completes, off 'run.cycle', not a copy`);
+    } else {
+      ok('TUTORIAL BEATS 5 AND 6: beat 5 fires the frame the altar exists and beat 4 has already ' +
+         'fired; beat 6 fires the same frame cycle 1 completes, off run.cycle directly');
+    }
+  }
 }
 
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
