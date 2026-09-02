@@ -135,6 +135,12 @@ const aimModel = await import('../src/model/aim.js');
    layer in from the pointer, and it keeps the journal row and the refusal
    string in the assertion. */
 const R_place = await import('../src/rules/placement.js');
+/* THE ONE `view` MODULE IMPORTED DIRECTLY, for the identical reason as
+   `R_place` immediately above: the CHUNK SEAM probe (Phase 11 TIER 2) needs
+   `chunkCanvas`'s own return value, one chunk at a time, which `main.draw()`
+   never exposes -- it composites many chunks into the visible viewport and
+   throws each cached canvas away behind that. */
+const viewPaint = await import('../src/view/paint.js');
 const boot   = await import('../src/shell/boot.js');
 const main   = await import('../src/shell/main.js');
 const sched  = await import('../src/shell/schedule.js');
@@ -3600,6 +3606,142 @@ console.log('\n7. tutorial beats 5 and 6 (Phase 10b, D-E/E1)');
          'fired; beat 6 fires the same frame cycle 1 completes, off run.cycle directly');
     }
   }
+}
+
+/* ============================================================
+   8. PHASE 11 TIER 2 — HARNESS GAPS FOUND BY A READ-ONLY AUDIT
+   ------------------------------------------------------------
+   Five invariant tests docs/BUILD_PLAN.md's Phase 11 TIER 2 block names but
+   `tools/check.mjs` never wrote, plus three HEAVENS LEDGER sub-bullets the
+   same block names alongside "cargo delivered to the dock credits the ledger
+   exactly once" (already proven in section 6 above, so not repeated here).
+   ============================================================ */
+console.log('\n8. Phase 11 TIER 2 harness gaps');
+
+/* --- CHUNK SEAM (docs/SPEC.md section 1's open question). A decoration
+   wider than one tile paints into a NEIGHBOUR chunk -- `view/paint.js`'s own
+   `DECO_MARGIN` comment (lines 62-98) states the claim: a chunk's pixels
+   depend on tiles up to `DECO_MARGIN` outside it, and NO FURTHER.
+   `tests/visual.spec.js:736` turns the debug overlay on and looks at the
+   result, which can show a seam looking wrong; it cannot show a chunk's
+   paint is UNAFFECTED by a tile beyond the margin, which is the actual claim
+   `stackVer`'s own header makes and the one worth breaking.
+
+   THIS LIVES HERE, NOT IN `tests/visual.spec.js`, because the property is a
+   canvas-buffer identity and `check.mjs` already trades in exactly that: the
+   render-purity probes above diff `fillRect` COUNTS across two draws of the
+   same frame; this diffs the full ORDERED `fillRect` trace of one BAKE
+   (`view/paint.js#chunkCanvas`) against the same bake with something changed
+   only beyond the margin. A Playwright screenshot could only show the seam
+   looking continuous, which is a claim about art, not about the dependency
+   bound -- and it cannot isolate "beyond the margin changed nothing" from
+   "nothing anywhere changed" the way a controlled second bake can.
+
+   THE HEADLESS CANVAS HAS NO REAL BACKING BITMAP (see `makeCtx` above), so
+   there is no `getImageData` to diff. What stands in for it: every pixel a
+   chunk bake ever plots goes through `core/pixels.js#R`/`lineTo`/`noiseFill`
+   or `core/font.js#drawText`, and all four bottom out in `g.fillRect` right
+   after setting `g.fillStyle` (confirmed by reading each) -- and a chunk
+   bake calls no `drawImage` at all (that verb belongs to `view/scene.js`
+   blitting the CACHED canvas afterwards, not to painting one). So the
+   ORDERED sequence of `(x, y, w, h, fillStyle)` a bake performs determines
+   its pixels completely, and two bakes with an identical sequence produced
+   identical pixels -- which is the pixel-identity proof this stub can
+   actually make. */
+{
+  /* Every canvas this stub hands out is fresh (`makeCanvas`'s own
+     `getContext` caches one `_c` per canvas, and `offscreen()` always calls
+     `document.createElement('canvas')` first) -- so wrapping
+     `document.createElement` for the span of exactly one `chunkCanvas` call
+     catches the one canvas that call creates and patches ITS `fillRect`
+     before `paintChunk` ever draws into it. Restored immediately after,
+     the same monkey-patch-and-restore idiom `world.write.clearLight` above
+     is temporarily wrapped with. */
+  function traceChunkBake(band, cx, cy) {
+    const trace = [];
+    const origCreate = document.createElement;
+    document.createElement = t => {
+      const el = origCreate(t);
+      if (t !== 'canvas') return el;
+      const origGetContext = el.getContext;
+      el.getContext = kind => {
+        const g = origGetContext(kind);
+        if (!g._chunkSeamTraced) {
+          g._chunkSeamTraced = true;
+          const origFillRect = g.fillRect.bind(g);
+          g.fillRect = (x, y, w, h) => { trace.push([x, y, w, h, g.fillStyle]); origFillRect(x, y, w, h); };
+        }
+        return g;
+      };
+      return el;
+    };
+    viewPaint.resetChunks();
+    viewPaint.chunkCanvas(band, cx, cy);
+    document.createElement = origCreate;
+    return JSON.stringify(trace);
+  }
+
+  /* ONE SCENARIO PER DECORATION KIND, each the SAME shape: a chunk (`SRC`)
+     holds one hand-placed decoration-eligible tile flush against its own
+     far edge; the NEIGHBOUR chunk (`DST`) is what gets baked and traced,
+     because it is the one whose pixels the decoration bleeds INTO, per
+     `stackVer`'s own header. `view/treatments.js#EXTENT` is the two
+     decoration kinds `decorate()` actually margin-scans for -- there is no
+     third, "cloud", kind in that table (checked before writing this: a
+     cloud is not something any substance's `look` block declares, so it
+     never goes through `decorate()`'s cross-chunk scan at all and has no
+     seam to test the same way). */
+  let bad = 0;
+  for (const [i, seam] of [
+    { name: 'a canopy', place: (band, tx, ty) => tiles.write.set(band, tx, ty, D_sub.S.timber, D_form.NATIVE) },
+    { name: 'a grass cap', place: (band, tx, ty) => tiles.write.set(band, tx, ty, D_sub.S.soil, D_form.NATIVE) }
+  ].entries()) {
+    boot.newRun(9500 + i);
+    const band = world.bandOf('surface');
+    const k = band.chunk;                       // 16 tiles/chunk, this band
+    const srcCx = 3, dstCx = srcCx + 1;          // SRC tiles 48-63, DST 64-79
+    const cy = 0;                                // rows 0-15
+    const srcTx = srcCx * k + (k - 1);           // flush against the SRC/DST seam
+    const decoTy = 10;                           // above the surface band's own floorTy (20)
+    const farTx = dstCx * k + k + 10;            // well outside DST's own scan margin
+    const farTy = decoTy;
+
+    /* Full sky exposure over the whole span this scenario touches, so the
+       decoration's own `skyExposedAt` gate is never what is under test. */
+    for (let ty = 0; ty <= decoTy; ty++)
+      for (let tx = srcCx * k; tx < (dstCx + 2) * k; tx++) tiles.write.clear(band, tx, ty);
+
+    const bakeWith = (present, far) => {
+      if (present) seam.place(band, srcTx, decoTy);
+      else tiles.write.clear(band, srcTx, decoTy);
+      if (far) tiles.write.set(band, farTx, farTy, D_sub.S.copper, D_form.NATIVE);
+      else tiles.write.clear(band, farTx, farTy);
+      return traceChunkBake(band, dstCx, cy);
+    };
+
+    const traceA = bakeWith(true, false);          // real neighbourhood
+    const traceB = bakeWith(true, true);            // same, but different BEYOND the margin
+    const traceC = bakeWith(false, false);          // the decoration itself removed
+
+    if (traceA !== traceB) {
+      fail(`CHUNK SEAM: baking chunk (${dstCx},${cy}) beside ${seam.name} at chunk (${srcCx},${cy})'s ` +
+           `own far edge changed when a tile at (${farTx},${farTy}) -- outside every declared decoration ` +
+           `margin -- changed. The chunk's paint depends on more than DECO_MARGIN admits.`);
+      bad++;
+    } else if (traceA === traceC) {
+      fail(`CHUNK SEAM: baking chunk (${dstCx},${cy}) produced IDENTICAL pixels whether or not ${seam.name} ` +
+           `existed at (${srcTx},${decoTy}) -- the scenario never reached the neighbour chunk at all, so ` +
+           `the equality above proves nothing`);
+      bad++;
+    } else {
+      console.log(`  ..  chunk seam: ${seam.name} at (${srcTx},${decoTy}) changes chunk (${dstCx},${cy})'s ` +
+                  `bake (proving the bleed is real), and a far tile at (${farTx},${farTy}) does not ` +
+                  `(proving the dependency stops at the declared margin)`);
+    }
+  }
+  if (!bad)
+    ok('CHUNK SEAM: a canopy and a grass cap each change the neighbour chunk they bleed into, and neither ' +
+       'changes it again when a tile outside every declared decoration margin is changed');
 }
 
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
