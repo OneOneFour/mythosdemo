@@ -3421,19 +3421,27 @@ console.log('\n6. the tribute loop (Phase 10b)');
          ascent, plus the frames the release and the catch take. */
       for (let i = 0; i < 120 * 40 && seg.t < 1; i++) stepReal(1 / 120, { turn: true, hasMouse: false });
       runReal(30, 1 / 120, { turn: true, hasMouse: false });
+      /* The dock's own buffer is TRANSIENT once `rules/cycles.js` exists: any
+         `tribute:{}` receiver is drained into `run.tribute.have` the same
+         frame it is fed (`data/machines.js`'s "one drain path serves both"),
+         regardless of which cycle is actually live -- cycle 1 here is still
+         the ALTAR's, so this ore counts toward it even though it never
+         touched the altar. The buffer reading 0 IS the pass. */
       const held = machs.count(dock, '*/#ore');
+      const credited = run.run.tribute?.have?.['copper/ore'] ?? 0;
       if (seg.t < 1) {
         fail(`DOCK DELIVERY: the carrier only reached t = ${seg.t.toFixed(3)} in 40 s of cranking, so no ` +
              `arrival ever happened and the delivery was not tested`);
         bad++;
-      } else if (held !== 1) {
-        fail(`DOCK DELIVERY: the carrier arrived at the dock and released its haul, but the dock's buffer ` +
-             `holds ${held} ore, not 1 -- the catch box never saw the released item (${items.items.length} ` +
-             `item(s) still loose in the world)`);
+      } else if (held !== 0 || credited !== 1) {
+        fail(`DOCK DELIVERY: the carrier arrived at the dock and released its haul, but the dock's own ` +
+             `buffer holds ${held} ore (want 0, drained) and the tribute ledger holds ${credited} (want 1) ` +
+             `-- either the catch box never saw the release or the director never drained it ` +
+             `(${items.items.length} item(s) still loose in the world)`);
         bad++;
       } else {
         console.log(`  ..  dock delivery: one copper/ore cranked 12 tiles up a real segment, released at ` +
-                    `the anchor and swallowed -- dock buffer holds ${held}, ${items.items.length} loose`);
+                    `the anchor, caught, and drained into the tribute ledger (${items.items.length} loose)`);
       }
     }
   }
@@ -3460,7 +3468,8 @@ console.log('\n6. the tribute loop (Phase 10b)');
   if (!bad)
     ok('DOCK MOUTH AND DELIVERY: the dock\'s inflated top mouth reaches the anchor a haul is released at ' +
        'AND the y every accepted form comes to rest at (measured, not assumed); one ore cranked up a real ' +
-       '12-tile segment ends in the dock\'s buffer; and a relic dropped in the same place is left alone');
+       '12-tile segment is caught and drained into the tribute ledger; and a relic dropped in the same ' +
+       'place is left alone');
 }
 
 /* --- THE ALTAR: HAND-FED, AND UNOBTAINABLE. Two claims, and the second is the
@@ -3511,16 +3520,25 @@ console.log('\n6. the tribute loop (Phase 10b)');
     player.write.set('onGround', true);
     run.write.collect(D_sub.S.copper, D_form.F.ore, 10);
     runReal(240, 1 / 120, { hasMouse: false });
+    /* 10 copper/ore is the WHOLE of cycle 1's demand (docs/SPEC.md 18.4), so
+       feeding it all in does not just fill a buffer -- `rules/cycles.js`
+       drains the altar into the ledger the same frame (buffer back to 0) and
+       then completes the trial: cycle advances, the furnace and the dock are
+       granted. Checking the buffer for 10 would now be checking a value the
+       director is specifically built to never leave sitting there. */
     const held = machs.count(m, '*/#ore');
     const left = run.invCount(D_sub.S.copper, D_form.F.ore);
-    if (held !== 10 || left !== 0) {
+    const paid = run.run.cycle > 1 && run.run.granted.includes('furnace') &&
+                 run.run.granted.includes('cloud_dock');
+    if (held !== 0 || left !== 0 || !paid) {
       fail(`ALTAR HAND FEED: standing ${Math.round(m.box.x - player.player.x)} px from a 2x2 altar with ` +
-           `10 copper/ore in the pockets moved ${held} into it and left ${left} held -- handFeed's ` +
-           `reach ${ALTAR.handFeed.reach} does not cover walking up to it`);
+           `10 copper/ore in the pockets left ${held} in its buffer (want 0, drained), ${left} still held ` +
+           `(want 0), and cycle 1 paid = ${paid} (want true) -- handFeed's reach ${ALTAR.handFeed.reach} ` +
+           `does not cover walking up to it, or the director never saw the delivery`);
       bad++;
     } else {
       console.log(`  ..  altar: 10 copper/ore hand-fed from ${Math.round(m.box.x - player.player.x)} px ` +
-                  `away in ${240 / 120} s, pockets empty`);
+                  `away in ${240 / 120} s, pockets empty, cycle 1 paid (furnace and dock granted)`);
     }
   }
 

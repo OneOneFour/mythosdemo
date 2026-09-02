@@ -125,7 +125,17 @@
                            `items before belts` above already makes for an
                            item and a belt, and the reason the ride branch
                            needs no collision model of its own.
-     drive before tutorial  `rules/tutorial.js` is a pure OBSERVER: every one of
+     drive before cycles    the drivetrain is what delivers a haul to the dock
+                           and releases it (`rules/drive.js`), and the director
+                           is what turns a delivery into a credit. Running the
+                           director first would credit LAST frame's arrival and
+                           report a completion one frame after the carrier
+                           reached the top — the same freshness argument
+                           `items before machines` already makes about the
+                           catch box, one link further along the chain.
+     cycles before tutorial  THIS REPLACES, VERBATIM IN ITS REASONING, THE OLD
+                           `drive before tutorial` PAIR (Phase 8-and-earlier):
+                           `rules/tutorial.js` is a pure OBSERVER: every one of
                            docs/SPEC.md section 5's beat conditions is a READ of
                            state another step wrote, and the only things it
                            writes — `run.tutorialBeat` and a `tutorial` journal
@@ -134,8 +144,10 @@
                            has settled: the walking step `player` recorded
                            (beat 1), the pick `items` just caught (beat 2), the
                            ore `mining` just dropped and `items` just moved
-                           (beat 3), and the `run.deepest` `player` just updated
-                           (beat 4). Judging a beat mid-frame would mean a
+                           (beat 3), the `run.deepest` `player` just updated
+                           (beat 4), and now the altar `cycles` just placed and
+                           the cycle `cycles` just advanced (beats 5 and 6,
+                           Phase 10b). Judging a beat mid-frame would mean a
                            callout could name something the player has not
                            finished doing yet.
      tutorial before fields  ONLY so `fields last` below stays literally true.
@@ -157,6 +169,7 @@ import { write as rw } from '../model/run.js';
 import * as belts from '../rules/belts.js';
 import * as boons from '../rules/boons.js';
 import * as crafting from '../rules/crafting.js';
+import * as cycles from '../rules/cycles.js';
 import * as drive from '../rules/drive.js';
 import * as fields from '../rules/fields.js';
 import * as grants from '../rules/grants.js';
@@ -184,6 +197,7 @@ export const STEPS = [
   { id: 'boons',    step: (dt) => boons.step(dt) },
   { id: 'machines', step: (dt) => machines.step(dt) },
   { id: 'drive',    step: (dt, cmd) => drive.step(dt, cmd) },
+  { id: 'cycles',   step: (dt) => cycles.step(dt) },
   { id: 'tutorial', step: () => tutorial.step() },
   { id: 'fields',   step: (dt) => fields.step(dt) }
 ];
