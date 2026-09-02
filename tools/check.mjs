@@ -1636,7 +1636,7 @@ function predictV(supply, mass, slope, demand = null) {
      down anyway. Re-run the reversing row alone and read the journal, which
      `stepReal` never drains. */
   {
-    const r = driveRig({ ...at(105, 1), seed: 8299, burden: 30 });
+    driveRig({ ...at(105, 1), seed: 8299, burden: 30 });
     runReal(600, 1 / 120, { turn: true, hasMouse: false });
     const rows = journal.peek().filter(j => j.kind === 'refused' && j.data?.why === 'TOO HEAVY TO LIFT');
     if (!rows.length) {
