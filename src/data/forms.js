@@ -145,7 +145,7 @@ export const FORMS = [
      climbable in the game, on purpose. No tag membership: a rung is not
      fuel, ore or anything else a selector should be able to find by
      accident. */
-  { id:'rung', label:'RUNG',
+  { id:'rung', label:'LADDER',
     size:3, massK:0.3, hudOrder:9,
     tags:[],
     subTags:['organic'],
