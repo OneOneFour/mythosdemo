@@ -275,9 +275,12 @@ function scriptRig() {
   const ptx = world.tileX(band, player.player.x), pty = world.tileY(band, player.player.y);
   for (let ty = pty - 12; ty <= pty + 1; ty++)
     for (let tx = ptx + 1; tx <= ptx + 4; tx++) tiles.write.clear(band, tx, ty);
-  const lo = machs.write.place(band, D_mach.M.hub, ptx + 2, pty - 1);
-  const hi = machs.write.place(band, D_mach.M.hub, ptx + 2, pty - 10);
-  machs.write.place(band, D_mach.M.crank, ptx + 1, pty - 1);
+  /* `footUnder` (section 5's own helper, hoisted): every hub in this file
+     stands on a real footing tile, and this rig links THROUGH `linkCheck`, so
+     without one it is a scene `rules/placement.js` could not have built. */
+  const lo = footUnder(machs.write.place(band, D_mach.M.hub, ptx + 2, pty - 1));
+  const hi = footUnder(machs.write.place(band, D_mach.M.hub, ptx + 2, pty - 10));
+  footUnder(machs.write.place(band, D_mach.M.crank, ptx + 1, pty - 1));
   scriptLink(lo, hi);
   return { lo, hi };
 }
@@ -712,8 +715,8 @@ console.log('\n4. Phase 6 probes');
   boot.newRun(7777);
   const band = player.player.band;
   for (let ty = 4; ty <= 14; ty++) for (let tx = 4; tx <= 8; tx++) tiles.write.clear(band, tx, ty);
-  const lo = machs.write.place(band, D_mach.M.hub, 5, 12);
-  const hi = machs.write.place(band, D_mach.M.hub, 5, 6);
+  const lo = footUnder(machs.write.place(band, D_mach.M.hub, 5, 12));
+  const hi = footUnder(machs.write.place(band, D_mach.M.hub, 5, 6));
   const seg = segs.write.link(lo, hi);
 
   const probes = [
@@ -772,8 +775,8 @@ console.log('\n4. Phase 6 probes');
      forgets the other two. */
   {
     const band = player.player.band;
-    const lo = machs.write.place(band, D_mach.M.hub, 6, 12);
-    const hi = machs.write.place(band, D_mach.M.hub, 6, 6);
+    const lo = footUnder(machs.write.place(band, D_mach.M.hub, 6, 12));
+    const hi = footUnder(machs.write.place(band, D_mach.M.hub, 6, 6));
     const seg = segs.write.link(lo, hi);
     segs.write.carrier(seg, 0.5, -1);
     segs.write.load(seg, 12.5);
@@ -1284,6 +1287,55 @@ console.log('\n5. segment transport (Phase 8g)');
    something to stand on after the carve. */
 const RIG = { band: 'topsoil', tx0: 18, w: 12 };
 
+/* ---------- EVERY HUB IN THIS SECTION STANDS ON A REAL FOOTING TILE ----------
+   `machs.write.place` asks nothing about footing -- `data/machines.js:465-467`
+   records that exact blind spot -- so until Phase 10a every hub in every scene
+   below floated over air, which is a machine `rules/placement.js` could never
+   have built (`model/run.js#placementCheck` demands `def.footing` solid tiles
+   directly under the footprint). That is how the headframe defect survived
+   Phase 8g: no vertical span in the harness ever met the footing tile every
+   real span must pass through. So: lay the tiles, in the hub's own band, and
+   lay them AFTER any clearing the scene does.
+
+   `def.footing` tiles under the LEFTMOST columns, which is the straddle
+   docs/SPEC.md 17.2 argues for: one column on rock, one over the void. Returns
+   the machine, so it can wrap a `write.place` call in place. */
+function footUnder(m) {
+  const def = D_mach.MACH[m.def];
+  for (let i = 0; i < def.footing; i++)
+    tiles.write.set(m.band, m.tx + i, m.ty + def.th, D_sub.S.stone);
+  return m;
+}
+
+/* The tile range docs/SPEC.md 17.6's headframe exemption covers, DERIVED HERE
+   rather than imported -- the same "independent second implementation"
+   `chordThrough` below is written for, so the harness and
+   `model/segments.js#headframe` can disagree instead of agreeing by sharing.
+   Footprint columns, from the anchor's own row down to the footprint's bottom
+   plus one row. */
+function headframeOf(m) {
+  const def = D_mach.MACH[m.def];
+  return { band: m.band, tx0: m.tx, tx1: m.tx + def.tw - 1,
+           ty0: m.ty + Math.floor(def.th / 2), ty1: m.ty + def.th };
+}
+
+/* A CARRIER PARKED CLEAR OF ITS UPPER HEADFRAME, and the reason is a defect
+   this phase does NOT fix. The cable may now pass the upper headframe's own
+   footing tile; a RIDER still may not. `rules/drive.js#ride` refuses any
+   translation that would put the player's box inside a solid tile, and a 6 px
+   box centred on the anchor straddles the anchor's own column boundary, so the
+   footing tile is inside it whichever of the two columns holds it. Measured
+   with the footing tiles above in place and the carrier at t = 1: the rider
+   descends 10 px and stops while the carrier leaves without them. Phase 10a's
+   scope is `linkCheck`; this is parked in docs/FINDINGS.md for Phase 10b,
+   which is the phase that has to make a player ride up to a dock.
+
+   40 px is derived, not chosen: the exempt band is two rows (16 px), the
+   rider's own box is `PH` (16 px) and their feet sit 2 px under the deck line,
+   so a rider entirely below the footing row starts 34 px down -- 40 is the
+   next whole row. `rows` is how many tile rows apart the two hubs are. */
+const belowHeadframe = rows => 1 - 40 / (rows * 8);
+
 function driveRig(spec) {
   boot.newRun(spec.seed ?? 8080);
   const band = world.bandOf(spec.band ?? RIG.band);
@@ -1303,7 +1355,8 @@ function driveRig(spec) {
   if (spec.reachMul) mods.write.add('rig-reach', [{ key: 'segReach', mul: spec.reachMul }]);
   if (spec.torqueMul) mods.write.add('rig-torque', [{ key: 'crankTorque', mul: spec.torqueMul }]);
 
-  const placed = (spec.machines ?? []).map(([id, tx, ty]) => machs.write.place(band, D_mach.M[id], tx, ty));
+  const placed = (spec.machines ?? []).map(([id, tx, ty]) =>
+    footUnder(machs.write.place(band, D_mach.M[id], tx, ty)));
   const built = [];
   for (const [i, j] of spec.links ?? []) {
     const c = segs.linkCheck(placed[i], placed[j]);
@@ -1416,7 +1469,7 @@ function predictV(supply, mass, slope, demand = null) {
       seed: 8081, reachMul: 5,
       room: { ty0: 60, h: 58 },
       machines: [['hub', 20, 115], ['hub', 20, 75]],
-      links: [[0, 1]], carriers: [[0, 1]], ride: 0
+      links: [[0, 1]], carriers: [[0, belowHeadframe(40)]], ride: 0
     });
     const y0 = player.player.y;
     runReal(Math.round(10 * fps), dt, { hasMouse: false });
@@ -1976,9 +2029,17 @@ function chordThrough(pa, pb, x0, y0, x1, y1) {
 
 /* The longest chord this span cuts through ANY solid tile of ANY band, and
    where. Scanned over every band the span's bounding box touches, so a
-   cross-band span is one call and not a special case. */
-function worstChord(pa, pb) {
-  let worst = 0, at = null;
+   cross-band span is one call and not a special case.
+
+   `exempt` is the endpoints' headframe ranges (`headframeOf`), and this
+   function has to know about them for the same reason `linkCheck` does: a
+   legally placed hub HAS a footing tile, the cable is allowed through it
+   (docs/SPEC.md 17.6, docs/PLAN-phase10.md 3.1 A1), and an accepted span
+   therefore cuts a full tile of it. Counted rather than ignored, so the
+   summary line says how much the exemption is actually covering -- if that
+   number ever exceeds two tiles per endpoint the exemption has grown. */
+function worstChord(pa, pb, exempt = []) {
+  let worst = 0, at = null, exemptHits = 0;
   const bx0 = Math.min(pa.x, pb.x), bx1 = Math.max(pa.x, pb.x);
   const by0 = Math.min(pa.y, pb.y), by1 = Math.max(pa.y, pb.y);
   for (const b of world.bands) {
@@ -1989,10 +2050,15 @@ function worstChord(pa, pb) {
       if (!tiles.solidAt(b, tx, ty)) continue;
       const x = world.worldX(b, tx), y = world.worldY(b, ty);
       const c = chordThrough(pa, pb, x, y, x + b.tile, y + b.tile);
+      if (c <= 0) continue;
+      if (exempt.some(e => e.band === b && tx >= e.tx0 && tx <= e.tx1 && ty >= e.ty0 && ty <= e.ty1)) {
+        exemptHits++;
+        continue;
+      }
       if (c > worst) { worst = c; at = `${b.id} (${tx},${ty})`; }
     }
   }
-  return { worst, at };
+  return { worst, at, exemptHits };
 }
 
 /* The first point of the span that resolves to no band, or null. A dense
@@ -2108,7 +2174,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
   const angles = Array.from({ length: BUCKETS }, () => 0);
   const tally = {};
   const perFamily = {};
-  let bad = 0, clips = 0, worstClip = 0, tried = 0;
+  let bad = 0, clips = 0, worstClip = 0, tried = 0, headframeClips = 0;
 
   for (const fam of FAMILIES) {
     perFamily[fam.id] = 0;
@@ -2138,8 +2204,14 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
         if (b) tiles.write.set(b, world.tileX(b, x), world.tileY(b, y), STONE);
       }
 
+      /* LAST, so neither the carve nor the scattered rock can decide whether
+         these two hubs are legally placed: they are. */
+      footUnder(A); footUnder(B);
+      const exempt = [headframeOf(A), headframeOf(B)];
+
       const tile = Math.min(world.bandAt(ea.x, ea.y)?.tile ?? 8, world.bandAt(eb.x, eb.y)?.tile ?? 8);
-      const { worst, at } = worstChord(ea, eb);
+      const { worst, at, exemptHits } = worstChord(ea, eb, exempt);
+      headframeClips += exemptHits;
       const off = offWorldOn(ea, eb);
       const verdict = segs.linkCheck(A, B);
 
@@ -2212,7 +2284,8 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
               Object.entries(perFamily).map(([k, n]) => `${k} ${n}`).join(', ') +
               `; accepted-span 30-degree buckets [${angles.join(', ')}]` +
               `; ${clips} accepted span(s) clipped a solid corner, worst ${worstClip.toFixed(2)} px ` +
-              `(bound ${(8 * 0.5).toFixed(1)})`);
+              `(bound ${(8 * 0.5).toFixed(1)}); ${headframeClips} solid tile(s) crossed under a ` +
+              `headframe and exempted`);
 
   for (const [id, n] of Object.entries(perFamily))
     if (n === 0) {
@@ -2265,6 +2338,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     const B = machs.write.place(world.bandOf(b[0]), D_mach.M.hub, b[1], b[2]);
     const ea = anchorOfM(A), eb = anchorOfM(B);
     clearAlong(ea, eb, 1);
+    footUnder(A); footUnder(B);         // after the carve: see `footUnder`
     return { A, B, ea, eb };
   }
 
@@ -2363,6 +2437,130 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     ok('LINK LEGALITY (cross-band): a clear span crosses either seam; b48203d\'s boundary-exact repro ' +
        'blocks on BOTH shared columns at both seams; astral\'s dead zone reads OUTSIDE THE WORLD; and a ' +
        'span that is both reports the rock');
+}
+
+/* --- THE HEADFRAME EXEMPTION: A LEGALLY PLACED VERTICAL PAIR LINKS
+   (docs/PLAN-phase10.md 2.6 and 3.1 option A1, docs/SPEC.md 17.6).
+
+   THE HUBS HERE ARE BUILT THROUGH `rules/placement.js#placeMachine`, and that
+   is the whole point of this block. Every other scene in this file places
+   through `model/machines.js#write.place`, which asks nothing about footing
+   (`data/machines.js:465-467` records the blind spot) -- so "a hub with the
+   solid tile under it that `placementCheck` demands", which is the only kind
+   the game will ever build, went untested until Phase 10a and took a defect
+   with it.
+
+   THE DEFECT, measured before the fix, topsoil, two hubs 12 tiles apart on
+   flat ground: `{ok:true}` with no footing tile at all -- i.e. only where the
+   upper hub could not legally exist -- and `THE PATH IS BLOCKED` at
+   (168, 1632), the footing row's own lower boundary, with the footing under
+   the left column, the right column, or both. The anchor is the footprint's
+   CENTRE, so a span rising from below terminates one row above the footprint's
+   bottom and must cross the footing row, and `solidNear` sees the tile in
+   either column of a boundary-exact span (correctly, per b48203d). This is
+   docs/SPEC.md 17.2's `footing:2` bug recurring at `footing:1`.
+
+   FOUR CLAIMS, and the last two are what stop the fix from being "ignore
+   anything under a hub":
+
+     1. BOTH HUBS ARE LEGALLY PLACED. `placeMachine` returning a record means
+        `placementCheck` passed, which means the footing tile is really there
+        and the footprint is really clear. Asserted, not assumed.
+     2. THE 96 PX VERTICAL SPAN IS ACCEPTED, through the real
+        `rules/placement.js#linkSegment`, with the footing under either column
+        or both -- 96 px is exactly `hub.reach`, so this is also the longest
+        vertical stage the design gets (docs/PLAN-phase10.md 4.5 prices the
+        climb on it).
+     3. A REAL OBSTRUCTION MID-SPAN STILL REFUSES, in both columns of the
+        boundary-exact span.
+     4. THE EXEMPTION IS EXACTLY TWO ROWS DEEP. One stone ONE ROW BELOW it --
+        still directly under the hub, in the footprint's own columns -- refuses.
+        Without this row, "exempt the footing tile" and "exempt everything
+        beneath a hub" pass identically. --- */
+{
+  const STONE = D_sub.S.stone;
+  let bad = 0;
+
+  /* Flat room in `topsoil` rows 100..119, floor at 119 -- 320 rows of solid
+     rock with nothing in it but what this puts there, the same reason
+     `driveRig` chose the band. The lower hub stands on the floor (footprint
+     117-118, footing 119); the upper hub 12 tiles up stands on a hand-placed
+     tile at row 107, which is what a player digging a shaft has to leave
+     behind. Two `hub/rig` units in the pockets, because `placeMachine` spends
+     one per placement and refusing for want of an item would look exactly like
+     refusing for want of a floor. */
+  function upright(footingCols, rock = []) {
+    boot.newRun(1337);
+    const band = world.bandOf('topsoil');
+    for (let ty = 100; ty <= 119; ty++)
+      for (let tx = 16; tx <= 29; tx++) tiles.write.clear(band, tx, ty);
+    for (let tx = 16; tx <= 29; tx++) tiles.write.set(band, tx, 119, STONE);
+    for (const c of footingCols) tiles.write.set(band, 20 + c, 107, STONE);
+    for (const [tx, ty] of rock) tiles.write.set(band, tx, ty, STONE);
+    run.write.collect(run.machineHeldSub('hub'), D_form.F.rig, 2);
+    journal.write.drain();
+    const lo = R_place.placeMachine(band, 'hub', 20, 117);
+    const hi = R_place.placeMachine(band, 'hub', 20, 105);
+    const why = journal.write.drain().find(w => w.kind === 'refused')?.data?.why ?? null;
+    return { band, lo, hi, why };
+  }
+
+  const verdicts = [];
+  function span(label, want, footingCols, rock = []) {
+    const s = upright(footingCols, rock);
+    if (!s.lo || !s.hi) {
+      fail(`HEADFRAME EXEMPTION: ${label} -- rules/placement.js#placeMachine refused to build the pair ` +
+           `('${s.why}'), so this is not a legally placed pair and nothing below it means anything`);
+      bad++;
+      return;
+    }
+    const dx = anchorOfM(s.hi).x - anchorOfM(s.lo).x, dy = anchorOfM(s.lo).y - anchorOfM(s.hi).y;
+    if (dx !== 0 || dy !== 96) {
+      fail(`HEADFRAME EXEMPTION: ${label} -- the pair is ${dx} px across and ${dy} px apart, not a ` +
+           `straight 96 px vertical span; the footprint or a band origin moved and this case is now ` +
+           `testing something else`);
+      bad++;
+    }
+    const c = segs.linkCheck(s.lo, s.hi);
+    const before = segs.segments.length;
+    const made = R_place.linkSegment(s.lo, s.hi);
+    const grew = segs.segments.length - before;
+    const got = c.ok ? 'ok' : c.why;
+    verdicts.push(`${label}: ${got}${c.at ? ` at (${c.at.x},${c.at.y})` : ''}`);
+    if (got !== want) {
+      fail(`HEADFRAME EXEMPTION: ${label} -- expected '${want}', got '${got}'` +
+           (c.at ? ` at (${c.at.x}, ${c.at.y})` : ''));
+      bad++;
+    }
+    if (c.ok !== !!made || grew !== (c.ok ? 1 : 0)) {
+      fail(`HEADFRAME EXEMPTION: ${label} -- linkCheck said ${got} but linkSegment ` +
+           `${made ? 'created' : 'refused'} (segments ${grew > 0 ? '+' + grew : grew})`);
+      bad++;
+    }
+  }
+
+  /* CLAIMS 1 and 2. Both columns and both, because "it links when the footing
+     is in the column `Math.floor` favours" is half a test -- b48203d's own
+     lesson, applied to the tile the hub itself requires. */
+  span('12 tiles straight up, footing under the LEFT column', 'ok', [0]);
+  span('12 tiles straight up, footing under the RIGHT column', 'ok', [1]);
+  span('12 tiles straight up, footing under BOTH columns', 'ok', [0, 1]);
+
+  /* CLAIM 3 */
+  span('a stone mid-span in the left column', 'THE PATH IS BLOCKED', [0], [[20, 111]]);
+  span('a stone mid-span in the right column', 'THE PATH IS BLOCKED', [0], [[21, 111]]);
+
+  /* CLAIM 4 */
+  span('a stone ONE ROW below the exemption, left column', 'THE PATH IS BLOCKED', [0], [[20, 108]]);
+  span('a stone ONE ROW below the exemption, right column', 'THE PATH IS BLOCKED', [0], [[21, 108]]);
+
+  console.log('  ..  headframe exemption, 12-tile vertical pair built through placeMachine:');
+  for (const v of verdicts) console.log(`        ${v}`);
+
+  if (!bad)
+    ok('HEADFRAME EXEMPTION: two hubs built through rules/placement.js 12 tiles apart link straight up ' +
+       'with the footing tile under either column or both, a stone mid-span still refuses, and the ' +
+       'exemption is exactly two rows deep -- one row lower still blocks');
 }
 
 /* --- BREAK-EVEN, REPRICED AND NOW MEASURED. Section 3's BREAK-EVEN DEPTH is
@@ -2610,8 +2808,8 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     const band = world.bandOf('topsoil');
     for (let ty = 100; ty <= 118; ty++)
       for (let tx = 18; tx <= 29; tx++) tiles.write.clear(band, tx, ty);
-    const lo = machs.write.place(band, D_mach.M.hub, 20, 115);
-    const hi = machs.write.place(band, D_mach.M.hub, 20, 105);
+    const lo = footUnder(machs.write.place(band, D_mach.M.hub, 20, 115));
+    const hi = footUnder(machs.write.place(band, D_mach.M.hub, 20, 105));
     const before = matSum();
     const seg = segs.write.link(lo, hi);
     segs.write.carrier(seg, 0.5, -1);
@@ -2735,9 +2933,9 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     tiles.write.set(band, tx0 - 1, ty, D_sub.S.stone);
     tiles.write.set(band, tx0 + w, ty, D_sub.S.stone);
   }
-  const lo = machs.write.place(band, D_mach.M.hub, tx0 + 4, ty0 + 9);
-  const hi = machs.write.place(band, D_mach.M.hub, tx0 + 4, ty0 + 1);
-  machs.write.place(band, D_mach.M.crank, tx0 + 3, ty0 + 9);
+  const lo = footUnder(machs.write.place(band, D_mach.M.hub, tx0 + 4, ty0 + 9));
+  const hi = footUnder(machs.write.place(band, D_mach.M.hub, tx0 + 4, ty0 + 1));
+  footUnder(machs.write.place(band, D_mach.M.crank, tx0 + 3, ty0 + 9));
   const seg = segs.write.link(lo, hi);
   segs.write.carrier(seg, 0.5, 0);
   runReal(20, 1 / 120, { hasMouse: false });
@@ -2792,11 +2990,16 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
         docs/SPEC.md's seven rows, so this inherits that pinning instead of
         restating the table. --- */
 {
+  /* A 46-ROW SPAN RIDDEN FROM FIVE ROWS DOWN, so the forty tiles below the
+     start are clear: `belowHeadframe` states why a rider may not start at the
+     very top. FORTY IS THE NUMBER CLAIM A IS ABOUT (docs/SPEC.md section 3
+     makes 20 tiles a lethal fall), so the span grew rather than the claim
+     shrinking. */
   const TALL = {
     seed: 8980, reachMul: 5,
     room: { ty0: 60, h: 58 },
-    machines: [['hub', 20, 115], ['hub', 20, 75]],
-    links: [[0, 1]], carriers: [[0, 1]], ride: 0
+    machines: [['hub', 20, 115], ['hub', 20, 69]],
+    links: [[0, 1]], carriers: [[0, belowHeadframe(46)]], ride: 0
   };
   let bad = 0;
 

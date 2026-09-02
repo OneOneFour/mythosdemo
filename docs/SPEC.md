@@ -811,6 +811,14 @@ acceptance walkthrough; Phase 8e never saw it because a screenshot scene places
 machines through `model/machines.js#write.place`, which asks nothing about
 footing.
 
+**And `footing:1` did not end it.** With one column supported, the *remaining*
+footing tile still sits directly under the footprint the anchor is the centre
+of, so a span arriving from below still ran into it and `linkCheck` still
+refused — the same defect one column narrower, reopened by Phase 8g's
+boundary-exact sampling. Fixed in the sweep rather than in this row, because
+this row is the reading that is right: §17.6 holds the exemption, the
+measurement and why the alternatives (including `footing:0`) were rejected.
+
 **`crank.torque` is 1.5, not 1.0, and the half is load-bearing** — see §17.8
 for the arithmetic that forces it.
 
@@ -920,11 +928,48 @@ Refusals, **in this order** — structural before affordable, per
 | `'NOT A HUB'` | either end's row has no `hub` block |
 | `'ALREADY LINKED'` | `linkedTo(a, b)` — a segment already joins this exact pair |
 | `'TOO FAR APART'` | `len > min(reachOf(a), reachOf(b))`, where `reachOf(m) = hub.reach x eff('segReach', def.id)`. The **smaller** of the two hubs governs, so a long-reach tier can never lend its reach to a short one |
-| `'THE PATH IS BLOCKED'` | any sample along the span is solid |
+| `'THE PATH IS BLOCKED'` | any sample along the span is solid, **except inside either endpoint's own headframe** — see below |
 | `'OUTSIDE THE WORLD'` | any sample resolves to no band |
 
 There is deliberately **no** `'TOO STEEP TO STAND'`: every angle is legal.
 Recorded so the omission reads as a decision.
+
+**A hub's own footing tile does not block a cable leaving that hub, and this is
+`footing:2`'s defect recurring at `footing:1` (Phase 10a).** §17.2 records
+dropping `hub.footing` from 2 to 1 so that a headframe straddles the shaft
+mouth. That fixed the one instance and *not* the class: the anchor is still the
+footprint's **centre**, so a span rising from the hub below terminates one row
+above the upper footprint's bottom and must cross the row directly beneath it —
+which `placementCheck` requires to hold a solid tile. Since Phase 8g
+`solidNear` also (correctly) samples **both** tiles sharing a boundary-exact
+coordinate, so the footing tile is seen whichever column holds it. Measured,
+`topsoil`, two hubs 12 tiles apart on flat ground, hubs built through
+`rules/placement.js#placeMachine`:
+
+| upper hub's footing tile | `linkCheck` |
+|---|---|
+| none (a hub `placementCheck` refuses: `'NEEDS A FLOOR'`) | `{ok:true}` |
+| left column / right column / both | `{ok:false, why:'THE PATH IS BLOCKED', at:{x:168,y:1632}}` — the footing row's own lower boundary |
+
+So a **straight vertical link between two legally placed hubs was impossible**,
+and the refusal pointed at a tile the player had deliberately placed as the
+hub's floor. The exemption: a tile in an endpoint's **own band**, in its
+**footprint's columns**, in a row from the **anchor's own row** down to the
+**footprint's bottom plus one**, is not blocking. That is **exactly two tiles
+per endpoint** — the footing row's two columns; the rows above it are inside a
+footprint `placementCheck` has already proved clear. It is sound on three
+required facts and not on a tolerance: the footprint is required *clear*, the
+footing tile is required *present*, and the drawn cable leaves the headframe,
+which straddles its own floor. Rejected alternatives, per
+`docs/PLAN-phase10.md` §3.1: moving the anchor off the footprint centre (breaks
+§17.5's locked anchor, moves every carrier), teaching the player to lean one
+column per stage (the obvious build always refuses, and 11 tiles per stage is
+not enough to reach astral), and `footing:0` (hubs float, and the headframe
+reading dies).
+
+**A rider still cannot pass that tile**, because `rules/drive.js#ride` refuses
+any translation that would put the player's box inside solid rock. That is a
+separate defect, out of Phase 10a's scope, recorded in `docs/FINDINGS.md`.
 
 The clear-path test is the **half-tile sweep** `rules/items.js` already states
 ("no substep longer than half a tile, in either axis") — `n = max(1, ceil(len /

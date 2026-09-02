@@ -209,7 +209,7 @@ export function linkCheck(a, b) {
      one at one end. */
   if (len > Math.min(reachOf(a), reachOf(b))) return no('TOO FAR APART');
 
-  const sweep = sweepSpan(pa, pb, len);
+  const sweep = sweepSpan(pa, pb, len, [headframe(a), headframe(b)]);
   /* Both flags are collected over the WHOLE sweep and then reported in the
      locked order, so a span that is both blocked and partly off-world reports
      the blockage. The order is the ANSWER, not the iteration -- a sample can
@@ -236,13 +236,66 @@ export function linkCheck(a, b) {
    coincidence, so this only ever fires for a genuinely boundary-exact
    sample, not a near miss. */
 const EPS = 1e-6;
-function solidNear(band, wx, wy) {
+function solidNear(band, wx, wy, exempt) {
   const fx = (wx - band.origin.x) / band.tile, fy = (wy - band.origin.y) / band.tile;
   const xs = Math.abs(fx - Math.round(fx)) < EPS ? [Math.round(fx) - 1, Math.round(fx)] : [Math.floor(fx)];
   const ys = Math.abs(fy - Math.round(fy)) < EPS ? [Math.round(fy) - 1, Math.round(fy)] : [Math.floor(fy)];
-  for (const tx of xs) for (const ty of ys) if (solidAt(band, tx, ty)) return true;
+  for (const tx of xs) for (const ty of ys) {
+    if (exemptTile(exempt, band, tx, ty)) continue;
+    if (solidAt(band, tx, ty)) return true;
+  }
   return false;
 }
+
+/* ---------- THE HEADFRAME EXEMPTION (docs/PLAN-phase10.md 3.1 option A1) ----
+   A HUB'S OWN FOOTING TILE DOES NOT BLOCK A CABLE LEAVING THAT HUB. Without
+   this, a straight vertical link between two LEGALLY PLACED hubs is impossible:
+   the anchor is the footprint's centre, so the span from below terminates one
+   row above the footprint's bottom, and `footing:1`
+   (`model/run.js#placementCheck`) requires a solid tile directly under that
+   footprint. Measured, 12 tiles apart on flat ground: `ok` with no footing at
+   all -- i.e. only where the upper hub could not legally have been built --
+   and 'THE PATH IS BLOCKED' at the footing row's own lower boundary with the
+   footing under either column or both. This is docs/SPEC.md 17.2's `footing:2`
+   defect recurring at `footing:1`: dropping 2 to 1 fixed the one instance,
+   and `solidNear`'s boundary sampling (correctly) reopened the class.
+
+   WHY THE EXEMPTION IS SOUND, and it is three facts and not a tolerance:
+     - the FOOTPRINT is required CLEAR (`placementCheck`'s own first loop), so
+       the rows at and below the anchor inside it hold nothing to hide;
+     - the FOOTING TILE is required PRESENT, so the one tile this hides is a
+       tile the game itself insisted on -- refusing the cable because of it
+       refuses the player their own floor;
+     - the drawn cable LEAVES THE HEADFRAME. A headframe straddles its own
+       shaft mouth (`data/machines.js`'s `hub` row), and a bucket rising into
+       one passes the floor it is bolted to. `geometryOf`'s comment above
+       already stands on the first of these.
+   The blind spot is therefore EXACTLY the footing row's tiles under each
+   endpoint -- two per hub -- each one immediately under a machine, with a
+   required-clear footprint above it and nothing else it could conceal.
+
+   WHY NOT THE ALTERNATIVES (docs/PLAN-phase10.md 3.1): moving the anchor off
+   the footprint centre (A2) breaks docs/SPEC.md 17.5's locked anchor and moves
+   every carrier and every 8e/8f baseline; teaching the lean (A3) leaves the
+   most obvious build -- hubs stacked straight up -- refusing, and pointing at
+   a tile the player deliberately placed as the hub's floor; `footing:0` (A4)
+   floats hubs in mid-air and kills the headframe reading outright.
+
+   Stated as TILES, not as a sample window, so "exactly two tiles per endpoint"
+   is the code and not a consequence of it: a tile is exempt when it is in the
+   endpoint's own band, in its footprint's columns, and in a row from the
+   anchor's own row down to the footprint's bottom plus one. */
+function headframe(m) {
+  const def = defOf(m);
+  return {
+    band: m.band,
+    tx0: m.tx, tx1: m.tx + def.tw - 1,
+    ty0: m.ty + Math.floor(def.th / 2), ty1: m.ty + def.th
+  };
+}
+
+const exemptTile = (exempt, band, tx, ty) => exempt.some(e =>
+  e.band === band && tx >= e.tx0 && tx <= e.tx1 && ty >= e.ty0 && ty <= e.ty1);
 
 /* THE HALF-TILE SWEEP, not a Bresenham. `rules/items.js` already states the
    rule this reuses -- "no substep longer than half a tile, in either axis" --
@@ -253,8 +306,12 @@ function solidNear(band, wx, wy) {
    `bandAt` PER SAMPLE is what makes a cross-band span work at all, and it is
    the same call `rules/drive.js#haul` trusts for its own band handoff.
    The step is sized by the SMALLER of the two endpoint bands' tiles, so a
-   future band with a finer grid cannot be sampled too coarsely. */
-function sweepSpan(pa, pb, len) {
+   future band with a finer grid cannot be sampled too coarsely.
+
+   `exempt` is the two headframe tile ranges above -- the only SOLID tiles a
+   span may pass through -- handed in by `linkCheck` rather than looked up here,
+   because only the caller knows which two machines the span joins. */
+function sweepSpan(pa, pb, len, exempt = []) {
   const ba = bandAt(pa.x, pa.y), bb = bandAt(pb.x, pb.y);
   const tile = Math.min(ba?.tile ?? Infinity, bb?.tile ?? Infinity);
   const step = Number.isFinite(tile) ? tile * 0.5 : 4;
@@ -266,7 +323,7 @@ function sweepSpan(pa, pb, len) {
     const x = lerp(pa.x, pb.x, f), y = lerp(pa.y, pb.y, f);
     const band = bandAt(x, y);
     if (!band) { offWorld = offWorld || { x, y }; continue; }
-    if (solidNear(band, x, y))
+    if (solidNear(band, x, y, exempt))
       blocked = blocked || { x, y };
   }
   return { blocked, offWorld };

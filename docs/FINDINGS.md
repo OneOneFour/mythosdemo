@@ -1610,3 +1610,63 @@ the bug was undeniable in one frame. Fixed in Phase 9 (`m.torque > 0` reads
 RUNNING, no-ports-and-no-recipes reads IDLE), but the general point is the
 finding: **drawing existing state in a new place is a cheap way to audit it**, and
 the next phase that puts a query on screen should expect to find something.
+
+## Phase 10a (the headframe exemption)
+
+**16. Reducing `hub.footing` from 2 to 1 did not fix the class of defect; it
+fixed the one instance that boundary-exact sampling then reopened.** The
+measurement, before anything was touched — `topsoil`, seed 1337, flat room,
+floor row 119, lower hub at `ty 117` on the floor, upper hub 12 tiles up at
+`ty 105`, both anchors at world x 168 (a column boundary), span exactly 96 px
+(`hub.reach`):
+
+| upper hub's footing tile | `placementCheck` on the upper hub | `linkCheck` |
+|---|---|---|
+| none | `'NEEDS A FLOOR'` — illegal | `{ok:true}` |
+| left column (`tx 20`, row 107) | `'NOTHING BUILT YET'` — every structural test passed | `{ok:false, why:'THE PATH IS BLOCKED', at:{x:168,y:1632}}` |
+| right column (`tx 21`) | legal | same |
+| both columns | legal | same |
+
+y 1632 is the footing row's own *lower* boundary, which is the first sample a
+sweep running upward from the hub below reaches. So `linkCheck` returned `ok`
+for **exactly** the placements the game refuses to build, and refused every
+placement it does build. Three facts compose into it and each is individually
+correct: the anchor is the footprint's centre (`model/segments.js:114`,
+`docs/SPEC.md` §17.5 locks it), `solidNear` samples both tiles sharing a
+boundary-exact coordinate (`b48203d`, finding #12), and `footing:1` requires a
+solid tile directly under the footprint (`model/run.js:290-292`). `footing:2 → 1`
+narrowed the blockage from two columns to one and boundary sampling put the
+other column back. **The lesson is not about hubs**: reducing a *quantity* to
+dodge a geometric conflict leaves the conflict, and the second time it shows up
+it looks like a new bug. Fixed in `sweepSpan` (`docs/SPEC.md` §17.6 holds the
+exemption and the rejected alternatives), not in `data/`.
+
+It survived Phase 8g because **every hub in `tools/check.mjs` floated over
+air.** `model/machines.js#write.place` asks nothing about footing —
+`data/machines.js:465-467` records that exact blind spot after `footing:2` — so
+no span in the harness had ever met the tile every real span must cross. Closed
+with `tools/check.mjs#footUnder`, which lays `def.footing` tiles under every hub
+the file places. The general form is finding #12's, one step further on: **a
+scene assembled through `model` write APIs is not a scene the game can reach,
+and a scene the game cannot reach cannot see a defect in the rules that reach
+it.** Any future harness that places a machine should place it the way
+`rules/placement.js` would, or say why not.
+
+**17. A RIDER still cannot pass their own upper headframe's footing tile —
+out of scope here, and Phase 10b needs it.** The cable may now cross that tile;
+`rules/drive.js#ride` still refuses any translation that would put the player's
+box inside solid rock, and a 6 px box centred on the anchor straddles the
+anchor's column boundary, so the footing tile is inside the box whichever column
+holds it. Measured with footing tiles in place and the carrier parked at `t = 1`
+on a 40-row span: **the rider descends 10 px and stops**, the carrier leaves
+without them, and gravity then drops them onto the footing tile. `tools/check.mjs`
+parks its ride probes 40 px below the upper anchor to keep measuring what they
+claim to measure (`belowHeadframe`, which derives the 40 from the two exempt
+rows plus `PH` plus the 2 px deck offset), and the two rider rigs' spans grew so
+that "40 tiles" is still 40 tiles. **This is the one thing standing between A1
+and `docs/PLAN-phase10.md` §4.4's "the player rides up and steps off onto
+astral's floor"**: they arrive two rows short. Phase 10b owns it. The candidate
+fixes are not equal — making the ride translation resolve against the grid
+rather than refuse would be a collision change with fuzz consequences, whereas
+letting a rider *arrive* by clamping them to the deck for the last two rows is
+local to `rules/drive.js#ride`. Neither is designed here.
