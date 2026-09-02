@@ -3330,3 +3330,89 @@ test('drive: a carrier at a band seam', async ({ page }) => {
   expect(r.seg[0].band).toBe('topsoil');               // the low end is below the seam
   await shot(page, 'drive-band-seam.png');
 });
+
+/* ============================================================
+   PHASE 10c: TRIBUTE AND FAVOUR
+
+   Three scenes, each at the desktop viewport AND the 200 px phone floor
+   (`core/canvas.js#resize`'s own `Math.max(200, ...)` clamp). There is no
+   second Playwright project for a narrow viewport (`playwright.config.js`
+   declares one, `desktop`) -- `__mf.resize` is exposed on the test hook
+   precisely so a scene can reach any viewport directly, the same way every
+   other test in this file drives state through the model rather than
+   through a hardcoded click coordinate (CLAUDE.md). `__mf.resize(200, 180)`
+   lands exactly on the floor: `VIEW.scale` clamps to 2 at this size, so
+   `VIEW.w = max(200, ceil(200/2)) = 200` and `VIEW.h = max(180, ...) = 180`.
+
+   Every scene sets `run.tutorialBeat` explicitly, past the point any
+   `data/callouts.js` row has a string (FINDINGS #10) -- the same
+   `while (run.tutorialBeat < N) rw.advanceBeat()` idiom `driveScene` already
+   uses above, here inlined since these scenes are simple enough not to need
+   a shared scene builder. */
+
+const phoneFloor = page => page.evaluate(() => { __mf.resize(200, 180); __mf.draw(); });
+
+/* ---- 1. cycle 1, freshly armed, no clock ----
+   `settle()` alone is enough to arm it: `rules/cycles.js#step` runs inside
+   `newRun`'s own first frames, and cycle 1's `deadlineSecs` is `null`
+   (docs/SPEC.md section 4) -- the scene this baseline exists to prove is
+   that TRIBUTE draws no timer line for it. */
+test('tribute: cycle 1 armed, no clock', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { write: rw, run } = await import('/src/model/run.js');
+    while (run.tutorialBeat < 4) rw.advanceBeat();
+    __mf.draw();
+  });
+  await shot(page, 'tribute-cycle1-armed.png');
+  await phoneFloor(page);
+  await shot(page, 'tribute-cycle1-armed-phone.png');
+});
+
+/* ---- 2. mid-cycle-3, a running deadline, two of three gods known ----
+   Written directly rather than played to: reaching cycle 3 for real means
+   building the astral chain Phase 10b's own walkthrough covers, which this
+   phase does not own. `rw.tribute`/`rw.cycle`/`rw.favour` are the SAME
+   writers `rules/cycles.js` itself calls, so this is the identical state a
+   real run would reach, just arrived at directly. POSEIDON is left
+   untouched on purpose, so the FAVOUR panel's mask has something to mask. */
+test('tribute and favour: mid-cycle-3, two of three gods known', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { write: rw, run } = await import('/src/model/run.js');
+    while (run.tutorialBeat < 6) rw.advanceBeat();
+    rw.cycle(3);
+    rw.tribute({ id: 'grey-eyed-tithe', have: {}, left: 300 });
+    rw.favour('hephaestus', 3);
+    rw.favour('athena', 2);
+    __mf.draw();
+  });
+  await shot(page, 'tribute-favour-cycle3.png');
+  await phoneFloor(page);
+  await shot(page, 'tribute-favour-cycle3-phone.png');
+});
+
+/* ---- 3. the over-cap burden bar, with TRIBUTE drawn beneath it ----
+   FINDINGS #13's own regression guard: `view/ui/bar.js`'s fix (step 1 of
+   this phase) is proven on `drive-reversing-overcap.png` already, but that
+   scene predates TRIBUTE and never exercised a LABELLED bar (every demand
+   row) sitting directly under a bar whose value is wide enough to have
+   caused the original defect. This scene is the one place both are true at
+   once. */
+test('tribute: the over-cap burden scene', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { write: rw, run } = await import('/src/model/run.js');
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    while (run.tutorialBeat < 4) rw.advanceBeat();
+    rw.collect(S.copper, F.ore, 45);
+    __mf.draw();
+  });
+  await shot(page, 'tribute-overcap-burden.png');
+  await phoneFloor(page);
+  await shot(page, 'tribute-overcap-burden-phone.png');
+});
