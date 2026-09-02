@@ -69,8 +69,10 @@
 import { drawText, textWidth } from '../core/font.js';
 import { mix } from '../core/palette.js';
 import { lineTo, R } from '../core/pixels.js';
+import { shortLabelOf } from '../data/forms.js';
 import { colour } from '../data/palette.js';
-import { items } from '../model/items.js';
+import { epoch } from '../model/epoch.js';
+import { items, parseKey } from '../model/items.js';
 import { defOf, machines } from '../model/machines.js';
 import { eff } from '../model/mods.js';
 import { player, playerCentre } from '../model/player.js';
@@ -80,8 +82,11 @@ import {
 import { rowAt } from '../model/tiles.js';
 import { bands, heightPx, lightAt, seenAt, tileX, tileY, widthPx } from '../model/world.js';
 import { machineState, STATE_COLOUR } from './ui/mainPanel.js';
-import { drawRuler, rulerWidth } from './ui/ruler.js';
-import { resetDrawn } from './ui/state.js';
+import {
+  bandKnown, depthAt, depthText, drawRuler, masked, roman, rulerWidth
+} from './ui/ruler.js';
+import { drawn, resetDrawn } from './ui/state.js';
+import { drawTooltip } from './ui/tooltip.js';
 
 const INK = {
   void:  colour('abyC'),
@@ -245,6 +250,9 @@ export function drawOverview(g, f) {
 
   header(g, f, v);
   legend(g, f);
+  /* THE HOVER PASSES DRAW LAST, over the ruler and the legend both, because a
+     tooltip is the one thing in a frame that is allowed to cover anything. */
+  hoverPass(g, f, v);
 }
 
 /* ---------- terrain ----------
@@ -483,6 +491,157 @@ function drawMachines(g, v) {
     if (!glyph || w < 6 || h < 6) { R(g, x, y, Math.min(w, 2), Math.min(h, 2), col); continue; }
     drawText(g, glyph, x + ((w - 5) >> 1), y + ((h - 7) >> 1), col, 1, 1);
   }
+}
+
+/* ============================================================================
+   THE TWO HOVER LAYERS (section 4's last two rows)
+
+   HOVER  a machine's own tooltip: what it is, what state it is in, what is in
+          its buffer and how many fuel charges it is holding.
+   BANDS  a per-band summary: depth range, how much of it has been seen, machine
+          and stalled counts, ore seen, dark fraction.
+
+   ONE POINTER, TWO ANSWERS, and the more specific one wins: a machine under the
+   cursor is a better answer to "what is this" than the band it happens to sit
+   in. Both use `view/ui/tooltip.js`, which already follows the cursor, clamps to
+   the viewport and records itself into `drawn.tooltip` for the test hook -- there
+   was no reason to draw a second kind of box.
+
+   THE POINTER'S SCREEN POSITION is `f.mouse.x - f.cam.x`, the identical
+   conversion `view/hover.js#resolveHover` and `view/ui/mainPanel.js` already
+   make. `shell/input.js` keeps feeding `cmd.mx/my` while the map is open
+   precisely so this works, and the camera is frozen and rounded by the time this
+   runs, so the subtraction is exact rather than approximately right.
+   ============================================================================ */
+
+function hoverPass(g, f, v) {
+  if (!f.mouse?.has) return;
+  const L = f.ui.map.layers;
+  const sx = (f.mouse.x - f.cam.x) | 0, sy = (f.mouse.y - f.cam.y) | 0;
+
+  if (L.hover) {
+    const m = machineAtScreen(v, sx, sy);
+    if (m) { machineTip(g, f, m, sx, sy); return; }
+  }
+  if (L.bands) {
+    const b = bandAtScreen(v, sx, sy);
+    if (b) bandTip(g, f, b, sx, sy);
+  }
+}
+
+/* HIT-TESTED IN SCREEN SPACE, against the same rect `drawMachines` drew -- floor
+   included -- rather than by converting the pointer to a world tile and asking
+   `machineAt`. What you can SEE is what you can hover: a 2x2 gear is four screen
+   pixels at zoom 1 and a world-space test would demand the player hit one of
+   them exactly, while the marker on screen is deliberately bigger than that. One
+   pixel of pad, for the same reason the world hover gives a falling item half a
+   tile of slack. */
+function machineAtScreen(v, sx, sy) {
+  for (const m of machines) {
+    if (!seenAt(m.band, m.tx, m.ty)) continue;
+    const x = sxOf(v, m.box.x), y = syOf(v, m.box.y);
+    const w = Math.max(3, Math.round(m.box.w * v.scale));
+    const h = Math.max(3, Math.round(m.box.h * v.scale));
+    if (sx >= x - 1 && sx < x + w + 1 && sy >= y - 1 && sy < y + h + 1) return m;
+  }
+  return null;
+}
+
+/* Buffer contents and fuel charges, both off the machine record. `m.buf` is
+   keyed by the one pair string `model/items.js#keyOf` builds, so `parseKey` +
+   `shortLabelOf` turns a buffer into rows without this file knowing a single
+   substance name (SPEC 12). CHARGES is only shown when there are some: a row
+   reading `CHARGES 0` on a furnace is noise, while its absence on a machine that
+   never banks any is correct. */
+function machineTip(g, f, m, sx, sy) {
+  const def = defOf(m);
+  const st = machineState(m);
+  const rows = [];
+  for (const k in m.buf) {
+    const { sub, form } = parseKey(k);
+    if (sub < 0 || form < 0) continue;
+    rows.push(shortLabelOf(sub, form) + ' X' + m.buf[k]);
+  }
+  if (m.charges > 0) rows.push('CHARGES ' + m.charges.toFixed(1).replace(/\.0$/, ''));
+  if (!rows.length) rows.push('EMPTY');
+  drawTooltip(g, {
+    sections: [[def.name, st], rows], cx: sx, cy: sy, vw: f.W, vh: f.H
+  });
+}
+
+/* Which band the pointer is over. TWO WAYS IN, one answer: over the ruler it is
+   whichever segment rect the ruler itself recorded (read back through its own
+   `wy0`/`wy1`, so the linear scale stays the ruler's business), and over the map
+   body it is the band containing the world point under the cursor. */
+function bandAtScreen(v, sx, sy) {
+  for (const p of drawn.panels) {
+    if (p.wy0 == null) continue;
+    if (sx >= p.x - 4 && sx < p.x + p.w + 12 && sy >= p.y && sy < p.y + p.h)
+      return bandContaining((p.wy0 + p.wy1) / 2);
+  }
+  if (sx < v.vx || sx >= v.vx + v.vw || sy < v.vy || sy >= v.vy + v.vh) return null;
+  return bandContaining(v.wy + (sy - v.vy) / v.scale);
+}
+
+const bandContaining = wy =>
+  bands.find(b => wy >= b.origin.y && wy < b.origin.y + heightPx(b)) || null;
+
+/* A BAND'S SUMMARY IS A FULL SCAN of its `seen` and `light` arrays -- 40,960
+   tiles for the topsoil band -- so it is CACHED BY MUTATION EPOCH. `epoch.n`
+   moves on every `model` write and nothing here writes, so the cache is exact
+   rather than heuristic; the map freezes the run, which means the scan happens
+   once per band per time the map is opened rather than once per frame. A WeakMap
+   keyed by the band record also means a `newRun()`'s fresh records invalidate it
+   with no reset call, the same trick `view/ui/ruler.js#bandKnown` uses. */
+const bandStats = new WeakMap();
+
+function statsOf(b) {
+  const hit = bandStats.get(b);
+  if (hit && hit.epoch === epoch.n) return hit.s;
+
+  const max = Math.max(1, eff('lightMax'));
+  let seen = 0, ore = 0, dark = 0;
+  for (let ty = 0; ty < b.th; ty++) {
+    for (let tx = 0; tx < b.tw; tx++) {
+      if (!seenAt(b, tx, ty)) continue;
+      seen++;
+      if (rowAt(b, tx, ty).tags?.includes('metal')) ore++;
+      if (lightAt(b, tx, ty) / max < 0.6) dark++;
+    }
+  }
+  let mach = 0, stalled = 0;
+  for (const m of machines) {
+    if (m.band !== b) continue;
+    mach++;
+    if (machineState(m) === 'STALLED') stalled++;
+  }
+  const s = { seen, ore, dark, mach, stalled, total: b.tw * b.th };
+  bandStats.set(b, { epoch: epoch.n, s });
+  return s;
+}
+
+function bandTip(g, f, b, sx, sy) {
+  const known = bandKnown(b);
+  const s = statsOf(b);
+  const pc = (n, d) => (d > 0 ? Math.round((n / d) * 100) + '%' : '-');
+  const top = depthAt(b.origin.y), bot = depthAt(b.origin.y + heightPx(b));
+  drawTooltip(g, {
+    sections: [
+      [roman(b.ord) + '  ' + masked(b.name, known)],
+      /* NOTHING HERE IS WITHHELD BEHIND THE MASK BECAUSE NOTHING HERE CAN LEAK:
+         every figure is over tiles the player has already SEEN, so an unentered
+         band reports 0% seen, no ore and no machines -- which is a statement
+         about the player's own knowledge, not about the band. The depth range is
+         the band's position in the world, which the ruler beside this tooltip is
+         already drawing to scale. */
+      ['DEPTH ' + depthText(top) + ' - ' + depthText(bot),
+       'SEEN  ' + pc(s.seen, s.total),
+       'DARK  ' + pc(s.dark, s.seen)],
+      ['MACHINES ' + s.mach + (s.stalled ? '  STALLED ' + s.stalled : ''),
+       'ORE SEEN ' + s.ore]
+    ],
+    cx: sx, cy: sy, vw: f.W, vh: f.H
+  });
 }
 
 /* The visible tile window of one band, as `[tx0, tx1, ty0, ty1]`. Extracted
