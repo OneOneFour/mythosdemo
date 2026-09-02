@@ -3370,23 +3370,36 @@ test('tribute: cycle 1 armed, no clock', async ({ page }) => {
   await shot(page, 'tribute-cycle1-armed-phone.png');
 });
 
-/* ---- 2. mid-cycle-3, a running deadline, two of three gods known ----
+/* ---- 2. mid-cycle-3, a running deadline, two of three gods known, AND a
+   boon active ----
    Written directly rather than played to: reaching cycle 3 for real means
    building the astral chain Phase 10b's own walkthrough covers, which this
    phase does not own. `rw.tribute`/`rw.cycle`/`rw.favour` are the SAME
    writers `rules/cycles.js` itself calls, so this is the identical state a
    real run would reach, just arrived at directly. POSEIDON is left
-   untouched on purpose, so the FAVOUR panel's mask has something to mask. */
-test('tribute and favour: mid-cycle-3, two of three gods known', async ({ page }) => {
+   untouched on purpose, so the FAVOUR panel's mask has something to mask.
+
+   docs/BUILD_PLAN.md Phase 11 TIER 3 asks for TRIBUTE, FAVOUR, an active
+   boon and the ruler all on screen AT ONCE, specifically so full panel
+   crowding under D8's anchored layout can be checked by eye rather than
+   assumed -- so this baseline is EXTENDED rather than duplicated (this
+   file's own ownership note calls this out as the one sanctioned
+   exception): `rules/boons.js#grant`, the same call `the boon stack with
+   active boons` above already uses, activates `BOONS[0]` on top of the
+   existing tribute/favour state. */
+test('tribute and favour: mid-cycle-3, two of three gods known, a boon active', async ({ page }) => {
   await boot(page);
   await settle(page);
   await page.evaluate(async () => {
     const { write: rw, run } = await import('/src/model/run.js');
+    const { grant } = await import('/src/rules/boons.js');
+    const { BOONS } = await import('/src/data/boons.js');
     while (run.tutorialBeat < 6) rw.advanceBeat();
     rw.cycle(3);
     rw.tribute({ id: 'grey-eyed-tithe', have: {}, left: 300 });
     rw.favour('hephaestus', 3);
     rw.favour('athena', 2);
+    grant(BOONS[0].id);
     __mf.draw();
   });
   await shot(page, 'tribute-favour-cycle3.png');
@@ -3415,4 +3428,487 @@ test('tribute: the over-cap burden scene', async ({ page }) => {
   await shot(page, 'tribute-overcap-burden.png');
   await phoneFloor(page);
   await shot(page, 'tribute-overcap-burden-phone.png');
+});
+
+/* ============================================================
+   PHASE 11 TIER 3 -- THE VISUAL SNAPSHOT MATRIX, docs/BUILD_PLAN.md's own
+   list. Added incrementally against the sixteen baselines already above:
+   a soil/stone contact zone, an ore blob against pale rock, a tree crossing
+   a chunk seam, a natural hollow (unlit, with a glowing relic, and lit), the
+   surface's own hills and a cliff face, the overview at three scroll
+   positions and with a broken lift chain, and the Cloud Dock.
+
+   THE OPENING FRAME WITH THE GLOWING PICKAXE CALLOUT IS NOT HERE, on
+   purpose: `surface.png` (top of this file) already IS that frame.
+   `settle()` leaves `run.tutorialBeat` at 0 -- beat 1's own condition in
+   `rules/tutorial.js` is a walk step actually taken (`player.walkPhase > 0`),
+   which two idle substeps never produce -- so `view/hud.js#hint` is still
+   drawing `data/callouts.js#CALLOUTS[0]` ('TAKE THE PICKAXE'), and
+   `data/substances.js#pick` already carries `treatments:[{fn:'halo',...}]`,
+   planted a few tiles from spawn by `shell/boot.js` and well inside
+   `surface.png`'s own framing. A second baseline of the identical state
+   would be churn, not coverage.
+
+   EVERY SCENE BELOW SETS `run.tutorialBeat` EXPLICITLY (`docs/FINDINGS.md`
+   #10): the `while (run.tutorialBeat < 4) rw.advanceBeat()` idiom
+   `driveScene` already uses, so no stray callout can leak into a terrain or
+   machinery shot that has nothing to do with the beat sheet. */
+
+/* THE SOIL/STONE CONTACT ZONE, AT FULL FRAME. `data/world.js`'s surface band
+   declares it at row 27, 4 tiles thick, and `rules/generate.js#contact` runs
+   it across the WHOLE band width outside the spawn shelf -- no seed-hunting
+   needed, only a column clear of the shelf's own blend (`SHELF` 9 +
+   `BLEND` 3 either side of `spawnTx` 42). tx 80 is comfortably clear of it.
+   FULL FRAME rather than a tight crop, because the fingering is a property
+   of many columns at once -- a narrow crop could land on a column that
+   happened to roll all-stone or all-soil and prove nothing about the seam. */
+/* THE CONTACT ZONE IS SOLID ROCK, AND SOLID ROCK IS DARK UNTIL LIT
+   (`view/scene.js#drawDarkness`: a `seen` tile with no light still paints at
+   94% black, per `docs/DEVELOPER_GUIDE.md#pass-order-and-darkness` -- fog
+   and light are two separate facts, and `revealAll` only ever bypasses the
+   first). A bare `revealAll` here would screenshot a black rectangle, which
+   is `topsoil.png` above's own accepted look and proves nothing about the
+   seam. So a narrow shaft (3 tiles) is dug straight down from the open sky
+   at tx 79-81, leaving the natural material UNTOUCHED on both sides at
+   tx <= 78 and tx >= 82 -- exactly the fingering worldgen actually produced
+   -- and every tile in that open shaft is itself sky-exposed
+   (`model/tiles.js#skyExposedAt`), so `rules/light.js` lights the shaft at
+   `lightMax` all the way down and bleeds `eff('lightFalloffRock')` (3/tile)
+   into the walls either side: five tiles of real contact fingering, lit,
+   exactly as a player who dug this same shaft would see it. */
+test('a soil/stone contact zone at full frame', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { write: rw, run } = await import('/src/model/run.js');
+    const { VIEW } = await import('/src/core/canvas.js');
+    const { banner } = await import('/src/view/fx.js');
+
+    while (run.tutorialBeat < 4) rw.advanceBeat();
+    const band = bandOf('surface');
+    for (let ty = 0; ty <= 35; ty++)
+      for (let tx = 79; tx <= 81; tx++) tw.clear(band, tx, ty);
+
+    __mf.revealAll(band);
+    banner.fade = 0;
+    __mf.frames(2);          // let `rules/light.js` recompute against the new tiles
+    __mf.cam.x = Math.round(worldX(band, 80) - VIEW.w / 2);
+    __mf.cam.y = Math.round(worldY(band, 27) - VIEW.h / 2);
+    __mf.draw();
+  });
+  await shot(page, 'contact-zone.png');
+});
+
+/* AN ORE BLOB AGAINST PALE STONE. `data/substances.js#stone`'s own tile look
+   (`base:'irC'`, `#4a4a54`) is a mid-dark grey; `granite`'s
+   (`base:'graniteB'`, `#b3b0ba`, `hi:'graniteA'` `#d8d6dc`) is the one rock
+   substance that actually reads as PALE -- lavender-grey against copper's
+   warm orange (`cuA`/`cuB`). `data/world.js`'s topsoil band overlaps a
+   copper `blobs` row (rows 4-180) with a granite one (rows 120-320), so the
+   two are found together rather than placed by hand: at seed 1337 a real
+   copper cluster (tx 96-108) sits immediately beside a real granite patch
+   (tx 109-111), ty 120-130 -- found by scanning the generated tile grid, not
+   asserted against a specific arm, worldgen's own cruciform scatter being
+   the point rather than a hand-drawn shape.
+
+   SAME DARKNESS FACT AS THE CONTACT ZONE ABOVE: 128 tiles down, `revealAll`
+   alone screenshots black -- sky light does not reach anywhere near this
+   deep (`eff('lightMax')` 15 / `eff('lightFalloffAir')` 1 per tile of open
+   air), so a real brazier is placed instead of a shaft, the same move
+   `shaft-lit.png` above already makes. The room it lights is carved
+   directly on the copper/granite BOUNDARY (tx 103-109) with the brazier
+   centred in it (tx 106), so both walls -- copper to the west, granite one
+   tile past the east wall -- land in `view/scene.js#drawDarkness`'s middle
+   bucket (`lightAt` ~5, `DARK_ALPHA[1]` 0.55) rather than one side blazing
+   and the other unreadable. Framed at the phone floor's tighter 200x180
+   (`core/canvas.js#resize`) so the boundary fills the frame instead of
+   getting lost in 640x400 of mostly unlit rock. */
+test('an ore blob against pale stone', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { M } = await import('/src/data/machines.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { write: mw } = await import('/src/model/machines.js');
+    const { write: rw, run } = await import('/src/model/run.js');
+    const { VIEW } = await import('/src/core/canvas.js');
+    const { banner } = await import('/src/view/fx.js');
+
+    while (run.tutorialBeat < 4) rw.advanceBeat();
+    const band = bandOf('topsoil');
+    for (let ty = 121; ty <= 125; ty++)
+      for (let tx = 103; tx <= 109; tx++) tw.clear(band, tx, ty);
+    tw.set(band, 106, 125, S.stone);      // a floor for the brazier
+
+    const brazier = mw.place(band, M.brazier, 106, 124);
+    mw.take(brazier, S.timber, F.log, 4);
+
+    __mf.revealAll(band);
+    banner.fade = 0;
+    __mf.frames(700);         // > 6s honest-fuel recipe, then settle
+
+    __mf.resize(200, 180);
+    __mf.cam.x = Math.round(worldX(band, 106) - VIEW.w / 2);
+    __mf.cam.y = Math.round(worldY(band, 123) - VIEW.h / 2);
+    __mf.draw();
+  });
+  await shot(page, 'ore-against-pale-stone.png');
+});
+
+/* A TREE CROSSING A CHUNK SEAM. `view/treatments.js#canopy` reaches up to
+   `EXTENT.canopy` (4 tiles) either side of its trunk, and `view/paint.js`'s
+   `DECO_MARGIN` is sized off that exact table so a crown straddling a chunk
+   boundary bakes correctly into BOTH chunk canvases. Hand-planted at tx 64
+   -- a multiple of the surface band's own `chunk:16` -- rather than hunted
+   for in worldgen, the same call `carveShaft` above already makes: a tree
+   landing exactly on a chunk boundary at seed 1337 is not a bet worth
+   making, and the point here is the SEAM, not the tree's own placement.
+   `flags.showChunks` is the SAME debug overlay `overlays.png` already
+   baselines, on here so the seam itself is visible in the same shot as the
+   canopy that crosses it. */
+test('a tree crossing a chunk seam', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { write: rw, run } = await import('/src/model/run.js');
+    const { VIEW } = await import('/src/core/canvas.js');
+    const { banner } = await import('/src/view/fx.js');
+
+    while (run.tutorialBeat < 4) rw.advanceBeat();
+
+    const band = bandOf('surface');
+    const seamTx = 64, floorTy = 20;
+    for (let ty = 0; ty < floorTy; ty++)
+      for (let tx = seamTx - 8; tx <= seamTx + 8; tx++) tw.clear(band, tx, ty);
+    for (let tx = seamTx - 8; tx <= seamTx + 8; tx++) tw.set(band, tx, floorTy, S.stone);
+    for (let k = 1; k <= 5; k++) tw.set(band, seamTx, floorTy - k, S.timber);
+
+    __mf.revealAll(band);
+    banner.fade = 0;
+    __mf.flags.showChunks = true;
+    __mf.cam.x = Math.round(worldX(band, seamTx) - VIEW.w / 2);
+    __mf.cam.y = Math.round(worldY(band, floorTy - 8) - VIEW.h / 2);
+    __mf.draw();
+  });
+  await shot(page, 'tree-chunk-seam.png');
+});
+
+/* ---------- a natural hollow (Phase 7's own generator), three ways ----------
+   Found by flood-filling seed 1337's topsoil tile grid for a sealed air
+   pocket clear of the spawn column -- `docs/BUILD_PLAN.md` Phase 11's own
+   preference for a GENERATED room over a hand-carved shaft, where one is
+   reachable at a fixed seed. tx 17-21, ty 102-104 (31 open cells, walled on
+   every side, never reaching row 0 -- confirmed by the same flood fill).
+
+   THREE BASELINES, ON THE SAME PAIR-PROOF RULE `shaft-unlit.png`/
+   `shaft-lit.png` above already uses: `hollow-unlit.png` is dark with
+   nothing in it, and it is the pixel-diff partner for BOTH of the other
+   two. Against `hollow-relic-unlit.png` the only difference legal to exist
+   is the glow (proving `data/substances.js#bellows`'s halo is a `view`
+   treatment and never touches `rules/light.js`'s field -- GLOW IS NOT
+   LIGHT). Against `hollow-lit.png` the only difference legal to exist is
+   the light itself, from a real brazier. */
+async function hollowScene(page) {
+  await page.evaluate(async () => {
+    const { bandOf, worldX, worldY, write: ww } = await import('/src/model/world.js');
+    const { write: rw, run } = await import('/src/model/run.js');
+    const { write: pw } = await import('/src/model/player.js');
+    const { banner } = await import('/src/view/fx.js');
+    const { VIEW } = await import('/src/core/canvas.js');
+
+    while (run.tutorialBeat < 4) rw.advanceBeat();
+    const band = bandOf('topsoil');
+    pw.band(band);
+    pw.move(worldX(band, 19), worldY(band, 103));   // inside the hollow's own open core
+    ww.revealAll(band);
+    banner.fade = 0;
+    __mf.cmd.hasMouse = false;
+    __mf.cam.x = Math.round(worldX(band, 19) + 4 - VIEW.w / 2);
+    __mf.cam.y = Math.round(worldY(band, 103) + 4 - VIEW.h / 2);
+  });
+}
+
+test('a natural hollow, unlit', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await hollowScene(page);
+  await page.evaluate(() => __mf.draw());
+  await shot(page, 'hollow-unlit.png');
+});
+
+test('a glowing relic lying in the unlit hollow', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await hollowScene(page);
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { write: iw } = await import('/src/model/items.js');
+
+    const band = bandOf('topsoil');
+    const it = iw.spawn(band, worldX(band, 19) + 4, worldY(band, 103) + 4, S.bellows, F.relic, 0, 0);
+    if (it) it.rest = 1;
+    __mf.draw();
+  });
+  await shot(page, 'hollow-relic-unlit.png');
+});
+
+/* THE PAIR ABOVE IS NOT A NO-OP, proved the same way `winch: the cable
+   ghost is not a no-op` proves its own pair: `DARK_ALPHA[0]` is 0.94
+   (`view/scene.js#drawDarkness`), so a halo sitting on tiles at light level
+   0 is crushed to a few percent of its true colour -- real, per CLAUDE.md's
+   own rule that a feature-visible test must show the pixels differ, but far
+   too subtle for a human glancing at the two PNGs above to be expected to
+   catch by eye. A canvas hash over both scenes is the honest version of
+   that same claim. */
+test('the glowing relic in the unlit hollow is not a no-op', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const hashOf = () => page.evaluate(() => {
+    const c = document.getElementById('stage');
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let h = 2166136261;
+    for (let i = 0; i < d.length; i += 4) {
+      h ^= d[i] | (d[i + 1] << 8) | (d[i + 2] << 16);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  });
+
+  await hollowScene(page);
+  await page.evaluate(() => __mf.draw());
+  const bare = await hashOf();
+
+  await hollowScene(page);
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { write: iw } = await import('/src/model/items.js');
+    const band = bandOf('topsoil');
+    const it = iw.spawn(band, worldX(band, 19) + 4, worldY(band, 103) + 4, S.bellows, F.relic, 0, 0);
+    if (it) it.rest = 1;
+    __mf.draw();
+  });
+  const withRelic = await hashOf();
+
+  expect(withRelic).not.toBe(bare);
+});
+
+test('the same natural hollow lit by a brazier', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await hollowScene(page);
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { M } = await import('/src/data/machines.js');
+    const { bandOf } = await import('/src/model/world.js');
+    const { write: mw } = await import('/src/model/machines.js');
+
+    const brazier = mw.place(bandOf('topsoil'), M.brazier, 19, 104);
+    mw.take(brazier, S.timber, F.log, 4);
+    __mf.frames(700);          // > 6s honest-fuel recipe, then settle -- same margin `shaft-lit.png` uses
+  });
+  await shot(page, 'hollow-lit.png');
+});
+
+/* SURFACE HILLS. `surface.png` is deliberately the flat spawn shelf
+   (`rules/generate.js#SHELF`, pinned to 0 offset for `docs/SPEC.md`
+   section 5's own beat sheet); this is everywhere else. Framed from the
+   surface band's own left edge so the shelf itself sits in the same
+   picture as the relief either side of it -- the comparison IS the point,
+   not a close crop of one hill. */
+test('surface hills', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { bandOf } = await import('/src/model/world.js');
+    const { write: rw, run } = await import('/src/model/run.js');
+    const { banner } = await import('/src/view/fx.js');
+
+    while (run.tutorialBeat < 4) rw.advanceBeat();
+    const band = bandOf('surface');
+    __mf.revealAll(band);
+    banner.fade = 0;
+    __mf.cam.x = band.origin.x;
+    __mf.cam.y = band.origin.y;
+    __mf.draw();
+  });
+  await shot(page, 'surface-hills.png');
+});
+
+/* A CLIFF FACE. `rules/generate.js#stepPass` permits a 2-tile step
+   (`STEP_BIG`) outside `SAFE_R` of spawn, no closer together than
+   `STEP_GAP` columns -- the steepest face the generator will ever produce.
+   At seed 1337 it fires exactly once, at tx 109 (found by walking the
+   generated heightmap column by column, skipping tree-trunk columns so a
+   lone trunk is never mistaken for a step in the ground itself). */
+test('a cliff face', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { write: rw, run } = await import('/src/model/run.js');
+    const { VIEW } = await import('/src/core/canvas.js');
+    const { banner } = await import('/src/view/fx.js');
+
+    while (run.tutorialBeat < 4) rw.advanceBeat();
+    const band = bandOf('surface');
+    __mf.revealAll(band);
+    banner.fade = 0;
+    __mf.cam.x = Math.round(worldX(band, 109) - VIEW.w / 2);
+    __mf.cam.y = Math.round(worldY(band, 12) - VIEW.h / 2);
+    __mf.draw();
+  });
+  await shot(page, 'cliff-face.png');
+});
+
+/* THE MAP OVERVIEW AT THREE SCROLL POSITIONS. `map.png` above never
+   scrolls -- `flags.showMap` with `follow` left at its default `true`,
+   centred wherever `settle()` happens to leave the player. `mapMoveTo`
+   (`shell/ui.js`) is the identical model-level scroll the fog test above
+   already drives the overview through; three calls to it, far enough
+   apart in world-Y, make the SAME map read as three different pictures:
+   the Heavens at the very top, a mid-topsoil stretch thick with hollows
+   and ore, and the world's own deepest rows. All three bands are fully
+   revealed for the same reason `map.png` is -- the point is the overview's
+   layout at different offsets, not fog. */
+test('the map overview at three scroll positions', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { bands, write } = await import('/src/model/world.js');
+    const { write: rw, run } = await import('/src/model/run.js');
+    const { mapMoveTo } = await import('/src/shell/ui.js');
+
+    while (run.tutorialBeat < 4) rw.advanceBeat();
+    for (const b of bands) write.revealAll(b);
+    __mf.flags.showMap = true;
+    mapMoveTo(0, 0);
+    __mf.draw();
+  });
+  await shot(page, 'map-scroll-heavens.png');
+
+  await page.evaluate(async () => {
+    const { mapMoveTo } = await import('/src/shell/ui.js');
+    mapMoveTo(0, 1400);
+    __mf.draw();
+  });
+  await shot(page, 'map-scroll-topsoil.png');
+
+  await page.evaluate(async () => {
+    const { mapMoveTo } = await import('/src/shell/ui.js');
+    mapMoveTo(0, 4000);         // past the world's own bottom edge -- `fit()`
+                                 // in `view/overview.js` clamps it there
+    __mf.draw();
+  });
+  await shot(page, 'map-scroll-deep.png');
+});
+
+/* OVERVIEW WITH A BROKEN LIFT CHAIN. Reuses the exact hub layout `winch:
+   the same chain with the middle segment missing` above already baselines
+   at scene scale -- CHAIN's four hubs, linked [0,1] and [2,3] with the
+   middle segment deliberately absent -- and opens the map on it instead of
+   the scene camera. `view/overview.js#drawChain`'s own header names this
+   exact construction as the LOGISTICS layer's acceptance case: an open end
+   draws as a red ring, a joined hub as a small solid box, a driven cable is
+   solid and bright and an idle one dashes -- so a broken chain has to be
+   visually distinguishable from a working one without reading a single
+   number. */
+test('overview with a broken lift chain', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await winchScene(page, {
+    ...CHAIN, links: [[0, 1], [2, 3]],
+    carriers: [[0, 0.35, 20], [1, 0.15, 8]]
+  });
+  await page.evaluate(async () => {
+    const { write: rw, run } = await import('/src/model/run.js');
+    while (run.tutorialBeat < 4) rw.advanceBeat();
+    __mf.flags.showMap = true;
+    __mf.draw();
+  });
+  await shot(page, 'map-broken-chain.png');
+});
+
+/* THE CLOUD DOCK, PLACED FOR REAL: `rules/placement.js#placeMachine`'s own
+   click-to-arm path (keyboard, the same 'e' flow `a placed furnace` above
+   uses), not a model-level `mw.place` write that would skip past the
+   legality this scene exists to exercise -- astral's floor, D5's own
+   receiver, `footing:2`. The bill (`data/recipes.js#cloud_dock`: 5
+   copper/plate, 1 copper/ingot, 2 timber/log) is given directly rather than
+   mined and pressed, the same call `a placed furnace` already makes for
+   the furnace: this scene's own point is the dock's LOOK once placed, not
+   the crafting grind. */
+test('the Cloud Dock', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { write: rw, run } = await import('/src/model/run.js');
+    const { write: pw, PH } = await import('/src/model/player.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { assignQuickbar } = await import('/src/shell/ui.js');
+
+    while (run.tutorialBeat < 4) rw.advanceBeat();
+
+    const astral = bandOf('astral');
+    pw.band(astral);
+    /* A FULL BODY HEIGHT clear of the floor, not just a bare pixel -- placed
+       any closer, the body already overlaps the solid row before physics
+       ever runs, and `moveY`'s collision resolves that embedded start by
+       sinking a further tile rather than pushing back out (the same wedge
+       CLAUDE.md's own "mistakes already made here" section warns about). */
+    pw.move(worldX(astral, 60), worldY(astral, 29) - PH);
+    __mf.revealAll(astral);
+    __mf.cmd.hasMouse = false;
+    __mf.frames(30);                        // let gravity settle them onto row 30
+
+    rw.grant('cloud_dock');
+    rw.collect(S.cloud_dock, F.rig, 1);
+    assignQuickbar(0, { sub: S.cloud_dock, form: F.rig });
+  });
+  await page.keyboard.press('1');
+  await page.keyboard.press('e');
+  await page.evaluate(() => __mf.frames(10));
+
+  const placed = await page.evaluate(async () => {
+    const { M } = await import('/src/data/machines.js');
+    const dock = __mf.machines.find(m => m.def === M.cloud_dock);
+    return { ok: !!dock, band: dock?.band?.id };
+  });
+  expect(placed.ok).toBe(true);
+  expect(placed.band).toBe('astral');
+
+  await page.evaluate(async () => {
+    const { M } = await import('/src/data/machines.js');
+    const { VIEW } = await import('/src/core/canvas.js');
+    const { banner } = await import('/src/view/fx.js');
+    const dock = __mf.machines.find(m => m.def === M.cloud_dock);
+    banner.fade = 0;
+    /* The dock's own footprint is 2x1 tiles (16x8 world px) -- tiny against
+       the 640x400 desktop view, and its marble body reads close to white
+       against astral's own bright sky, so a wide shot leaves it a pale
+       sliver easy to miss. The phone floor (`core/canvas.js#resize`'s own
+       200x180 clamp, the same one the tribute/favour scenes above reach
+       for) is used here for the opposite of its usual reason: not to prove
+       narrow-viewport layout, but to make a small machine fill enough of
+       the frame that its trim actually reads. */
+    __mf.resize(200, 180);
+    __mf.cam.x = Math.round(dock.box.x + dock.box.w / 2 - VIEW.w / 2);
+    __mf.cam.y = Math.round(dock.box.y + dock.box.h / 2 - VIEW.h / 2);
+    __mf.draw();
+  });
+  await shot(page, 'cloud-dock.png');
 });
