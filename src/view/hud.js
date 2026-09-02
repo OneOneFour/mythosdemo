@@ -64,6 +64,7 @@ import { stats as paintStats } from './paint.js';
 import { drawBar } from './ui/bar.js';
 import { drawMainPanel } from './ui/mainPanel.js';
 import { drawQuickbar } from './ui/quickbar.js';
+import { drawRuler, rulerWidth } from './ui/ruler.js';
 import { drawn as uiDrawn, resetDrawn as resetUiDrawn } from './ui/state.js';
 
 const UI = {
@@ -108,6 +109,13 @@ export function drawHUD(g, f) {
   reticle(g, f);
   buildGhost(g, f);
   drawQuickbar(g, f);
+  /* THE BAND RULER, RIGHT EDGE, COMPACT (docs/BUILD_PLAN.md Phase 9 section 3).
+     One widget, two contexts: `view/overview.js` mounts the same function full
+     height with band names and a footer, and this is the other mount. Drawn
+     AFTER the quickbar on purpose -- it measures the quickbar's real rect out of
+     `view/ui/state.js#drawn` to know where to stop -- and BEFORE the main panel,
+     which is a window over the permanent HUD and must cover it. */
+  hudRuler(g, f, W, H, boonBottom);
   /* THE MAIN PANEL DRAWS LAST, ON TOP OF EVERYTHING ELSE THIS FUNCTION
      PAINTS -- it is a window sitting over the permanent HUD, not a member of
      it, and it PAUSES NOTHING: the world above it keeps stepping every frame
@@ -217,6 +225,38 @@ function depth(g, W, y) {
   const w = textWidth(s) + 8;
   panel(g, W - w - 6, y - 2, w, 11);
   drawText(g, s, W - w - 2, y, d > 0 ? UI.ink : UI.dim, 1, 1);
+}
+
+/* ---------- the band ruler's HUD mount (Phase 9 section 3) ----------
+   ANCHORED, NEVER HARDCODED (CLAUDE.md D8, whose own example of the failure is
+   the mockup's FAVOUR panel overrunning its frame). Both ends of this ruler are
+   measured rather than chosen:
+
+     the TOP     is `boonStack`'s own return value -- the y just past whatever it
+                 actually drew -- so the ruler starts under the depth readout and
+                 under however many boon rows are live, and moves when they do.
+     the BOTTOM  is the quickbar's REAL rect, read back out of
+                 `view/ui/state.js#drawn` (it is drawn immediately before this),
+                 not a copy of `view/ui/quickbar.js`'s arithmetic. Two panels
+                 that must not overlap should share one number, and the one they
+                 share is the rectangle one of them actually painted.
+
+   NO NAMES AND NO FOOTER HERE (`labels` defaults false): the depth figure and
+   the band name already exist top-right and in the overview's own footer, and
+   D8's whole point is that a second copy of a fact is two panels restating one
+   thing. What the HUD gains is the SHAPE -- how deep this run goes, and how far
+   down it you are.
+
+   Skipped outright when the gap is too short to read: a 20 px bar covering 416
+   rows of world is a smear, not a scale. */
+const HUD_RULER_MIN_H = 40;
+
+function hudRuler(g, f, W, H, boonBottom) {
+  const y = boonBottom + 6;
+  const qb = uiDrawn.grids.find(gr => gr.id === 'quickbar');
+  const bottom = (qb ? qb.y : H - 12) - 4;
+  if (bottom - y < HUD_RULER_MIN_H) return;
+  drawRuler(g, { id: 'hud-ruler', x: W - rulerWidth() - 2, y, h: bottom - y, vw: W, vh: H });
 }
 
 /* ---------- the timed-boon stack, Phase 4 STEP 5 ----------
