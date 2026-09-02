@@ -83,6 +83,16 @@ export const RUN_SCHEMA = Object.freeze({
   cycle: 1, tribute: null,
   favour: null, charted: null, misses: 0,
 
+  /* `offer` IS THE DRAFT BRIDGE, and it exists only because a `rules` module
+     may not reach `shell/input.js#wants` (`tools/layers.mjs`'s `rules -> shell`
+     ban): `rules/cycles.js#complete` cannot call `wants.draft = tier` itself,
+     so it writes the tier NAME here instead and `shell/main.js` performs the
+     identical "first undrafted row" lookup it already runs for the four
+     debug-key drafts, then clears this field -- one event, one dispatch path,
+     regardless of whether a key or a completed trial requested it. A scalar,
+     not a container, so no fresh-build in `reset()` is needed. */
+  offer: null,
+
   /* Phase 4 (docs/BUILD_PLAN.md) STEP 4, CLAUDE.md D1: a fixed-length
      SELECTION over `run.inv`, not a second inventory -- see
      `rules/trinkets.js`'s own header on why `run.trinkets` was deleted.
@@ -245,6 +255,7 @@ export const write = {
   chart(bandId)     { if (!run.charted.includes(bandId)) run.charted.push(bandId); bump(); },
   miss()            { run.misses++; bump(); },
   cycle(n)          { run.cycle = n; bump(); },
+  offer(tier)       { run.offer = tier; bump(); },
 
   /* One trinket slot, Phase 4 STEP 4. `sub` is a substance ordinal or
      `null` (empties the slot). `rules/trinkets.js#step` is the only caller

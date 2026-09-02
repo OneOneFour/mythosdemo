@@ -274,6 +274,15 @@ function applyIntents() {
     cmd.equip = false;
   }
 
+  /* A cycle completion (`rules/cycles.js#complete`) arrives as `run.offer`,
+     since a `rules` module may not reach `shell/input.js#wants` -- see
+     `model/run.js#RUN_SCHEMA.offer`'s own comment. Folding it into `wants.draft`
+     before the four checks below gives it the identical "first undrafted row"
+     dispatch the debug keys already have, with no second draft path -- and
+     `!wants.draft` means a key held the same frame a trial completes wins,
+     rather than the two silently overwriting each other. */
+  if (run.offer && !wants.draft) { wants.draft = run.offer; runw.offer(null); }
+
   /* Drafting, bound to a key so all four tiers are exercisable by hand. */
   if (wants.draft === 'trinket') {
     const t = trinkets.draftable()[0];
