@@ -39,19 +39,22 @@
 import { drawText, textWidth } from '../core/font.js';
 import { R, lineTo } from '../core/pixels.js';
 import { mix } from '../core/palette.js';
-import { AIR, F, FORM, labelOf } from '../data/forms.js';
+import { AIR, byHudOrder, F, FORM, labelOf } from '../data/forms.js';
 import { M, MACH } from '../data/machines.js';
 import { colour } from '../data/palette.js';
 import { SPAWN_BAND } from '../data/world.js';
 import { TRINKET } from '../data/trinkets.js';
 import { BOON } from '../data/boons.js';
+import { ASKERS, CYCLES } from '../data/cycles.js';
+import { S } from '../data/substances.js';
 import { aim } from '../model/aim.js';
 import { boons } from '../model/boons.js';
 import { eff, mods } from '../model/mods.js';
 import { player } from '../model/player.js';
 import { machineAt } from '../model/machines.js';
 import {
-  burdenFrac, burdenOf, hasPick, machineIdFor, placementCheck, run
+  burdenFrac, burdenOf, cycleRow, hasPick, machineIdFor, placementCheck, run,
+  tributeHave
 } from '../model/run.js';
 import { linkCheck, reachOf } from '../model/segments.js';
 import { beat } from '../model/tutorial.js';
@@ -64,7 +67,7 @@ import { stats as paintStats } from './paint.js';
 import { drawBar } from './ui/bar.js';
 import { drawMainPanel } from './ui/mainPanel.js';
 import { drawQuickbar } from './ui/quickbar.js';
-import { drawRuler, rulerWidth } from './ui/ruler.js';
+import { drawRuler, masked, roman, rulerWidth } from './ui/ruler.js';
 import { drawn as uiDrawn, resetDrawn as resetUiDrawn } from './ui/state.js';
 
 const UI = {
@@ -100,12 +103,20 @@ export function drawHUD(g, f) {
   resetUiDrawn();
 
   hearts(g, 6, 6);
-  burden(g, 6, 14, W);
+  /* BURDEN's own bottom edge used to be thrown away here -- a bare statement
+     with no assignment -- which is exactly what left no anchor for TRIBUTE
+     to hang under (D8). Captured now, the same way `boonStack` below has
+     always handed its own bottom to `hudRuler`/`debug`. */
+  const burdenBottom = burden(g, 6, 14, W);
+  tribute(g, 6, burdenBottom, W);
   depth(g, W, 6);
   /* The timed-boon stack (Phase 4 STEP 5): BELOW the depth gauge just drawn
-     (y 6), and its own bottom edge is handed to `debug()` so a debug panel
-     (y 22 by default) never draws under it when both are on screen at once. */
+     (y 6). FAVOUR (Phase 10c) is inserted directly under it, in the SAME
+     anchor chain: `favourBottom`, not `boonBottom`, is what now reaches
+     `hudRuler` and `debug`, or FAVOUR would draw through whichever of them
+     ran next. */
   const boonBottom = boonStack(g, f, W, 19);
+  const favourBottom = favour(g, W, boonBottom + 3);
   reticle(g, f);
   buildGhost(g, f);
   drawQuickbar(g, f);
@@ -115,7 +126,7 @@ export function drawHUD(g, f) {
      AFTER the quickbar on purpose -- it measures the quickbar's real rect out of
      `view/ui/state.js#drawn` to know where to stop -- and BEFORE the main panel,
      which is a window over the permanent HUD and must cover it. */
-  hudRuler(g, f, W, H, boonBottom);
+  hudRuler(g, f, W, H, favourBottom);
   /* THE MAIN PANEL DRAWS LAST, ON TOP OF EVERYTHING ELSE THIS FUNCTION
      PAINTS -- it is a window sitting over the permanent HUD, not a member of
      it, and it PAUSES NOTHING: the world above it keeps stepping every frame
@@ -123,7 +134,7 @@ export function drawHUD(g, f) {
      panel stack. */
   drawMainPanel(g, f);
   hint(g, f, W, H);
-  if (f.flags.showDebug) debug(g, f, W, boonBottom);
+  if (f.flags.showDebug) debug(g, f, W, favourBottom);
   if (run.dead) deathScreen(g, W, H);
   else if (banner.fade > 0) title(g, W, H);
   else tooltip(g, f);
@@ -156,8 +167,9 @@ function hearts(g, x, y) {
    200 px phone floor `core/canvas.js#resize` enforces. The lockout is still
    spelled out in words below the bar so a refused climb (`rules/player.js`)
    is never a silent wall the player has to reverse-engineer. Returns the y
-   just past whatever it drew, so `drawHUD` can anchor the old inventory
-   panel below it instead of a strip that no longer exists. */
+   just past whatever it drew -- `drawHUD` used to discard this (a bare
+   statement, no assignment), which is exactly why nothing anchored under it
+   until now: TRIBUTE (Phase 10c, below) is what actually reads it. */
 function burden(g, x, y, W) {
   const cap = eff('burden'), soft = eff('burdenSoft'), frac = burdenFrac();
   const locked = frac >= 1;
@@ -174,6 +186,91 @@ function burden(g, x, y, W) {
     by += 9;
   }
   return by + 2;
+}
+
+/* ---------- TRIBUTE, Phase 10c / docs/SPEC.md section 18 / D8, D-F ----------
+   Left column, anchored at `burden()`'s own returned bottom just above --
+   the value that call site used to discard. Reads `run.tribute`
+   (`model/run.js`) and the live row out of `data/cycles.js#CYCLE` directly:
+   `view` may read `model`, and a cycle's demand shape is read-only content,
+   so there is nothing here for a `rules` import to duplicate.
+   `tributeMet()`'s own completion predicate stays in `model/run.js` for
+   `rules/cycles.js` to share -- this panel only draws the SAME `have`/`need`
+   numbers, never re-decides completion.
+
+   NOTHING IS DRAWN WHEN `run.tribute` IS NULL -- every shipped cycle paid,
+   or the one frame between a completion and `rules/cycles.js#ensureLiveCycle`
+   re-arming the next. NO TIMER LINE WHEN `left === null` -- cycle 1 has no
+   clock (docs/SPEC.md section 4) and a panel that drew a zero for it would
+   be lying about a deadline that can never expire.
+
+   READ-ONLY: drawn through `drawBar` alone, never `view/ui/panel.js`, so
+   nothing here lands in `drawn.panels` and the always-on-UI dispatcher
+   (`shell/main.js#applyUiIntents`, `shell/input.js#onAlwaysOnUi`) has
+   nothing new to widen for (docs/PLAN-phase10.md 2.9).
+
+   Demand rows are ordered through `data/forms.js#byHudOrder`, the SAME rule
+   the pocket strip uses (`pairLabel`'s own header below), so a cycle's bill
+   and a player's pockets never disagree on which pair comes first. The bar
+   width (50 px) matches `burden`'s own bar immediately above rather than
+   being measured from the widest label -- `view/ui/bar.js`'s own fix (step 1
+   of this phase) is what keeps a label wider than that from colliding with
+   the value text beside it, so the column does not have to be as wide as
+   "COPPER PLATE" just to stay legible. */
+const TRIBUTE_BAR_W = 50;
+/* 4, not 2: a LABELLED bar's value text sits beside its own bar (offset from
+   the label's own line), but the AGGREGATE bar below the demand rows has no
+   label, so `drawBar` centres its value text 2 px ABOVE the bar itself
+   (`view/ui/bar.js`'s `barY - 2`) -- with a 2 px gap that lands the
+   aggregate's "N%" flush against the demand row bar's own bottom edge,
+   caught by eye once actually drawn rather than by the arithmetic alone. */
+const TRIBUTE_ROW_GAP = 4;
+
+function tribute(g, x, y, W) {
+  if (!run.tribute) return y;
+  const cyc = cycleRow();
+  if (!cyc) return y;
+
+  drawText(g, 'TRIBUTE ' + roman(run.cycle - 1), x, y, UI.ink, 1, 1);
+  let ry = y + 8;
+
+  const rows = cyc.demand
+    .map(d => ({ ...d, so: S[d.sub], fo: F[d.form] }))
+    .sort((a, b) => byHudOrder({ sub: a.so, form: a.fo }, { sub: b.so, form: b.fo }));
+
+  /* The aggregate below is clamped PER ROW (`Math.min(have, d.n)`) even
+     though the ledger itself is not (`model/run.js#tributeMet`'s own
+     comment: over-delivery is accepted, invariant 5's "material that falls
+     in is free" applied to a receiver) -- a display fraction that could
+     exceed 1 across several over-filled rows would read as "more than
+     done", which is not a state this trial has. */
+  let have = 0, need = 0;
+  for (const d of rows) {
+    const h = tributeHave(d.sub, d.form);
+    have += Math.min(h, d.n);
+    need += d.n;
+    const bar = drawBar(g, {
+      id: 'tribute-' + d.sub + '-' + d.form, x, y: ry, w: TRIBUTE_BAR_W, h: 3,
+      frac: d.n > 0 ? h / d.n : 1, vw: W,
+      label: labelOf(d.so, d.fo), valueText: `${h} / ${d.n}`
+    });
+    ry = bar.y + bar.h + TRIBUTE_ROW_GAP;
+  }
+
+  const aggFrac = need > 0 ? have / need : 0;
+  const agg = drawBar(g, {
+    id: 'tribute-progress', x, y: ry, w: TRIBUTE_BAR_W, h: 3, frac: aggFrac, vw: W,
+    valueText: Math.round(aggFrac * 100) + '%'
+  });
+  ry = agg.y + agg.h + TRIBUTE_ROW_GAP;
+
+  if (run.tribute.left !== null) {
+    const secs = Math.max(0, Math.ceil(run.tribute.left));
+    drawText(g, ((secs / 60) | 0) + ':' + String(secs % 60).padStart(2, '0'), x, ry, UI.dim, 1, 1);
+    ry += 9;
+  }
+
+  return ry + 2;
 }
 
 /* The tooltip itself. `resolveHover` does the actual hit-testing and content
@@ -317,6 +414,91 @@ function boonStack(g, f, W, startY) {
     y += BOON_ROW_H;
   }
 
+  return y;
+}
+
+/* ---------- FAVOUR, Phase 10c / D8, D-F, D1(decision I) ----------
+   Right column, inserted into the boon stack's own anchor chain: `drawHUD`
+   hands this `boonBottom + 3`, and THIS function's return (`favourBottom`)
+   is what now reaches `hudRuler` and `debug` instead of `boonBottom` --
+   skip that thread and either one draws straight through this panel.
+
+   One `drawBar` per god in `data/cycles.js#ASKERS` (the closed set this
+   table lets ask for anything, derived rather than listed there so a fifth
+   cycle by a fourth god needs no edit here either). No display-name table
+   existed anywhere before this -- `data/boons.js`/`data/trinkets.js` key a
+   god by id and never had to print one in English -- so `GOD_NAME` below is
+   presentation, not content, and lives in this file for that reason.
+
+   MASKED WITH THE SAME PREDICATE THE RULER OWNS (`view/ui/ruler.js#masked`,
+   the ONE place CLAUDE.md D8 says that predicate may live), not a second
+   one: a god is "known" once `run.favour[god] !== undefined`, i.e. dealt
+   with at least once this run -- `rules/cycles.js#complete`/`#miss` both
+   call `write.favour(cyc.god, ...)` unconditionally (`reward.favour` is
+   documented "always present"; `punishment.favour` fires on every miss that
+   has a punishment at all), so the FIRST resolution of any cycle a god asks
+   for is what takes their mask off, win or lose.
+
+   SCALED AGAINST THE TABLE'S OWN CEILING, not a made-up round number:
+   `FAVOUR_MAX` is the sum of every shipped cycle's `reward.favour`, i.e.
+   "every trial in this table went your way". A fixed guess would drift the
+   moment a fifth cycle's reward changes; deriving it means this bar can
+   never imply a ceiling the content does not actually have. Negative
+   favour (a missed trial's punishment) clamps the BAR to empty without
+   hiding the real number, which is still drawn as `valueText`. */
+const GOD_NAME = { hephaestus: 'HEPHAESTUS', athena: 'ATHENA', poseidon: 'POSEIDON' };
+const FAVOUR_MAX = CYCLES.reduce((s, c) => s + (c.reward.favour || 0), 0);
+const FAVOUR_ROW_GAP = 2;
+
+function favour(g, W, startY) {
+  if (!ASKERS.length) return startY;
+
+  const rows = ASKERS.map(god => {
+    const known = run.favour[god] !== undefined;
+    const n = run.favour[god] ?? 0;
+    return {
+      god, known,
+      label: masked(GOD_NAME[god] || god.toUpperCase(), known),
+      valueText: known ? String(n) : '',
+      frac: Math.max(0, Math.min(1, n / FAVOUR_MAX))
+    };
+  });
+
+  /* THE BAR IS AS WIDE AS THE WIDEST NAME (or the mask), not a fixed small
+     width -- `view/ui/bar.js` draws a bar's own value text beside the BAR at
+     a y that sits inside the LABEL's own line above it (fine when the label
+     is empty, as `burden`'s own bar's always is). A bar much narrower than
+     its label ("HEPHAESTUS" is 59 px, a 30 px bar is not) put the value
+     number hard against the label's own tail instead, reading as a floating
+     exponent ("HEPHAESTUS<sup>3</sup>") -- caught by looking at the actual
+     pixels, not by the arithmetic, which drew nothing overlapping either
+     string. Matching the bar's width to the label removes that mismatch.
+
+     THE PANEL'S OWN X still has to clear the WIDEST VALUE actually on
+     screen this frame, or the first fix just moves the same collision to
+     the viewport's right edge: with the bar already flush to `vw - 6`,
+     `drawBar`'s own vw-clamp (step 1 of this phase) pulls a value text
+     that has nowhere else to go back OVER the bar it was supposed to clear.
+     `rowW` below is measured from what is actually being drawn, not
+     guessed, so the reserved margin is exactly as wide as it needs to be
+     and no wider. */
+  let labelW = 0, valueW = 0;
+  for (const r of rows) {
+    labelW = Math.max(labelW, textWidth(r.label));
+    valueW = Math.max(valueW, textWidth(r.valueText));
+  }
+  const barW = labelW;
+  const rowW = Math.max(labelW, barW + 3 + valueW);
+  const x = Math.max(2, W - rowW - 6);
+
+  let y = startY;
+  for (const r of rows) {
+    const bar = drawBar(g, {
+      id: 'favour-' + r.god, x, y, w: barW, h: 3, vw: W,
+      frac: r.frac, label: r.label, valueText: r.valueText
+    });
+    y = bar.y + bar.h + FAVOUR_ROW_GAP;
+  }
   return y;
 }
 
