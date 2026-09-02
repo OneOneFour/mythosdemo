@@ -37,6 +37,18 @@
                        convention and by tools/content.mjs's check: nothing at
                        a higher tier may be softer than something at a lower
                        one.
+            charge  -> OPTIONAL, and only ever on a `deposit` row. How many
+                       UNITS a NATIVE tile of this element yields before it is
+                       gone. Absent means 1, which is what `bulk` and `organic`
+                       terrain keeps. Each unit costs a full `hard` of
+                       accumulated work, so SECONDS PER UNIT DO NOT MOVE --
+                       docs/SPEC.md section 8's compression table and
+                       docs/DESIGN.md's break-even figures still hold, and the
+                       only thing that changes is that the player stops walking
+                       between tiles. Read through `eff('richness', <id>)` in
+                       the same one place `hard` and `toolTier` are read
+                       (rules/mining.js and rules/machines.js#mine), so a boon
+                       could enrich a vein. docs/SPEC.md section 19.
 
      item   present -> the element can be carried, in any of the forms whose
             own `item` block permits it.
@@ -102,7 +114,8 @@ export const SUBSTANCES = [
 
     tile:{ solid:true,
            hard:0.95,                    // seconds at pick power 1
-           drops:'ore' },                // mining a copper wall yields copper ORE
+           drops:'ore',                  // mining a copper wall yields copper ORE
+           charge:4 },                   // ...four times over, at 0.95 s each
 
     item:{ mass:1.0, hud:{ order:1, always:true } },
 
@@ -112,7 +125,7 @@ export const SUBSTANCES = [
 
   /* ---- tin: see docs/DEVELOPER_GUIDE.md#adding-a-substance ---- */
   { id:'tin', name:'TIN', tags:['metal', 'mineable', 'deposit'],
-    tile:{ solid:true, hard:1.10, drops:'ore' },
+    tile:{ solid:true, hard:1.10, drops:'ore', charge:4 },
     item:{ mass:1.0, hud:{ order:2 } },
     look:{ base:'snC', hi:'snA', lo:'snD', speckle:0.28,
            item:['snA', 'snC'],
@@ -241,7 +254,7 @@ export const SUBSTANCES = [
           to `gravel`, same as stone and soil, so no new rubble form is
           needed for it. ---- */
   { id:'granite', name:'GRANITE', short:'GRNT', tags:['rock', 'mineable', 'deposit'],
-    tile:{ solid:true, hard:2.4, drops:'gravel', tier:2 },
+    tile:{ solid:true, hard:2.4, drops:'gravel', tier:2, charge:3 },
     item:{ mass:0.9, hud:{ order:8 } },
     look:{ base:'graniteB', hi:'graniteA', lo:'graniteD', speckle:0.17,
            face:'graniteC', contact:'graniteD',
@@ -257,7 +270,7 @@ export const SUBSTANCES = [
           gravel). `tile.tier:3` gates it behind Phase 2c's auger/Talos-head
           tools -- a bronze pickaxe cannot scratch it. ---- */
   { id:'adamant', name:'ADAMANT', short:'ADMT', tags:['rock', 'metal', 'mineable', 'deposit'],
-    tile:{ solid:true, hard:5.0, drops:'gravel', tier:3 },
+    tile:{ solid:true, hard:5.0, drops:'gravel', tier:3, charge:2 },
     item:{ mass:1.4, hud:{ order:9 } },
     look:{ base:'adamantB', hi:'adamantA', lo:'adamantD', speckle:0.07,
            face:'adamantC', contact:'adamantD',

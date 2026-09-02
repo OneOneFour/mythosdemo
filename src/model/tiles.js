@@ -18,6 +18,11 @@
 import { EDGE_SUB, SUB, VOID_SUB } from '../data/substances.js';
 import { AIR, BEDROCK, F, FORM, NATIVE, formOfTile, packTile, subOfTile } from '../data/forms.js';
 import { bump } from './epoch.js';
+/* A legal model -> model edge (ARCHITECTURE section 1), and not a cycle:
+   `model/mining.js` imports only `model/epoch.js` and `model/world.js`, both
+   of which this file already imports, and it imports nothing from here.
+   `write.setByte` needs it for exactly one line -- see D14-E there. */
+import { write as digw } from './mining.js';
 import { idx, inBounds } from './world.js';
 
 /* ---- raw byte ---- */
@@ -85,6 +90,28 @@ export const baseHardOf = byte => {
 
 export const baseHardAt = (b, tx, ty) => baseHardOf(tileAt(b, tx, ty));
 
+/* BASE units this tile yields before it is gone: a `deposit` substance's
+   `tile.charge`, or 1. Deliberately the base and not the effective value, for
+   the identical reason `baseHardOf` above is -- the `richness` tunable is
+   applied in `rules/mining.js` and `rules/machines.js#mine`, in the same one
+   place per file that `hard` and `toolTier` are, so a boon that enriches a
+   vein cannot be read around.
+
+   ONLY A NATIVE TILE HAS A CHARGE. A placed unit yields back exactly the one
+   unit it cost (`dropOf` below returns the pair itself), and it must: `stair`
+   crosses with `metal`, so `copper/stair` is a real placeable pair, and
+   charging it by its substance would turn one stair into four on the way back
+   out. Charge describes a body in the ground, not a thing someone built. */
+export const baseChargeOf = byte => {
+  if (formOf(byte) !== NATIVE) return 1;
+  const sub = subOf(byte);
+  if (sub < 0) return 1;
+  const c = SUB[sub].tile?.charge;
+  return c === undefined ? 1 : c;
+};
+
+export const baseChargeAt = (b, tx, ty) => baseChargeOf(tileAt(b, tx, ty));
+
 /* What mining this tile yields, as a pair, or null. A native tile yields the
    form named by its substance's `tile.drops`; a placed tile yields itself back,
    which is what makes a ladder recoverable. */
@@ -115,6 +142,16 @@ export const write = {
     const i = idx(b, tx, ty);
     if (b.mat[i] === byte) return false;
     b.mat[i] = byte;
+    /* D14-E: THE TILE IS NOT THE TILE IT WAS, so its accumulated pick time is
+       not about anything any more. Cleared here -- once, in the one place
+       every terrain edit funnels through -- rather than at each caller, because
+       there are already four (mining, placement, worldgen, the `chasm`
+       miracle) and the fifth is whoever adds the next terrain verb. Without
+       it, a `soil/block` placed where a part-depleted copper deposit stood
+       inherits multiple hard-seconds of work and breaks the instant it is
+       touched. Storage still owns no progress: it owns the fact that this
+       coordinate changed, and tells the module that does. */
+    digw.clear(b, tx, ty);
     write.touch(b, tx, ty);
     bump();
     return true;

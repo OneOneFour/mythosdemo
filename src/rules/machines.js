@@ -21,11 +21,11 @@ import { hasField, write as fw, fieldAt } from '../model/fields.js';
 import { push } from '../model/journal.js';
 import { itemsIn, parseKey, write as iw } from '../model/items.js';
 import { capOf, count, defOf, fill, firstMatching, machines, write as mw } from '../model/machines.js';
-import { write as digw } from '../model/mining.js';
+import { unitsCrossed, write as digw, workAt } from '../model/mining.js';
 import { eff } from '../model/mods.js';
 import { playerBox } from '../model/player.js';
 import { pocketedBest, pocketedPair, run, write as rw } from '../model/run.js';
-import { baseHardAt, dropAt, subAt, tileAt, write as tw } from '../model/tiles.js';
+import { baseChargeAt, baseHardAt, dropAt, subAt, tileAt, write as tw } from '../model/tiles.js';
 import { tileX, tileY, worldX, worldY } from '../model/world.js';
 
 /* ---------- the injected source api ----------
@@ -354,6 +354,19 @@ function mine(m, def, dt) {
   /* THE RATE. See the file-header note above: this is the one line the whole
      tier's throughput equality rests on. */
   const hard = baseHardAt(m.band, target.tx, target.ty) * eff('hard', SUB[sub].id);
+
+  /* DEPLETION, identical arithmetic to `rules/mining.js`'s hand-mining half --
+     same `baseChargeAt`, same `eff('richness', ...)`, same
+     `model/mining.js#unitsCrossed`, same order relative to the break test.
+     That is not politeness: docs/SPEC.md section 12 stakes a measured
+     "0.0000 s difference" on a placed miner chewing a tile at exactly the hand
+     rate, and the shared helper is what makes it true by construction rather
+     than by two files happening to agree. */
+  const charge = Math.max(1, Math.round(
+    baseChargeAt(m.band, target.tx, target.ty) * eff('richness', SUB[sub].id)));
+  const total = hard * charge;
+
+  const before = workAt(m.band, target.tx, target.ty);
   const work = digw.add(m.band, target.tx, target.ty, dt * eff('pickPower') * bestHandToolPower());
 
   /* Fuel drains continuously with TIME spent chewing, not per tile broken --
@@ -365,7 +378,19 @@ function mine(m, def, dt) {
     fuelClock.set(m, clock - spec.secs);
   } else fuelClock.set(m, clock);
 
-  if (work < hard) return;                               // still chewing
+  /* ---- a unit chipped loose, but the face SURVIVES: the miner retreats
+     through a vein tile by tile instead of deleting it in one bite. A new
+     branch BEFORE the break test, exactly where `rules/mining.js` puts its
+     own, and for the same reason -- the break branch's `rand()` order is
+     load-bearing (invariant 7). `unitsCrossed` caps itself one short of
+     `charge` so the last unit is the break's own drop. ---- */
+  const crossed = unitsCrossed(before, work, hard, charge);
+  if (crossed > 0) {
+    const unit = dropAt(m.band, target.tx, target.ty);
+    if (unit) for (let i = 0; i < crossed; i++) ejectMined(m, def, unit);
+  }
+
+  if (work < total) return;                              // still chewing
 
   /* ---- broken. Read the drop BEFORE clearing the tile, same order
      `rules/mining.js` uses. ---- */
@@ -379,16 +404,24 @@ function mine(m, def, dt) {
   push(hard > 0.5 ? 'breakHard' : 'breakSoft',
        { x: worldX(m.band, target.tx), y: worldY(m.band, target.ty) }, { sub });
 
-  /* ARCHITECTURE invariant 5, same as every other producer in this file: the
-     output DROPS, at the OUT port, never a direct buffer credit. Downward,
-     not tossed up like a recipe's own output loop above -- "drops to the
-     tile below the out port" is the phrase this key's spec uses, and gravity
-     (`rules/items.js`, which runs before this step every frame) carries it
-     the rest of the way regardless of which way it leaves the mouth. */
   if (!drop) return;
+  ejectMined(m, def, drop);
+}
+
+/* ONE mined unit, out of the mouth. Shared by the depletion branch and the
+   break branch above so the two cannot drift -- including the single `rand()`
+   call, whose position in the stream is load-bearing (invariant 7).
+
+   ARCHITECTURE invariant 5, same as every other producer in this file: the
+   output DROPS, at the OUT port, never a direct buffer credit. Downward, not
+   tossed up like a recipe's own output loop above -- "drops to the tile below
+   the out port" is the phrase this key's spec uses, and gravity
+   (`rules/items.js`, which runs before this step every frame) carries it the
+   rest of the way regardless of which way it leaves the mouth. */
+function ejectMined(m, def, pair) {
   const port = def.ports.find(p => p.mode === 'out');
   const mouth = m.mouth[port.side];
   const it = iw.spawn(m.band, mouth.x + mouth.w / 2, mouth.y + mouth.h,
-                       drop.sub, drop.form, (rand() - 0.5) * 24, 20);
-  if (it) push('drop', { x: mouth.x, y: mouth.y }, { sub: drop.sub, form: drop.form });
+                      pair.sub, pair.form, (rand() - 0.5) * 24, 20);
+  if (it) push('drop', { x: mouth.x, y: mouth.y }, { sub: pair.sub, form: pair.form });
 }

@@ -1498,9 +1498,9 @@ singles this one out.
 ## 19. Deposits, rubble and the packed block (Phase 14a)
 
 Locked with `docs/PLAN-phase14-mining-and-drops.md` (D14-A, D14-B, D14-C,
-D14-H). **Content only: no `rules/` file changed and no mechanic was added.**
-Depletion — a deposit tile's charge counter — is Phase 14b and is not in this
-section yet.
+D14-H). §19.1–§19.5 are **Phase 14a, content only: no `rules/` file changed
+and no mechanic was added.** §19.6 is **Phase 14b**, the depletion mechanic
+itself (D14-D, D14-E, D14-F).
 
 The premise, in one line: **mined material is a prerequisite, not a placeable
 unit,** and **a deposit is never something the player can put back.**
@@ -1630,10 +1630,95 @@ earth. Starving four machine builds is worse than starving one utility craft.
 The residual wart is the known one (`docs/FINDINGS.md` 8d #4: the craft queue
 cannot choose a recipe), and a real menu is its fix.
 
-### 19.5 What this section does NOT change
+### 19.5 What §19.1–§19.4 do NOT change
 
 Seconds-per-unit, `hard`, `tier`, `pickPower` and every tool's `power` are
 untouched, so §8's compression table and `docs/DESIGN.md`'s measured
 break-evens (raw ore 0.62 tiles, ingot 2.40, plate 6.90) still hold with no
 re-derivation. `tile.drops` is unchanged for every substance. No `data/world.js`
-count moved. `rules/mining.js` and `rules/machines.js` were not opened.
+count moved. `rules/mining.js` and `rules/machines.js` were not opened by
+Phase 14a — §19.6 is where they are.
+
+### 19.6 Depletion — a deposit's charge (Phase 14b)
+
+**A deposit tile yields more than one unit, and it does not vanish until the
+last of them is out.** One optional content key, one tunable, no new model
+state, and no change to how long a swing takes.
+
+```
+tile.charge   OPTIONAL, deposit rows only. UNITS a NATIVE tile yields before
+              it is gone. Absent = 1, which is what bulk and organic keep.
+richness      kind 'scale', base 1.0, scope 'substance'. Multiplies charge,
+              read as Math.max(1, Math.round(charge * eff('richness', id))).
+```
+
+| substance | `tile.charge` | `hard` | seconds to exhaust one tile | units/second |
+|---|---|---|---|---|
+| `copper` | **4** | 0.95 | 3.80 | 1.05 |
+| `tin` | **4** | 1.10 | 4.40 | 0.91 |
+| `granite` | **3** | 2.40 | 7.20 | 0.42 |
+| `adamant` | **2** | 5.00 | 10.00 | 0.20 |
+| `soil`, `stone`, `timber` | absent (= 1) | — | unchanged | unchanged |
+
+All at pick power 1. **Each unit costs a full `hard`**, so seconds-per-unit
+are exactly what §8 and `docs/DESIGN.md` already price and nothing in either
+had to be re-derived. What changes is that the player stops walking between
+tiles — the brief's "ore mining should be encouraged", spent on travel rather
+than on rate.
+
+**Not ~500 per tile**, which the brief's example number would make an
+eight-minute stand on one tile and an infinite faucet under a placed miner.
+The example is read as per *body*: a cruciform blob of ~20 cells at charge 4
+carries ~80 units, which is "a deposit is a real find" at a per-swing figure
+that stays legible.
+
+**The ledger is `model/mining.js#dig.work`, and there is no second counter.**
+Accumulated pick time in float seconds already persists per tile for the whole
+run, so the same number answers "how far through this swing" (`% hard`,
+`unitProgressAt`) and "how depleted is this vein" (`/ (hard × charge)`,
+`progressAt`). This is emphatically **not** the historical bug back again: the
+byte that made granite unmineable above 106 fps was a truncated byte *in the
+material array*; this is a float in seconds in a sparse `Map` outside the grid.
+The cost of reusing it is that the Map now grows monotonically with every
+deposit tile ever partially worked — bounded by ~3,000 ore cells per topsoil
+seed (§16.5), a few hundred KB worst case, stated honestly in `activeCount`'s
+own comment.
+
+**The arithmetic lives once, in `model/mining.js#unitsCrossed`**, because
+`rules/mining.js` (the player) and `rules/machines.js#mine` (a placed miner)
+are siblings that may not import each other and §12's measured
+hand-equals-machine equality depends on them agreeing. It caps at
+`charge - 1`: the last unit is the break's own drop, so a tile never yields
+`charge + 1`. Both call sites run it in a **new branch before the break test**,
+never interleaved with it, so the rare-trinket roll keeps its exact position
+relative to the final drop spawn in the seed's `rand()` stream (invariant 7).
+
+**A placed unit has no charge.** `model/tiles.js#baseChargeOf` returns 1 for
+any non-`NATIVE` byte, which it must: `stair` crosses with `metal`, so
+`copper/stair` is a real placeable pair and charging it by its substance would
+turn one stair into four on the way back out.
+
+**Accumulated work is cleared whenever a tile's byte changes** — one line in
+`model/tiles.js#write.setByte`, not at each of the four callers (mining,
+placement, worldgen, the `chasm` miracle) and the fifth nobody has written
+yet. Without it a `soil/block` placed where a part-depleted deposit stood
+inherits multiple hard-seconds and breaks the instant it is touched.
+
+Measured at the fixed 1/120 s step, through the real dig verb and the real
+machine step:
+
+| probe | measured |
+|---|---|
+| one copper tile, held LMB | 4 `copper/ore`, units out at 0.9583 / 1.9083 / 2.8583 / 3.8083 s, tile AIR only then |
+| the same tile at 20/30/60/90/107/120/144/240 fps | 4 units at every rate; worst error 0.0500 s at 20 fps, always inside one frame |
+| a fuelled Talos Head vs. the best hand tool, identical tile | 2.1167 s vs. 2.1167 s — **0.0000 s** (§12's equality holds through depletion) |
+| granite, charge 3, tier-1 pick | 0 units, 0 work, tile intact, one rate-limited `'TOO HARD FOR THIS PICK'` |
+| granite, charge 3, tier-2 auger | 3 `granite/gravel` over 4.0083 s (7.20 / 1.8) |
+| `soil/block` placed where copper sat at 2.0000 s of work | work reads 0.0000 s; the block takes its full 0.5000 s |
+| `richness.copper` × 2 | 8 units over 7.6000 s |
+
+**Outstanding, and deliberate: total available ore in the world is now
+multiplied by charge.** `data/world.js` knows nothing about charge, so every
+`blobs` count and the guaranteed spawn `vein` are over-rich until **Phase 14d**
+retunes them — the mirror of the retune §16.5 records for cruciform bodies, and
+measured the same way. Nothing in §19.6 moved a worldgen number.

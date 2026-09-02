@@ -160,6 +160,17 @@ export const TUNABLES = [
   { id:'toolTier', kind:'scale', base:1.0, scope:'substance',
     note:'bends tile.tier gating in rules/mining.js; a boon could lend a tier' },
 
+  /* ---- deposit depletion (Phase 14b, docs/SPEC.md section 19). Scales a
+     `deposit` substance's `tile.charge`: how many units one native tile
+     yields before it is gone. It does NOT touch `hard`, so it changes the
+     SIZE of a find and never the rate of a swing -- which is why
+     docs/SPEC.md section 8's compression table and docs/DESIGN.md's
+     break-even depths survive it untouched. Scoped like `hard` and
+     `toolTier` (`richness.copper` narrows to one element), rounded and floored
+     at 1 by both readers, so no bend can make a tile yield nothing. */
+  { id:'richness', kind:'scale', base:1.0, scope:'substance',
+    note:'multiplies a deposit substance tile.charge. A boon could enrich a vein.' },
+
   /* ---- worldgen (Phase 7, docs/SPEC.md section 16). Only ONE number from
      that phase lives here, and the test is the one this file's header states:
      `hollowOre` is what a hollow is WORTH, so a god who wants to make the dark
