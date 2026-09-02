@@ -178,7 +178,7 @@ function stepReal(dt, want = {}) {
      `clearEdges()` will not put it back down, and `cmd` is a module singleton
      shared by every probe in this file -- a section that leaves a crank held
      would silently power the next section's drivetrain. */
-  for (const k of ['left', 'right', 'up', 'down', 'hop', 'dig', 'place', 'craft', 'drop', 'turn', 'collect', 'hasMouse'])
+  for (const k of ['left', 'right', 'up', 'down', 'hop', 'dig', 'place', 'craft', 'drop', 'action', 'collect', 'hasMouse'])
     input.cmd[k] = want[k] ?? false;
   main.step(dt);
   input.clearEdges();
@@ -322,7 +322,7 @@ function scriptedPlay(seed, steps) {
     stepReal(1 / 120, {
       left: ctl() < 0.2, right: ctl() < 0.3, up: ctl() < 0.15, down: ctl() < 0.25,
       hop: ctl() < 0.05, dig: ctl() < 0.55, craft: ctl() < 0.2, place: ctl() < 0.02,
-      turn: ctl() < 0.4, hasMouse: false
+      action: ctl() < 0.4, hasMouse: false
     });
     if (machs.machines.some(m => m.torque > 0)) scriptStats.turned++;
     /* TOTAL travel, not the furthest point reached: a carrier that rose and
@@ -1448,7 +1448,7 @@ const ONE_CRANK = {
 
 /* Along-the-cable velocity in px/s, + is UP, measured from the carrier
    parameter the simulation actually wrote. */
-function measureV(seg, secs, dt, want = { turn: true }) {
+function measureV(seg, secs, dt, want = { action: true }) {
   const t0 = seg.t;
   const n = Math.round(secs / dt);
   runReal(n, dt, { hasMouse: false, ...want });
@@ -1504,7 +1504,7 @@ function predictV(supply, mass, slope, demand = null) {
     const dt = 1 / fps;
 
     const a = driveRig({ ...ONE_CRANK, seed: 8080, cargo: [[0, 'copper', 'ore', 4]] });
-    const carrier = measureV(a.seg, 10, dt, { turn: true }) * 10;
+    const carrier = measureV(a.seg, 10, dt, { action: true }) * 10;
 
     const b = driveRig({
       seed: 8081, reachMul: 5,
@@ -1627,7 +1627,7 @@ function predictV(supply, mass, slope, demand = null) {
     const r = driveRig(spec);
     const supply = cranks * crankTorque();
     const want = predictV(supply, mass, g.slope);
-    const got = measureV(r.seg, 1, 1 / 120, { turn: cranks > 0 });
+    const got = measureV(r.seg, 1, 1 / 120, { action: cranks > 0 });
     const flag = Math.abs(got - want) > 1e-6 ? ' <-- MISMATCH' : '';
     console.log(`        ${geomId.padEnd(10)} slope ${g.slope.toFixed(3)}  ${String(mass).padStart(2)} T  ` +
                 `${cranks} crank(s)  supply ${supply.toFixed(2)}  want ${want.toFixed(4).padStart(9)}  ` +
@@ -1687,13 +1687,13 @@ function predictV(supply, mass, slope, demand = null) {
     const crank = r.placed[2];
 
     const before = r.seg.t, y0 = player.player.y;
-    stepReal(1 / 120, { turn: true, hasMouse: false });
+    stepReal(1 / 120, { action: true, hasMouse: false });
     const v1 = (r.seg.t - before) * r.seg.len * 120;
     const drove = crank.torque > 0;
 
     let lit = 1;
     for (let i = 1; i < 600; i++) {
-      stepReal(1 / 120, { turn: true, hasMouse: false });
+      stepReal(1 / 120, { action: true, hasMouse: false });
       if (crank.torque > 0) lit++;
     }
     const net = (r.seg.t - before) * r.seg.len;
@@ -1731,7 +1731,7 @@ function predictV(supply, mass, slope, demand = null) {
      `stepReal` never drains. */
   {
     driveRig({ ...at(105, 1), seed: 8299, burden: 30 });
-    runReal(600, 1 / 120, { turn: true, hasMouse: false });
+    runReal(600, 1 / 120, { action: true, hasMouse: false });
     const rows = journal.peek().filter(j => j.kind === 'refused' && j.data?.why === 'TOO HEAVY TO LIFT');
     if (!rows.length) {
       fail(`WEIGHT: a crank held on a reversing carrier pushed no 'TOO HEAVY TO LIFT' journal row -- ` +
@@ -1831,7 +1831,7 @@ function predictV(supply, mass, slope, demand = null) {
 
       segs.write.carrier(seg, 0.5, 0);
       const before = segs.carrierPos(seg), t0 = seg.t;
-      stepReal(1 / 120, { turn: powered, hasMouse: false });
+      stepReal(1 / 120, { action: powered, hasMouse: false });
       const after = segs.carrierPos(seg);
       const v = (seg.t - t0) * seg.len * 120;                  // px/s along the cable
       const rise = (before.y - after.y) * 120;                 // px/s of world height GAINED
@@ -1908,7 +1908,7 @@ function predictV(supply, mass, slope, demand = null) {
     const CRANK_T = crankTorque();
 
     const t0 = r.segs.map(s => s.t);
-    stepReal(1 / 120, { turn: true, hasMouse: false });
+    stepReal(1 / 120, { action: true, hasMouse: false });
     const vs = r.segs.map((s, i) => (s.t - t0[i]) * s.len * 120);
 
     const demand = N * mods.eff('segBase');            // nothing aboard: need == segBase
@@ -1979,7 +1979,7 @@ function predictV(supply, mass, slope, demand = null) {
       seed: 8500 + K, room: { tx0: 10, ty0: 100, h: 18, w: 14 },
       machines, links: [[K + 1, K + 2]], carriers: [[0, 0.5]], player: [11, 115]
     });
-    const v = measureV(r.seg, 1, 1 / 120, { turn: true });
+    const v = measureV(r.seg, 1, 1 / 120, { action: true });
     const supply = crankTorque() * Math.pow(1 - LOSS * mods.eff('torqueLoss', 'gear'), K);
     const want = predictV(supply, 0, 1);
     rows.push({ K, v, supply, want, drive: r.placed[K + 1].torque });
@@ -2012,7 +2012,7 @@ function predictV(supply, mass, slope, demand = null) {
       machines: [['hub', 20, 115], ['hub', 20, 105], ['crank', 19, 113]],
       links: [[0, 1]], carriers: [[0, 0.5]], player: [18, 115]
     });
-    const v = measureV(r.seg, 1, 1 / 120, { turn: true });
+    const v = measureV(r.seg, 1, 1 / 120, { action: true });
     const want = predictV(0, 0, 1);
     if (Math.abs(v - want) > 1e-6 || r.placed[2].torque !== 0)
       fail(`DIAGONAL DELIVERS ZERO: a crank touching a hub at the corner only drove the carrier at ` +
@@ -2027,7 +2027,7 @@ function predictV(supply, mass, slope, demand = null) {
         machines: [['hub', 20, 115], ['hub', 20, 105], ['crank', 19, 113], ['gear', 19, 115]],
         links: [[0, 1]], carriers: [[0, 0.5]], player: [18, 115]
       });
-      const gv = measureV(g.seg, 1, 1 / 120, { turn: true });
+      const gv = measureV(g.seg, 1, 1 / 120, { action: true });
       const gWant = predictV(crankTorque() * (1 - LOSS * mods.eff('torqueLoss', 'gear')), 0, 1);
       if (Math.abs(gv - gWant) > 1e-6)
         fail(`DIAGONAL DELIVERS ZERO: with a GEAR in the corner the same crank should drive the same ` +
@@ -2799,7 +2799,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
   for (const tier of ['ore', 'ingot', 'plate']) {
     const r = driveRig({ ...ONE_CRANK, seed: 8900, cargo: [[0, 'copper', tier, 1]] });
     const mass = items.massOfPair(D_sub.S.copper, FORMS[tier]);
-    const v = measureV(r.seg, 1, 1 / 120, { turn: true });
+    const v = measureV(r.seg, 1, 1 / 120, { action: true });
     const want = predictV(crankTorque(), mass, 1);
     const k = v > 0 ? r.band.tile / v : Infinity;
     rows.push({ tier, mass, v, want, k, be: (RATIOS[tier] * oreSecs) / k });
@@ -2899,7 +2899,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
   /* A REAL TURNING GEAR, not a poked field: one second of the real crank held
      through the real step, so `m.turn` and `m.torque` are whatever
      `rules/drive.js` decided they are. */
-  runReal(120, 1 / 120, { turn: true, hasMouse: false });
+  runReal(120, 1 / 120, { action: true, hasMouse: false });
   const gear = r.placed[3];
   if (!(gear.turn > 0 && gear.torque > 0)) {
     fail(`RENDER PURITY (drivetrain): the gear beside the crank reads turn ${gear.turn}, torque ` +
@@ -3446,8 +3446,8 @@ console.log('\n6. the tribute loop (Phase 10b)');
       if (it) it.rest = 1;
       /* Long enough for 96 px at the measured ~5 px/s of a loaded single-crank
          ascent, plus the frames the release and the catch take. */
-      for (let i = 0; i < 120 * 40 && seg.t < 1; i++) stepReal(1 / 120, { turn: true, hasMouse: false });
-      runReal(30, 1 / 120, { turn: true, hasMouse: false });
+      for (let i = 0; i < 120 * 40 && seg.t < 1; i++) stepReal(1 / 120, { action: true, hasMouse: false });
+      runReal(30, 1 / 120, { action: true, hasMouse: false });
       /* The dock's own buffer is TRANSIENT once `rules/cycles.js` exists: any
          `tribute:{}` receiver is drained into `run.tribute.have` the same
          frame it is fed (`data/machines.js`'s "one drain path serves both"),
@@ -4168,8 +4168,8 @@ console.log('\n8b. broken-chain delivery (rules/drive.js fix, checked here)');
       links: [[0, 1]], player: [18, 115], cargo: [[0, 'copper', 'ore', 1]]
     });
     journal.write.drain();
-    for (let i = 0; i < 120 * 30 && r.seg.t < 1; i++) stepReal(1 / 120, { turn: true, hasMouse: false });
-    runReal(5, 1 / 120, { turn: true, hasMouse: false });
+    for (let i = 0; i < 120 * 30 && r.seg.t < 1; i++) stepReal(1 / 120, { action: true, hasMouse: false });
+    runReal(5, 1 / 120, { action: true, hasMouse: false });
     const rows = journal.write.drain().filter(j => j.kind === 'refused' && /CHAIN ENDS HERE/.test(j.data?.why ?? ''));
     if (r.seg.t < 1) {
       fail(`BROKEN CHAIN: the rig only reached t = ${r.seg.t.toFixed(3)} in 30 s of cranking -- the ` +
@@ -4193,8 +4193,8 @@ console.log('\n8b. broken-chain delivery (rules/drive.js fix, checked here)');
       links: [[0, 1]], player: [18, 115], cargo: [[0, 'copper', 'ore', 1]]
     });
     journal.write.drain();
-    for (let i = 0; i < 120 * 30 && r.seg.t < 1; i++) stepReal(1 / 120, { turn: true, hasMouse: false });
-    runReal(5, 1 / 120, { turn: true, hasMouse: false });
+    for (let i = 0; i < 120 * 30 && r.seg.t < 1; i++) stepReal(1 / 120, { action: true, hasMouse: false });
+    runReal(5, 1 / 120, { action: true, hasMouse: false });
     const rows = journal.write.drain().filter(j => j.kind === 'refused' && /CHAIN ENDS HERE/.test(j.data?.why ?? ''));
     if (r.seg.t < 1) {
       fail(`BROKEN CHAIN: the dock rig only reached t = ${r.seg.t.toFixed(3)} in 30 s of cranking -- the ` +
@@ -4219,8 +4219,8 @@ console.log('\n8b. broken-chain delivery (rules/drive.js fix, checked here)');
       links: [[0, 1], [1, 2]], player: [18, 115], cargo: [[0, 'copper', 'ore', 1]]
     });
     journal.write.drain();
-    for (let i = 0; i < 120 * 30 && r.segs[0].t < 1; i++) stepReal(1 / 120, { turn: true, hasMouse: false });
-    runReal(5, 1 / 120, { turn: true, hasMouse: false });
+    for (let i = 0; i < 120 * 30 && r.segs[0].t < 1; i++) stepReal(1 / 120, { action: true, hasMouse: false });
+    runReal(5, 1 / 120, { action: true, hasMouse: false });
     const rows = journal.write.drain().filter(j => j.kind === 'refused' && /CHAIN ENDS HERE/.test(j.data?.why ?? ''));
     if (r.segs[0].t < 1) {
       fail(`BROKEN CHAIN: the A-B-C rig only reached t = ${r.segs[0].t.toFixed(3)} on its lower segment in ` +

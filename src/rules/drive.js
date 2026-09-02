@@ -158,8 +158,11 @@ export function step(dt, cmd) {
 }
 
 /* ---------- the crank: a HOLD, and nothing is spent but presence ----------
-   `cmd.turn` is a hold in the exact shape `cmd.craft` already has
-   (`shell/input.js`, bound to `f`), not an edge: `rules/crafting.js`
+   `cmd.action` is a hold in the exact shape `cmd.craft` already has
+   (`shell/input.js`, bound to `r` -- renamed from `turn`/`f` in Phase 12d,
+   docs/PLAN-phase12.md §3 D-J, since the brief asked for a generic "hold to
+   operate a placed machine" verb, not a crank-specific one), not an edge:
+   `rules/crafting.js`
    accumulates while it is true and forgets on release, and a crank is that
    with a proximity test instead of a recipe.
 
@@ -177,7 +180,7 @@ export function step(dt, cmd) {
    keyed on anything that changes every frame is a slower way to compute the
    same number. */
 function supplyOf(comps, cmd) {
-  const turning = !!(cmd && cmd.turn) && !run.dead && !!player.band;
+  const turning = !!(cmd && cmd.action) && !run.dead && !!player.band;
   if (!turning) return;
   const box = playerBox();
 

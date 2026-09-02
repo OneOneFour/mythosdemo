@@ -97,12 +97,15 @@ export function step(dt) {
   const c = {
     left: cmd.left, right: cmd.right, up: cmd.up, down: cmd.down,
     hop: cmd.hop, dig: digging, place: cmd.place, craft: cmd.craft,
-    /* `turn` is a HOLD, like `craft` and `dig` above: `rules/drive.js` reads
+    /* `action` is a HOLD, like `craft` and `dig` above: `rules/drive.js` reads
        it every substep and supplies torque for exactly the substeps it is
        down. It has to be on THIS object and not read off `cmd` inside the
        rule, because this narrowed set is the whole of what `rules` may see of
-       the input device (Phase 8f). */
-    turn: cmd.turn,
+       the input device (Phase 8f). Renamed from `turn`/`cmd.turn` in Phase
+       12d (docs/PLAN-phase12.md §3 D-J): the brief asked for a GENERIC
+       "hold to operate a placed machine" verb on `r`, not a crank-specific
+       one, so the field name moved with the key. */
+    action: cmd.action,
     /* `collect` folds a KEY and a UI PREFERENCE into one HOLD (docs/PLAN-
        phase12.md §3 D-F): `ui.autoCollect` restores the old always-on magnet,
        `cmd.collect` is the manual 'c' hold -- either makes `rules/items.js`
@@ -273,15 +276,13 @@ function applyIntents() {
     cmd.link = false;
   }
 
-  /* USE a held miracle (Phase 4 STEP 3, docs/BUILD_PLAN.md): the ONE-SHOT
-     tier's own real verb, aimed exactly like a placement or a deconstruct --
-     you point at the tile the terrain edit centres on. Not gated on
-     `flags.showDebug`: this consumes something already held, it does not
-     spawn anything from nothing. */
-  if (cmd.miracle && aim.valid && aim.band) {
-    miracles.use(aim.band, aim.tx, aim.ty);
-    cmd.miracle = false;
-  }
+  /* USE a held miracle (Phase 4 STEP 3, docs/BUILD_PLAN.md) used to be its
+     own standalone verb here, aimed exactly like a placement or a
+     deconstruct, fired by `cmd.miracle` (the 'v' key). Phase 12d retired 'v'
+     -- D-A's `cmd.place` branch above now fires `miracles.use` directly for
+     an armed miracle, so this had no remaining caller (`cmd.miracle` itself
+     was dropped from `shell/input.js#cmd`) and is deleted rather than kept
+     as a dead branch nothing can ever reach. */
 
   /* A cycle completion (`rules/cycles.js#complete`) arrives as `run.offer`,
      since a `rules` module may not reach `shell/input.js#wants` -- see

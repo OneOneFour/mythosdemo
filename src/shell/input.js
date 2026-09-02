@@ -42,7 +42,7 @@ import {
 export const cmd = {
   left: false, right: false, up: false, down: false,
   hop: false, dig: false, place: false, craft: false, drop: false,
-  deconstruct: false, miracle: false, link: false, turn: false, collect: false,
+  deconstruct: false, link: false, action: false, collect: false,
   mouse: false, mx: 0, my: 0, hasMouse: false,
 
   /* UI pointer intents -- see docs/DEVELOPER_GUIDE.md#input-intents.
@@ -89,50 +89,60 @@ const KEYS = {
   s: 'down',  arrowdown: 'down'
 };
 
-let hopHeld = false, placeHeld = false, dropHeld = false, deconHeld = false,
-    miracleHeld = false, linkHeld = false;
+let hopHeld = false, dropHeld = false, deconHeld = false, linkHeld = false;
 
+/* THE LIVE BINDING SET, per docs/PLAN-phase12.md §4.1's final keymap --
+   correct as of Phase 12d, and the one place this file states it in prose
+   rather than leaving it to be reconstructed from every `if (key === ...)`
+   clause below: wasd/arrows (move), space (hop), e (open/close the main
+   panel), q (drop), backspace (deconstruct), r (hold to act on a placed
+   machine -- turn a crank), c (hold to collect), u (hand-craft, redundant
+   with the recipe-click queue), l (link/unlink two hubs), g/h (grid/debug
+   overlays), o (map overview), m (mute), z (cancel a selection, additive to
+   Escape), Escape (close panel / cancel selection), the digits (arm the
+   quickbar slot at that index), and t/b/k/y/p behind `flags.showDebug`
+   (debug drafts, and the chunk overlay). Mining, placing and using a held
+   miracle have no dedicated key at all -- they are LMB, resolved once at
+   `pointerdown` (D-A) -- and restart is a clickable button on the death
+   screen (D-C), not a key. `x`/`j` (dig), `v` (use miracle), `i` (open
+   panel) and `f` (crank) are RETIRED; `p` (equip) was retired in Phase 12b
+   and its letter reused for the chunk toggle. */
 function set(k, down) {
   const key = k.toLowerCase();
   if (KEYS[key]) cmd[KEYS[key]] = down;
   if (key === ' ')                  { if (down && !hopHeld) cmd.hop = true; hopHeld = down; }
-  if (key === 'x' || key === 'j')   cmd.dig = down;
-  if (key === 'e')                  { if (down && !placeHeld) cmd.place = true; placeHeld = down; }
   if (key === 'u')                  cmd.craft = down;
-  /* 'f' to TURN a crank within reach (Phase 8f,
-     docs/PLAN-gears-and-winches.md section 4.2) -- a HOLD, exactly like
-     `craft` above and `dig` before it, and deliberately NOT an edge: the whole
+  /* 'r' to ACT on a placed machine within reach -- turn a crank, today's only
+     such machine (Phase 8f, docs/PLAN-gears-and-winches.md section 4.2),
+     renamed from `f`/`cmd.turn` per docs/PLAN-phase12.md §3 D-J: the brief
+     asked for a GENERIC "hold to operate" verb, not a crank-specific one that
+     happens to sit on `r`, so both the key and the field moved together. A
+     HOLD, exactly like `craft` above, and deliberately NOT an edge: the whole
      design is that the player must stand there holding it, so this file's
      "a held key must not repeat-fire" warning does not apply. There is nothing
      to fire; there is only a key that is either down or not, and
      `rules/drive.js` supplies torque for exactly the frames it is down.
-     `f` is free: the live binding set is wasd/arrows, space, x/j, e, u, q,
-     backspace, v, p, l, g, c, h, i, escape, o, m, r, the digits, and t/b/k/y
-     behind `flags.showDebug`. Released on blur with the other holds below;
-     NOT listed in `clearEdges()`, which would turn a hold into an edge. */
-  if (key === 'f')                  cmd.turn = down;
+     `r` was restart until this phase relocated that onto a real death-screen
+     button (D-C) -- see `pointerdown`'s own death-restart branch below.
+     Released on blur with the other holds below; NOT listed in
+     `clearEdges()`, which would turn a hold into an edge. */
+  if (key === 'r')                  cmd.action = down;
   /* 'q' for the drop verb -- EDGE-TRIGGERED, same `*Held` latch idiom as
-     `hop`/`place` above: this file's own header already records that a held
+     `hop` above: this file's own header already records that a held
      key emptying the pockets into a wall in half a second is a bug, and a held
      drop would empty the pockets one pair at a time just as fast. */
   if (key === 'q')                  { if (down && !dropHeld) cmd.drop = true; dropHeld = down; }
-  /* 'backspace' for deconstruct -- the inverse of `e`'s place,
+  /* 'backspace' for deconstruct -- the inverse of placement,
      EDGE-TRIGGERED for the identical reason: a held key that tore down every
      machine the aim reticle crossed in half a second would be the same bug
      this file's header already warns about for `place`, running backwards. */
   if (key === 'backspace')          { if (down && !deconHeld) cmd.deconstruct = true; deconHeld = down; }
-  /* 'v' to USE a held miracle -- EDGE-TRIGGERED, same idiom again: a held key
-     that collapsed a whole stack of miracles into the terrain in half a second
-     would be the same bug class. This is a REAL action, not a debug spawn --
-     it consumes something the player already holds -- so it is NOT gated on
-     `flags.showDebug`. */
-  if (key === 'v')                  { if (down && !miracleHeld) cmd.miracle = true; miracleHeld = down; }
-  /* 'c' to COLLECT: a HOLD, exactly like `craft`/`dig`/`turn` above --
+  /* 'c' to COLLECT: a HOLD, exactly like `craft`/`action` above --
      docs/PLAN-phase12.md §3 D-E. By default items no longer auto-collect
      (`rules/items.js#step`'s pickup branch is now gated on this, folded
      with `ui.autoCollect` in `shell/main.js#step`'s narrowed command
      object); standing in a small pile with this held sweeps it up over a
-     couple of frames, the same "must stand there holding it" idiom `f`'s
+     couple of frames, the same "must stand there holding it" idiom `r`'s
      own comment above already states for the crank. */
   if (key === 'c')                  cmd.collect = down;
   /* 'l' to LINK two hubs into a segment (Phase 8d,
@@ -250,9 +260,12 @@ function mapKey(k, shift) {
     case 'd': case 'arrowright': mapPan( step, 0); return true;
     case '=': case '+': case ']': mapZoomBy(1);  return true;
     case '-': case '_': case '[': mapZoomBy(-1); return true;
-    /* 'f' is the crank hold in play. It is not doubled up here: this branch
-       returns before `set()` ever sees the press, so `cmd.turn` cannot latch,
-       and nothing is cranking anyway while the run is frozen. */
+    /* 'f' means only "toggle follow" here -- it stopped being doubled up with
+       the crank hold once that moved to `r` (docs/PLAN-phase12.md §3 D-J).
+       'r' is not claimed by this switch either; it falls through to
+       `mapDigit`, then to `set()` below, exactly like every other
+       unrecognised key, but `cmd.action` cannot latch anything anyway while
+       the run is frozen -- nothing is cranking while the map is open. */
     case 'f': toggleMapFollow(); return true;
     default: return mapDigit(k);
   }
@@ -318,7 +331,11 @@ export function installInput() {
     set(e.key, true);
     if (k === 'g') flags.showGrid   = !flags.showGrid;
     if (k === 'h') flags.showDebug  = !flags.showDebug;
-    if (k === 'i') toggle('main');
+    /* 'e' opens/closes the main panel -- moved off `i` outright
+       (docs/PLAN-phase12.md §3 D-K, one binding per verb), and off its own
+       former "place" meaning, which the LMB/RMB dispatch below already
+       covers redundantly (D-A). */
+    if (k === 'e') toggle('main');
     /* Escape closes the TOP of the panel stack only -- a modal above the
        window (none exists yet) would close before the window under it.
        No-op on an empty stack, so Escape is otherwise free for the browser
@@ -331,12 +348,19 @@ export function installInput() {
        reason: a player who armed one hub, then thought better of it, needs one
        visible cancel key rather than two verbs with different escapes. */
     if (k === 'escape') { clearArmedPlace(); clearLink(); }
+    /* 'z' fires the identical cancel pair, ADDITIVELY (docs/PLAN-phase12.md
+       §4.4 item 5): a narrower synonym for Escape's own cancel half that does
+       NOT touch the panel stack, so a player mid-build can drop a selection
+       without also closing whatever panel they have open. */
+    if (k === 'z') { clearArmedPlace(); clearLink(); }
     /* Same edge-triggered boolean-flip idiom as `showGrid`/`showChunks`/
        `showDebug` -- a held key does not matter here, since the map is a
        mode you sit in, not an action you repeat. */
     if (k === 'o') flags.showMap    = !flags.showMap;
     if (k === 'm') audio.muted = !audio.muted;
-    if (k === 'r') wants.restart = true;
+    /* Restart used to be `r`, live at any time -- `r` is now the crank/action
+       hold (D-J), so restart moved to a real clickable button on the death
+       screen (D-C): see `pointerdown`'s own death-restart branch below. */
 
     /* Every "spawn a tier from nothing" path lives behind `flags.showDebug`
        and nowhere else: 't' trinket, 'b' the timed boon tier, 'k' the machine
@@ -392,11 +416,10 @@ export function installInput() {
      changed stays down forever otherwise, and the player returns to a character
      walking into a wall. */
   addEventListener('blur', () => {
-    for (const k of ['left', 'right', 'up', 'down', 'dig', 'place', 'craft', 'turn', 'collect', 'mouse', 'uiClick', 'uiRight', 'uiDown'])
+    for (const k of ['left', 'right', 'up', 'down', 'dig', 'place', 'craft', 'action', 'collect', 'mouse', 'uiClick', 'uiRight', 'uiDown'])
       cmd[k] = false;
     cmd.uiCtrl = false; cmd.uiShift = false; cmd.uiWheel = 0;
-    hopHeld = false; placeHeld = false; dropHeld = false; deconHeld = false;
-    miracleHeld = false; linkHeld = false;
+    hopHeld = false; dropHeld = false; deconHeld = false; linkHeld = false;
     mapDragEnd();
   });
 
@@ -435,6 +458,20 @@ export function installInput() {
   const onAlwaysOnUi = e => {
     const { sx, sy } = toScreen(e);
     const p = uiDrawn.panels.find(p => p.id === 'hints-toggle');
+    return !!p && sx >= p.x && sx < p.x + p.w && sy >= p.y && sy < p.y + p.h;
+  };
+
+  /* THE DEATH-SCREEN RESTART BUTTON (docs/PLAN-phase12.md §3 D-C). Restart
+     moved off `r` (now the crank/action hold, D-J) onto a real, discoverable
+     control -- `view/hud.js#deathScreen` draws it and registers its rect
+     into `drawn.panels` under `'death-restart'`, the identical idiom
+     `onAlwaysOnUi` above already uses for the hints toggle. Only live while
+     `run.dead`, so the id existing at all (from a stale previous frame) can
+     never fire outside the one screen that draws it. */
+  const onDeathRestart = e => {
+    if (!run.dead) return false;
+    const { sx, sy } = toScreen(e);
+    const p = uiDrawn.panels.find(p => p.id === 'death-restart');
     return !!p && sx >= p.x && sx < p.x + p.w && sy >= p.y && sy < p.y + p.h;
   };
 
@@ -481,6 +518,16 @@ export function installInput() {
     if (flags.showMap) {
       const { sx, sy } = toScreen(e);
       if (!mapRulerJump(sx, sy)) mapDragStart(sx, sy, mapView.wx, mapView.wy);
+      cv.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      return;
+    }
+    /* THE DEATH-SCREEN RESTART BUTTON, checked before anything else below --
+       a click on it means "restart", full stop, never a same-press mine or
+       place at whatever the reticle happens to be aimed at underneath the
+       screen it covers. */
+    if (onDeathRestart(e)) {
+      wants.restart = true;
       cv.setPointerCapture(e.pointerId);
       e.preventDefault();
       return;
@@ -581,7 +628,6 @@ export function clearEdges() {
   cmd.place = false;
   cmd.drop = false;
   cmd.deconstruct = false;
-  cmd.miracle = false;
   cmd.link = false;
   /* Same one-shot-per-physical-click trick `place` already relies on above:
      a pointer held down fires no repeat event, so clearing these every
