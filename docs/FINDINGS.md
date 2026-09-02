@@ -1545,3 +1545,44 @@ intentional (a screenshot of "the game as it actually looks on a fresh run"
 is arguably more honest than one with the callout silently suppressed) —
 this is a real design call, not a bug, and not mine to make unilaterally by
 editing another phase's test file.
+
+**11. Answering #10 for Phase 8g's own six shots, and only those.** The six
+`drive-*` motion baselines advance `run.tutorialBeat` to 4 in `driveScene`, so
+they carry no callout. The reason is narrow and worth keeping narrow: a baseline
+whose whole subject is a moving drivetrain should not be re-taken every time
+`data/callouts.js` is reworded, and six pictures of gears are the wrong place to
+also assert what beat 0 says. Phase 8e's existing shots were deliberately NOT
+touched — they are reviewed output belonging to another phase, and churning them
+to make the tree self-consistent would cost a reviewer more than the
+inconsistency does. **#10 is therefore still open as a general ruling**: there is
+no shared `settle()`-adjacent helper, and the next agent to own
+`tests/visual.spec.js` inherits the same choice for whatever it adds.
+
+**12. `model/segments.js`'s boundary-exact sampling was a real bug, and the
+harness that found it was itself wrong first.** Recorded because the sequence is
+the useful part. `b48203d` fixed `sweepSpan` (a vertical or horizontal span
+between two same-footing hubs runs exactly along a tile grid line, and
+`Math.floor` inside `tileX`/`tileY` sampled only one of the two columns sharing
+it, so a solid tile in the other one was invisible). But the cross-band test that
+found it ALSO had a defect of its own, in the same area, which masked the fix:
+its clear window was carved as a fixed 4x4 around each hub's own PLACEMENT tile,
+and a hub's anchor is its footprint CENTRE — one tile above that row for a 2x2 —
+so the window never reached the band seam, and the lower band's row 0 (solid rock
+in generated terrain) sat on the span. The lesson generalises past this phase:
+**a test that carves terrain must size the carve from the GEOMETRY UNDER TEST,
+not from the placement coordinates it happens to have handy.**
+`tools/check.mjs#clearAlong` walks the actual anchor-to-anchor line and clears a
+neighbourhood around every sample in every band, which is both shorter than the
+buggy version and impossible to mis-size.
+
+**13. The burden bar's label appears to overlap the bar when the value string is
+wide — EYEBALLED, not measured, and not mine to fix.** Visible in
+`drive-reversing-overcap.png` (45.0 / 40 T, over cap) against
+`drive-descending-loaded.png` (0.0 / 40 T): the numeric label seems to start at a
+fixed x rather than after the measured bar, so a wide value runs into it. If
+real, this is exactly the class of defect `CLAUDE.md` D8 exists to prevent
+("panels are positioned by an anchored layout pass over measured text, never by
+hardcoded pixel origins") and the fix belongs to whoever next owns
+`src/view/hud.js`. Phase 8g owns `tests/`, not `view/`, so this is parked rather
+than fixed; the two shots above are the repro and the comparison, already
+committed.
