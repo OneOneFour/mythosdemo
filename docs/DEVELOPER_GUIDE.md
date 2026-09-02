@@ -1134,20 +1134,37 @@ Contracts:
 
 `shell/input.js` exports three objects, all mutated by property:
 
-- **`cmd`** — the per-frame command set the rules read. `dig`, `craft` and the
-  movement keys are **holds**; `hop` and `place` are **edge-triggered**.
-- **`wants`** — one-shot requests to the shell, not movement (drafting,
-  restart). Consumed and self-cleared by `shell/main.js#applyIntents`.
+- **`cmd`** — the per-frame command set the rules read. `dig`, `craft`,
+  `action` (the crank hold, `r` — renamed from `turn`/`f` in Phase 12d,
+  docs/PLAN-phase12.md §3 D-J), `collect` (`c`) and the movement keys are
+  **holds**; `hop` and `place` are **edge-triggered**. `dig` and `miracle`
+  are no longer bound to any key (Phase 12d retired `x`/`j` and `v` outright
+  — mining and using a held miracle are both reached through the unified LMB
+  dispatch below instead) but `cmd.dig` itself is kept, deliberately, since
+  it is the standard test-harness idiom for triggering mining without a
+  real, coordinate-correct mouse event — see `tests/visual.spec.js`'s many
+  `__mf.cmd.dig = true` sites. `cmd.miracle` was removed outright: nothing,
+  not even a test, still read it.
+- **`wants`** — one-shot requests to the shell, not movement (drafting).
+  Restart moved off `wants.restart`/any key entirely in Phase 12d, onto a
+  real, clickable death-screen button (D-C) — see below.
 - **`flags`** — presentation toggles, passed to `view` through the frame context
   because `view` may not import `shell`.
 
+**LMB is one unified, contextual verb, resolved once at `pointerdown`**
+(docs/PLAN-phase12.md §3 D-A, §4.4): an armed miracle always fires; else an
+armed placeable over open ground places; else it mines. Decided ONCE per
+press, not every frame of a held one, specifically so a continuous hold
+cannot flip meaning mid-press. RMB still deconstructs a machine under the
+reticle, else places — a harmless, redundant second path to the same place
+outcome LMB's own rule 2 also reaches.
+
 **Edge-triggering is not optional for anything destructive or launching.** A held
 space bar that re-launched every frame turned a one-tile hop into flight; a held
-place key emptied the pockets into a wall in half a second. `q` (drop),
-`Backspace` (deconstruct) and `v` (use a miracle) all use the same `*Held` latch
-idiom for the same reason. `clearEdges()` runs once per frame **after** the rules
-have read them, which is why the latch lives in `shell/input.js` and not on the
-key state.
+place key emptied the pockets into a wall in half a second. `q` (drop) and
+`Backspace` (deconstruct) use the same `*Held` latch idiom for the same reason.
+`clearEdges()` runs once per frame **after** the rules have read them, which is
+why the latch lives in `shell/input.js` and not on the key state.
 
 **Above 120 Hz a frame can run zero substeps.** So:
 - `applyIntents()` runs once per real **animation frame**, not per substep, and
@@ -1158,9 +1175,16 @@ key state.
 **The open panel stack captures input.** While `shell/ui.js#top()` is open, the
 pointer handlers route to `cmd.uiClick`/`uiRight`/`uiDown`/`uiWheel` instead of
 `mouse`/`place`, so a click meant for a slot can never also dig or place through
-to the world underneath. Two exceptions are hit-tested explicitly because they
-are drawn with no panel open: the quickbar's legend toggle
-(`shell/input.js:322`).
+to the world underneath. Exceptions are hit-tested explicitly because they are
+drawn with no panel open: the quickbar's legend toggle
+(`shell/input.js:322`), and the death-screen restart button
+(`onDeathRestart`, docs/PLAN-phase12.md §3 D-C) — checked first of all,
+before the map and the panel-stack routing, since a click on it means
+"restart", full stop, never a same-press mine or place at whatever the
+reticle happens to be aimed at underneath the screen it covers. Both
+register their rect into `view/ui/state.js#drawn.panels` (the SAME
+`drawPanel` idiom every hit-testable rect in this project uses) rather than
+duplicating the layout math on the input side.
 
 `uiClick`/`uiRight` are **edge** (cleared every frame regardless of button
 state — a held pointer fires no repeat event, so that still leaves exactly one
@@ -1170,7 +1194,9 @@ between clears so a fast scroll is not dropped.
 
 **The search field pre-empts every other binding in the file** (`:141`), or a
 typed search string would also walk the player into a wall. Unrecognised keys
-inside it are swallowed rather than passed through.
+inside it are swallowed rather than passed through — including `i`, now a
+fully retired key with no other meaning, still typeable as a literal search
+character.
 
 **Adding a key**: check the full `KEYS` table *and* every `if (k === ...)` in the
 file first — see `.claude/brain/notes.md` for the current inventory. Gate a

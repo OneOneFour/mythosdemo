@@ -139,32 +139,46 @@ being true rather than annotating it.
 - **`view/ui/state.js#drawn.buttons`** — added for the LOGISTICS tab's BUILD row
   list, removed with it.
 
-## Key binding inventory (as of 2026-08)
+## Key binding inventory (as of Phase 12d, docs/PLAN-phase12.md)
 
 Checked before adding a binding. `KEYS` table plus every `if (key === ...)` /
-`if (k === ...)` in `src/shell/input.js`.
+`if (k === ...)` in `src/shell/input.js`. This table was stale even before
+Phase 12 (it had `f`/`l` down as free when both were already live — the crank
+hold and link, respectively) — rewritten from a real re-read of the file
+rather than incrementally patched, so trust this one over memory of an
+earlier version.
 
 | taken | for |
 |---|---|
 | `w a s d`, arrows | movement |
 | space | hop (edge) |
-| `x`, `j` | dig (hold) |
-| `e` | place (edge) |
-| `u` | craft (hold) |
+| `e` | open/close the main panel (edge) — moved off `i` in Phase 12d |
+| `r` | hold to act on a placed machine, e.g. turn a crank (hold, `cmd.action`) — renamed from `f`/`cmd.turn` in Phase 12d; `r` was restart before that, see below |
 | `q` | drop heaviest (edge) |
 | backspace | deconstruct (edge) |
-| `v` | use a miracle (edge) — mnemonic is thin ("vial"), everything nearer "use" was taken |
-| `p` | equip first unequipped trinket (edge) |
-| `i` | inventory: toggles `flags.showInv` **and** the panel stack |
-| `g` | grid overlay · `c` chunk overlay · `h` debug overlay |
+| `c` | collect items in reach (hold, `cmd.collect`) — items no longer auto-collect by default; an AUTO COLLECT toggle in the Character tab restores the old always-on magnet |
+| `l` | link/unlink two hubs into a segment (edge, two presses = one gesture) |
+| `g` | grid overlay · `h` debug overlay |
+| `p` | chunk overlay, but ONLY behind `flags.showDebug` (Phase 12d — freed by retiring the old equip key, folded behind the same gate `t`/`b`/`k`/`y` already use, rather than left a bare letter) |
 | `o` | map overview ("overview"; `m` was mute, every other mnemonic taken) |
-| `m` | mute · `r` restart |
-| escape | blur search, then pop the top panel, and cancel an armed placement |
-| digits 1-9,0 | arm the matching quickbar slot |
+| `m` | mute |
+| `z` | cancel an armed placement/link endpoint (edge) — additive to Escape's own cancel half, does NOT close the panel stack |
+| escape | blur search, then pop the top panel, and cancel an armed placement/link |
+| digits 1-9,0 | arm whatever pair currently occupies that quickbar slot (a real position in `run.inv`'s own slot array since Phase 12c/12c2 — no assignment step) |
 | `t` `b` `k` `y` | debug grants: trinket / timed boon / machine grant / miracle — all behind `flags.showDebug` |
+| LMB | one contextual verb, resolved once per press: an armed miracle fires; else an armed placeable over open ground places; else it mines (docs/PLAN-phase12.md §3 D-A) |
+| RMB | deconstruct a machine under the reticle, else place (redundant with LMB's own place outcome) |
 
-Free single letters at time of writing: `f`, `l`, `n`, `z`. (`f`/`l` were
-deliberately freed; reusing them for something unrelated is fine.)
+**Retired outright, no key at all**: `x`/`j` (dig — LMB covers it), `v` (use a
+miracle — LMB covers it), `i` (open panel — moved to `e`), `u` (craft — the
+recipe-grid click already queues and auto-completes a craft, `u`'s hold was
+fully redundant), the old bare `p` (equip a trinket — drag-to-equip already
+covers it, richer). **Restart** moved off `r` entirely onto a real, clickable
+button on the death screen (`view/hud.js#deathScreen`, id `'death-restart'`)
+— `r` now means the crank/action hold instead.
+
+Free single letters at time of writing: `n`, `v`, `x`/`j`, `u`, bare `p`
+(the last four are freed-but-nothing-reused-them-yet, not never-taken).
 
 Rule of thumb: a key that **spawns something from nothing** goes behind
 `flags.showDebug`; a key that **consumes something already held** does not.
@@ -178,9 +192,15 @@ Rule of thumb: a key that **spawns something from nothing** goes behind
 - **`settle()` advances `clock.t` but not `stepFx`**, so the 2.6 s opening title
   is still up and `drawHUD` draws the title card *instead of* the tooltip. Every
   hover test has to decay it first.
-- **`MAGNET_DELAY` is 0.35 s ≈ 42 substeps.** Anything dropped at the player's
-  feet is picked straight back up once it clears the delay. Bursts must stay
-  under it; tests that need material to stay dropped need margin.
+- **`MAGNET_DELAY` is 0.35 s ≈ 42 substeps.** This is a real cap on pickup
+  timing, but per Phase 12b it no longer fires on its own: pickup is now
+  gated on `cmd.collect` (hold `c`) or `ui.autoCollect`, so "dropped at the
+  player's feet" only auto-returns while one of those is true (many existing
+  tests hold `collect` or set `autoCollect` explicitly for exactly this
+  reason — see `docs/PLAN-phase12.md` §3 D-E/D-F). Bursts must still stay
+  under the delay when collection IS active; tests that need material to
+  stay dropped no longer need special margin, since the default is now
+  "stays dropped" already.
 - **The first real pointer event sets `cmd.hasMouse`** and flips aim resolution
   from keys to the cursor for the rest of the run.
 - **`digging.png` was, for a while, a screenshot of a stationary player.** The
