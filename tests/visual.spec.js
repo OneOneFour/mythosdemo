@@ -2949,3 +2949,305 @@ test('winch: drawing the whole family writes nothing to the model', async ({ pag
   });
   expect(moved).toBe(0);
 });
+
+/* ============================================================
+   PHASE 8g — THE MOTION MATRIX
+
+   Phase 8e's matrix above is STATIC by construction: it writes `t`, `load` and
+   `turn` after the substeps precisely so the simulation cannot move them
+   (`docs/FINDINGS.md` #9). These six are the states that only exist while
+   something is moving, and every number in them is the simulation's own:
+   nothing is written after `frames()`, so a carrier's position is wherever
+   `rules/drive.js` put it and a gear's phase is however far it actually turned.
+
+   THAT MAKES THEM A DIFFERENT KIND OF BASELINE, and the difference is worth
+   stating: an 8e shot moving means the ART changed; one of these moving means
+   the ART or the MOTION changed. So each asserts its own motion first -- the
+   carrier is strictly between the ends, its `dir` has the sign the scene is
+   named for, the cranks in reach are delivering torque -- and only then
+   photographs it. A scene that had quietly stalled would otherwise be a
+   perfectly stable screenshot of a parked bucket, which is CLAUDE.md's "a test
+   can silently test nothing" with motion in the blank.
+
+   THE TUTORIAL CALLOUT IS DELIBERATELY OFF HERE, and this is the call
+   `docs/FINDINGS.md` #10 left open. `driveScene` advances `run.tutorialBeat`
+   to 4 (`CALLOUTS[4]` is `null`), so these shots carry no "TAKE THE PICKAXE"
+   box. The reason is specific to this matrix rather than a general ruling: six
+   baselines whose whole subject is a moving drivetrain should not be coupled
+   to unrelated tutorial content, and a future tutorial rewrite must not move
+   six drivetrain pictures. Phase 8e's existing shots are NOT touched -- they
+   are already baselined with the callout, and re-taking them would be churning
+   another phase's reviewed output.
+
+   A CRANK LADDER IS NOT A HACK, it is the only build that can photograph an
+   ASCENDING RIDER. A crank has a 12 px reach and a rider aboard leaves it in
+   the first pixel of travel (`tools/check.mjs`'s framerate section says the
+   same thing about measurement). `rules/drive.js`'s own header states that
+   every crank within reach turns, and a wall of handles beside the shaft is
+   exactly what a player who wants to ride up would build. So `CRANKS` stacks
+   them two rows apart along the shaft wall, and the rider is always within
+   reach of one.
+   ============================================================ */
+
+/* Cranks every two rows up a wall, bottom-to-top, all footprint-adjacent and
+   therefore all one drivetrain component. */
+const CRANKS = (tx, tyTop, tyBottom) => {
+  const out = [];
+  for (let ty = tyBottom; ty >= tyTop; ty -= 2) out.push(['crank', tx, ty]);
+  return out;
+};
+
+async function driveScene(page, spec) {
+  return page.evaluate(async (spec) => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { M } = await import('/src/data/machines.js');
+    const { write: mw, machines } = await import('/src/model/machines.js');
+    const { write: iw } = await import('/src/model/items.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { write: pw, PW, PH } = await import('/src/model/player.js');
+    const { write: rw, run } = await import('/src/model/run.js');
+    const { write: segw, linkCheck, segments, carrierPos, carrierTop } =
+      await import('/src/model/segments.js');
+    const { bandOf, worldX, worldY, write: ww } = await import('/src/model/world.js');
+    const { clearLink } = await import('/src/shell/ui.js');
+    const { banner } = await import('/src/view/fx.js');
+    const { VIEW } = await import('/src/core/canvas.js');
+
+    const main = bandOf(spec.band || 'surface');
+    const rooms = spec.rooms || [{ band: spec.band || 'surface', ...spec.room }];
+
+    for (const r of rooms) {
+      const b = bandOf(r.band || spec.band || 'surface');
+      for (let ty = r.sky ? 0 : r.ty0; ty < r.ty0 + r.h; ty++)
+        for (let tx = r.tx0; tx < r.tx0 + r.w; tx++) tw.clear(b, tx, ty);
+      if (r.floor !== false)
+        for (let tx = r.tx0; tx < r.tx0 + r.w; tx++) tw.set(b, tx, r.ty0 + r.h - 1, S.stone);
+      ww.revealAll(b);
+    }
+
+    const placed = (spec.machines || []).map(([id, tx, ty, bid]) =>
+      mw.place(bandOf(bid || spec.band || 'surface'), M[id], tx, ty));
+
+    const refusals = [];
+    for (const [i, j] of spec.links || []) {
+      const c = linkCheck(placed[i], placed[j]);
+      if (c.ok) segw.link(placed[i], placed[j]);
+      else refusals.push(c.why);
+    }
+    for (const [i, sub, form, n] of spec.feed || []) mw.take(placed[i], S[sub], F[form], n);
+
+    /* PAST THE TUTORIAL CALLOUT (see this section's header). Four beats is
+       exactly where `data/callouts.js` runs out of strings. */
+    while (run.tutorialBeat < 4) rw.advanceBeat();
+
+    pw.band(main);
+    pw.move(worldX(main, spec.player[0]), worldY(main, spec.player[1]));
+    banner.fade = 0;
+    clearLink();
+    __mf.cmd.hasMouse = false;
+
+    /* Anything that has to happen BEFORE the motion is measured -- lighting a
+       brazier, mostly, which takes seconds of simulation the carrier would
+       spend sliding to the bottom of its cable. */
+    if (spec.preFrames) __mf.frames(spec.preFrames);
+
+    /* THE START STATE, parked after the pre-roll and before the motion. */
+    for (const [i, t] of spec.start || []) segw.carrier(segments[i], t, 0);
+    if (spec.burden) rw.collect(S.copper, F.ore, spec.burden);
+    for (const [i, sub, form, n] of spec.cargo || []) {
+      const p = carrierPos(segments[i]);
+      for (let k = 0; k < n; k++) {
+        const it = iw.spawn(segments[i].band, p.x, p.y, S[sub], F[form], 0, 0);
+        if (it) it.rest = 1;
+      }
+    }
+    if (spec.ride !== undefined) {
+      const seg = segments[spec.ride];
+      pw.move(carrierPos(seg).x - PW / 2, carrierTop(seg) - PH);
+      pw.vel(0, 0);
+      pw.set('onGround', true);
+      pw.set('fallFrom', carrierTop(seg) - PH);
+    }
+
+    /* THE MOTION. Nothing is written after this. */
+    __mf.cmd.turn = !!spec.turn;
+    __mf.frames(spec.frames);
+    __mf.cmd.turn = false;
+
+    const centre = spec.centreOn
+      ? { x: carrierPos(segments[spec.centreOn]).x, y: carrierPos(segments[spec.centreOn]).y }
+      : { x: worldX(main, rooms[0].tx0) + rooms[0].w * main.tile / 2,
+          y: worldY(main, rooms[0].ty0) + rooms[0].h * main.tile / 2 };
+    __mf.cam.x = Math.round(centre.x - VIEW.w / 2) + (spec.offset?.[0] ?? 0);
+    __mf.cam.y = Math.round(centre.y - VIEW.h / 2) + (spec.offset?.[1] ?? 0);
+    __mf.draw();
+
+    return {
+      machines: placed.length, segments: segments.length, refusals,
+      hearts: run.hearts, beat: run.tutorialBeat,
+      seg: segments.map(s => ({
+        t: +s.t.toFixed(4), dir: s.dir, load: +s.load.toFixed(2),
+        len: Math.round(s.len), slope: +s.slope.toFixed(2), band: s.band?.id ?? null
+      })),
+      /* Every drivetrain node that actually turned, so a scene can prove its
+         crank was in reach rather than assume it. */
+      turning: machines.filter(m => m.turn > 0).length,
+      driven: machines.filter(m => m.torque > 0).length
+    };
+  }, spec);
+}
+
+const MOTION_SHAFT = { tx0: 40, ty0: 24, w: 12, h: 23, sky: true };
+
+/* ---------- 1. mid-ascent, with a rider aboard ---------- */
+test('drive: a carrier mid-ascent with a rider aboard', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await driveScene(page, {
+    rooms: [MOTION_SHAFT],
+    machines: [['hub', 44, 43], ['hub', 44, 33], ...CRANKS(43, 33, 43)],
+    links: [[0, 1]], start: [[0, 0.05]], ride: 0, turn: true, frames: 400,
+    player: [47, 43], centreOn: 0
+  });
+  expect(r.segments).toBe(1);
+  expect(r.seg[0].dir).toBe(-1);                       // -1 is UP
+  expect(r.seg[0].t).toBeGreaterThan(0.15);
+  expect(r.seg[0].t).toBeLessThan(0.95);
+  expect(r.driven).toBeGreaterThan(0);                 // a crank really is in reach
+  expect(r.hearts).toBe(5);                            // and riding costs nothing
+  await shot(page, 'drive-ascending-rider.png');
+});
+
+/* ---------- 2. mid-descent under its own weight, loaded ---------- */
+test('drive: a carrier mid-descent under weight', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await driveScene(page, {
+    rooms: [MOTION_SHAFT],
+    machines: [['hub', 44, 43], ['hub', 44, 33]],
+    links: [[0, 1]], start: [[0, 0.95]], cargo: [[0, 'copper', 'ore', 4]],
+    turn: false, frames: 200, player: [47, 43], centreOn: 0
+  });
+  expect(r.segments).toBe(1);
+  expect(r.seg[0].dir).toBe(1);                        // +1 is DOWN
+  expect(r.seg[0].t).toBeGreaterThan(0.15);
+  expect(r.seg[0].t).toBeLessThan(0.85);
+  expect(r.seg[0].load).toBeGreaterThan(0);            // the cargo is aboard, not lost
+  expect(r.driven).toBe(0);                            // nothing is driving it
+  await shot(page, 'drive-descending-loaded.png');
+});
+
+/* ---------- 3. reversing under an over-cap rider ----------
+   The brief's own correction, as a picture: the crank is being turned, the
+   drivetrain is delivering torque, and the carrier is going DOWN anyway,
+   because the rider is carrying more than that drivetrain can lift. The
+   'TOO HEAVY TO LIFT' toast in the frame is `rules/drive.js` saying so, and it
+   is in the shot on purpose -- it is the one state that is otherwise baffling.
+
+   ONE CRANK HERE, NOT THE LADDER, and the reason is a game fact rather than a
+   test convenience: with a dense ladder an over-cap rider simply CLIMBS
+   (measured -- three cranks in reach supply 4.5 against a 53 T rider's 2.3),
+   because more drivetrain lifts more, which is the whole of invariant 4's "the
+   one way to raise a heavy carrier is more drivetrain". So reversal is what a
+   MODEST drivetrain does under a heavy rider: one crank, gear-bridged to the
+   hub (the crank sits at rows 41-42 and the hub at 43-44, which touch only at
+   a corner -- a diagonal does not conduct, so the gear at (43,43) is load
+   bearing, not decoration).
+
+   A SHORT six-tile cable, so a quarter of a second of travel is a quarter of
+   the cable and the carrier photographs plainly between its ends rather than
+   a few pixels off one. */
+test('drive: a reversing carrier under an over-cap rider', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await driveScene(page, {
+    rooms: [MOTION_SHAFT],
+    machines: [['hub', 44, 43], ['hub', 44, 37], ['crank', 43, 41], ['gear', 43, 43]],
+    links: [[0, 1]], start: [[0, 0.4]], ride: 0, burden: 45, turn: true,
+    frames: 40, player: [47, 43], centreOn: 0
+  });
+  expect(r.segments).toBe(1);
+  expect(r.driven).toBe(3);                            // hub, crank and the bridging gear
+  expect(r.seg[0].dir).toBe(1);                        // and it IS going down
+  expect(r.seg[0].t).toBeGreaterThan(0.15);
+  expect(r.seg[0].t).toBeLessThan(0.4);
+  /* THE RIDER'S OWN MASS IS THE LOAD, and over the 40 T cap: 8 T of body plus
+     45 T of ore. D4 as amended is that this is never refused, only felt. */
+  expect(r.seg[0].load).toBeGreaterThan(40);
+  await shot(page, 'drive-reversing-overcap.png');
+});
+
+/* ---------- 4. a crank and a gear train, actually turning ----------
+   8e's `winch-turned.png` wrote a phase into the model. This one holds the key
+   and lets the drivetrain arrive at its own phase, which is the only version
+   that can catch a gear that stopped meshing. */
+test('drive: a crank and a gear train being turned', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await driveScene(page, {
+    rooms: [{ tx0: 40, ty0: 28, w: 15, h: 18, band: 'surface', sky: true }],
+    machines: [['hub', 44, 43], ['hub', 44, 35], ['crank', 46, 43],
+               ['gear', 47, 44], ['axle', 48, 44]],
+    links: [[0, 1]], start: [[0, 0.5]], turn: true, frames: 90, player: [47, 41]
+  });
+  expect(r.segments).toBe(1);
+  /* FOUR nodes turn, not five: the crank, the gear, the axle and the hub they
+     are adjacent to. The FAR hub eight tiles up is its own component with no
+     crank in it, so it delivers nothing and does not spin -- the same fact
+     tools/check.mjs's torque-conservation section asserts about its own top
+     hubs, and the reason a segment is driven by the greater of its two ends
+     rather than by both. */
+  expect(r.turning).toBe(4);
+  expect(r.driven).toBe(4);
+  expect(r.seg[0].dir).toBe(-1);
+  await shot(page, 'drive-crank-train-turning.png');
+});
+
+/* ---------- 5. a three-segment chain, all of it moving ---------- */
+test('drive: a three-segment chain in motion', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await driveScene(page, {
+    rooms: [{ tx0: 41, ty0: 24, w: 6, h: 23, band: 'surface', sky: true }],
+    machines: [['hub', 42, 44], ['hub', 44, 38], ['hub', 42, 32], ['hub', 44, 26]],
+    links: [[0, 1], [1, 2], [2, 3]],
+    start: [[0, 0.9], [1, 0.9], [2, 0.9]],
+    cargo: [[0, 'copper', 'ore', 2]],
+    turn: false, frames: 150, player: [41, 44]
+  });
+  expect(r.segments).toBe(3);
+  for (const s of r.seg) {
+    expect(s.dir).toBe(1);
+    expect(s.t).toBeGreaterThan(0.1);
+    expect(s.t).toBeLessThan(0.9);
+  }
+  await shot(page, 'drive-chain-moving.png');
+});
+
+/* ---------- 6. a carrier crossing a band seam ----------
+   The ordinary case, not the exotic one: every delivery this design is about
+   crosses one. Both bands are carved from the anchors' own rows -- a window
+   sized from a hub's PLACEMENT tile misses the lower band's row 0 entirely,
+   which `tools/check.mjs`'s cross-band section records at length. A brazier
+   lights it, because thirty tiles below the surface floor there is nothing
+   else to see by. */
+test('drive: a carrier at a band seam', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await driveScene(page, {
+    band: 'surface',
+    rooms: [{ band: 'surface', tx0: 56, ty0: 46, w: 10, h: 10, floor: false },
+            { band: 'topsoil', tx0: 56, ty0: 0, w: 10, h: 8 }],
+    machines: [['hub', 60, 52], ['hub', 60, 2, 'topsoil'], ['brazier', 63, 4, 'topsoil']],
+    links: [[0, 1]], feed: [[2, 'timber', 'log', 4]],
+    preFrames: 700, start: [[0, 0.9]], turn: false, frames: 100,
+    player: [58, 53], centreOn: 0
+  });
+  expect(r.segments).toBe(1);
+  expect(r.seg[0].dir).toBe(1);
+  expect(r.seg[0].t).toBeGreaterThan(0.2);
+  expect(r.seg[0].t).toBeLessThan(0.9);
+  expect(r.seg[0].band).toBe('topsoil');               // the low end is below the seam
+  await shot(page, 'drive-band-seam.png');
+});
