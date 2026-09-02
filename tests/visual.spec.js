@@ -338,7 +338,13 @@ test('a placed furnace', async ({ page }) => {
   await page.keyboard.press('1');
   await page.keyboard.press('e');
   await page.evaluate(() => __mf.frames(240));
-  expect(await page.evaluate(() => __mf.machines.length)).toBe(1);
+  /* Phase 10b's altar is placed at boot (`rules/cycles.js#ensureAltarPlaced`)
+     -- exclude it so this still asserts "exactly the one machine THIS test
+     placed, nothing stray", not a total that silently includes boot content. */
+  expect(await page.evaluate(async () => {
+    const { M } = await import('/src/data/machines.js');
+    return __mf.machines.filter(m => m.def !== M.altar).length;
+  })).toBe(1);
   await shot(page, 'furnace.png');
 });
 
@@ -411,7 +417,12 @@ test('REAL DRAG: dragging a held item from the inventory grid onto a quickbar sl
   await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(1); });
   await page.keyboard.press('e');
   await page.evaluate(() => __mf.frames(240));
-  expect(await page.evaluate(() => __mf.machines.length)).toBe(1);
+  /* Exclude the boot-placed altar (`rules/cycles.js#ensureAltarPlaced`) so
+     this still asserts exactly the one machine this drag-and-place put down. */
+  expect(await page.evaluate(async () => {
+    const { M } = await import('/src/data/machines.js');
+    return __mf.machines.filter(m => m.def !== M.altar).length;
+  })).toBe(1);
 });
 
 test('a digit key arms the matching quickbar slot, not just any held item', async ({ page }) => {
@@ -473,8 +484,12 @@ test('a digit key arms the matching quickbar slot, not just any held item', asyn
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { invCount } = await import('/src/model/run.js');
+    /* Exclude the boot-placed altar (`rules/cycles.js#ensureAltarPlaced`) --
+       without it, `machines[0]` is no longer reliably the one this test just
+       placed, and the whole point here is proving it's THAT one, not any. */
+    const placed = __mf.machines.filter(m => m.def !== M.altar);
     return {
-      count: __mf.machines.length, def: __mf.machines[0]?.def, press: M.press, furnace: M.furnace,
+      count: placed.length, def: placed[0]?.def, press: M.press, furnace: M.furnace,
       armedAfter: __mf.ui.armedPlace, pressRig: invCount(S.press, F.rig), furnaceRig: invCount(S.furnace, F.rig)
     };
   });
@@ -1393,6 +1408,7 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
     const { F } = await import('/src/data/forms.js');
     const { invCount } = await import('/src/model/run.js');
     const { write: pw, PW } = await import('/src/model/player.js');
+    const { M } = await import('/src/data/machines.js');
 
     /* The finished ingot ejects from the furnace's TOP mouth and falls back
        to rest roughly under the machine's own centre -- past
@@ -1405,12 +1421,16 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
        concern and already thoroughly covered elsewhere -- this flow's point
        is the smelt chain, not a second proof of walk speed. */
     __mf.frames(1);                      // let the keypress above actually place it
-    const m = __mf.machines[0];
+    /* Exclude the boot-placed altar (`rules/cycles.js#ensureAltarPlaced`) --
+       `machines[0]` must be the furnace this test placed, not whichever the
+       altar's own earlier placement put first in the array. */
+    const placed = __mf.machines.filter(m => m.def !== M.altar);
+    const m = placed[0];
     pw.move(m.box.x + m.box.w / 2 - PW / 2, __mf.player.y);
 
     __mf.frames(1500);                   // several 4.0s smelt cycles, plus fall + pickup
     return {
-      machines: __mf.machines.length,
+      machines: placed.length,
       ingot: invCount(S.copper, F.ingot),
       rigLeft: invCount(S.furnace, F.rig)
     };
@@ -2069,11 +2089,18 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
     __mf.revealAll(bandOf('surface'));
     __mf.cmd.hasMouse = false;
   });
-  const before = await page.evaluate(() => __mf.machines.length);
+  /* Exclude the boot-placed altar (`rules/cycles.js#ensureAltarPlaced`) --
+     this test's point is that nothing armed means 'E' places nothing, not
+     that the world is devoid of machines at boot. */
+  const countExAltar = () => page.evaluate(async () => {
+    const { M } = await import('/src/data/machines.js');
+    return __mf.machines.filter(m => m.def !== M.altar).length;
+  });
+  const before = await countExAltar();
   expect(before).toBe(0);
   await page.keyboard.press('e');
   await page.evaluate(() => __mf.frames(5));
-  const afterRefusal = await page.evaluate(() => __mf.machines.length);
+  const afterRefusal = await countExAltar();
   expect(afterRefusal).toBe(0);
 
   /* SUCCESSFUL: grant the furnace recipe's exact bill, hand-craft the
@@ -2128,8 +2155,14 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
   const result = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
+    const { M } = await import('/src/data/machines.js');
     const { invCount } = await import('/src/model/run.js');
-    return { machines: __mf.machines.length, rig: invCount(S.furnace, F.rig), armedAfter: __mf.ui.armedPlace };
+    /* Exclude the boot-placed altar (`rules/cycles.js#ensureAltarPlaced`) --
+       this test's point is that exactly the furnace just placed exists. */
+    return {
+      machines: __mf.machines.filter(m => m.def !== M.altar).length,
+      rig: invCount(S.furnace, F.rig), armedAfter: __mf.ui.armedPlace
+    };
   });
   expect(result.machines).toBe(1);
   expect(result.rig).toBe(0);              // the held item was spent, not merely declared
@@ -2363,8 +2396,14 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
   const placed = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
+    const { M } = await import('/src/data/machines.js');
     const { invCount } = await import('/src/model/run.js');
-    return { machines: __mf.machines.length, rig: invCount(S.furnace, F.rig), armedAfter: __mf.ui.armedPlace };
+    /* Exclude the boot-placed altar (`rules/cycles.js#ensureAltarPlaced`) --
+       this test's point is that exactly the furnace just placed exists. */
+    return {
+      machines: __mf.machines.filter(m => m.def !== M.altar).length,
+      rig: invCount(S.furnace, F.rig), armedAfter: __mf.ui.armedPlace
+    };
   });
   expect(placed.machines).toBe(1);
   expect(placed.rig).toBe(0);
@@ -2376,8 +2415,12 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
      subtracting the CURRENT camera, the same conversion `resolveHover`
      itself undoes. One round trip, so the camera read and the hover read
      can never disagree about which frame they describe. */
-  const hoverMachine = () => page.evaluate(() => {
-    const m = __mf.machines[0];
+  /* `machines[0]` is no longer reliably the furnace this test placed --
+     the boot-placed altar (`rules/cycles.js#ensureAltarPlaced`) exists in
+     the array too, so this looks the furnace up by def instead. */
+  const hoverMachine = () => page.evaluate(async () => {
+    const { M } = await import('/src/data/machines.js');
+    const m = __mf.machines.find(mm => mm.def === M.furnace);
     __mf.mouseAt(m.box.x + m.box.w / 2 - __mf.cam.x, m.box.y + m.box.h / 2 - __mf.cam.y);
     __mf.draw();
     return { ...__mf.hover };
@@ -2417,7 +2460,10 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
     __mf.frames(60);                     // let hand-feed pull it in and the recipe start
   });
 
-  const running = await page.evaluate(() => __mf.machines[0].running);
+  const running = await page.evaluate(async () => {
+    const { M } = await import('/src/data/machines.js');
+    return __mf.machines.find(m => m.def === M.furnace).running;
+  });
   expect(running).toBe(true);
 
   await shot(page, 'furnace-lifecycle-5-running.png');
@@ -2431,15 +2477,17 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
      refuses ("EMPTY IT FIRST") while anything is still buffered. ---- */
   await page.evaluate(() => __mf.frames(600));   // several 4.0s smelt-cycles' worth of margin
 
-  const drained = await page.evaluate(() => {
-    const m = __mf.machines[0];
+  const drained = await page.evaluate(async () => {
+    const { M } = await import('/src/data/machines.js');
+    const m = __mf.machines.find(mm => mm.def === M.furnace);
     return { bufKeys: Object.keys(m.buf).length, charges: m.charges };
   });
   expect(drained.bufKeys).toBe(0);
   expect(drained.charges).toBe(0);
 
-  const target = await page.evaluate(() => {
-    const m = __mf.machines[0];
+  const target = await page.evaluate(async () => {
+    const { M } = await import('/src/data/machines.js');
+    const m = __mf.machines.find(mm => mm.def === M.furnace);
     return { sx: m.box.x + m.box.w / 2 - __mf.cam.x, sy: m.box.y + m.box.h / 2 - __mf.cam.y };
   });
   await realRightClick(page, target.sx, target.sy);
@@ -2450,6 +2498,7 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
     const { invCount } = await import('/src/model/run.js');
     const { items } = await import('/src/model/items.js');
     const { write: pw, PW } = await import('/src/model/player.js');
+    const { M } = await import('/src/data/machines.js');
 
     /* The refund is a FALLING item, never a direct pocket credit (invariant
        5, `rules/placement.js#deconstruct`'s own comment) -- it needs to
@@ -2465,7 +2514,13 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
     if (dropped) pw.move(dropped.x - PW / 2, __mf.player.y);
     __mf.frames(200);
 
-    return { machines: __mf.machines.length, rigBack: invCount(S.furnace, F.rig), droppedFound: !!dropped };
+    /* Exclude the boot-placed altar (`rules/cycles.js#ensureAltarPlaced`) --
+       this test deconstructed the furnace, not the altar, so the furnace's
+       own count is what should read 0, not the world's total. */
+    return {
+      machines: __mf.machines.filter(m => m.def !== M.altar).length,
+      rigBack: invCount(S.furnace, F.rig), droppedFound: !!dropped
+    };
   });
   expect(after.machines).toBe(0);
   expect(after.droppedFound).toBe(true);
