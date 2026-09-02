@@ -42,7 +42,7 @@ import {
 export const cmd = {
   left: false, right: false, up: false, down: false,
   hop: false, dig: false, place: false, craft: false, drop: false,
-  deconstruct: false, miracle: false, equip: false, link: false, turn: false,
+  deconstruct: false, miracle: false, link: false, turn: false, collect: false,
   mouse: false, mx: 0, my: 0, hasMouse: false,
 
   /* UI pointer intents -- see docs/DEVELOPER_GUIDE.md#input-intents.
@@ -90,7 +90,7 @@ const KEYS = {
 };
 
 let hopHeld = false, placeHeld = false, dropHeld = false, deconHeld = false,
-    miracleHeld = false, equipHeld = false, linkHeld = false;
+    miracleHeld = false, linkHeld = false;
 
 function set(k, down) {
   const key = k.toLowerCase();
@@ -127,10 +127,14 @@ function set(k, down) {
      it consumes something the player already holds -- so it is NOT gated on
      `flags.showDebug`. */
   if (key === 'v')                  { if (down && !miracleHeld) cmd.miracle = true; miracleHeld = down; }
-  /* 'p' to EQUIP the first held-but-unequipped trinket into the first empty
-     slot -- "put on". A real action like 'v' above, not a debug spawn, so
-     also ungated. */
-  if (key === 'p')                  { if (down && !equipHeld) cmd.equip = true; equipHeld = down; }
+  /* 'c' to COLLECT: a HOLD, exactly like `craft`/`dig`/`turn` above --
+     docs/PLAN-phase12.md §3 D-E. By default items no longer auto-collect
+     (`rules/items.js#step`'s pickup branch is now gated on this, folded
+     with `ui.autoCollect` in `shell/main.js#step`'s narrowed command
+     object); standing in a small pile with this held sweeps it up over a
+     couple of frames, the same "must stand there holding it" idiom `f`'s
+     own comment above already states for the crank. */
+  if (key === 'c')                  cmd.collect = down;
   /* 'l' to LINK two hubs into a segment (Phase 8d,
      docs/PLAN-gears-and-winches.md section 4.5) -- EDGE-TRIGGERED, the same
      `*Held` latch every other real verb on this list uses, and for the same
@@ -313,7 +317,6 @@ export function installInput() {
 
     set(e.key, true);
     if (k === 'g') flags.showGrid   = !flags.showGrid;
-    if (k === 'c') flags.showChunks = !flags.showChunks;
     if (k === 'h') flags.showDebug  = !flags.showDebug;
     if (k === 'i') toggle('main');
     /* Escape closes the TOP of the panel stack only -- a modal above the
@@ -337,12 +340,16 @@ export function installInput() {
 
     /* Every "spawn a tier from nothing" path lives behind `flags.showDebug`
        and nowhere else: 't' trinket, 'b' the timed boon tier, 'k' the machine
-       grant, 'y' a miracle phial. */
+       grant, 'y' a miracle phial. 'p' joins this gate too (docs/PLAN-
+       phase12.md §3 D-D) -- freed by retiring the equip key, and folded
+       behind the same single debug gate rather than left a bare letter, per
+       the brief's own suggestion. A no-op with `flags.showDebug` off. */
     if (flags.showDebug) {
       if (k === 't') wants.draft = 'trinket';
       if (k === 'b') wants.draft = 'boon';
       if (k === 'k') wants.draft = 'grant';
       if (k === 'y') wants.draft = 'miracle';
+      if (k === 'p') flags.showChunks = !flags.showChunks;
     }
 
     /* DIGIT KEYS ARM THE MATCHING QUICKBAR SLOT.
@@ -382,11 +389,11 @@ export function installInput() {
      changed stays down forever otherwise, and the player returns to a character
      walking into a wall. */
   addEventListener('blur', () => {
-    for (const k of ['left', 'right', 'up', 'down', 'dig', 'place', 'craft', 'turn', 'mouse', 'uiClick', 'uiRight', 'uiDown'])
+    for (const k of ['left', 'right', 'up', 'down', 'dig', 'place', 'craft', 'turn', 'collect', 'mouse', 'uiClick', 'uiRight', 'uiDown'])
       cmd[k] = false;
     cmd.uiCtrl = false; cmd.uiShift = false; cmd.uiWheel = 0;
     hopHeld = false; placeHeld = false; dropHeld = false; deconHeld = false;
-    miracleHeld = false; equipHeld = false; linkHeld = false;
+    miracleHeld = false; linkHeld = false;
     mapDragEnd();
   });
 
@@ -572,7 +579,6 @@ export function clearEdges() {
   cmd.drop = false;
   cmd.deconstruct = false;
   cmd.miracle = false;
-  cmd.equip = false;
   cmd.link = false;
   /* Same one-shot-per-physical-click trick `place` already relies on above:
      a pointer held down fires no repeat event, so clearing these every

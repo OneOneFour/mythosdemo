@@ -38,23 +38,6 @@ export function grant(id) {
    file's — this only says which rows are still available. */
 export const draftable = () => TRINKETS.filter(t => invCount(S[t.id], F.relic) === 0);
 
-/* Equip the first held-but-unequipped trinket into the first empty slot: the
-   model-driven shell intent behind the equip key, with drag-to-equip being UI
-   on top of it. Returns false with nothing changed if there is no empty slot
-   or nothing unequipped to fill it with. */
-export function equipFirst() {
-  const slot = run.equipped.indexOf(null);
-  if (slot < 0) return false;
-  for (const t of TRINKETS) {
-    const sub = S[t.id];
-    if (invCount(sub, F.relic) > 0 && !run.equipped.includes(sub)) {
-      rw.equip(slot, sub);
-      return true;
-    }
-  }
-  return false;
-}
-
 /* Run once a frame (see `shell/schedule.js`). `removeBySource` is the half a
    static field cannot express: `WALK *= 1.15` cannot be told apart from the
    base value once applied, so undoing it needs the row kept by its source, not

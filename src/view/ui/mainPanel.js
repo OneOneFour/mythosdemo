@@ -159,6 +159,20 @@ function drawCharacterTab(g, f, body) {
 
   let ry = bar.y + bar.h + 5;
 
+  /* AUTO COLLECT (docs/PLAN-phase12.md §3 D-E/D-F): items no longer pick
+     themselves up -- holding 'c' does, and this toggle restores the old
+     always-on magnet for whoever would rather have it back. Its own
+     `drawPanel` id, hit-tested by `shell/main.js#applyUiIntents` exactly the
+     way the crafting tab's search box and `view/ui/quickbar.js`'s own
+     hints-toggle already are, so a click here is never mistaken for a click
+     on the grid beneath it. */
+  const acLabel = 'AUTO COLLECT ' + (f.ui.autoCollect ? 'ON' : 'OFF');
+  const acCol = f.ui.autoCollect ? GOOD : DIM;
+  const acW = Math.min(textWidth(acLabel) + 4, w);
+  drawPanel(g, { id: 'main-auto-collect', x, y: ry, w: acW, h: 9, vw, vh, alpha: 0.6 });
+  drawText(g, acLabel, x + 2, ry + 1, acCol, 1, 1);
+  ry += 11;
+
   /* Inventory grid: `pocketRows()`, `byHudOrder`-sorted already, filtered to
      what is actually held -- the strip's zero-count teaching slots have
      nothing to fill a slot with. */

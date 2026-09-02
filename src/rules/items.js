@@ -97,7 +97,14 @@ export function dropHeaviest() {
   push('place', at, { sub: best.sub, form: best.form });
 }
 
-export function step(dt) {
+/* `cmd.collect` (docs/PLAN-phase12.md §3 D-E/D-F): pickup is opt-in, not
+   automatic -- the pickup branch below only fires while it is true.
+   `shell/main.js#step()` folds `ui.autoCollect || cmd.collect` into it
+   before calling this, the same "which device/preference asked is a shell
+   question" idiom `digging`/`turn` already use, so this file itself still
+   only ever reads one HOLD off the narrowed command object every sibling
+   `rules` step that takes one already does. */
+export function step(dt, cmd) {
   const grav = eff('grav'), term = eff('terminal');
   const pickupR = eff('pickupR');
   const c = playerCentre();
@@ -109,7 +116,7 @@ export function step(dt) {
     if (it.rest > 0) wake(it);
     else if (!integrate(it, dt, grav, term)) { iw.remove(it); continue; }
 
-    if (it.age > MAGNET_DELAY && !run.dead && near(it, c, pickupR)) {
+    if (cmd.collect && it.age > MAGNET_DELAY && !run.dead && near(it, c, pickupR)) {
       /* CLAUDE.md D4: a pickup that would cross the HARD cap is refused, and
          the item stays on the ground -- never partially collected. */
       if (burdenOf() + massOfPair(it.sub, it.form) > eff('burden') + MASS_EPS) {

@@ -35,7 +35,7 @@ import { boons, grants, miracles, stepAll, trinkets } from './schedule.js';
 import {
   armLink, armPlace, assignQuickbar, cancelQueued, clearArmedPlace, clearDrag, clearLink,
   close as closePanel, closeTop, isOpen,
-  queueCraft, scrollBy, setDrag, setSearchFocus, setTab, toggleHints, ui
+  queueCraft, scrollBy, setDrag, setSearchFocus, setTab, toggleAutoCollect, toggleHints, ui
 } from './ui.js';
 import { hoverInfo } from '../view/hud.js';
 import { drawn as uiDrawn } from '../view/ui/state.js';
@@ -103,6 +103,13 @@ export function step(dt) {
        rule, because this narrowed set is the whole of what `rules` may see of
        the input device (Phase 8f). */
     turn: cmd.turn,
+    /* `collect` folds a KEY and a UI PREFERENCE into one HOLD (docs/PLAN-
+       phase12.md §3 D-F): `ui.autoCollect` restores the old always-on magnet,
+       `cmd.collect` is the manual 'c' hold -- either makes `rules/items.js`
+       pick up. Which of the two asked is exactly the "which device/preference
+       asked is a shell question" this function already states for `digging`
+       above. */
+    collect: ui.autoCollect || cmd.collect,
     hasMouse: cmd.hasMouse, mx: cmd.mx, my: cmd.my
   };
 
@@ -276,14 +283,6 @@ function applyIntents() {
     cmd.miracle = false;
   }
 
-  /* EQUIP the first held-but-unequipped trinket (Phase 4 STEP 4): no aim
-     needed, same reasoning `cmd.drop` above already states for the drop
-     verb. The model-driven path Phase 5b's drag-to-equip UI replaces. */
-  if (cmd.equip) {
-    trinkets.equipFirst();
-    cmd.equip = false;
-  }
-
   /* A cycle completion (`rules/cycles.js#complete`) arrives as `run.offer`,
      since a `rules` module may not reach `shell/input.js#wants` -- see
      `model/run.js#RUN_SCHEMA.offer`'s own comment. Folding it into `wants.draft`
@@ -415,10 +414,17 @@ function applyUiIntents() {
       const panelHit = uiHitPanel(sx, sy);
       const onSearch = panelHit?.id === 'main-craft-search';
       const onHints = panelHit?.id === 'hints-toggle';
+      /* AUTO COLLECT (docs/PLAN-phase12.md §3 D-F, §4.5): a click on the
+         Character tab's own toggle row, hit-tested against ITS registered
+         rect the exact same way the search box and the hints toggle already
+         are -- `view/ui/mainPanel.js#drawCharacterTab` draws it and records
+         it; this is the one place that reacts. */
+      const onAutoCollect = panelHit?.id === 'main-auto-collect';
 
       if (tabHit) setTab(tabHit.row, tabHit.tab);
       else if (onSearch) setSearchFocus(true);
       else if (onHints) toggleHints();
+      else if (onAutoCollect) toggleAutoCollect();
       else if (slotHit?.gridId === 'recipes' || slotHit?.gridId === 'craft-queue') {
         const ids = uiDrawn.recipeIndex[slotHit.gridId];
         const id = ids && ids[slotHit.slot.index];

@@ -178,7 +178,7 @@ function stepReal(dt, want = {}) {
      `clearEdges()` will not put it back down, and `cmd` is a module singleton
      shared by every probe in this file -- a section that leaves a crank held
      would silently power the next section's drivetrain. */
-  for (const k of ['left', 'right', 'up', 'down', 'hop', 'dig', 'place', 'craft', 'drop', 'turn', 'hasMouse'])
+  for (const k of ['left', 'right', 'up', 'down', 'hop', 'dig', 'place', 'craft', 'drop', 'turn', 'collect', 'hasMouse'])
     input.cmd[k] = want[k] ?? false;
   main.step(dt);
   input.clearEdges();
@@ -609,16 +609,21 @@ console.log('\n3. behaviour');
     const scope = dot < 0 ? t.mods[0].scope : raw.slice(dot + 1);
     const base = mods.eff(key, scope);
     sched.trinkets.grant(t.id);
-    /* The draft spawns a falling item; let it land in the pickup radius. */
+    /* The draft spawns a falling item; let it land in the pickup radius.
+       Phase 12b (docs/PLAN-phase12.md): pickup is opt-in, not automatic --
+       hold `collect` for the wait, the same "which device/preference asked
+       is a shell question" `cmd.dig`/`cmd.mouse` merging already states. */
     for (let i = 0; i < 180 && run.invCount(D_sub.S[t.id], D_form.F.relic) === 0; i++)
-      stepReal(1 / 120, { hasMouse: false });
+      stepReal(1 / 120, { hasMouse: false, collect: true });
     if (mods.eff(key, scope) !== base)
       fail(`trinket ${t.id}: eff("${key}") changed BEFORE equipping -- holding alone must not be enough`);
 
-    /* Equip it -- the model-driven path Phase 5b's real drag-to-equip UI
-       will replace -- then `trinkets.step()` syncs `model/mods.js` from the
-       intersection `run.equipped ∩ run.inv`. */
-    if (!sched.trinkets.equipFirst()) fail(`trinket ${t.id}: equipFirst() found no empty slot`);
+    /* Equip it into the first slot directly -- Phase 12b retires
+       `rules/trinkets.js#equipFirst` (the 'p' key's own primitive, superseded
+       by drag-to-equip); `model/run.js#write.equip` is the same model write
+       that real path already calls. Then `trinkets.step()` syncs
+       `model/mods.js` from the intersection `run.equipped ∩ run.inv`. */
+    run.write.equip(0, D_sub.S[t.id]);
     sched.trinkets.step();
     const withT = mods.eff(key, scope);
     if (withT === base) fail(`trinket ${t.id} did not change eff("${key}") after equipping`);

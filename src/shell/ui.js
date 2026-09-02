@@ -53,6 +53,21 @@ export const ui = {
      rest of this layer. */
   hintsOpen: false,
 
+  /* AUTO COLLECT (docs/PLAN-phase12.md §3 D-E/D-F): whether the old
+     always-on pickup magnet is restored. Default FALSE -- items no longer
+     auto-collect; holding 'c' (`cmd.collect`, a HOLD) collects manually
+     instead. A UI PREFERENCE, not `run.autoCollect`: `rules/items.js` may
+     only import `core`/`data`/`model` (`tools/layers.mjs`), so it could
+     never read a `shell` field by import even if it wanted to, and
+     `shell/main.js#step()` already folds a "which device/preference asked"
+     question into the narrowed command object it hands every `rules` step
+     (`digging = cmd.dig || cmd.mouse`) -- this is the identical shape, not a
+     new mechanism. Putting it on `run` would also need a `RUN_SCHEMA` field
+     and would silently forget the player's choice on every restart
+     (invariant 8) for a fact with zero effect on world-state
+     reproducibility. */
+  autoCollect: false,
+
   /* CLICK-TO-ARM PLACEMENT: `{ sub, form } | null` -- the specific held pair
      a click on its Character-tab or quickbar slot has selected as "place
      THIS one next", replacing the placeholder rule (`rules/placement.js
@@ -252,6 +267,9 @@ export function assignQuickbar(slot, payload) {
 export function clearQuickbar(slot) { assignQuickbar(slot, null); }
 
 export function toggleHints() { ui.hintsOpen = !ui.hintsOpen; }
+
+/* ---------- auto collect (docs/PLAN-phase12.md §3 D-F) ---------- */
+export function toggleAutoCollect() { ui.autoCollect = !ui.autoCollect; }
 
 /* ---------- click-to-arm placement ----------
    `armPlace` takes ORDINALS (a substance x form pair), the same shape
