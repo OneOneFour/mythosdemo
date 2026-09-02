@@ -733,7 +733,11 @@ function dashTo(g, x0, y0, x1, y1, col, on = 3, off = 3, thick = 1) {
 const HUB = 3;
 
 function drawChain(g, v) {
-  if (!segments.length && !openHubs().length) return;
+  /* Derived ONCE per frame and passed down: three readers (the guard, the hub
+     pass, the gap pass) asking `breaks()` three times would be three walks of
+     the segment list for one answer that cannot change mid-draw. */
+  const open = openHubs();
+  if (!segments.length && !open.length) return;
 
   for (const chain of chains()) {
     for (const seg of chain) {
@@ -751,13 +755,16 @@ function drawChain(g, v) {
   }
 
   /* THE HUBS LAST, over their own cables, so a hub is never half a cable wide.
-     An open end is a filled red box; a joined one is a hollow pale box. */
-  const open = new Set(openHubs());
+     A JOINED hub is a small solid pale box; an OPEN END is a red RING around a
+     dark centre -- the loud one is the one that means something is missing, and
+     an outline reads at 5 px where a second solid colour would just look like a
+     differently-coloured dot. */
+  const openSet = new Set(open);
   for (const m of hubsPlaced()) {
     if (!hubSeen(m)) continue;
     const x = sxOf(v, m.box.x + m.box.w / 2) - (HUB >> 1);
     const y = syOf(v, m.box.y + m.box.h / 2) - (HUB >> 1);
-    if (open.has(m)) {
+    if (openSet.has(m)) {
       R(g, x - 1, y - 1, HUB + 2, HUB + 2, INK.bad);
       R(g, x, y, HUB, HUB, INK.back);
     } else {
@@ -765,7 +772,7 @@ function drawChain(g, v) {
     }
   }
 
-  gaps(g, v, openHubs());
+  gaps(g, v, open);
 }
 
 /* Every placed hub, and every hub that anchors 0 or 1 segments. Two small
