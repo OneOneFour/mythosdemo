@@ -4236,6 +4236,79 @@ console.log('\n8b. broken-chain delivery (rules/drive.js fix, checked here)');
        'mid-chain relay leg');
 }
 
+/* --- HEAVENS LEDGER, sub-bullet: cycle completion unlocks exactly one band.
+   `rules/cycles.js#complete`'s `for (const id of reward.charts ?? []) rw.chart(id)`
+   is the mechanism -- driven here through the SAME real hand-feed idiom THE
+   ALTAR test (section 6, above) already uses, twice, for cycle 1 (charts
+   'astral') and cycle 2 (charts 'topsoil'). No two shipped rows in
+   `data/cycles.js#CYCLES` chart the same band, so the table itself never
+   exercises re-charting one -- said here rather than pretended otherwise --
+   and the idempotency half is asserted directly on `model/run.js#write.chart`'s
+   own guard instead. */
+console.log('\n8c. HEAVENS LEDGER: cycle completion unlocks exactly one band');
+{
+  let bad = 0;
+  boot.newRun(9580);
+  const topsoil = world.bandOf('topsoil');
+  for (let ty = 110; ty <= 119; ty++)
+    for (let tx = 16; tx <= 29; tx++) tiles.write.clear(topsoil, tx, ty);
+  for (let tx = 16; tx <= 29; tx++) tiles.write.set(topsoil, tx, 119, D_sub.S.stone);
+
+  /* CYCLE 1: the altar, placed here BEFORE the first real step so
+     `rules/cycles.js#ensureAltarPlaced`'s own `machines.some(...)` guard sees
+     one already exists and never places a second -- the same order THE
+     ALTAR test (section 6) already relies on. */
+  footUnder(machs.write.place(topsoil, D_mach.M.altar, 22, 117));
+  player.write.band(topsoil);
+  player.write.move(world.worldX(topsoil, 21), world.worldY(topsoil, 117));
+  player.write.vel(0, 0);
+  player.write.set('onGround', true);
+  run.write.collect(D_sub.S.copper, D_form.F.ore, 10);
+  runReal(240, 1 / 120, { hasMouse: false });
+
+  if (run.run.cycle <= 1 || run.run.charted.length !== 1 || run.run.charted[0] !== 'astral') {
+    fail(`CYCLE CHARTS: after cycle 1 completes, run.charted is ${JSON.stringify(run.run.charted)} (want ` +
+         `exactly ['astral']) and run.cycle is ${run.run.cycle} (want > 1)`);
+    bad++;
+  } else {
+    console.log('  ..  cycle charts: cycle 1 completion charted exactly [\'astral\']');
+
+    /* CYCLE 2: `cloud_dock`, 3 copper/plate, hand-fed the same way. */
+    footUnder(machs.write.place(topsoil, D_mach.M.cloud_dock, 22, 115));
+    player.write.move(world.worldX(topsoil, 21), world.worldY(topsoil, 115));
+    run.write.collect(D_sub.S.copper, D_form.F.plate, 3);
+    runReal(240, 1 / 120, { hasMouse: false });
+
+    if (run.run.cycle <= 2 || run.run.charted.length !== 2 ||
+        run.run.charted[0] !== 'astral' || run.run.charted[1] !== 'topsoil') {
+      fail(`CYCLE CHARTS: after cycle 2 completes, run.charted is ${JSON.stringify(run.run.charted)} (want ` +
+           `exactly ['astral','topsoil']) and run.cycle is ${run.run.cycle} (want > 2)`);
+      bad++;
+    } else {
+      console.log('  ..  cycle charts: cycle 2 completion charted exactly one MORE band, [\'topsoil\'], not ' +
+                  'duplicating the first');
+
+      /* IDEMPOTENCY, on the primitive itself, since the shipped table never
+         exercises it: `write.chart`'s own guard
+         (`if (!run.charted.includes(bandId))`) is what "not duplicated on a
+         second completion" actually rests on. */
+      run.write.chart('astral');
+      if (run.run.charted.length !== 2) {
+        fail(`CYCLE CHARTS: charting 'astral' a second time grew run.charted to ` +
+             `${run.run.charted.length} (want 2, unchanged) -- write.chart is not idempotent`);
+        bad++;
+      } else {
+        console.log('  ..  cycle charts: charting an already-charted band a second time is a no-op ' +
+                    '(idempotent)');
+      }
+    }
+  }
+
+  if (!bad)
+    ok('CYCLE CHARTS: cycle 1 charts exactly [\'astral\'], cycle 2 charts exactly one more (\'topsoil\'), ' +
+       'and re-charting an already-charted band is a no-op');
+}
+
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +
             `journal ${journal.peek ? journal.peek().length : 0} undrained`);
