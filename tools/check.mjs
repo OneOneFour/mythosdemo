@@ -878,7 +878,7 @@ console.log('\n4. Phase 6 probes');
 
   const actualHeldMass = () => {
     let m = 0;
-    for (const k in run.run.inv) { const p = items.parseKey(k); m += items.massOfPair(p.sub, p.form) * run.run.inv[k]; }
+    for (const slot of run.run.inv) if (slot) m += items.massOfPair(slot.sub, slot.form) * slot.n;
     for (const it of items.items) m += items.massOf(it);
     for (const mm of machs.machines) for (const k in mm.buf) { const p = items.parseKey(k); m += items.massOfPair(p.sub, p.form) * mm.buf[k]; }
     return m;

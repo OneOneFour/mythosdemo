@@ -24,7 +24,7 @@
 
 import { rand } from '../core/rng.js';
 import { push } from '../model/journal.js';
-import { items, massOfPair, parseKey, sizeOf, write as iw } from '../model/items.js';
+import { items, massOfPair, sizeOf, write as iw } from '../model/items.js';
 import { eff } from '../model/mods.js';
 import { PH, player, playerCentre } from '../model/player.js';
 import { burdenOf, run, write as rw } from '../model/run.js';
@@ -78,10 +78,10 @@ export function dropHeaviest() {
   if (run.dead || !player.band) return;
 
   let best = null, bestMass = -1;
-  for (const k in run.inv) {
-    const { sub, form } = parseKey(k);
-    const m = massOfPair(sub, form);
-    if (m > bestMass) { bestMass = m; best = { sub, form }; }
+  for (const slot of run.inv) {
+    if (!slot) continue;
+    const m = massOfPair(slot.sub, slot.form);
+    if (m > bestMass) { bestMass = m; best = { sub: slot.sub, form: slot.form }; }
   }
   if (!best) return;
   if (!rw.spend(best.sub, best.form, 1)) return;
@@ -118,12 +118,19 @@ export function step(dt, cmd) {
 
     if (cmd.collect && it.age > MAGNET_DELAY && !run.dead && near(it, c, pickupR)) {
       /* CLAUDE.md D4: a pickup that would cross the HARD cap is refused, and
-         the item stays on the ground -- never partially collected. */
+         the item stays on the ground -- never partially collected. Checked
+         BEFORE the slot-capacity refusal below, same order the two refusal
+         reasons were introduced in (docs/PLAN-phase12.md D-G/§4.6). */
       if (burdenOf() + massOfPair(it.sub, it.form) > eff('burden') + MASS_EPS) {
         if (refusalDue(it))
           push('refused', { x: it.x, y: it.y }, { sub: it.sub, form: it.form, why: 'TOO HEAVY TO CARRY' });
+      } else if (!rw.collect(it.sub, it.form, 1)) {
+        /* No existing stack of this exact pair AND no free main slot --
+           `model/run.js#write.collect`'s own refusal, D-G. Same 'refused'
+           journal kind the burden case above already uses, a second `why`. */
+        if (refusalDue(it))
+          push('refused', { x: it.x, y: it.y }, { sub: it.sub, form: it.form, why: 'INVENTORY FULL' });
       } else {
-        rw.collect(it.sub, it.form, 1);
         push('pickup', { x: it.x, y: it.y }, { sub: it.sub, form: it.form });
         iw.remove(it);
       }
