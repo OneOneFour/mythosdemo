@@ -24,6 +24,7 @@ import { GRANTS } from '../src/data/grants.js';
 import { BOONS, BOON } from '../src/data/boons.js';
 import { MIRACLES } from '../src/data/miracles.js';
 import { DROPS } from '../src/data/drops.js';
+import { CYCLES } from '../src/data/cycles.js';
 import { BANDS, SPAWN_BAND } from '../src/data/world.js';
 import { hasColour } from '../src/data/palette.js';
 import { TREAT } from '../src/view/treatments.js';
@@ -680,6 +681,140 @@ export function checkContent({ quiet = false } = {}) {
     if (n === 0)
       fail(`no machine row carries a \`${key}\` block -- that is a whole mechanic with no content ` +
            `behind it (a hub anchors every cable, a crank supplies all torque, a gear carries it)`);
+  }
+
+  /* ---- 19. THE CYCLE TABLE IS PAYABLE (Phase 10b, docs/SPEC.md section 18).
+     Modelled on assertion 12: closed-set vocabularies hardcoded here rather
+     than learned from the data being linted, plus one existence check per
+     reference.
+
+     THE TWO VOCABULARIES ARE CLOSED SETS defined by call sites, not by
+     content. `at` is a MACHINE ID and must name a row carrying `tribute:{}`,
+     because that marker is the whole of what `rules/cycles.js` scans for -- a
+     cycle pointing at the furnace would be unpayable forever and nothing would
+     throw. `reward.draft` names one of the four gift tiers of CLAUDE.md D1, and
+     the list is exactly the four `draftable()` exports `shell/main.js`
+     dispatches to; a fifth string would silently offer nothing.
+
+     THE DEMAND ROWS ARE CHECKED TWICE, ON PURPOSE, because the two checks catch
+     different mistakes. `holdable(sub, form)` proves the PAIR can exist as
+     carried material at all (the element has an `item` block AND the crossing
+     is legal), which is what a receiver's buffer and the player's pockets both
+     require. `expand(sub + '/' + form).length > 0` proves the SELECTOR is
+     non-empty -- the validator `data/forms.js#expand` exists for and CLAUDE.md
+     names, and the failure mode that once let tin pile up in a buffer no recipe
+     consumed. A demand row is also checked against the receiver's own
+     `accepts`, which is the one that would catch "the gods want logs" -- a
+     perfectly holdable pair that the machine they asked for it at will not take.
+
+     `deadlineSecs` is `null` OR a finite positive number, and `null` is not a
+     spelling of zero: `rules/cycles.js` branches on it and a panel draws no
+     timer for it (docs/SPEC.md 18.4). A cycle with no clock must also have no
+     punishment, since it can never be missed -- asserted, because a punishment
+     nothing can trigger is a design statement that is not true. ---- */
+  {
+    const AT = Object.freeze(Object.fromEntries(
+      MACH.filter(m => m.tribute).map(m => [m.id, m])));
+    const TIERS = ['grant', 'boon', 'trinket', 'miracle'];
+    const ids = new Set();
+
+    checks++;
+    if (!Object.keys(AT).length)
+      fail('no machine row carries a `tribute:{}` block -- there is nowhere in the world to pay a ' +
+           'cycle, so every row in data/cycles.js is unpayable and rules/cycles.js drains nothing');
+
+    for (const c of CYCLES) {
+      checks++;
+      if (!c.id || ids.has(c.id))
+        fail(`cycle "${c.id}": id is missing or duplicated -- run.tribute.id stores it and the ` +
+             `director looks the row back up by it`);
+      ids.add(c.id);
+
+      checks++;
+      const recv = AT[c.at];
+      if (!recv)
+        fail(`cycle "${c.id}": at "${c.at}" is not a machine id carrying tribute:{} ` +
+             `(the receivers are ${Object.keys(AT).join(', ') || 'none'}) -- this cycle can never be paid`);
+
+      checks++;
+      if (!Array.isArray(c.demand) || c.demand.length === 0)
+        fail(`cycle "${c.id}": demand is ${JSON.stringify(c.demand)}, not a non-empty array -- a ` +
+             `trial that asks for nothing completes on the frame it arms`);
+      else for (const d of c.demand) {
+        checks++;
+        const sub = S[d.sub], form = F[d.form];
+        if (sub === undefined || form === undefined || !holdable(sub, form)) {
+          fail(`cycle "${c.id}": demands ${d.sub}/${d.form}, which is not a holdable pair -- the ` +
+               `element needs an item block in data/substances.js and the crossing must be legal ` +
+               `for the form's subTags`);
+          continue;
+        }
+        checks++;
+        if (expand(`${d.sub}/${d.form}`).length === 0)
+          fail(`cycle "${c.id}": the selector ${d.sub}/${d.form} expands to nothing -- see ` +
+               `data/forms.js#expand, which exists for exactly this`);
+        checks++;
+        if (!(Number.isInteger(d.n) && d.n > 0))
+          fail(`cycle "${c.id}": demands ${JSON.stringify(d.n)} of ${d.sub}/${d.form}; a demand ` +
+               `count is a positive integer of held units`);
+        checks++;
+        if (recv && !recv.ports?.some(p => p.mode === 'in' &&
+              p.accepts?.some(sel => matches(sel, sub, form))))
+          fail(`cycle "${c.id}": demands ${d.sub}/${d.form} at "${c.at}", but no in-port on that ` +
+               `machine accepts the pair -- the player could hold it, walk up to the receiver and ` +
+               `not be able to give it away`);
+      }
+
+      checks++;
+      const dl = c.deadlineSecs;
+      if (!(dl === null || (Number.isFinite(dl) && dl > 0)))
+        fail(`cycle "${c.id}": deadlineSecs is ${JSON.stringify(dl)}; it is null (no clock) or a ` +
+             `finite positive number of seconds. Zero is not a spelling of null -- it would expire ` +
+             `on the frame the cycle arms`);
+
+      checks++;
+      if (dl === null && c.punishment)
+        fail(`cycle "${c.id}": has no clock but carries a punishment ${JSON.stringify(c.punishment)} ` +
+             `-- nothing can ever trigger it, so it states a rule the game does not have`);
+      checks++;
+      if (dl !== null && !c.punishment)
+        fail(`cycle "${c.id}": has a ${dl}s deadline and no punishment -- a clock with no consequence ` +
+             `is a clock the player may correctly ignore`);
+
+      checks++;
+      if (!c.reward || !Number.isInteger(c.reward.favour))
+        fail(`cycle "${c.id}": reward.favour is ${JSON.stringify(c.reward?.favour)}, not an integer -- ` +
+             `every trial changes how the asking god feels about you (CLAUDE.md D1, decision I)`);
+
+      for (const id of c.reward?.grants ?? []) {
+        checks++;
+        if (!MACH.some(m => m.id === id))
+          fail(`cycle "${c.id}": reward.grants names "${id}", which is not a machine id -- ` +
+               `model/run.js#canPlace would refuse it forever`);
+      }
+      for (const id of c.reward?.charts ?? []) {
+        checks++;
+        if (!BANDS.some(b => b.id === id))
+          fail(`cycle "${c.id}": reward.charts names "${id}", which is not a band id`);
+      }
+      if (c.reward?.draft !== undefined) {
+        checks++;
+        if (!TIERS.includes(c.reward.draft))
+          fail(`cycle "${c.id}": reward.draft is "${c.reward.draft}"; the four gift tiers are ` +
+               `${TIERS.map(t => `"${t}"`).join(', ')} (CLAUDE.md D1) and an unknown one offers nothing`);
+      }
+
+      if (c.punishment) {
+        checks++;
+        const h = c.punishment.hearts;
+        if (h !== undefined && !(Number.isInteger(h) && h > 0))
+          fail(`cycle "${c.id}": punishment.hearts is ${JSON.stringify(h)}; it is spent through ` +
+               `model/run.js#write.hurt and must be a positive whole number of the five`);
+        checks++;
+        if (!Object.keys(c.punishment).length)
+          fail(`cycle "${c.id}": punishment is an empty object -- write no key rather than an empty one`);
+      }
+    }
   }
 
   if (!quiet) {
