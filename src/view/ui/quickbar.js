@@ -1,11 +1,13 @@
 /* LAYER view — THE QUICKBAR. Two rows of five, numbered 1-9-then-0, ALWAYS
    drawn (not gated on the main panel being open -- a quickbar is part of the
-   permanent HUD, the same way the hearts are). Assignment is UI STATE
-   (`shell/ui.js#ui.quickbar`, a plain `{sub,form}|null` per slot) — nothing
-   here changes what the world holds; the COUNT shown in each slot is read
-   fresh from `model/run.js#invCount` every frame. Drag-and-drop ASSIGNS a
-   slot; `shell/main.js`'s UI dispatcher does the assigning, this file only
-   draws and reports rectangles.
+   permanent HUD, the same way the hearts are). The quickbar's cells ARE
+   `run.inv[run.mainSlots .. run.inv.length)` -- the same physical storage the
+   Character tab's grid draws, sliced differently (docs/PLAN-phase12.md §3
+   D-H). Not a mirror, not a derived list, not an assignment table: dragging a
+   pair here MOVES it, the same `write.moveSlot` the Character tab's own grid
+   also drives. There is nothing left to overflow, so there is nothing to
+   scroll or truncate -- a genuine scope reduction the storage-shape decision
+   buys for free.
    See docs/DEVELOPER_GUIDE.md#widget-primitives
 
    Imports `core`, `data`, READ-ONLY `model`, and the primitives in this same
@@ -16,7 +18,7 @@ import { mix } from '../../core/palette.js';
 import { colour } from '../../data/palette.js';
 import { SUB } from '../../data/substances.js';
 import { massOfPair } from '../../model/items.js';
-import { invCount } from '../../model/run.js';
+import { run } from '../../model/run.js';
 import { drawGrid } from './grid.js';
 import { drawPanel } from './panel.js';
 import { frameSlot } from './slot.js';
@@ -45,23 +47,28 @@ export const slotForDigit = k => DIGITS.indexOf(k);
 /* One line of key bindings, collapsed by default (`ui.hintsOpen`). Named
    here rather than pulled from `shell/input.js` (`view` may not import
    `shell`) -- a legend is presentation text describing bindings that file
-   already owns, not a second source of truth for what a key DOES. */
-const LEGEND = 'I MENU  X DIG  E PLACE  U CRAFT  Q DROP  V USE  P EQUIP';
+   already owns, not a second source of truth for what a key DOES.
+
+   Written for the END STATE of docs/PLAN-phase12.md §4.1's keymap table --
+   `e`/menu, `r`/action, `c`/collect and `z`/cancel are all real today, but
+   `x`/dig, `u`/craft, `v`/use and `p`/equip are not actually removed as
+   physical keys until Phase 12d lands. Until then this legend and the live
+   key table legitimately disagree; that is a known, named discrepancy
+   (12c2's own prompt), not a bug to "fix" by reverting this string. */
+const LEGEND = 'E MENU  R ACTION  Q DROP  C COLLECT  Z CANCEL  L LINK  LMB ACT';
 
 export function drawQuickbar(g, f) {
   const { W, H, ui } = f;
+  const qSlots = run.inv.slice(run.mainSlots);
   const w = COLS * (SIZE + 1) - 1;
   const x = Math.max(2, W - w - 6);
-  const rows = Math.ceil(ui.quickbar.length / COLS);
+  const rows = Math.ceil(qSlots.length / COLS);
   const y = H - rows * (SIZE + 1) - 1 - 11;
 
-  const items = ui.quickbar.map((slot, i) => {
-    if (!slot) return { sub: null, form: null, n: 0, mass: 0, colour: mix(BACK, DIM, 0.15), glyph: digitOf(i) };
-    const l = SUB[slot.sub].look;
-    const n = invCount(slot.sub, slot.form);
-    return { sub: slot.sub, form: slot.form, n, mass: massOfPair(slot.sub, slot.form) * n,
-             colour: l?.item ? colour(l.item[0]) : DIM, glyph: digitOf(i) };
-  });
+  const items = qSlots.map((slot, i) => !slot
+    ? { sub: null, form: null, n: 0, mass: 0, colour: mix(BACK, DIM, 0.15), glyph: digitOf(i) }
+    : { sub: slot.sub, form: slot.form, n: slot.n, mass: massOfPair(slot.sub, slot.form) * slot.n,
+        colour: SUB[slot.sub].look?.item ? colour(SUB[slot.sub].look.item[0]) : DIM, glyph: digitOf(i) });
 
   const grid = drawGrid(g, { id: 'quickbar', x, y, h: rows * (SIZE + 1) - 1, vw: W, vh: H, cols: COLS, items, cell: SIZE });
   /* THE ARMED-PLACEMENT HIGHLIGHT (Part 1, click-to-arm placement): a player

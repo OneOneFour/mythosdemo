@@ -20,7 +20,7 @@
 
 import { drawText, textWidth } from '../../core/font.js';
 import { mix } from '../../core/palette.js';
-import { expand, F, FORM, matches } from '../../data/forms.js';
+import { expand, F, FORM } from '../../data/forms.js';
 import { MACH } from '../../data/machines.js';
 import { colour } from '../../data/palette.js';
 import { HAND_RECIPES, RECIPES } from '../../data/recipes.js';
@@ -28,12 +28,12 @@ import { MIRACLE } from '../../data/miracles.js';
 import { S, SUB } from '../../data/substances.js';
 import { SPAWN_BAND } from '../../data/world.js';
 import { TRINKET } from '../../data/trinkets.js';
-import { massOfPair, parseKey } from '../../model/items.js';
+import { massOfPair } from '../../model/items.js';
 import { count, defOf, machines } from '../../model/machines.js';
 import { eff, explain } from '../../model/mods.js';
 import { bandOf, worldY } from '../../model/world.js';
 import {
-  burdenFrac, burdenOf, canCraft, isKnown, pocketRows, pocketsHave, run
+  burdenFrac, burdenOf, canCraft, isKnown, pocketedBest, pocketedPair, pocketsHave, run
 } from '../../model/run.js';
 import { drawBar } from './bar.js';
 import { drawGrid } from './grid.js';
@@ -173,18 +173,22 @@ function drawCharacterTab(g, f, body) {
   drawText(g, acLabel, x + 2, ry + 1, acCol, 1, 1);
   ry += 11;
 
-  /* Inventory grid: `pocketRows()`, `byHudOrder`-sorted already, filtered to
-     what is actually held -- the strip's zero-count teaching slots have
-     nothing to fill a slot with. */
-  const rows = pocketRows().filter(r => r.n > 0);
-  const items = rows.map(r => ({
-    sub: r.sub, form: r.form, n: r.n, mass: massOfPair(r.sub, r.form) * r.n,
-    colour: swatchOf(r.sub),
+  /* Inventory grid: one cell per SLOT, `run.inv.slice(0, run.mainSlots)`,
+     empty slots included and drawn empty (docs/PLAN-phase12.md §3 D-G/D-H).
+     This is the Minecraft-style choice, made deliberately -- capacity is a
+     real, positioned fact now, and hiding empty slots would hide the exact
+     information ("how much room do I have left") this revision exists to
+     make legible. `view/ui/grid.js#drawGrid` needs no changes to draw a
+     sparse, `null`-inclusive `items` array; it already did. */
+  const invSlots = run.inv.slice(0, run.mainSlots);
+  const items = invSlots.map(slot => !slot ? null : {
+    sub: slot.sub, form: slot.form, n: slot.n, mass: massOfPair(slot.sub, slot.form) * slot.n,
+    colour: swatchOf(slot.sub),
     /* The tile-capable marker '#' carries real meaning (this is what a
        ladder is built from) and keeps priority; everything else falls back
        to the placeholder identity glyph rather than no glyph at all. */
-    glyph: FORM[r.form].tile ? '#' : glyphOf(r.sub)
-  }));
+    glyph: FORM[slot.form].tile ? '#' : glyphOf(slot.sub)
+  });
   const invRows = Math.min(3, Math.max(1, Math.floor((body.bottom - ry - 22) / (SLOT_SIZE + 1))));
   const grid = drawGrid(g, {
     id: 'inv', x, y: ry, h: invRows * (SLOT_SIZE + 1) - 1, vw, vh,
@@ -364,11 +368,8 @@ function representativePair(r) {
   if (!out) return null;
   if (out.sub !== undefined) return { sub: S[out.sub], form: F[out.form] };
   const need = r.in[out.subFrom] || 1;
-  for (const k in run.inv) {
-    if (run.inv[k] < need) continue;
-    const p = parseKey(k);
-    if (matches(out.subFrom, p.sub, p.form)) return { sub: p.sub, form: F[out.form] };
-  }
+  const pair = pocketedPair(out.subFrom, need);
+  if (pair) return { sub: pair.sub, form: F[out.form] };
   const options = expand(out.subFrom);
   return options.length ? { sub: options[0].sub, form: F[out.form] } : null;
 }
@@ -486,20 +487,10 @@ function recipeTooltip(r) {
 }
 
 /* Best count currently pocketed toward a selector, for the tooltip's
-   have/need line -- the single-largest-matching-pair rule every other
-   reader of `run.inv` in this project already uses (`model/run.js`'s own
-   `pocketsHave`, `rules/crafting.js`'s `bestPocketed`), re-derived here
-   rather than shared because it is eight lines and this is `view`, which may
-   not import `rules`.
-   See docs/DEVELOPER_GUIDE.md#duplication-across-a-layer-boundary */
-function countTowards(sel) {
-  let best = 0;
-  for (const k in run.inv) {
-    const p = parseKey(k);
-    if (matches(sel, p.sub, p.form) && run.inv[k] > best) best = run.inv[k];
-  }
-  return best;
-}
+   have/need line -- `model/run.js#pocketedBest` is the single-largest-
+   matching-pair query every other reader of the slot array now shares
+   (docs/PLAN-phase12.md §3 D-G), so this no longer hand-rolls its own scan. */
+const countTowards = sel => pocketedBest(sel);
 
 function drawCraftingTooltip(g, f, grid, recipes) {
   if (!f.mouse?.has) return;
