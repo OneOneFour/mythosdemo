@@ -66,6 +66,7 @@ import { resolveHover } from './hover.js';
 import { stats as paintStats } from './paint.js';
 import { drawBar } from './ui/bar.js';
 import { drawMainPanel } from './ui/mainPanel.js';
+import { drawPanel } from './ui/panel.js';
 import { drawQuickbar } from './ui/quickbar.js';
 import { drawRuler, masked, roman, rulerWidth } from './ui/ruler.js';
 import { drawn as uiDrawn, resetDrawn as resetUiDrawn } from './ui/state.js';
@@ -732,6 +733,18 @@ function debug(g, f, W, top = 22) {
   rows.forEach((r, i) => drawText(g, r, W - w - 7, panelY + 4 + i * 9, UI.debug, 1, 1));
 }
 
+/* THE RESTART BUTTON, docs/PLAN-phase12.md §3 D-C: restart moved off `r`
+   (now the crank/action hold, D-J) onto a real, discoverable control, since
+   the key it lived on stopped meaning "restart" and a printed instruction
+   naming a key that no longer does the thing is worse than no instruction at
+   all. Sized from its own measured label (D8's "positioned by an anchored
+   layout pass over measured text, never by hardcoded pixel origins"), and
+   registered into `drawn.panels` under `'death-restart'` -- the identical
+   idiom `view/ui/quickbar.js`'s hints-toggle already uses -- so
+   `shell/input.js#onDeathRestart`'s hit-test finds what was actually drawn,
+   never a second copy of this layout math. */
+const RESTART_LABEL = 'BEGIN THE NEXT TORMENT';
+
 function deathScreen(g, W, H) {
   g.globalAlpha = 0.78; R(g, 0, 0, W, H, '#0a0206'); g.globalAlpha = 1;
   const ref = bandOf(SPAWN_BAND);
@@ -740,14 +753,19 @@ function deathScreen(g, W, H) {
   const lines = [
     ['THE EAGLE COMES', UI.heart, 2],
     [run.deathCause || 'UNKNOWN', UI.ink, 1],
-    ['DEPTH REACHED ' + Math.max(0, Math.round((run.deepest - datum) / tile)) + 'M', UI.dim, 1],
-    ['PRESS R TO BEGIN THE NEXT TORMENT', UI.dim, 1]
+    ['DEPTH REACHED ' + Math.max(0, Math.round((run.deepest - datum) / tile)) + 'M', UI.dim, 1]
   ];
   let y = (H >> 1) - 26;
   for (const [s, col, sc] of lines) {
     drawText(g, s, Math.max(4, (W - textWidth(s, sc)) >> 1), y, col, sc, 1);
     y += sc === 2 ? 22 : 13;
   }
+
+  const bw = textWidth(RESTART_LABEL) + 8, bh = 11;
+  const btn = drawPanel(g, {
+    id: 'death-restart', x: (W - bw) >> 1, y, w: bw, h: bh, vw: W, vh: H, alpha: 0.9
+  });
+  drawText(g, RESTART_LABEL, btn.x + 4, btn.y + 2, UI.good, 1, 1);
 }
 
 function title(g, W, H) {
