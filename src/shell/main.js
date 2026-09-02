@@ -186,21 +186,31 @@ function applyIntents() {
        really does. */
     const armed = ui.armedPlace && invCount(ui.armedPlace.sub, ui.armedPlace.form) > 0
       ? ui.armedPlace : null;
-    const p = armed || placeableFromPockets(pocketRows())[0];
-    let placed = false;
-    if (p && p.form === F.rig) {
-      /* `machineIdFor` resolves a mirrored pair (belt/talos_head/cyclops_maw)
-         off the player's own facing --
-         docs/DEVELOPER_GUIDE.md#mirrored-machine-pairs. Anchored bottom row at
-         the aimed tile: you point at the space a machine should stand in, not
-         at its top-left corner. */
-      const id = machineIdFor(p.sub);
-      const def = id && MACH[M[id]];
-      if (def) placed = !!placeMachine(aim.band, id, aim.tx, aim.ty - def.th + 1);
-    } else if (p) {
-      placed = !!placeTile(aim.band, aim.tx, aim.ty, p.sub, p.form);
+    /* D-A rule 1 (docs/PLAN-phase12.md §4.4): an armed miracle is USED, not
+       placed -- `rules/miracles.js#use` takes (band, tx, ty) with no
+       occupancy precondition of its own, so this fires whether or not the
+       aimed tile is solid, and never falls into the tile/rig resolution
+       below. */
+    if (armed && armed.form === F.phial) {
+      miracles.use(aim.band, aim.tx, aim.ty);
+      clearArmedPlace();
+    } else {
+      const p = armed || placeableFromPockets(pocketRows())[0];
+      let placed = false;
+      if (p && p.form === F.rig) {
+        /* `machineIdFor` resolves a mirrored pair (belt/talos_head/cyclops_maw)
+           off the player's own facing --
+           docs/DEVELOPER_GUIDE.md#mirrored-machine-pairs. Anchored bottom row at
+           the aimed tile: you point at the space a machine should stand in, not
+           at its top-left corner. */
+        const id = machineIdFor(p.sub);
+        const def = id && MACH[M[id]];
+        if (def) placed = !!placeMachine(aim.band, id, aim.tx, aim.ty - def.th + 1);
+      } else if (p) {
+        placed = !!placeTile(aim.band, aim.tx, aim.ty, p.sub, p.form);
+      }
+      if (armed && placed) clearArmedPlace();
     }
-    if (armed && placed) clearArmedPlace();
     cmd.place = false;
   }
 
@@ -488,7 +498,8 @@ function applyUiIntents() {
     const clicked = !dragExceeded && hit && dragStart &&
       hit.gridId === dragStart.gridId && hit.slot.index === dragStart.index;
     if (clicked && (hit.gridId === 'inv' || hit.gridId === 'quickbar') &&
-        hit.slot.sub != null && (FORM[hit.slot.form]?.tile || hit.slot.form === F.rig)) {
+        hit.slot.sub != null &&
+        (FORM[hit.slot.form]?.tile || hit.slot.form === F.rig || hit.slot.form === F.phial)) {
       armPlace(hit.slot.sub, hit.slot.form);
     } else if (hit && hit.gridId === 'quickbar') {
       assignQuickbar(hit.slot.index, { sub: ui.drag.sub, form: ui.drag.form });

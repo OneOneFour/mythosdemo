@@ -20,10 +20,11 @@
    ours to fake. */
 
 import { VIEW, stage } from '../core/canvas.js';
-import { F, FORM } from '../data/forms.js';
-import { aim } from '../model/aim.js';
+import { AIR, F, FORM } from '../data/forms.js';
+import { aim, write as aw } from '../model/aim.js';
 import { machineAt } from '../model/machines.js';
 import { invCount } from '../model/run.js';
+import { tileAt } from '../model/tiles.js';
 import { drawn as uiDrawn } from '../view/ui/state.js';
 import { slotForDigit } from '../view/ui/quickbar.js';
 import { MAP_ZOOM, mapClamp, mapView } from '../view/overview.js';
@@ -367,7 +368,7 @@ export function installInput() {
     if (qslot >= 0) {
       const pair = ui.quickbar[qslot];
       if (pair && invCount(pair.sub, pair.form) > 0 &&
-          (FORM[pair.form]?.tile || pair.form === F.rig))
+          (FORM[pair.form]?.tile || pair.form === F.rig || pair.form === F.phial))
         armPlace(pair.sub, pair.form);
     }
 
@@ -493,7 +494,30 @@ export function installInput() {
        the unchanged `cmd.place = true` below. */
     } else if (e.button === 2 && aim.valid && aim.band && machineAt(aim.band, aim.tx, aim.ty)) {
       cmd.deconstruct = true;
-    } else if (e.button === 2) cmd.place = true; else cmd.mouse = true;
+    } else if (e.button === 2) {
+      cmd.place = true;
+    } else {
+      /* LMB, D-A's three-rule dispatch (docs/PLAN-phase12.md §4.4), decided
+         ONCE here at pointerdown rather than every frame of a held press: if
+         this press decides "place", `cmd.mouse` is never set true for the
+         rest of the hold, so mining cannot spuriously start on the tile just
+         placed even if the button stays down through a later frame.
+         `aim.mode` records which rule fired, through the previously-dead
+         `model/aim.js#write.mode` setter, so the reticle colour
+         (`view/hud.js:513`) finally reflects it. */
+      const armed = ui.armedPlace && invCount(ui.armedPlace.sub, ui.armedPlace.form) > 0
+        ? ui.armedPlace : null;
+      if (armed && armed.form === F.phial && aim.valid && aim.band) {
+        aw.mode('place');                 // rule 1 -- a miracle armed always wins
+        cmd.place = true;
+      } else if (armed && aim.valid && aim.band && tileAt(aim.band, aim.tx, aim.ty) === AIR) {
+        aw.mode('place');                 // rule 2 -- open ground, something armed
+        cmd.place = true;
+      } else {
+        aw.mode('dig');                   // rule 3 -- mine, exactly as today
+        cmd.mouse = true;
+      }
+    }
     cv.setPointerCapture(e.pointerId);
     e.preventDefault();
   });
