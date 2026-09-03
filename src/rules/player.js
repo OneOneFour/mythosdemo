@@ -36,16 +36,19 @@ import { PH, PW, fallHearts, player, write as pw } from '../model/player.js';
 import { burdenFrac, run, write as rw } from '../model/run.js';
 import { carrierTop, riddenSegment } from '../model/segments.js';
 import { climbAt, formAt, solidAt } from '../model/tiles.js';
-import { bandAbove, bandBelow, bands, heightPx, tileX, tileY, widthPx, worldX, worldY } from '../model/world.js';
+import { bandAt, bands, heightPx, tileX, tileY, widthPx, worldX, worldY } from '../model/world.js';
 
 export function step(dt, cmd) {
   if (run.dead) return;
   const b0 = player.band;
   if (!b0) return;
 
-  /* Band handoff FIRST, so collision resolves against the tiles the player is
-     actually standing in. A band's out-of-bounds rows read BEDROCK, so without
-     this a shaft dug to the bottom of a band ends at an unbreakable floor. */
+  /* Band handoff FIRST, so everything below is about the band the player is
+     actually in. What keeps a shaft dug to the bottom of a band from ending at
+     an unbreakable floor is NOT this line — a band's out-of-bounds rows read
+     BEDROCK, and no ordering of a single-band probe fixes that. It is the seam
+     split in the probes further down. This is bookkeeping, and `reband`'s own
+     header says why that distinction was worth a bug. */
   const b = reband(b0);
   if (b !== b0) pw.band(b);
 
@@ -249,40 +252,94 @@ export function hurt(n, cause) {
 }
 
 /* ---------- band handoff ----------
-   Only ever into AIR. Handing off into rock would embed the hitbox in solid
-   stone and the resolution below would eject it in an arbitrary direction. */
-function reband(b) {
-  const cx = player.x + PW / 2;
+   ONE QUERY ABOUT ONE POINT, AND IT HAS TO BE. `model/world.js#bandAt` is the
+   only thing in the project that knows bands share a single vertical space,
+   and bands do not overlap — so the hitbox CENTRE is in at most one of them and
+   there is no position two bands can both claim. That is the whole property
+   this function needs and the one it did not used to have.
 
-  if (player.y + PH >= b.origin.y + heightPx(b)) {
-    const nb = bandBelow(b);
-    if (nb && !solidAt(nb, tileX(nb, cx), tileY(nb, player.y + PH))) return nb;
-  }
-  if (player.y < b.origin.y) {
-    const nb = bandAbove(b);
-    if (nb && !solidAt(nb, tileX(nb, cx), tileY(nb, player.y))) return nb;
-  }
-  return b;
+   IT WAS TWO LEADING-EDGE TESTS, one per direction: hand off DOWN once the feet
+   reached the band's bottom edge, hand off UP once the head rose past its top
+   edge. Both are true at once for the whole 15 px a 16 px hitbox spends
+   straddling a seam, so a player crossing one flipped band EVERY FRAME — and
+   each flip resolved collision against a grid that answered BEDROCK for the
+   half of the box hanging out of it, snapping them back up flush to the seam
+   with `vy` zeroed. Measured before the fix, free-falling down a cleared shaft
+   into the surface/topsoil seam: 154 band flips in 200 frames, y oscillating
+   between 752 and 753, never descending a pixel; a ladder out of topsoil
+   stalled identically at 767/768. That was the reported "dig from layer II to
+   III and you teleport up".
+
+   Handing off into ROCK is no longer a case to guard, which is why the old
+   `!solidAt(...)` test is gone rather than moved: the probes below read the
+   same tiles from either side of a seam, so a handoff cannot change what the
+   hitbox is or is not embedded in. It picks which grid is the fast path, and
+   which band mining, aim and the camera are about. It is bookkeeping, not a
+   physical event, and it must not be able to argue with itself. */
+function reband(b) {
+  return bandAt(player.x + PW / 2, player.y + PH / 2) || b;
 }
 
 /* ---------- AABB probes over the tile grid ----------
    The tile grid is the only source of truth for terrain (ARCHITECTURE
-   invariant 1). There is no second collision model to fall out of sync with. */
+   invariant 1). There is no second collision model to fall out of sync with.
+
+   THE SEAM SPLIT, AND WHY EVERY PROBE WALKS WORLD ROWS RATHER THAN BAND ROWS.
+   The hitbox is 16 px tall and a band boundary is a line, so for 15 px of every
+   crossing the box is in two bands at once. A band's own grid cannot answer for
+   the half outside it and does not try to: `model/tiles.js#tileAt` reports
+   BEDROCK past its last row and AIR above its first. Both are the right answer
+   at the edge of the WORLD and a lie at a seam — the bedrock lie is a phantom
+   floor that stops a descending player dead, and the air lie takes the last two
+   rungs off a ladder climbing out of the band below. Neither band is the one to
+   ask; the band that OWNS THE ROW is. Every frame that is not a crossing pays
+   one range test for that.
+
+   Only rows are split, because a seam is horizontal: each row's columns are
+   addressed in that row's own band, but the flush snap in `moveX` still reads
+   the CURRENT band's column lattice. That is exact while adjacent bands agree
+   on `tile` and `origin.x` — all three rows of `data/world.js` are tile 8 at
+   x 0 today — and it is the same assumption the auto-step's `b.tile` rise
+   already makes. A band inset or scaled relative to its neighbour would need
+   `moveX` to learn which band stopped it, which is not this fix. */
+
+/* The band whose grid owns a world row, through the SAME `bandAt` query
+   `reband` decides the player's own band with — one notion of ownership, so
+   "which band am I in" and "which band answers for the row under my feet"
+   cannot disagree about a frame. The in-band range test in front of it is the
+   fast path, and it is every frame that is not a crossing.
+
+   FALLING BACK TO `b` IS TODAY'S OUT-OF-WORLD CONVENTION RESTATED, not a new
+   one, and it is why `bandAt` returning null is not a special case: `tileAt`
+   answers AIR above a band's first row (open sky over the astral band) and
+   BEDROCK past its last (the floor of the world, whose only exit is the void
+   check in `step`). It covers the horizontal case for free — a neighbouring
+   band that does not span this column is not a place to fall into, and reads
+   as the edge of the world, which is exactly what it is. */
+function rowBand(b, x, wy) {
+  if (wy >= b.origin.y && wy < b.origin.y + heightPx(b)) return b;
+  return bandAt(x + PW / 2, wy) || b;
+}
+
 function boxSolid(b, x, y) {
-  const t0 = tileX(b, x), t1 = tileX(b, x + PW - 1);
-  const r0 = tileY(b, y), r1 = tileY(b, y + PH - 1);
-  for (let ty = r0; ty <= r1; ty++)
-    for (let tx = t0; tx <= t1; tx++)
-      if (solidAt(b, tx, ty)) return true;
+  const bot = y + PH - 1;
+  for (let wy = y; wy <= bot;) {
+    const rb = rowBand(b, x, wy), ty = tileY(rb, wy);
+    for (let tx = tileX(rb, x), t1 = tileX(rb, x + PW - 1); tx <= t1; tx++)
+      if (solidAt(rb, tx, ty)) return true;
+    wy = worldY(rb, ty + 1);      // top of the next row; always > wy, so this ends
+  }
   return false;
 }
 
 function boxClimb(b, x, y) {
-  const t0 = tileX(b, x), t1 = tileX(b, x + PW - 1);
-  const r0 = tileY(b, y), r1 = tileY(b, y + PH - 1);
-  for (let ty = r0; ty <= r1; ty++)
-    for (let tx = t0; tx <= t1; tx++)
-      if (climbAt(b, tx, ty)) return true;
+  const bot = y + PH - 1;
+  for (let wy = y; wy <= bot;) {
+    const rb = rowBand(b, x, wy), ty = tileY(rb, wy);
+    for (let tx = tileX(rb, x), t1 = tileX(rb, x + PW - 1); tx <= t1; tx++)
+      if (climbAt(rb, tx, ty)) return true;
+    wy = worldY(rb, ty + 1);
+  }
   return false;
 }
 
@@ -295,15 +352,17 @@ function boxClimb(b, x, y) {
    wins-over-substance rule), so `formAt` is always a real placed form here,
    never NATIVE. */
 function boxClimbK(b, x, y) {
-  const t0 = tileX(b, x), t1 = tileX(b, x + PW - 1);
-  const r0 = tileY(b, y), r1 = tileY(b, y + PH - 1);
+  const bot = y + PH - 1;
   let k = 1;
-  for (let ty = r0; ty <= r1; ty++)
-    for (let tx = t0; tx <= t1; tx++)
-      if (climbAt(b, tx, ty)) {
-        const f = formAt(b, tx, ty);
+  for (let wy = y; wy <= bot;) {
+    const rb = rowBand(b, x, wy), ty = tileY(rb, wy);
+    for (let tx = tileX(rb, x), t1 = tileX(rb, x + PW - 1); tx <= t1; tx++)
+      if (climbAt(rb, tx, ty)) {
+        const f = formAt(rb, tx, ty);
         if (f >= 0 && FORM[f].climbK) k = Math.max(k, FORM[f].climbK);
       }
+    wy = worldY(rb, ty + 1);
+  }
   return k;
 }
 
@@ -358,13 +417,21 @@ function moveY(b, d) {
     const amt = Math.min(1, rem) * step;
     const ny = player.y + amt;
     if (boxSolid(b, player.x, ny)) {
+      /* THE SNAP IS COMPUTED IN THE BAND THAT OWNS THE ROW THAT BLOCKED, which
+         on a seam is not the band the player is in. The blocking row is always
+         the LEADING one — the box was clear a pixel ago, so the bottom row is
+         the only new row descending and the top row the only new one rising —
+         so resolving the band for that one pixel is enough, and flush stays
+         flush across a seam. */
       if (step > 0) {                                     // hit a floor
-        pw.move(player.x, worldY(b, tileY(b, ny + PH - 1)) - PH);
+        const fb = rowBand(b, player.x, ny + PH - 1);
+        pw.move(player.x, worldY(fb, tileY(fb, ny + PH - 1)) - PH);
         pw.set('onGround', true);
         pw.vel(player.vx, 0);
         return true;
       }
-      pw.move(player.x, worldY(b, tileY(b, ny)) + b.tile); // bonked a ceiling
+      const cb = rowBand(b, player.x, ny);                // bonked a ceiling
+      pw.move(player.x, worldY(cb, tileY(cb, ny)) + cb.tile);
       pw.vel(player.vx, 0);
       pw.set('onGround', grounded());
       return false;

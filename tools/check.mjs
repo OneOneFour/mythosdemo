@@ -6013,6 +6013,294 @@ function trunkHeight(band, tx, ty) {
        `fresh run on the same seed`);
 }
 
+/* ============================================================
+   8h. BAND SEAMS — A CROSSING IS MONOTONE AND HAPPENS ONCE
+   ------------------------------------------------------------
+   `data/world.js` stacks three bands in one vertical space, so the world has
+   two seams: astral/surface at world y 320, surface/topsoil at 768. The hitbox
+   is 16 px against an 8 px tile, so EVERY crossing spends 15 px with the box in
+   two bands at once — and nothing in this harness looked at that until a player
+   reported "dig down from layer II to III and you teleport up". Section 3's
+   fuzz wanders around spawn; the framerate sweeps mine one tile; every scripted
+   scene in sections 4 to 8g is carved inside a SINGLE band. The one seam-shaped
+   thing that was ever tested is `bandBelow`'s existence.
+
+   WHAT WAS WRONG. `rules/player.js#reband` tested the two LEADING edges — feet
+   past the bottom of the band to hand off down, head above the top to hand off
+   up — and both are true for the whole straddle, so the band flipped EVERY
+   FRAME. Each flip then resolved collision against a grid that answers BEDROCK
+   for the half of the box hanging out of it (`model/tiles.js#tileAt`, correctly,
+   for the edge of the WORLD), which snapped the player back up flush to the
+   seam with `vy` zeroed. Measured down a fully cleared shaft: 154 band flips in
+   200 frames, y oscillating between 752 and 753, not one pixel of descent. A
+   ladder out of topsoil stalled identically at 767/768. Both seams, both
+   directions: the shaft simply ended.
+
+   WHY THE CLAIMS ARE ABOUT MOTION AND NOT ABOUT `reband`. "One band flip" alone
+   goes green on a handoff that never happens; "ends up in topsoil" alone goes
+   green on a player teleported there. So every crossing below asserts the
+   arrival, the single flip, AND that no substep moved the player against the
+   direction of travel — which is the property the report described the absence
+   of. Checked descending, climbing, on a diagonal staircase, and at the other
+   seam, because the fix has to be about seams and not about one of them.
+   ============================================================ */
+console.log('\n8h. BAND SEAMS (the reported layer II -> III teleport)');
+
+/* Carve columns `tx`..`tx+w-1` clear over rows `fromTy`..`toTy`, and hand back
+   whether every one of them is actually air afterwards. The return value is not
+   decoration: a scene that failed to carve itself makes every claim below
+   vacuous, which is the "test that silently tests nothing" CLAUDE.md records
+   twice. */
+function seamCarve(b, tx, fromTy, toTy, w = 2) {
+  let clear = true;
+  for (let ty = fromTy; ty <= toTy; ty++)
+    for (let dx = 0; dx < w; dx++) {
+      tiles.write.clear(b, tx + dx, ty);
+      if (tiles.solidAt(b, tx + dx, ty)) clear = false;
+    }
+  return clear;
+}
+
+/* A ladder the player can actually climb, in ONE column: `write.spawn` centres
+   a 6 px hitbox in an 8 px tile, so the box never spans two columns and a
+   single rung column is the whole ladder. */
+function seamLadder(b, tx, fromTy, toTy) {
+  for (let ty = fromTy; ty <= toTy; ty++)
+    tiles.write.set(b, tx, ty, D_sub.S.timber, D_form.F.rung);
+}
+
+/* Drive the REAL loop and report the crossing. `dir` is +1 for a descent and -1
+   for a climb, and `worstBack` is the largest single-substep move AGAINST it —
+   0 for a clean crossing, and the whole bug when it is not.
+
+   `player.write.spawn` is the only legal way to park the player for this: it
+   resets `fallFrom` along with everything else, and a bare `move()` leaves
+   `fallFrom` where the previous scene was, so the first landing bills the
+   teleport as a fall and kills the player before the claim is reached. That
+   cost half an hour while writing this section. */
+function seamRun(steps, dir, want = {}) {
+  const p = player.player;
+  let flips = 0, worstBack = 0, prevY = p.y, prevBand = p.band;
+  for (let i = 0; i < steps; i++) {
+    stepReal(1 / 120, want);
+    if (p.band !== prevBand) { flips++; prevBand = p.band; }
+    const back = (prevY - p.y) * dir;
+    if (back > worstBack) worstBack = back;
+    prevY = p.y;
+    if (run.run.dead) break;
+  }
+  return { flips, worstBack, y: p.y, band: p.band.id, ground: p.onGround, dead: run.run.dead };
+}
+
+/* --- CLAIM 1: A FREE FALL DOWN A CLEARED SHAFT CROSSES THE SURFACE/TOPSOIL
+   SEAM WITHOUT ONCE MOVING UP.
+
+   The frame budget deliberately ends the probe MID-FALL, several tiles short of
+   the shaft's floor, so `worstBack` can be held to an exact 0: a landing snaps
+   flush and legitimately moves a falling player up by the fraction of a pixel
+   they overshot the tile edge by, and a tolerance wide enough to allow that
+   (1 px) is wider than the bug's own 1.07 px snap. There is nothing to
+   tolerate before the landing. --- */
+{
+  const SEED = 4242, TX = 20;
+  boot.newRun(SEED);
+  const sur = world.bandOf('surface'), top = world.bandOf('topsoil');
+  const seam = sur.origin.y + world.heightPx(sur);
+  const carved = seamCarve(sur, TX, 44, sur.th - 1) && seamCarve(top, TX, 0, 15);
+
+  player.write.spawn(sur, TX, 53);                 // box top at y 744, one tile up
+  const r = seamRun(90, +1);
+
+  if (!carved) fail('BAND SEAM (fall): the probe failed to carve its own shaft, so the claim is vacuous');
+  else if (r.dead) fail(`BAND SEAM (fall): the player died mid-crossing (${run.run.deathCause})`);
+  else if (r.band !== 'topsoil' || !(r.y > seam + 32))
+    fail(`BAND SEAM (fall): after 90 substeps of free fall down a cleared shaft the player is in ` +
+         `"${r.band}" at y ${r.y.toFixed(2)} — expected topsoil, at least 4 tiles past the seam at ` +
+         `${seam}. A shaft that ends AT the seam is the reported bug: reband's two leading-edge tests ` +
+         `are both true across the straddle, so the band flips every frame and the band the player is ` +
+         `not in answers BEDROCK for half the hitbox`);
+  else if (r.flips !== 1)
+    fail(`BAND SEAM (fall): ${r.flips} band changes crossing one seam — a crossing is one handoff, and ` +
+         `${r.flips > 1 ? 'anything more is reband arguing with itself frame by frame' : 'zero means it never happened'}`);
+  else if (r.worstBack !== 0)
+    fail(`BAND SEAM (fall): the player moved UP ${r.worstBack.toFixed(3)} px during a free fall across ` +
+         `the seam. Nothing was landed on; that is the phantom-bedrock snap`);
+  else
+    ok(`BAND SEAM (fall): free fall crosses surface -> topsoil in 1 handoff, ${(r.y - seam).toFixed(0)} px ` +
+       `past the seam, 0 px of upward motion`);
+}
+
+/* --- CLAIM 2: THE SEAM IS STILL A FLOOR WHEN THERE IS ROCK UNDER IT.
+   The other half of claim 1, and the regression the fix could plausibly have
+   introduced: probing the band below instead of assuming bedrock must not turn
+   an undug band boundary into a hole. Rock is written rather than found —
+   topsoil's stone layer carries no `lip:false`, so a ragged carve may leave its
+   own row 0 open on some seed, and a probe that trusted worldgen here would be
+   testing the seed. --- */
+{
+  const SEED = 4242, TX = 20;
+  boot.newRun(SEED);
+  const sur = world.bandOf('surface'), top = world.bandOf('topsoil');
+  const seam = sur.origin.y + world.heightPx(sur);
+  const carved = seamCarve(sur, TX, 44, sur.th - 1);
+  tiles.write.set(top, TX, 0, D_sub.S.stone);
+  tiles.write.set(top, TX + 1, 0, D_sub.S.stone);
+
+  player.write.spawn(sur, TX, 53);
+  const r = seamRun(60, +1);
+
+  /* WITHIN A PIXEL OF FLUSH, not exactly on it, and the slack is not about
+     seams. A player at rest re-integrates gravity every substep and `moveY`
+     only blocks once the box actually overlaps the floor tile, so any stance
+     anywhere in the game creeps down to 0.8 px and snaps back on a ~9-substep
+     cycle — measured identically on plain ground in the middle of the surface
+     band. Asserting exact flushness here would be asserting that pre-existing
+     sub-pixel settle away, in the one probe least able to explain it. */
+  const flush = seam - player.PH;
+  if (!carved) fail('BAND SEAM (floor): the probe failed to carve its own shaft, so the claim is vacuous');
+  else if (!r.ground || !(r.y >= flush && r.y < flush + 1))
+    fail(`BAND SEAM (floor): with solid stone in topsoil row 0 the player came to rest at y ` +
+         `${r.y.toFixed(3)} (onGround ${r.ground}), expected within a pixel of flush at ${flush}. The ` +
+         `band below is real rock and must stop a fall exactly as any other tile does`);
+  else if (r.band !== 'surface')
+    fail(`BAND SEAM (floor): standing flush ON the seam put the player in "${r.band}" — the hitbox ` +
+         `centre is 8 px above the boundary, so the band is surface until they are half through it`);
+  else
+    ok(`BAND SEAM (floor): undug rock below a seam still stops a fall flush at ${r.y.toFixed(2)}, in ` +
+       `surface, and mining it is still what opens the way down`);
+}
+
+/* --- CLAIM 3: A LADDER CLIMBS BACK OUT OF TOPSOIL THROUGH THE SAME SEAM.
+   Up is the expensive direction and therefore the one worth breaking: the old
+   handoff fired the moment the HEAD crossed, 15 px early, and the upper band
+   answered BEDROCK for the feet still below the boundary — a ceiling bonk that
+   pushed the climber straight back down onto the rung they had just left. A
+   constant-velocity climb has no snaps in it at all, so `worstBack` is exact
+   here too, and the old stall shows up as a 0.25 px slip. --- */
+{
+  const SEED = 4242, TX = 20;
+  boot.newRun(SEED);
+  const sur = world.bandOf('surface'), top = world.bandOf('topsoil');
+  const seam = sur.origin.y + world.heightPx(sur);
+  const carved = seamCarve(sur, TX, 40, sur.th - 1) && seamCarve(top, TX, 0, 15);
+  seamLadder(sur, TX, 44, sur.th - 1);
+  seamLadder(top, TX, 0, 12);
+
+  player.write.spawn(top, TX, 5);                  // box top at y 808, 7 tiles down
+  const r = seamRun(260, -1, { up: true });
+
+  if (!carved) fail('BAND SEAM (climb): the probe failed to carve its own shaft, so the claim is vacuous');
+  else if (r.band !== 'surface' || !(r.y < seam - player.PH - 8))
+    fail(`BAND SEAM (climb): after 260 substeps of climbing the player is in "${r.band}" at y ` +
+         `${r.y.toFixed(2)} — expected surface, above ${seam - player.PH - 8}. A ladder that cannot ` +
+         `leave the band it starts in is the same seam bug from underneath`);
+  else if (r.flips !== 1)
+    fail(`BAND SEAM (climb): ${r.flips} band changes climbing across one seam, expected 1`);
+  else if (r.worstBack !== 0)
+    fail(`BAND SEAM (climb): the climber slipped DOWN ${r.worstBack.toFixed(3)} px while holding up on a ` +
+         `continuous ladder — the upper band's phantom bedrock ceiling`);
+  else
+    ok(`BAND SEAM (climb): a ladder crosses topsoil -> surface in 1 handoff, no slip, ending ` +
+       `${(seam - r.y).toFixed(0)} px above the seam`);
+}
+
+/* --- CLAIM 4: A DIAGONAL STAIRCASE CROSSES IT TOO.
+   The shape in the bug report's screenshot, and it is not the same code path:
+   the player is WALKING, so `onGround` is true every other frame and
+   `moveX`'s one-tile auto-step is live — which is what turned a stalled descent
+   into the reported climb back up the diagonal. No `worstBack` bound is claimed
+   here, deliberately: walking down a staircase lands on every step and a flush
+   landing snap is a legitimate fraction of a pixel upward. The stall is caught
+   by arrival instead, which it fails outright. --- */
+{
+  const SEED = 4242;
+  boot.newRun(SEED);
+  const sur = world.bandOf('surface');
+  const seam = sur.origin.y + world.heightPx(sur);
+
+  /* ROWS IN ABSOLUTE WORLD PIXELS, resolved through `model/world.js#bandAt`,
+     because a staircase across a seam is exactly the thing that cannot be
+     written in one band's row numbers: the tread whose floor is topsoil row 0
+     has its two rows of headroom in SURFACE rows 54 and 55. Carving it in
+     band-local rows is what made the first draft of this probe stop the player
+     dead under an uncarved ceiling and blame the fix. */
+  const clearAt = (tx, wy) => {
+    const b = world.bandAt(world.worldX(sur, tx), wy);
+    if (!b) return false;
+    const ty = world.tileY(b, wy);
+    tiles.write.clear(b, tx, ty);
+    return !tiles.solidAt(b, tx, ty);
+  };
+
+  /* 16 treads descending one row per column, each with two rows of headroom
+     over a floor left as whatever rock is under it. The seam falls on tread 9,
+     so the last six are entirely inside topsoil -- the claim is that the
+     descent CONTINUES past the boundary, not that a toe crossed it. */
+  const TREADS = 16, TX0 = 24, TOP = world.worldY(sur, 47);
+  let carved = true;
+  for (let i = 0; i < TREADS; i++)
+    for (let dx = 0; dx <= 1; dx++)
+      for (let up = 1; up <= 2; up++)
+        carved = clearAt(TX0 + i + dx, TOP + i * sur.tile - up * sur.tile) && carved;
+
+  player.write.spawn(sur, TX0, 45);
+  const r = seamRun(1100, +1, { right: true });
+
+  if (!carved) fail('BAND SEAM (diagonal): the probe failed to carve its own staircase, so the claim is vacuous');
+  else if (r.dead) fail(`BAND SEAM (diagonal): the player died mid-crossing (${run.run.deathCause})`);
+  else if (r.band !== 'topsoil' || !(r.y >= seam + 24))
+    fail(`BAND SEAM (diagonal): walking down a diagonal staircase left the player in "${r.band}" at y ` +
+         `${r.y.toFixed(2)} — expected topsoil, at least 3 tiles past the seam at ${seam}. This is the shape in the bug ` +
+         `report: the descent stalls at the seam and the auto-step then walks them back UP the diagonal`);
+  else if (r.flips !== 1)
+    fail(`BAND SEAM (diagonal): ${r.flips} band changes walking across one seam, expected 1`);
+  else
+    ok(`BAND SEAM (diagonal): a diagonal staircase crosses surface -> topsoil in 1 handoff, ` +
+       `${(r.y - seam).toFixed(0)} px past the seam`);
+}
+
+/* --- CLAIM 5: THE OTHER SEAM, BOTH WAYS.
+   astral/surface at y 320, and it is not a duplicate of claims 1 and 3: the fix
+   is either about seams or about one of them, and this is the seam CLAUDE.md D5
+   hangs the whole Heavens act on — cargo ascends, the player rides up and can
+   step off the dock into a fatal fall. Both of those need the crossing to work
+   in the direction the other claims do not cover for this pair. --- */
+{
+  const SEED = 4242, TX = 20;
+  boot.newRun(SEED);
+  const ast = world.bandOf('astral'), sur = world.bandOf('surface');
+  const seam = ast.origin.y + world.heightPx(ast);
+  /* Through the astral floor slab (rows 30..39) and down into surface's sky. */
+  const carved = seamCarve(ast, TX, 30, ast.th - 1) && seamCarve(sur, TX, 0, 24);
+  seamLadder(ast, TX, 30, ast.th - 1);
+  seamLadder(sur, TX, 0, 12);
+
+  player.write.spawn(sur, TX, 4);                  // box top at y 352, 4 tiles below
+  const up = seamRun(260, -1, { up: true });
+
+  boot.newRun(SEED);
+  const ast2 = world.bandOf('astral'), sur2 = world.bandOf('surface');
+  seamCarve(ast2, TX, 30, ast2.th - 1);
+  seamCarve(sur2, TX, 0, 24);
+  player.write.spawn(ast2, TX, 35);                // box top at y 280, 3 tiles above
+  const down = seamRun(90, +1);
+
+  if (!carved) fail('BAND SEAM (astral): the probe failed to carve its own shaft, so the claim is vacuous');
+  else if (up.band !== 'astral' || up.flips !== 1 || up.worstBack !== 0)
+    fail(`BAND SEAM (astral, up): climbing surface -> astral ended in "${up.band}" at y ` +
+         `${up.y.toFixed(2)} with ${up.flips} band change(s) and ${up.worstBack.toFixed(3)} px of slip ` +
+         `— expected astral, 1 change, 0 slip. CLAUDE.md D5 puts the Cloud Dock at the top of this ` +
+         `shaft; a seam that cannot be climbed is a destination that cannot be reached`);
+  else if (down.band !== 'surface' || down.flips !== 1 || down.worstBack !== 0 || !(down.y > seam + 32))
+    fail(`BAND SEAM (astral, down): falling astral -> surface ended in "${down.band}" at y ` +
+         `${down.y.toFixed(2)} with ${down.flips} band change(s) and ${down.worstBack.toFixed(3)} px of ` +
+         `upward motion — expected surface, at least 4 tiles past the seam at ${seam}, 1 change, 0 up. ` +
+         `The fall off the dock IS the fence in D5, and a phantom floor at the seam is a safety net`);
+  else
+    ok(`BAND SEAM (astral): the surface/astral seam crosses cleanly in both directions — up to y ` +
+       `${up.y.toFixed(0)}, down to y ${down.y.toFixed(0)}, 1 handoff each, 0 px against travel`);
+}
+
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +
             `journal ${journal.peek ? journal.peek().length : 0} undrained`);
