@@ -13,9 +13,13 @@ overlap the burden bar at wide values) and #14 (an intermittent
 `FUTURE_IDEAS.md` and `docs/DESIGN.md`'s unbuilt sections are backlog, not
 scheduled work.
 
-**Wave 4 is PLANNED AND NOT STARTED**, in four documents plus one scoping
-document, following the same convention wave 3 used — the plan is standalone
-and this file points at it rather than absorbing it:
+**Wave 4 is DONE as of `a7e0240` (2026-09-02).** Phases 14a–14e, 13a–13d, 15,
+and 16a–16c are all committed, in that order (14a had to land first once its
+D12 decision turned out to gate both 15 and 16). The horizontal-chunks
+document remains scoping-only and unexecuted, as designed — it was never a
+phase plan. In four documents plus one scoping document, following the same
+convention wave 3 used — the plan is standalone and this file points at it
+rather than absorbing it:
 
 | document | phases | what |
 |---|---|---|
@@ -2599,7 +2603,14 @@ to before the phase was built.
 
 Not sequenced in this file either, for the same reason wave 3 was not:
 planned as standalone documents so that a phase agent is handed one file
-rather than a slice of this one. **Nothing in wave 4 is committed.**
+rather than a slice of this one. **All of wave 4 is committed** — 14a
+(`7e0e8d8`), 14b (`219ac4e`), 14c (`69caa53`), 14d (`8aa8b58`), 14e
+(`84c0320`), 13a (`2504d57`), 13b (`671882f`), 13c (`f0693d4`), 13d
+(`240865b`), 15 (`1b1ed43`), 16a (`eb0ace7`), 16b (`033f1d7`), 16c
+(`a7e0240`) — plus one unplanned fix landed in the middle of the wave,
+`4ba2ad7` (a real band-crossing teleport bug, reported by the user and
+unrelated to any wave-4 phase's own scope). The horizontal-chunks scoping
+document was deliberately not executed and remains scoping-only.
 
 - **`docs/PLAN-phase13.md` — Phases 13a, 13b, 13c, 13d.** UI text contrast,
   the ladder's sprite, the auto-collect default, and the game-loop punch
