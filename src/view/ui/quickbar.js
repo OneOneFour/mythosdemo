@@ -16,16 +16,25 @@
 import { drawText, textWidth } from '../../core/font.js';
 import { mix } from '../../core/palette.js';
 import { colour } from '../../data/palette.js';
+import { labelOf } from '../../data/forms.js';
 import { SUB } from '../../data/substances.js';
 import { massOfPair } from '../../model/items.js';
 import { run } from '../../model/run.js';
 import { drawGrid } from './grid.js';
 import { drawPanel } from './panel.js';
+import { rulerWidth } from './ruler.js';
 import { frameSlot } from './slot.js';
 
 const INK = colour('ui'), DIM = colour('uiDim'), BACK = colour('uiBack');
 const ARMED = colour('uiGood');
+const SHADE = colour('uiShade');
 const SIZE = 14, COLS = 5;
+
+/* Gap between the IN HAND line's baseline box and the quickbar's own top
+   edge. The 5x7 font plus one row of shadow is 8 px tall, so 2 px of air
+   above the grid puts the line clear of it without moving anything. */
+const HAND_GAP = 10;
+const HAND_PREFIX = 'IN HAND ';
 
 /* ONE mapping, TWO readers: this string is the whole rule for "which digit
    key names which slot" -- slot 0 is '1', slot 8 is '9', slot 9 (the second
@@ -81,6 +90,8 @@ export function drawQuickbar(g, f) {
     for (const s of grid.slots)
       if (s.sub === ui.armedPlace.sub && s.form === ui.armedPlace.form) frameSlot(g, s, ARMED);
 
+  inHand(g, f, grid);
+
   /* One toggleable hint line, bottom-left, out of the quickbar's way. Its own
      `drawPanel` id (unused visually beyond a faint backing rect) so the UI
      dispatcher can hit-test a click on it apart from every other rect drawn
@@ -89,4 +100,63 @@ export function drawQuickbar(g, f) {
   const hw = Math.min(textWidth(label) + 6, W - 12);
   drawPanel(g, { id: 'hints-toggle', x: 4, y: H - 11, w: hw, h: 9, vw: W, vh: H, alpha: 0.6 });
   drawText(g, label, 6, H - 9, INK, 1, 1);
+}
+
+/* ---------- IN HAND ----------
+   ONE LINE, AND ONLY WHEN SOMETHING IS ARMED. Not a permanent fixture with
+   an empty state: `ui.armedPlace` is null the overwhelming majority of the
+   time, and a fixture reading "IN HAND --" would spend eight pixels of the
+   HUD's most contested row on saying nothing. This is new information
+   appearing, which is why it reads at a glance without a legend.
+
+   WHY IT EXISTS AT ALL (docs/PLAN-phase16-interaction-model-v2.md §4.4,
+   §5 D16-E #2): the armed pair is this game's "item in cursor", and until
+   this line the ONLY cue that anything was in it was `frameSlot`'s border
+   on a slot inside the main panel -- which `shell/main.js#applyIntents`
+   auto-closes the instant a placement intent arrives. So the cue was
+   routinely behind a window the game itself had just shut. Deliberately NOT
+   a mouse-following cursor icon: that is docs/PLAN-phase16-interaction-
+   model-v2.md §5 D16-A's rejected alternative, and this game's placement
+   already answers "where" with the aim reticle and the build ghost.
+
+   ANCHORED OFF `drawGrid`'S OWN RETURNED RECT AND THE MEASURED TEXT, never a
+   hardcoded origin (CLAUDE.md D8). `grid` is what `drawGrid` actually drew --
+   already clamped and already shrunk-to-fit by that primitive -- so the line
+   tracks the quickbar rather than re-deriving where the quickbar "should"
+   be; a viewport narrow enough to move the grid moves this with it. RIGHT-
+   EDGE aligned to the grid, because that edge is the stable one (the grid is
+   pinned to the right of the screen and grows leftwards), then clamped left
+   to 2 so a long pair name at a narrow base buffer slides into view instead
+   of off it -- the same clamp `view/hud.js#cableGhost`'s refusal text and
+   every primitive in this directory apply. The label is composed by
+   `data/forms.js#labelOf`, THE shared pair-name composer this repo already
+   has three other readers for (`view/hover.js`, `view/hud.js#pairLabel`,
+   `shell/notify.js`); nothing here hand-writes "COPPER ORE".
+
+   AND IT RESERVES THE BAND RULER'S COLUMN, which is the one thing the first
+   version of this got wrong and the first baseline caught. `view/hud.js
+   #hudRuler` mounts the DEPTH ruler against the right edge (D8's table) and
+   stops it 4 px above the quickbar's real rect -- which is exactly the strip
+   this line then wanted, so "IN HAND TIMBER LADDER" came out with the ruler's
+   bar and numeral column drawn through the last three letters. `rulerWidth()`
+   is the measured reserve that widget's own header tells a caller to read
+   ("whatever the widest numeral in this world actually is, that is how much
+   room the widget needs"), so the right edge of this text is the ruler's left
+   edge, not the quickbar's. It CANNOT be read back out of
+   `view/ui/state.js#drawn` instead: `hudRuler` runs AFTER `drawQuickbar`
+   precisely so it can read the quickbar's rect, so at this point in the frame
+   the ruler has not drawn yet. Reserved unconditionally, including on the
+   short viewports where `hudRuler` bails out early -- a line that moved
+   depending on whether a different widget happened to render is worse than
+   four unused pixels. */
+function inHand(g, f, grid) {
+  const { W, ui } = f;
+  if (!ui.armedPlace) return;
+
+  const text = HAND_PREFIX + labelOf(ui.armedPlace.sub, ui.armedPlace.form);
+  const tw = textWidth(text);
+  const right = Math.min(grid.x + grid.w, W - rulerWidth() - 3);
+  const tx = Math.max(2, right - tw);
+  const ty = Math.max(2, grid.y - HAND_GAP);
+  drawText(g, text, tx, ty, ARMED, 1, 1, SHADE);
 }

@@ -2680,10 +2680,15 @@ worth knowing whether or not the wave ever runs:
    the altar's gap is correct staging regardless). The three "feed key"
    comments (`data/machines.js` ×2, `docs/SPEC.md` §18.3) are gone. See
    `docs/PLAN-phase16-interaction-model-v2.md` §3.4–3.5.
-5. **`docs/PLAN-phase12.md` D-I never landed**, despite that document's
-   status line. `git log -- src/view/ui/slot.js` shows no Phase 12 commit and
-   `frameSlot` still draws a single 1-px border, not the specified 2-px
-   double frame. Folded into Phase 16c.
+5. **`docs/PLAN-phase12.md` D-I never landed** despite that document's status
+   line — and **has now landed, in Phase 16c**. `git log -- src/view/ui/slot.js`
+   showed no Phase 12 commit (three commits, newest `e80a3fc`, a comment trim)
+   and `frameSlot` drew a single 1-px border rather than the specified 2-px
+   double frame. It now draws both borders, the second inset by one pixel in
+   the same colour, and all three call sites — a relic's frame plus the
+   armed-placement highlight in each of the two grids — take it from the one
+   shared function. The baselines that moved for it are `ui-character.png`
+   (two relic slots) and the four new Phase 16c shots.
 6. **Every currently-placeable form is also consumed as feedstock somewhere,
    on both terrain rows the game has.** `timber/log` is fuel
    (`handFeed:{from:['*/#fuel']}`) and a bare ingredient in five recipes

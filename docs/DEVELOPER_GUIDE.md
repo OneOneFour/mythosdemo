@@ -1196,6 +1196,13 @@ Contracts:
   returns the actual count. Reporting a clamped `w` while still looping the full
   `cols` would draw slots the returned rect claims are not there — exactly the
   layout/hit-test disagreement the `pocketHits` idiom exists to prevent.
+- **"This slot is called out" is one look, decided once.** `slot.js#frameSlot`
+  draws **two** concentric 1-px borders, the second inset by one pixel in the
+  same colour (docs/PLAN-phase12.md §3 D-I, landed in Phase 16c). It takes no
+  opt-in flag, deliberately: its three callers — a relic's frame and the
+  armed-placement highlight in each of the inventory and quickbar grids — must
+  not develop two visual languages for the same statement. A single 1-px line
+  was too quiet against the substance swatch that fills the cell's centre.
 - **Names clip; don't truncate at runtime.** `short` is authored data on the
   substance/form/boon row, and `shortLabelOf`/`shortNameOf` fall back to the full
   name when a row has none. Slicing a full name to fit would either cut a word

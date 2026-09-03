@@ -2755,10 +2755,24 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
     for (let y = slot.y; y < slot.y + slot.h; y++)
       for (let x = slot.x; x < slot.x + slot.w; x++)
         if (moved((y * c.width + x) * 4)) inside++;
-    return { total, inside };
+
+    /* THE SECOND REGION ARMING NOW OWNS (Phase 16c): the IN HAND row above the
+       quickbar. This probe used to assert `total === inside` -- "the arm moved
+       pixels on that slot and NOWHERE else" -- which was true right up until
+       arming also had to say what it armed. The claim is unchanged in spirit
+       and stronger in letter: the arm moves the slot, moves the readout, and
+       moves NOTHING BEYOND THOSE TWO. Read off the quickbar's own drawn rect,
+       never a hardcoded row. */
+    const qb = __mf.ui.grids.find(gr => gr.id === 'quickbar');
+    let readout = 0;
+    for (let y = qb.y - 10; y < qb.y - 1; y++)
+      for (let x = 0; x < c.width; x++)
+        if (y >= 0 && moved((y * c.width + x) * 4)) readout++;
+    return { total, inside, readout };
   }, oreSlot);
   expect(border.inside).toBeGreaterThan(0);        // the border is actually painted...
-  expect(border.total).toBe(border.inside);        // ...and only on that one slot
+  expect(border.readout).toBeGreaterThan(0);       // ...so is the IN HAND readout...
+  expect(border.total).toBe(border.inside + border.readout);   // ...and nothing else moved
 
   /* ---- half two: LMB on the furnace feeds it. Close the panel first, or
      `shell/input.js` routes the click to the widget layer instead of the
@@ -3071,6 +3085,337 @@ test('AUTO FEED off (the default): a real lap past a hungry furnace costs nothin
   /* ---- act 3: a restart puts it back off (D16-C, matching D13-A) ---- */
   await page.evaluate(() => { __mf.newRun(1337); __mf.frames(2); });
   expect(await page.evaluate(() => __mf.ui.autoFeed)).toBe(false);
+});
+
+/* ============================================================
+   PHASE 16C -- THE LEGIBILITY OF AN ARMED HAND
+   (docs/PLAN-phase16-interaction-model-v2.md §5 D16-E)
+
+   Four baselines and four pixel probes. 16a built the feed verb and 16b made
+   the proximity magnet opt-in; NEITHER SAID ANYTHING ON SCREEN. These cover
+   the four things that now do:
+
+     in-hand-rung          the IN HAND readout + `frameSlot`'s double frame,
+                           with every panel CLOSED -- the acceptance scene
+     feed-ghost-ok         a furnace that WILL take the armed pair, and how
+                           full the clause that would hold it already is
+     feed-ghost-refused    the same furnace, same reticle, wrong material
+     miracle-ghost         an armed `phial`, which drew NOTHING before this
+
+   EVERY ONE IS PAIRED WITH A PIXEL PROBE, because CLAUDE.md's own "a test can
+   silently test nothing" entry is about exactly this class of test: two
+   screenshots once baselined a scene with the overlay accidentally off and
+   passed for months. A baseline proves the pixels have not CHANGED; only a
+   probe proves the feature is drawing any pixels at all. Each probe draws the
+   same scene twice with NO simulation step between the two draws -- so
+   nothing but the state under test can possibly differ -- and asserts the
+   frames are not identical, and (where it is meaningful) that the difference
+   lands in the region the feature owns.
+
+   NO HARDCODED CLICK COORDINATES ANYWHERE IN THIS BLOCK. Scene setup is
+   direct model writes and `shell/ui.js#armPlace`; the reticle is placed with
+   `model/aim.js#write.set`, which is also the only way to photograph a
+   reticle on a machine two tiles away at all (`rules/mining.js#aimAtWorld`
+   clamps a real pointer to `eff('reach')`). CLAUDE.md names the (400, 300)
+   click as a real historical break.
+   ============================================================ */
+
+/* The furnace, the player beside it, and the tile the reticle sits on. `aimTx`
+   is the furnace's own left column, so the ghost is over the machine and not
+   over the air beside it. */
+const HAND = { tx: 22, ty: 117, playerTx: 20, aimed: true, aimTx: 22, aimTy: 117 };
+
+/* One scene, four states. `arm` names which pair goes into the hand:
+   'ore' | 'rung' | 'phial' | null. `buffer` pre-loads the furnace's ore
+   clause so `feedCheck`'s `have`/`cap` has something to print other than
+   0/8. `aimed:false` leaves the reticle invalid, which is the state the IN
+   HAND shot wants -- nothing open AND no ghost, so the readout is the only
+   thing on screen that says what is in the hand. */
+async function handScene(page, spec) {
+  return page.evaluate(async (spec) => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { M, MACH } = await import('/src/data/machines.js');
+    const { VIEW } = await import('/src/core/canvas.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { write: pw } = await import('/src/model/player.js');
+    const { write: mw, capOf, count } = await import('/src/model/machines.js');
+    const { write: aimw } = await import('/src/model/aim.js');
+    const { run, write: runw, invCount } = await import('/src/model/run.js');
+    const { armPlace, clearArmedPlace } = await import('/src/shell/ui.js');
+    const { banner } = await import('/src/view/fx.js');
+    const { tx, ty } = spec;
+
+    const band = bandOf('topsoil');
+    for (let y = ty - 6; y <= ty + 2; y++)
+      for (let x = tx - 8; x <= tx + 6; x++) tw.clear(band, x, y);
+    for (let x = tx - 8; x <= tx + 6; x++) tw.set(band, x, ty + 2, S.stone);
+    __mf.revealAll(band);
+
+    const m = mw.place(band, M.furnace, tx, ty);
+
+    /* A FUELLED BRAZIER, BECAUSE A BASELINE NOBODY CAN SEE IS NOT A BASELINE.
+       This room is 117 rows down in `topsoil` and sealed on every side, so
+       `rules/light.js` leaves it at the floor value and the first take of
+       `in-hand-rung.png` was a black rectangle with a HUD on it -- true, and
+       useless for the human judgement a screenshot exists to support. Same
+       brazier-plus-four-logs idiom as `shaft-lit.png` and `winch-lit.png`;
+       `revealAll` above handles fog of war, which is a DIFFERENT thing from
+       light and does not brighten a single pixel on its own.
+
+       TWO of them, one either side, because ONE lit the player and left the
+       furnace itself a silhouette under its own outline -- and the whole
+       claim of `feed-ghost-ok.png` is that a human can see WHICH machine the
+       outline is around. */
+    for (const bx of [tx - 5, tx + 4]) {
+      const brazier = mw.place(band, M.brazier, bx, ty);
+      mw.take(brazier, S.timber, F.log, 4);
+    }
+
+    pw.band(band);
+    pw.move(worldX(band, spec.playerTx), worldY(band, ty));
+    pw.vel(0, 0);
+    pw.set('onGround', true);
+    __mf.cmd.hasMouse = false;
+    banner.fade = 0;                 // past the title card, as `winchScene` does
+
+    /* THE HAND IS STOCKED FROM THE QUICKBAR END ON PURPOSE. `frameSlot`'s
+       double frame has two callers and the quickbar's 14 px cell is the
+       one that is on screen with every panel shut, so an armed pair must
+       actually live in a quickbar slot for `in-hand-rung.png` to show it.
+       `write.collect` only ever allocates in the MAIN range, so this is the
+       collect-then-`moveSlot` idiom `putInQuickbar` above already uses,
+       inlined here because this scene stocks three pairs at once. */
+    const PAIRS = {
+      ore:   [S.copper, F.ore, 3],
+      rung:  [S.timber, F.rung, 4],
+      phial: [S.chasm,  F.phial, 1]
+    };
+    let qslot = 0;
+    for (const key of ['ore', 'rung', 'phial']) {
+      const [sub, form, n] = PAIRS[key];
+      runw.collect(sub, form, n);
+      const idx = run.inv.findIndex(s => s && s.sub === sub && s.form === form);
+      runw.moveSlot(idx, run.mainSlots + qslot++);
+    }
+
+    /* 700 SUBSTEPS: past the brazier's own 6 s honest-fuel recipe, then a
+       settle, exactly as `shaft-lit.png` runs it. Nothing is held, so the
+       player only stands there. */
+    __mf.frames(700);
+
+    /* THE FURNACE'S ORE CLAUSE, PRE-LOADED, AND *AFTER* THE SUBSTEPS -- the
+       same "set the state the spec DECLARES last" rule `winchScene`'s own
+       carrier block learned in Phase 8f. `feedCheck` reports the matched
+       SELECTOR's fill, not the machine's, so this is fed through the real
+       `write.take` and read back through the real `count`/`capOf` -- the same
+       two the ghost prints -- rather than asserted from a remembered number.
+       NO SUBSTEPS AFTER THIS POINT: `rules/machines.js#step` owns this buffer
+       and `updateCamera` owns the camera the shot parks below. */
+    const def = MACH[m.def];
+    if (spec.buffer) mw.take(m, S.copper, F.ore, spec.buffer);
+
+    clearArmedPlace();
+    if (spec.arm) {
+      const [sub, form] = PAIRS[spec.arm];
+      armPlace(sub, form);
+    }
+    if (spec.aimed) aimw.set(band, spec.aimTx, spec.aimTy, true);
+    else aimw.set(band, 0, 0, false);
+
+    /* CENTRED, and read off `VIEW` rather than a hardcoded 640x400 -- the
+       base buffer is a function of the window (`core/canvas.js#resize`) and a
+       hardcoded size here is the same defect as a hardcoded click. */
+    __mf.cam.x = Math.round(worldX(band, tx) - VIEW.w / 2);
+    __mf.cam.y = Math.round(worldY(band, ty) - VIEW.h / 2);
+    __mf.draw();
+
+    return {
+      armed: __mf.ui.armedPlace,
+      oreHeld: invCount(S.copper, F.ore),
+      buffered: count(m, '*/#ore'),
+      cap: capOf(def, '*/#ore'),
+      quickbar: __mf.ui.grids.find(gr => gr.id === 'quickbar') || null,
+      panels: __mf.ui.open.length
+    };
+  }, { ...HAND, ...spec });
+}
+
+/* TWO DRAWS, ZERO STEPS, ONE DIFFERENCE. `action` is one of the four names
+   below and is the ONLY thing that runs between the two draws, so anything
+   the returned counts show moving is attributable to it and to nothing else
+   -- no substep, no camera ease, no clock advance. `box`, when given, is the
+   rectangle the feature under test is supposed to own, in SCREEN space, which
+   is the canvas's own space, so no camera term appears.
+
+   A NAMED ACTION RATHER THAN A PASSED-IN CALLBACK: a `page.evaluate`
+   argument crosses a serialisation boundary, so a closure cannot travel. The
+   four names are spelled out inside the browser context instead of
+   stringifying a function and rebuilding it there. */
+async function pixelDelta(page, action, box = null) {
+  return page.evaluate(async ({ action, box }) => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { armPlace, clearArmedPlace } = await import('/src/shell/ui.js');
+    const ACTIONS = {
+      clear:       () => clearArmedPlace(),
+      'arm-ore':   () => armPlace(S.copper, F.ore),
+      'arm-rung':  () => armPlace(S.timber, F.rung),
+      'arm-phial': () => armPlace(S.chasm, F.phial)
+    };
+
+    const c = document.getElementById('stage');
+    const ctx = c.getContext('2d');
+    const grab = () => ctx.getImageData(0, 0, c.width, c.height).data;
+
+    __mf.draw();
+    const before = grab();
+    ACTIONS[action]();
+    __mf.draw();
+    const after = grab();
+
+    const moved = i => before[i] !== after[i] || before[i + 1] !== after[i + 1] ||
+                       before[i + 2] !== after[i + 2];
+    let total = 0;
+    for (let i = 0; i < before.length; i += 4) if (moved(i)) total++;
+
+    let inside = 0;
+    if (box)
+      for (let y = box.y; y < box.y + box.h; y++)
+        for (let x = box.x; x < box.x + box.w; x++)
+          if (x >= 0 && y >= 0 && x < c.width && y < c.height &&
+              moved((y * c.width + x) * 4)) inside++;
+    return { total, inside, w: c.width, h: c.height };
+  }, { action, box });
+}
+
+test('16c: IN HAND names the armed pair with every panel closed, and the armed slot carries a double frame', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await handScene(page, { arm: 'rung', aimed: false });
+
+  /* THE ACCEPTANCE CONDITION, ASSERTED AND NOT JUST PHOTOGRAPHED: nothing is
+     open, and the pair the readout names is really in the hand. */
+  expect(r.panels).toBe(0);
+  expect(r.armed).not.toBe(null);
+  expect(r.quickbar).not.toBe(null);
+  await shot(page, 'in-hand-rung.png');
+});
+
+test('16c: the IN HAND line is not vacuous -- it exists only while something is armed, above the quickbar', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await handScene(page, { arm: 'rung', aimed: false });
+
+  /* THE BAND THE READOUT OWNS: the full width of the screen, from just above
+     the quickbar's top edge to that edge. Deliberately not the text's own
+     measured rect -- that would be this test re-deriving `inHand`'s layout
+     and then proving its own arithmetic. A row of the HUD that was blank
+     before the arm and is not blank after it is the claim. */
+  const band = { x: 0, y: r.quickbar.y - 10, w: 4096, h: 9 };
+
+  const off = await pixelDelta(page, 'clear', band);
+  expect(off.inside).toBeGreaterThan(0);          // the line really is painted there...
+  expect(off.total).toBeGreaterThan(off.inside);  // ...and the slot frame moved too
+
+  /* AND THE ROW IS EMPTY WITH NOTHING ARMED, which is the other half of "drawn
+     ONLY when armed". Re-arming from the cleared state must move exactly the
+     same pixels back -- an equality, not an inequality, because the two
+     transitions are each other's inverse. */
+  const on = await pixelDelta(page, 'arm-rung', band);
+  expect(on.inside).toBe(off.inside);
+  expect(on.total).toBe(off.total);
+});
+
+test('16c: the feed preview says a furnace WILL take the armed ore, and how full its clause is', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await handScene(page, { arm: 'ore', buffer: 3 });
+
+  /* The numbers the ghost prints, read back through the SAME model queries it
+     reads them through -- so this asserts "3 of 8", not a remembered string. */
+  expect(r.buffered).toBe(3);
+  expect(r.cap).toBe(8);
+  expect(await page.evaluate(async ({ tx }) => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { feedCheck } = await import('/src/model/machines.js');
+    const m = __mf.machines.find(mm => mm.tx === tx);
+    return feedCheck(m, S.copper, F.ore).ok;
+  }, HAND)).toBe(true);
+  await shot(page, 'feed-ghost-ok.png');
+});
+
+test('16c: the same furnace at the same reticle REFUSES a rung, and says why before the click', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await handScene(page, { arm: 'rung', buffer: 3 });
+  expect(r.buffered).toBe(3);
+  expect(await page.evaluate(async ({ tx }) => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { feedCheck } = await import('/src/model/machines.js');
+    const m = __mf.machines.find(mm => mm.tx === tx);
+    return feedCheck(m, S.timber, F.rung).why;
+  }, HAND)).toBe('IT DOES NOT WANT THAT');
+  await shot(page, 'feed-ghost-refused.png');
+});
+
+test('16c: the feed preview is not vacuous -- accepting, refusing and unarmed are three different pictures', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await handScene(page, { arm: 'ore', buffer: 3 });
+
+  /* THE FOOTPRINT, IN SCREEN SPACE, derived from the machine's own world box
+     and the parked camera -- the region the outline and its label own,
+     padded upwards by the label's one line. */
+  const box = await page.evaluate(async ({ tx }) => {
+    const m = __mf.machines.find(mm => mm.tx === tx);
+    return {
+      x: (m.box.x - __mf.cam.x) | 0, y: ((m.box.y - __mf.cam.y) | 0) - 9,
+      w: m.box.w | 0, h: (m.box.h | 0) + 9
+    };
+  }, HAND);
+
+  /* ore -> nothing: the whole preview disappears. */
+  const gone = await pixelDelta(page, 'clear', box);
+  expect(gone.inside).toBeGreaterThan(0);
+
+  /* nothing -> a rung: it comes back in the refusal's colour with the
+     refusal's words, which is a DIFFERENT picture from the accepting one --
+     not merely "something is drawn". */
+  const refused = await pixelDelta(page, 'arm-rung', box);
+  expect(refused.inside).toBeGreaterThan(0);
+  expect(refused.inside).not.toBe(gone.inside);
+});
+
+test('16c: an armed miracle finally draws a ghost where it used to draw nothing', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await handScene(page, { arm: 'phial', aimTx: 19, aimTy: 116 });
+  expect(r.armed).not.toBe(null);
+  await shot(page, 'miracle-ghost.png');
+});
+
+test('16c: the miracle ghost is not vacuous -- armed and unarmed differ at the reticle', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await handScene(page, { arm: 'phial', aimTx: 19, aimTy: 116 });
+
+  /* The aimed tile plus the spokes' reach on every side, in screen space. */
+  const box = await page.evaluate(async () => {
+    const { aim } = await import('/src/model/aim.js');
+    const t = aim.band.tile;
+    return {
+      x: ((aim.band.origin.x + aim.tx * t - __mf.cam.x) | 0) - 4,
+      y: ((aim.band.origin.y + aim.ty * t - __mf.cam.y) | 0) - 4,
+      w: t + 8, h: t + 8
+    };
+  });
+
+  const gone = await pixelDelta(page, 'clear', box);
+  expect(gone.inside).toBeGreaterThan(0);
 });
 
 /* ============================================================

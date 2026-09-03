@@ -66,10 +66,35 @@ export function drawSlot(g, opts) {
    routine. `s` is one entry of `drawGrid`'s own returned `slots` array
    (`{x,y,w,h,...}`), not a fresh rectangle -- callers never recompute
    geometry `drawGrid` already settled.
+
+   TWO CONCENTRIC 1-PX BORDERS, THE SECOND INSET BY ONE PIXEL IN THE SAME
+   COLOUR (docs/PLAN-phase12.md §3 D-I, landed in Phase 16c -- D-I's own
+   status line claimed 12c had done it and `git log -- src/view/ui/slot.js`
+   proved otherwise). A single 1-px line was too quiet once selection became
+   the primary interaction surface for placing, mining-vs-placing
+   disambiguation, feeding and miracle-use all at once
+   (docs/PLAN-phase12.md §3 D-A): at ~1/3 window resolution one pixel of
+   `uiGood` against a `SUB[sub].look.item` swatch reads as an edge, not as a
+   choice. Eight `R()` calls, no new parameter and NO NEW PRIMITIVE -- the
+   two rejected alternatives were a colour-only change (one more green barely
+   reads as "stronger" here) and a background tint under the swatch (which
+   fights the swatch colour it would sit behind).
+
+   NO CALLER OPTS IN OR OUT. All three call sites -- a relic's frame
+   (`view/ui/mainPanel.js#frameUniqueSlots`) and the armed-placement
+   highlight in both grids (`mainPanel.js#frameArmedSlot`,
+   `view/ui/quickbar.js`) -- get the double frame, which is the point of the
+   function being shared: "this slot is called out" must look like one thing,
+   not two.
    See docs/DEVELOPER_GUIDE.md#record-what-you-drew */
 export function frameSlot(g, s, col) {
   R(g, s.x, s.y, s.w, 1, col);
   R(g, s.x, s.y, 1, s.h, col);
   R(g, s.x, s.y + s.h - 1, s.w, 1, col);
   R(g, s.x + s.w - 1, s.y, 1, s.h, col);
+
+  R(g, s.x + 1, s.y + 1, s.w - 2, 1, col);
+  R(g, s.x + 1, s.y + 1, 1, s.h - 2, col);
+  R(g, s.x + 1, s.y + s.h - 2, s.w - 2, 1, col);
+  R(g, s.x + s.w - 2, s.y + 1, 1, s.h - 2, col);
 }

@@ -51,7 +51,7 @@ import { aim } from '../model/aim.js';
 import { boons } from '../model/boons.js';
 import { eff, mods } from '../model/mods.js';
 import { player } from '../model/player.js';
-import { machineAt } from '../model/machines.js';
+import { defOf, feedCheck, machineAt } from '../model/machines.js';
 import {
   burdenFrac, burdenOf, cycleRow, hasPick, machineIdFor, placementCheck, run,
   tributeHave
@@ -100,11 +100,14 @@ const UI = {
   /* BURDEN's warning colour, past the soft cap (D3/D4) -- see below. */
   amber:  '#e0a030',
   debug:  colour('watB'),
-  /* The pocket strip's one accent colour: a relic's frame, and nothing else.
-     `ichor` is already the divine-gold `data/palette.js` name a trinket's own
-     `look.item` uses (see `bellows` in `data/substances.js`), so a trinket's
-     border and a trinket's swatch read as the same material rather than the
-     HUD inventing a second "this is special" colour. */
+  /* THE DIVINE ACCENT: a relic's frame, and -- since Phase 16c -- the armed
+     miracle's ghost (`miracleGhost` below). `ichor` is already the
+     divine-gold `data/palette.js` name a trinket's own `look.item` uses (see
+     `bellows` in `data/substances.js`), so a trinket's border, a trinket's
+     swatch and a miracle's ghost all read as the same material rather than
+     the HUD inventing a second and third "this is special" colour. That was
+     the point of the note this comment replaces; a miracle is a divine
+     one-shot, so it is the same fact, not an exception to it. */
   relic:  colour('ichor')
 };
 
@@ -581,8 +584,117 @@ function drawFootprintGhost(g, f, band, tx, ty, tw, th, ok, why) {
   if (!ok && why) {
     const x = (band.origin.x + tx * t - f.cam.x) | 0;
     const y = (band.origin.y + ty * t - f.cam.y) | 0;
-    drawText(g, why, x, y - 8, UI.heart, 1, 1, UI.shade);
+    ghostLabel(g, f, x, y, why, UI.heart);
   }
+}
+
+/* THE ONE PLACE A GHOST PUTS A WORD BESIDE ITSELF. Extracted in Phase 16c
+   when the feed preview below became a second caller: "the reason, in the
+   ghost's own colour, one line above the top-left of what it is talking
+   about, with a shadow so it survives being drawn over lit rock" is a single
+   presentation decision and there is no version of this project where two
+   ghosts should disagree about it.
+
+   CLAMPED TO THE VIEWPORT, per D8 and for the reason `cableGhost` below
+   already states: a refusal drawn off an edge at a narrow base buffer is a
+   refusal nobody reads. Inert for a ghost near the camera centre, which is
+   where both callers' subjects almost always are -- the clamp is here for
+   the machine at the screen edge, not for the common case. */
+function ghostLabel(g, f, x, y, text, col) {
+  const w = textWidth(text);
+  drawText(g, text, Math.max(2, Math.min(x, f.W - w - 2)),
+           Math.max(2, Math.min(y - 8, f.H - 10)), col, 1, 1, UI.shade);
+}
+
+/* ---------- the feed preview ----------
+   THE FOURTH BRANCH OF `buildGhost` (docs/PLAN-phase16-interaction-model-v2.md
+   §5 D16-E #3). With something armed and a machine under the reticle, LMB
+   FEEDS rather than places (`shell/input.js`'s rule 2, above rule 3), so this
+   is what the next press would actually do -- and until Phase 16c the only
+   feedback for it was four particles and a click AFTER the fact
+   (`shell/notify.js`'s `'accept'` chips; there is still no `TEXT` row).
+
+   ONE DECISION, TWO READERS, exactly as the footprint and cable ghosts
+   already are: `model/machines.js#feedCheck` is the query
+   `rules/machines.js#handOne` ENFORCES and this previews. `view` may not
+   import `rules`, and `feedCheck` was written in `model` in Phase 16a
+   specifically so this preview would be legal rather than a second copy of
+   the accept rule.
+
+   AN OUTLINE, NOT A FILL, and the argument is `cableGhost`'s own about its
+   corner brackets: a machine has art, a status badge and a buffer bar of its
+   own, and a 35%-alpha slab over all three trades the information the player
+   came for against the information they already have from the reticle.
+
+   REACH IS NOT CHECKED HERE, DELIBERATELY, and `feedCheck`'s own header is
+   the argument: reach is a fact about where the player's body is at the
+   instant of a press, `shell/input.js#feedTargetAt` asks it exactly once,
+   there, and a query that folded it in would be unusable for a ghost -- whose
+   whole job is to answer for a machine the player has not walked to. So this
+   states a property of the MACHINE AND THE PAIR ("it wants this, and it is 3
+   of 8 full"), never a promise about this particular press. Walking closer
+   never changes what it says.
+
+   `have`/`cap` ARE THE MATCHED SELECTOR'S, not the machine's total, because
+   the cap is per clause -- the furnace's 8-ore/2-fuel asymmetry is only
+   expressible that way, and `feedCheck` returns them already resolved for
+   whichever clause this pair landed in. Both are 0 on an 'IT DOES NOT WANT
+   THAT' refusal (no clause was found to measure), which is why the refusal
+   branch prints the reason instead of the numbers. */
+function feedGhost(g, f, m, armed) {
+  const check = feedCheck(m, armed.sub, armed.form);
+  const col = check.ok ? UI.good : UI.heart;
+  const x = (m.box.x - f.cam.x) | 0, y = (m.box.y - f.cam.y) | 0;
+  const w = m.box.w | 0, h = m.box.h | 0;
+
+  g.globalAlpha = 0.85;
+  R(g, x, y, w, 1, col);
+  R(g, x, y, 1, h, col);
+  R(g, x, y + h - 1, w, 1, col);
+  R(g, x + w - 1, y, 1, h, col);
+  g.globalAlpha = 1;
+
+  ghostLabel(g, f, x, y, check.ok ? check.have + '/' + check.cap : check.why, col);
+}
+
+/* ---------- the miracle ghost ----------
+   THE FIFTH BRANCH, and the one that closes a real hole rather than adding
+   polish (docs/PLAN-phase16-interaction-model-v2.md §3.6 #2): an armed
+   `phial` is `shell/input.js`'s RULE 1 -- it outranks feeding, placing and
+   mining, so it silently converts LMB from "dig" to "spend a one-shot" -- and
+   it was the ONE arming state that drew nothing at all. A mode that overrides
+   every other verb and shows no pixel for it is the worst combination
+   available.
+
+   DRAWN IN `UI.relic`, THE DIVINE GOLD, and not in `UI.good`/`UI.heart`. The
+   other two ghosts use green/red to mean "this placement is legal / is not",
+   and a miracle has no legality to report: rule 1 fires wherever the reticle
+   is valid. A third colour is the honest way to say "this is not that
+   question", and gold is the colour a divine object already carries
+   everywhere else in this HUD (see `UI.relic` above).
+
+   A TILE FILL PLUS FOUR SPOKES. The fill is the same 35%-alpha single-tile
+   idiom `drawFootprintGhost` uses for a tile-capable form, so the "here"
+   reads identically to every other ghost; the spokes are what make it not
+   look like a placement at a glance. Static geometry derived from `aim`
+   alone -- no `clock.t` pulse and emphatically no `rand()` (invariant 7): a
+   ghost that animated would make this file's own screenshots depend on when
+   they were taken. */
+const MIRACLE_SPOKE = 3;
+function miracleGhost(g, f) {
+  const b = aim.band, t = b.tile;
+  const x = (b.origin.x + aim.tx * t - f.cam.x) | 0;
+  const y = (b.origin.y + aim.ty * t - f.cam.y) | 0;
+  const cx = x + (t >> 1), cy = y + (t >> 1);
+
+  g.globalAlpha = 0.35;
+  R(g, x, y, t, t, UI.relic);
+  g.globalAlpha = 1;
+
+  R(g, cx, y - MIRACLE_SPOKE, 1, MIRACLE_SPOKE, UI.relic);
+  R(g, cx, y + t, 1, MIRACLE_SPOKE, UI.relic);
+  R(g, x - MIRACLE_SPOKE, cy, MIRACLE_SPOKE, 1, UI.relic);
+  R(g, x + t, cy, MIRACLE_SPOKE, 1, UI.relic);
 }
 
 /* ---------- the cable ghost ----------
@@ -699,6 +811,29 @@ function buildGhost(g, f) {
      rock) without a second implementation of that rule. */
   const armed = f.ui.armedPlace;
   if (!armed) return;
+
+  /* THE BRANCH ORDER BELOW IS `shell/input.js`'s LMB DISPATCH ORDER, and it
+     has to be: a ghost that previewed a lower-priority rule than the one the
+     press will actually fire is worse than no ghost, because it is confidently
+     wrong. That file's rules, in its own numbering (docs/SPEC.md §23.2):
+       1  an armed miracle always wins            -> `miracleGhost`
+       2  a machine under the reticle, in reach   -> `feedGhost`
+       3  open ground, something armed            -> the footprint ghosts
+       4  otherwise mine                          -> no ghost
+     `view` may not import `shell`, so this is a mirrored order rather than a
+     shared one; it is the reason both lists are written out in full, each
+     naming the other. */
+  if (armed.form === F.phial) { miracleGhost(g, f); return; }
+
+  /* `def.handFeed` IS PART OF THE TEST, not an afterthought -- the same first
+     half of `shell/input.js#feedTargetAt`'s own two questions. A gear, an
+     axle or a hub is a machine with no hand-feed clause at all, so rule 2
+     cannot fire on it and the press falls through to rule 3; previewing a
+     feed there would preview a rule that does not exist for that machine.
+     The SECOND half of `feedTargetAt` -- reach -- is deliberately absent, for
+     the reason `feedGhost` and `model/machines.js#feedCheck` both state. */
+  const target = machineAt(aim.band, aim.tx, aim.ty);
+  if (target && defOf(target).handFeed) { feedGhost(g, f, target, armed); return; }
 
   if (armed.form === F.rig) {
     const id = machineIdFor(armed.sub);
