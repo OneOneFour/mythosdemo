@@ -224,6 +224,59 @@ export const TREAT = {
     if (c.openR) lip(g, c.px + t, c.py + t, drape, c.tx, c.ty, low, dark, true);
   },
 
+  /* A LADDER: TWO RAILS AND A RUNG PITCH THAT DOES NOT KNOW WHERE THE TILES
+     ARE. The first treatment a FORM asks for rather than a substance
+     (`data/forms.js`'s `rung` and `stair` rows; docs/PLAN-phase13.md section
+     3.3), and the one property that makes it work is that the rung rows are
+     chosen from the tile's ABSOLUTE band row -- `c.ty * c.tile + y` -- rather
+     than from a counter starting at each tile's own top edge. A 3-row pitch
+     computed per tile restarts at every tile boundary: six stacked tiles then
+     show six identical 8 px patterns whose joins stutter, and a ladder placed
+     one row lower than the one above it does not line up with it. Derived from
+     the band row, a column of any length is ONE ladder and it is continuous
+     across every seam, at any starting row.
+
+     NO JITTER AND NO HASH, deliberately. Everything else painted into a chunk
+     canvas is geology and is roughened positionally; a ladder is the one thing
+     down there somebody MADE, and straight rails are what say so at 8 px.
+     (`hash2` would have been allowed here; `rand()` never is -- invariant 7.)
+
+     THREE COLOURS, ALL UNDER KEYS `tools/content.mjs#COLOUR_KEYS` VALIDATES:
+     `body` the rails, `hi` the lit face of a rung, `lo` the row beneath it
+     where a tread is deeper than one pixel. docs/PLAN-phase13.md section 3.3
+     proposed `rail:`/`rung:` instead; those are not colour keys, so they would
+     have been UNCHECKED colours -- the exact failure this file's header block
+     says assertion 15 exists to move to import time.
+
+     `every`/`tread`/`inset` are what make the two tiers read apart: timber
+     pegs are 1 px rungs between inset rails, a bronze stair is a 2 px tread
+     between rails on the tile's own edges. One function, two rows of data. */
+  ladder(g, c, p) {
+    const t = c.tile;
+    const rail = colour(p.body);
+    const lit = colour(p.hi ?? p.body);
+    const under = colour(p.lo ?? p.body);
+
+    /* Clamped so the two rails can never cross or leave the tile, whatever a
+       row asks for -- a treatment that drew outside its cell would need an
+       `EXTENT` entry, and this one deliberately has none. */
+    const inset = Math.max(0, Math.min((t >> 1) - 1, p.inset ?? 1));
+    const rw = Math.max(1, Math.min(t - inset * 2, p.railW ?? 1));
+    const pitch = Math.max(1, p.every ?? 3);
+    const deep = Math.max(1, Math.min(pitch, p.tread ?? 1));
+    const phase = p.phase ?? 1;
+
+    R(g, c.px + inset, c.py, rw, t, rail);
+    R(g, c.px + t - inset - rw, c.py, rw, t, rail);
+
+    const x = c.px + inset, w = t - inset * 2;
+    for (let y = 0; y < t; y++) {
+      const k = (((c.ty * t + y - phase) % pitch) + pitch) % pitch;
+      if (k >= deep) continue;
+      R(g, x, c.py + y, w, 1, k === 0 ? lit : under);
+    }
+  },
+
   /* ==================== MACHINERY ====================
      The parts a machine row's `look.parts` list may name. `EXTENT` does NOT
      apply to any of them: a machine is drawn live into the frame by

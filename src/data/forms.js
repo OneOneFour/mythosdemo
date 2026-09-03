@@ -25,6 +25,18 @@
                `handFeed.from`, or any tribute demand. `gravel` and `log` both
                violated that and both lost their `tile` block in Phase 14a --
                see their own rows below, and docs/SPEC.md section 19.
+     look      OPTIONAL, and only meaningful on a form that also has a `tile`
+               block. THE FORM DRAWS ITSELF: `view/paint.js#paintTile` skips
+               every generic cube pass -- base fill, grain, lit top face, cliff
+               faces, bottom shade line and the SUBSTANCE's own treatments --
+               for any tile whose form declares one, and draws this instead
+               over whatever the space would otherwise have been. Same
+               `{ treatments:[{ fn, ...}] }` shape a substance's `look` uses and
+               the same `view/treatments.js#TREAT` table, so `npm run check`
+               validates the `fn` and the colour names here exactly as it does
+               there. `rung` and `stair` are the two rows that have one; a form
+               with no `look` is painted as terrain, as every form was before
+               Phase 13b.
      climbK    OPTIONAL. Multiplies `eff('climb')` for this form
                (rules/player.js). Absent means 1; only `stair` sets it
                (~1.8x), which is the point of a tier-2 ladder buying
@@ -182,12 +194,23 @@ export const FORMS = [
      the log it was measured against no longer places at all. No tag
      membership: a rung is not
      fuel, ore or anything else a selector should be able to find by
-     accident. */
+     accident.
+
+     THE `look` BLOCK IS PHASE 13b (docs/PLAN-phase13.md section 3.3), and it
+     is why a placed one no longer reads as a lit wooden cube: 1 px rails inset
+     one pixel from each edge in `woodC`, a `woodA` rung every third BAND ROW
+     (never every third row of the tile -- `view/treatments.js#ladder` states
+     why at length), and nothing in between. `woodD` goes unused at
+     `tread:1` and is named anyway so the row does not have to change shape if
+     a deeper peg is ever wanted. Timber is the only `organic` substance, so
+     these tones are the only ones this form can currently be drawn in. */
   { id:'rung', label:'LADDER',
     size:3, massK:0.3, hudOrder:9,
     tags:[],
     subTags:['organic'],
-    tile:{ solid:false, climb:true, hardK:0.20 } },
+    tile:{ solid:false, climb:true, hardK:0.20 },
+    look:{ treatments:[{ fn:'ladder', body:'woodC', hi:'woodA', lo:'woodD',
+                         inset:1, every:3, tread:1 }] } },
 
   /* ---- stair: the tier-2 ladder, Daedalus's bronze work (Phase 2a).
      `subTags:['metal']` is the same restriction `ingot`/`plate` use, so
@@ -203,12 +226,30 @@ export const FORMS = [
      for waste -- some of the timber is scaffolding, not structure, and does
      not survive into the stair. No `hardK` override: a bronze stair
      recovers at plain copper hardness, tougher than a rung,
-     which is the other half of "tier 2 costs more and is worth it." */
+     which is the other half of "tier 2 costs more and is worth it."
+
+     THE `look` BLOCK IS THE SAME FUNCTION AS `rung`'S, WITH THREE NUMBERS
+     CHANGED, and that is the point of putting the geometry in one treatment:
+     rails on the tile's own edges (`inset:0`) rather than inset, a tread 2 px
+     deep every FOURTH band row rather than a 1 px rung every third, and copper
+     rather than timber. So the two tiers read apart at a glance -- bright,
+     wider-pitched, heavier-railed -- which docs/SPEC.md section 10 asks for and
+     which nothing but the label used to deliver.
+
+     THE TONES ARE COPPER'S, NOT THE SUBSTANCE'S, and that is a real limitation
+     rather than an oversight: a form `look` cannot see which substance it was
+     crossed with, so a hypothetical `tin/stair` would draw in copper. It is not
+     reachable today -- `recipes.js#daedalan` is the only source of a stair and
+     it produces `copper/stair` -- and threading a substance's resolved (and
+     depth-blended) palette into a form treatment is a wider change than this
+     row. Parked in docs/FINDINGS.md. */
   { id:'stair', label:'STAIR',
     size:4, massK:3.0, hudOrder:10, climbK:1.8,
     tags:[],
     subTags:['metal'],
-    tile:{ solid:false, climb:true } },
+    tile:{ solid:false, climb:true },
+    look:{ treatments:[{ fn:'ladder', body:'cuC', hi:'cuA', lo:'cuD',
+                         inset:0, every:4, tread:2 }] } },
 
   /* ---- rig: a MACHINE, held. The shared form every machine-item substance
      takes; see docs/DEVELOPER_GUIDE.md#a-machine-is-a-held-item

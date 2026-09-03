@@ -29,7 +29,7 @@ import { unitProgressAt } from '../model/mining.js';
 import { sizeOf } from '../model/items.js';
 import { eff } from '../model/mods.js';
 import { CARRIER_H, CARRIER_W, carrierPos, segmentsAt } from '../model/segments.js';
-import { baseChargeAt, baseHardAt, formAt, rowAt, skyExposedAt, solidAt, subAt, tileAt } from '../model/tiles.js';
+import { baseChargeAt, baseHardAt, formAt, formRowOf, rowAt, skyExposedAt, solidAt, subAt, tileAt } from '../model/tiles.js';
 import { bands, chunkPx, chunkVer, heightPx } from '../model/world.js';
 import { EXTENT, TREAT, seedAt, treat } from './treatments.js';
 import { SPRITE } from './sprites.js';
@@ -167,7 +167,7 @@ function paintChunk(b, cx, cy, g) {
         if (ty >= floorTy) paintCavity(g, b, tx, ty, dx, dy, dark);
         continue;
       }
-      paintTile(g, b, tx, ty, dx, dy);
+      paintTile(g, b, tx, ty, dx, dy, dark);
     }
   }
 
@@ -255,11 +255,50 @@ function paintCavity(g, b, tx, ty, dx, dy, dark) {
 }
 
 /* Solid rock: base tone, hash grain, lit faces where exposed, the row's own
-   treatments, and crack marks as the pick does its work. */
-function paintTile(g, b, tx, ty, dx, dy) {
+   treatments, and crack marks as the pick does its work.
+   A PLACED FORM THAT DECLARES ITS OWN `look` TAKES NONE OF THAT -- see the
+   branch below. */
+function paintTile(g, b, tx, ty, dx, dy, dark) {
   const t = b.tile;
   const L = look(b, tx, ty);
   if (!L) return;
+
+  const cell = { px: dx, py: dy, tx, ty, tile: t };
+
+  /* A FORM MAY DRAW ITSELF, AND THEN IT IS NOT A CUBE (Phase 13b,
+     docs/PLAN-phase13.md section 3.3). Terrain painting is otherwise entirely
+     substance-driven and form-blind, which is why a placed ladder used to be
+     pixel-identical to a native trunk minus its canopy: `rung.tile.solid` is
+     false, so an open shaft gave it a lit top face, a jittered cliff face on
+     BOTH sides and a bottom shade line, and it read as an edge-lit wooden cube
+     floating in the void.
+
+     So the generic cube passes are SUPPRESSED here rather than drawn under the
+     sprite. All of them, including the base fill, the grain and the substance's
+     own treatments -- the sprite in `view/treatments.js#ladder` is two rails
+     and a rung, with the tile empty between them, and it can only read that way
+     over the space the tile actually occupies. Drawn over an 8x8 block of
+     timber it would be a wooden cube with faint stripes on it, which is the
+     thing being fixed. Copper's `glint` speckles are suppressed for the same
+     reason: they belong on a vein face, not floating in a stairwell.
+
+     WHAT GOES BEHIND IT IS WHATEVER THE SPACE WOULD OTHERWISE HAVE BEEN, by the
+     one rule `paintChunk` already uses for air -- excavated rock at or below the
+     band's ground line, transparent sky above it -- so a ladder in a shaft sits
+     in the dark with the floor lip and ceiling fringe of its neighbours intact,
+     and a ladder climbing into open sky does not carry a black square with it.
+
+     Keyed on the PRESENCE of a form-level `look` block and nothing else. Not a
+     name check: `decorate` above already carries the only two the project
+     allows, and CLAUDE.md D7 forbids a third. A future form draws itself by
+     adding a `look` to its own row, with no edit here. */
+  const fl = formRowOf(tileAt(b, tx, ty))?.look;
+  if (fl) {
+    if (ty >= (b.cfg.floorTy ?? 0)) paintCavity(g, b, tx, ty, dx, dy, dark);
+    treat(g, fl, cell);
+    cracked(g, b, tx, ty, dx, dy, t);
+    return;
+  }
 
   R(g, dx, dy, t, t, L.base);
   grain(g, dx, dy, tx, ty, t, L);
@@ -304,17 +343,26 @@ function paintTile(g, b, tx, ty, dx, dy) {
   if (!solidAt(b, tx, ty + 1)) R(g, dx, dy + t - 1, t, 1, L.lo);
 
   /* Appearance is data: docs/DEVELOPER_GUIDE.md#colour-and-appearance */
-  treat(g, L.row.look, { px: dx, py: dy, tx, ty, tile: t });
+  treat(g, L.row.look, cell);
 
-  /* A CRACK MEANS "THIS SWING", NOT "THIS VEIN" (Phase 14c, D14-G). It read
-     `progressAt` while every tile broke on its first unit, which was the same
-     number; since Phase 14b a deposit tile takes `charge` swings, and a crack
-     pattern that crept on across all four of them would say nothing about the
-     hit actually landing. `unitProgressAt` resets per unit, so each swing
-     cracks the rock from scratch and the moment a unit falls out is visible in
-     the cracks vanishing. HOW SPENT THE WHOLE VEIN IS is the other question,
-     and it is deliberately NOT drawn here: it is a live condition and this is
-     a chunk bake (see this file's header and `view/scene.js#drawDepletion`). */
+  cracked(g, b, tx, ty, dx, dy, t);
+}
+
+/* A CRACK MEANS "THIS SWING", NOT "THIS VEIN" (Phase 14c, D14-G). It read
+   `progressAt` while every tile broke on its first unit, which was the same
+   number; since Phase 14b a deposit tile takes `charge` swings, and a crack
+   pattern that crept on across all four of them would say nothing about the
+   hit actually landing. `unitProgressAt` resets per unit, so each swing
+   cracks the rock from scratch and the moment a unit falls out is visible in
+   the cracks vanishing. HOW SPENT THE WHOLE VEIN IS is the other question,
+   and it is deliberately NOT drawn here: it is a live condition and this is
+   a chunk bake (see this file's header and `view/scene.js#drawDepletion`).
+
+   ITS OWN FUNCTION SINCE PHASE 13b, because a form that draws its own sprite
+   skips every OTHER pass in `paintTile` and must not skip this one: a ladder
+   being mined back out is exactly as much "this swing landed" as a rock face
+   is, and it is the one cue that says the pick is working at all. */
+function cracked(g, b, tx, ty, dx, dy, t) {
   const d = unitProgressAt(b, tx, ty, effHardAt(b, tx, ty), effChargeAt(b, tx, ty));
   if (d > 0.05) cracks(g, dx, dy, tx, ty, d, t);
 }

@@ -2016,3 +2016,39 @@ Consequences, in the order they bite:
    `uiDim` (it is `mix(uiBack, uiDim, 0.25)`); that is derived arithmetic, not
    a call-site edit, and the phase's "out of scope" note about `pipOff` was
    about not recolouring it, which was honoured.
+
+## Phase 13b (the ladder sprite) — three things parked
+
+1. **A form-level `look` cannot see which substance it was crossed with, so
+   `copper/stair`'s tones are hardcoded copper.** `view/paint.js#paintTile`
+   resolves the SUBSTANCE's palette into the depth-blended `look()` cache
+   (`base`/`hi`/`lo`/`faceSun`/`faceShade`/`contact`, quantised into
+   `DEPTH_STEPS`) and hands the treatment only `{ px, py, tx, ty, tile }`. A
+   treatment therefore names its own colours from `data/palette.js` and gets no
+   access to that cache — which is right for `glint` (a vein's own speckle
+   colour is a property of the vein) and wrong for a form shared across
+   substances. `stair` crosses with any `metal`, so a hypothetical `tin/stair`
+   would draw in copper. **Not reachable today**: `recipes.js#daedalan` is the
+   only source of a stair and it produces `copper/stair`, and `rung`'s only
+   organic substance is timber. The fix is to pass the resolved tones through
+   on the cell (the machine parts' `w`/`h`/`turn`/`t` precedent) and let a
+   form's `look` omit a colour to inherit the substance's — worth doing the day
+   a second substance can take a tile-capable form, and not before, because it
+   adds a second colour-resolution path to every treatment that opts into it.
+
+2. **The depth blend does not reach a form's sprite.** Following from 1: a
+   ladder at row 300 is drawn in exactly the tones a ladder at row 20 is, while
+   every rock tone around it has been pushed `DEPTH_K` toward `INK.deep`. That
+   is deliberate for now — it keeps a placed ladder the most legible thing in a
+   deep shaft, which is what you want from the object you climb out on — but it
+   is a decision made by omission and should be made on purpose if 1 is ever
+   done.
+
+3. **`tools/content.mjs` assertion 15 was not walking `FORM`.** It walked
+   `SUB`, `MACH` and `BANDS`, which was complete until this phase gave a form a
+   `look` block; one line was added (`for (const f of FORM)`). Worth noting as a
+   pattern rather than a one-off: the assertion is generic over the SHAPE of a
+   look block but enumerates the TABLES by hand, so every new table that grows
+   a `look` needs that one line and nothing will fail if it is forgotten. A
+   registry of "tables that may carry a look" would close it permanently and is
+   probably not worth a fourth abstraction yet.

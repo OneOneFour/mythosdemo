@@ -55,9 +55,13 @@ Mouse aim when you move the mouse; keyboard aim otherwise (facing, or up/down).
    that down is free before any machine exists.
 3. **Keep digging.** Fall damage starts at 5 tiles and a 20-tile drop is lethal,
    at any framerate. You have five discrete hearts.
-4. **Fell a tree, then place logs with E.** A log is the only tile-capable form,
-   so placing logs *is* the ladder mechanic — and a standing trunk is climbable
-   for the same reason. That is emergent from the content model, not coded.
+4. **Fell a tree, then peg the logs into rungs and place them.** Placing a rung
+   *is* the ladder mechanic: `rung` is one of three tile-capable forms
+   (`rung`, `stair`, `block`), and a log is not one of them — it is fuel and
+   feedstock, so the ladder costs a craft. A standing trunk is **not**
+   climbable: worldgen writes a trunk as a *native* tile, and only a *placed*
+   form's own `tile` block can say `climb`. That is emergent from the content
+   model, not coded.
 5. **Place a furnace with F**, and drop ore into its mouth from above. Material
    that falls in is free; hand-feeding while standing next to it also works.
    Putting it *below* a vein is strictly better than putting it on the surface.

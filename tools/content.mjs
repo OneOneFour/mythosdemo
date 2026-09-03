@@ -539,6 +539,12 @@ export function checkContent({ quiet = false } = {}) {
   for (const s of SUB) walkLook(`substance "${s.id}"`, s.look);
   for (const m of MACH) walkLook(`machine "${m.id}"`, m.look);
   for (const b of BANDS) walkLook(`band "${b.id}"`, b.look);
+  /* FORMS TOO, SINCE PHASE 13b. A form may now carry its own `look` block
+     (`data/forms.js`'s `rung`/`stair`), and it went unwalked here for exactly
+     as long as it takes to write this line -- which would have made the newest
+     `look` in the project the only unchecked one, i.e. the failure mode this
+     whole assertion exists to close. */
+  for (const f of FORM) walkLook(`form "${f.id}"`, f.look);
 
   /* ---- 16. THE TILE BYTE: THE FACT THE NARROWED GUARD RESTS ON.
      `data/forms.js`'s import-time guard used to price every substance row as

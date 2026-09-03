@@ -4396,3 +4396,123 @@ test('the depletion cue actually changes pixels, and only on the tiles that were
   // no pixel anywhere outside those two tiles moved either
   expect(seen.total).toBe(at(worked[0]) + at(worked[1]));
 });
+
+/* ============================================================
+   PHASE 13b: THE LADDER DRAWS ITSELF
+   (docs/PLAN-phase13.md section 3.3)
+
+   Terrain painting was substance-driven and form-blind, so a placed
+   `timber/rung` was pixel-identical to a native trunk minus its canopy --
+   and because `rung.tile.solid` is false, an open shaft gave it a lit top
+   face, a jittered cliff face on BOTH sides and a bottom shade line. It read
+   as an edge-lit wooden cube floating in the void. `view/paint.js#paintTile`
+   now draws a form's own `look` instead of all of that.
+
+   ONE SCENE, TWO LIGHTINGS, TWO VIEWPORTS, on the pair rule
+   `shaft-unlit.png`/`shaft-lit.png` states above: a screenshot pair proves
+   the two are not identical to EACH OTHER, so each is baselined separately
+   and a regression has to move a file relative to its own accepted image.
+
+   BOTH TIERS IN ONE FRAME, deliberately: `timber/rung` on the left wall and
+   `copper/stair` on the right. They share one treatment function
+   (`view/treatments.js#ladder`) and differ only in three numbers and a
+   palette, so a frame showing one and not the other would leave half the new
+   content unbaselined -- and "the two tiers read apart at a glance" is what
+   docs/SPEC.md section 10 asks the tier to buy.
+
+   SIX TILES, AND THEY CROSS A CHUNK SEAM ON PURPOSE. The rung pitch is
+   derived from the ABSOLUTE band row rather than from each tile's own top
+   edge, so a column of any length is one continuous ladder; rows 110..115 at
+   `chunk:16` straddle the boundary at row 112, which puts the last four tiles
+   in a DIFFERENT CHUNK CANVAS from the first two. A per-tile pitch would
+   stutter every 8 px and a per-chunk one would break at the seam, and this is
+   the baseline either would show up in. */
+const LADDER = { tx0: 40, ty0: 104, w: 7, h: 14, top: 110, n: 6 };
+
+async function ladderShaft(page) {
+  await page.evaluate(async ({ tx0, ty0, w, h, top, n }) => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { bandOf, worldX, worldY, write: ww } = await import('/src/model/world.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { PH, write: pw } = await import('/src/model/player.js');
+    const { banner } = await import('/src/view/fx.js');
+
+    const band = bandOf('topsoil');
+    for (let ty = ty0; ty < ty0 + h; ty++)
+      for (let tx = tx0; tx < tx0 + w; tx++) tw.clear(band, tx, ty);
+
+    /* A floor for the ladders to stand on and for the brazier to sit on --
+       stone rather than the band's own soil so the shaft floor reads as a
+       different material from its walls. */
+    const floor = ty0 + h - 1;
+    for (let tx = tx0; tx < tx0 + w; tx++) tw.set(band, tx, floor, S.stone);
+
+    /* Placed through `model/tiles.js#write.set` with a real form ordinal --
+       the same call `rules/placement.js#placeTile` makes -- never through a
+       click at a hardcoded pixel, which CLAUDE.md records breaks the moment
+       the viewport changes size, and these are shot at two. */
+    for (let i = 0; i < n; i++) {
+      tw.set(band, tx0 + 1, top + i, S.timber, F.rung);
+      tw.set(band, tx0 + w - 2, top + i, S.copper, F.stair);
+    }
+
+    /* Standing at the FOOT of the timber ladder, and clear of the column the
+       brazier goes in below -- the lit shot's whole point is that the light
+       source is visible in frame, and the player sprite is 3 tiles of the
+       shaft's 7. */
+    pw.band(band);
+    pw.move(worldX(band, tx0 + 2), worldY(band, floor) - PH);
+    ww.revealAll(band);
+    banner.fade = 0;   // past the opening title, same reasoning `settle()` gives
+  }, LADDER);
+  await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(2); });
+}
+
+/* Centre the shaft in whatever viewport is current and render ONCE. Separate
+   from the setup and always called last, for the reason `frameVein` gives: a
+   substep also runs `updateCamera`, which would pull the camera back onto the
+   player. */
+const frameLadder = page => page.evaluate(async ({ tx0, ty0, w, h }) => {
+  const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+  const { VIEW } = await import('/src/core/canvas.js');
+  const band = bandOf('topsoil');
+  __mf.cam.x = Math.round(worldX(band, tx0 + w / 2) - VIEW.w / 2);
+  __mf.cam.y = Math.round(worldY(band, ty0 + h / 2) - VIEW.h / 2);
+  __mf.draw();
+}, LADDER);
+
+test('a placed ladder column in an unlit shaft', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await ladderShaft(page);
+  await frameLadder(page);
+  await shot(page, 'ladder-unlit.png');
+
+  await page.evaluate(() => __mf.resize(200, 180));
+  await frameLadder(page);
+  await shot(page, 'ladder-unlit-phone.png');
+});
+
+test('the same ladder column lit by a brazier', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await ladderShaft(page);
+  await page.evaluate(async ({ tx0, ty0, h }) => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { M } = await import('/src/data/machines.js');
+    const { write: mw } = await import('/src/model/machines.js');
+    const { bandOf } = await import('/src/model/world.js');
+
+    const brazier = mw.place(bandOf('topsoil'), M.brazier, tx0 + 4, ty0 + h - 2);
+    mw.take(brazier, S.timber, F.log, 4);
+    __mf.frames(700);          // > 6s honest-fuel recipe, then settle -- `shaft-lit.png`'s own margin
+  }, LADDER);
+  await frameLadder(page);
+  await shot(page, 'ladder-lit.png');
+
+  await page.evaluate(() => __mf.resize(200, 180));
+  await frameLadder(page);
+  await shot(page, 'ladder-lit-phone.png');
+});
