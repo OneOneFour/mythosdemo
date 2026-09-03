@@ -98,7 +98,13 @@ const BEATS = [
      because a shove from a landing or a slope is not walking. */
   () => player.walkPhase > 0,
 
-  /* 2 — "Stock pickaxe planted in the soil. Walk into it to take it."
+  /* 2 — "Stock pickaxe planted in the soil. Stand over it and hold `c` to
+     take it." NOT "walk into it": pickup has been opt-in since Phase 12b
+     (docs/PLAN-phase12.md §3 D-E/D-F), so proximity alone collects nothing
+     unless `cmd.collect` is held or AUTO COLLECT is on. Beat 3 counts ore on
+     the GROUND, so progression was never blocked by the change -- only this
+     sentence and docs/SPEC.md §5's copy of it were left describing the old
+     magnet.
      `hasPick()` is exactly "is a mining tool in the pockets", already the
      gate `rules/mining.js` swings on, so this beat fires on the same datum
      that makes digging possible rather than on a parallel copy of it. Reads

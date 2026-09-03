@@ -1208,6 +1208,16 @@ Contracts:
   real, coordinate-correct mouse event — see `tests/visual.spec.js`'s many
   `__mf.cmd.dig = true` sites. `cmd.miracle` was removed outright: nothing,
   not even a test, still read it.
+  **Pickup is opt-in.** `rules/items.js` collects only while its `collect`
+  hold is true, and `shell/main.js#step` supplies that as
+  `ui.autoCollect || cmd.collect` — the same "which device or preference
+  asked is a shell question" merge `digging` already uses. `ui.autoCollect`
+  (the Character tab's AUTO COLLECT row) is therefore **input state, not a
+  presentation toggle**, and `shell/boot.js#newRun` resets it to `false` on
+  every run: it gates what enters `run.inv`, which moves burden and climb
+  speed, so a sticky one would make two runs from the same seed diverge
+  (invariant 8, D13-A / docs/PLAN-phase13.md §4.3). Set it from a test with
+  `setAutoCollect(bool)` and read it back off `__mf.ui.autoCollect`.
 - **`wants`** — one-shot requests to the shell, not movement (drafting).
   Restart moved off `wants.restart`/any key entirely in Phase 12d, onto a
   real, clickable death-screen button (D-C) — see below.

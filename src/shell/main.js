@@ -754,6 +754,13 @@ function installTestHook() {
         craftQueue: ui.craftQueue.slice(),
         quickbar: run.inv.slice(run.mainSlots).map(s => s ? { ...s } : null),
         hintsOpen: ui.hintsOpen,
+        /* AUTO COLLECT, readable at last (docs/PLAN-phase13.md §4.5). Until
+           this line a test could only BLIND-TOGGLE it through
+           `toggleAutoCollect()` and had to assume it knew the current value;
+           with `setAutoCollect(bool)` beside it a test can now state the
+           state it wants and then verify it took -- which is what the
+           newRun-resets-it probe (D13-A) actually asserts. */
+        autoCollect: ui.autoCollect,
         panels: uiDrawn.panels.map(p => ({ ...p, closeHit: p.closeHit ? { ...p.closeHit } : null })),
         tabs: uiDrawn.tabs.map(t => ({ ...t, hits: t.hits.map(h => ({ ...h })) })),
         grids: uiDrawn.grids.map(gr => ({ ...gr, slots: gr.slots.map(s => ({ ...s })) })),

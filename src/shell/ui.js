@@ -55,16 +55,32 @@ export const ui = {
   /* AUTO COLLECT (docs/PLAN-phase12.md §3 D-E/D-F): whether the old
      always-on pickup magnet is restored. Default FALSE -- items no longer
      auto-collect; holding 'c' (`cmd.collect`, a HOLD) collects manually
-     instead. A UI PREFERENCE, not `run.autoCollect`: `rules/items.js` may
-     only import `core`/`data`/`model` (`tools/layers.mjs`), so it could
-     never read a `shell` field by import even if it wanted to, and
-     `shell/main.js#step()` already folds a "which device/preference asked"
-     question into the narrowed command object it hands every `rules` step
-     (`digging = cmd.dig || cmd.mouse`) -- this is the identical shape, not a
-     new mechanism. Putting it on `run` would also need a `RUN_SCHEMA` field
-     and would silently forget the player's choice on every restart
-     (invariant 8) for a fact with zero effect on world-state
-     reproducibility. */
+     instead.
+
+     IT LIVES IN `shell` FOR A LAYERING REASON, not because it is cosmetic:
+     `rules/items.js` may only import `core`/`data`/`model`
+     (`tools/layers.mjs`), so it could never read a `shell` field by import
+     even if it wanted to, and `shell/main.js#step()` already folds a "which
+     device/preference asked" question into the narrowed command object it
+     hands every `rules` step (`digging = cmd.dig || cmd.mouse`) -- this is
+     the identical shape, not a new mechanism. Putting it on `run` would need
+     a `RUN_SCHEMA` field for a fact no world-state fingerprint should carry.
+
+     BUT IT IS SIMULATION-AFFECTING INPUT STATE, NOT A PRESENTATION
+     PREFERENCE LIKE MUTE OR THE GRID OVERLAY, and it is therefore RESET ON
+     EVERY RUN -- `shell/boot.js#newRun`'s teardown calls
+     `setAutoCollect(false)` beside every model `clear()` (D13-A,
+     docs/PLAN-phase13.md §4.3). It ORs into `cmd.collect`, which gates
+     `model/run.js#write.collect`, which changes `run.inv`, which changes
+     burden, which changes climb speed and carrier load. Left sticky, a
+     restart on the same seed would replay differently depending on what the
+     player had clicked before dying -- precisely the determinism bug
+     invariant 8 names. An earlier draft of this comment argued the opposite
+     ("would silently forget the player's choice on every restart"); that
+     read the invariant as being about tidiness rather than about replay, and
+     the cost of losing one click in a panel the player opens anyway is the
+     smaller of the two. There is no `localStorage` (CLAUDE.md forbids it),
+     so nothing survives a page reload either way. */
   autoCollect: false,
 
   /* CLICK-TO-ARM PLACEMENT: `{ sub, form } | null` -- the specific held pair
@@ -261,8 +277,17 @@ export function clearCraftQueue() { ui.craftQueue.length = 0; }
 
 export function toggleHints() { ui.hintsOpen = !ui.hintsOpen; }
 
-/* ---------- auto collect (docs/PLAN-phase12.md §3 D-F) ---------- */
+/* ---------- auto collect (docs/PLAN-phase12.md §3 D-F) ----------
+   TWO functions on purpose. `toggleAutoCollect` is what the Character-tab row
+   calls -- a click on a checkbox knows nothing but "flip it". `setAutoCollect`
+   states the state it wants, which is what `shell/boot.js#newRun` needs (a
+   teardown that TOGGLED would leave the next run in whichever state the last
+   one ended in, i.e. exactly the bug D13-A fixes) and what a test needs (a
+   blind toggle asserts the caller already knows the current value; a setter
+   does not). Not a new UI affordance -- docs/PLAN-phase13.md §7 keeps the
+   Character-tab row as the one control. */
 export function toggleAutoCollect() { ui.autoCollect = !ui.autoCollect; }
+export function setAutoCollect(v) { ui.autoCollect = !!v; }
 
 /* ---------- click-to-arm placement ----------
    `armPlace` takes ORDINALS (a substance x form pair), the same shape

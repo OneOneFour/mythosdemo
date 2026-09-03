@@ -52,6 +52,7 @@ import { reset as resetFx, title } from '../view/fx.js';
 import { resetChunks } from '../view/paint.js';
 import { initAudio, resetAudio } from './audio.js';
 import { installInput } from './input.js';
+import { setAutoCollect } from './ui.js';
 
 /* Once per PAGE. Everything here is a device or a listener, and none of it is
    allowed to depend on a world existing yet. */
@@ -83,6 +84,16 @@ export function newRun(seed = (Math.random() * 1e9) | 0) {
                         // every other model clear on this list
   aimw.reset();
   journalw.clear();
+  setAutoCollect(false);  // D13-A (docs/PLAN-phase13.md §4.3): AUTO COLLECT is
+                          // an INPUT, not a cosmetic preference -- it ORs into
+                          // `cmd.collect` in `shell/main.js#step`, so it gates
+                          // what enters `run.inv`, which moves burden, climb
+                          // speed and carrier load. A toggle surviving a
+                          // restart would make two runs from the same seed
+                          // diverge on what the player clicked before dying,
+                          // which is exactly invariant 8's determinism bug.
+                          // The ONLY `shell` state on this teardown list, and
+                          // it is here for that reason and not for tidiness.
   resetChunks();               // canvases holding the previous world
   resetFx();                   // chips and toasts from the previous world
   resetAudio();
@@ -122,8 +133,11 @@ export function newRun(seed = (Math.random() * 1e9) | 0) {
   /* --- the first gift. Planted a few tiles off centre, inside the flat spawn
          shelf (`SHELF` in `rules/generate.js`) so it never lands on a ragged
          lip or a tree. An ordinary item, not a special case: it falls the last
-         tile like anything else and the existing pickup radius does the rest,
-         which is what `model/run.js#hasPick()` reads. --- */
+         tile like anything else and then LIES THERE until the player picks it
+         up -- pickup has been opt-in since Phase 12b, so walking over it is no
+         longer enough: hold `c` (`cmd.collect`) inside `eff('pickupR')`, or
+         turn AUTO COLLECT on in the Character tab. `model/run.js#hasPick()`
+         reads the result either way. --- */
   itemw.spawn(home, worldX(home, spawnTx + 4), worldY(home, floorTy - 1), S.pick, F.relic, 0, 0);
 
   /* --- Prometheus's fire, stolen once. A `timber/brand` on the OTHER side of

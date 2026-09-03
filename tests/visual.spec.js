@@ -133,11 +133,15 @@ test('digging straight down: no drift, monotonic depth, correct drops', async ({
     const { F } = await import('/src/data/forms.js');
     const { bandOf, worldX, worldY } = await import('/src/model/world.js');
     /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now, not automatic
-       -- this test's whole point is what falls, not the collect gate, so
-       restore the old always-on magnet for it rather than holding 'c'
-       through a loop keyed on `__mf.aim`. */
-    const { toggleAutoCollect } = await import('/src/shell/ui.js');
-    toggleAutoCollect();
+       -- this test's whole point is what falls, not the collect gate, so turn
+       the magnet ON for it rather than holding 'c' through a loop keyed on
+       `__mf.aim`. `setAutoCollect(true)` and not `toggleAutoCollect()`
+       (Phase 13c, docs/PLAN-phase13.md §4.5): a toggle asserts the caller
+       already knows the current value, which is only true here by accident of
+       a fresh `page.goto`, and is now false by construction anyway since
+       `newRun()` resets the flag (D13-A). */
+    const { setAutoCollect } = await import('/src/shell/ui.js');
+    setAutoCollect(true);
 
     const band = bandOf('topsoil');
     const tx = 40, ty = 100, DEPTH = 8;
@@ -1361,7 +1365,7 @@ test('the Character tab', async ({ page }) => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { write: rw } = await import('/src/model/run.js');
-    const { open, setTab, toggleAutoCollect } = await import('/src/shell/ui.js');
+    const { open, setTab, setAutoCollect } = await import('/src/shell/ui.js');
     const { grant, step: trinketStep } = await import('/src/rules/trinkets.js');
     const { banner } = await import('/src/view/fx.js');
 
@@ -1369,9 +1373,9 @@ test('the Character tab', async ({ page }) => {
     rw.collect(S.timber, F.log, 3);
     grant('bellows');
     /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now, not automatic
-       -- restore the old magnet for the wait below, the same way `digging
-       straight down...` above does. */
-    toggleAutoCollect();
+       -- turn the magnet ON for the wait below, the same way `digging
+       straight down...` above does. A SETTER, not a toggle (Phase 13c). */
+    setAutoCollect(true);
     __mf.frames(200);          // let the drafted relic fall and land in the pockets
     /* Equip into the first slot directly -- Phase 12b retires
        `rules/trinkets.js#equipFirst` (the 'p' key's own primitive,
@@ -1558,13 +1562,14 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
     const { F } = await import('/src/data/forms.js');
     const { invCount } = await import('/src/model/run.js');
     const { bandOf } = await import('/src/model/world.js');
-    const { toggleAutoCollect } = await import('/src/shell/ui.js');
+    const { setAutoCollect } = await import('/src/shell/ui.js');
     __mf.revealAll(bandOf('surface'));
     /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now, not automatic
        -- this flow's own point is craft -> place -> feed -> smelt, not the
-       collect gate, so restore the old magnet for the whole scene rather
-       than holding 'c' through two separate waits below. */
-    toggleAutoCollect();
+       collect gate, so turn the magnet ON for the whole scene rather than
+       holding 'c' through two separate waits below. A SETTER, not a toggle
+       (Phase 13c). */
+    setAutoCollect(true);
     /* "mine 12 copper ore" is stood in for by `give` -- the flow's own point
        is the chain (craft -> place -> feed -> smelt), not the mining grind.
        A furnace is CRAFTED (`data/recipes.js#furnace`: 12 copper/ore + 6
@@ -1781,12 +1786,13 @@ test('opening the GUI, shift-clicking a recipe queues 5, and ticking drains them
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { invCount } = await import('/src/model/run.js');
-    const { open, setTab, toggleAutoCollect } = await import('/src/shell/ui.js');
+    const { open, setTab, setAutoCollect } = await import('/src/shell/ui.js');
 
     /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now, not automatic
        -- this flow's own point is the craft queue draining, not the collect
-       gate, so restore the old magnet for the wait below. */
-    toggleAutoCollect();
+       gate, so turn the magnet ON for the wait below. A SETTER, not a toggle
+       (Phase 13c). */
+    setAutoCollect(true);
     __mf.give(S.timber, F.log, 20);      // 5 runs of peg_rungs (2 logs each)
     open('main');
     setTab('main', 'craft');
@@ -2599,11 +2605,12 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
      falls within the furnace's own generous hover radius. */
   await page.evaluate(async () => {
     /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now, not automatic
-       -- restore the old magnet for the whole scene, both for the walk-over
-       just below and for the deconstruct refund at the very end of this
-       test, rather than holding 'c' through two separate windows. */
-    const { toggleAutoCollect } = await import('/src/shell/ui.js');
-    toggleAutoCollect();
+       -- turn the magnet ON for the whole scene, both for the walk-over just
+       below and for the deconstruct refund at the very end of this test,
+       rather than holding 'c' through two separate windows. A SETTER, not a
+       toggle (Phase 13c). */
+    const { setAutoCollect } = await import('/src/shell/ui.js');
+    setAutoCollect(true);
     __mf.cmd.hasMouse = false;
     __mf.hold({ right: 1 }, 90);
     __mf.cmd.right = false;
@@ -3367,16 +3374,19 @@ async function driveScene(page, spec) {
     const { write: segw, linkCheck, segments, carrierPos, carrierTop } =
       await import('/src/model/segments.js');
     const { bandOf, worldX, worldY, write: ww } = await import('/src/model/world.js');
-    const { clearLink, toggleAutoCollect } = await import('/src/shell/ui.js');
+    const { clearLink, setAutoCollect } = await import('/src/shell/ui.js');
     const { banner } = await import('/src/view/fx.js');
     const { VIEW } = await import('/src/core/canvas.js');
 
     /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now, not automatic
-       -- restore the old magnet for every scene this helper builds, so the
+       -- turn the magnet ON for every scene this helper builds, so the
        boot-placed stock pickaxe near spawn (`shell/boot.js`) is swept up as
        it always was rather than sitting as incidental clutter a teleported
-       player happens to land near. None of these scenes are about pickup. */
-    toggleAutoCollect();
+       player happens to land near. None of these scenes are about pickup.
+       A SETTER and not a toggle (Phase 13c, docs/PLAN-phase13.md §4.5): this
+       helper builds many scenes and must state the state it wants, not flip
+       whatever the last one left behind. */
+    setAutoCollect(true);
 
     const main = bandOf(spec.band || 'surface');
     const rooms = spec.rooms || [{ band: spec.band || 'surface', ...spec.room }];

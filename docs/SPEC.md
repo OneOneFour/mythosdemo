@@ -85,7 +85,7 @@ machine exists.
 | t | beat | teaches |
 |---|---|---|
 | 0:00–0:12 | Wake chained at a cliff face. Chain snaps. Only left/right respond. | walk |
-| 0:12–0:30 | Stock pickaxe planted in the soil. Walk into it to take it. A lighter soil seam sits underfoot. | dig, hold-to-break |
+| 0:12–0:30 | Stock pickaxe planted in the soil. Stand over it and **hold `c` to collect** it — pickup is opt-in, not a magnet (or turn AUTO COLLECT on in the Character tab). A lighter soil seam sits underfoot. | dig, hold-to-break, hold-to-collect |
 | 0:30–1:00 | Dig down 5 tiles. A copper vein is guaranteed directly below spawn. Mine 6 copper — **the ore falls to the bottom of your own shaft** rather than into a backpack. | the thesis: down is free, and you just used it |
 | 1:00–1:20 | You are in a 5-tile hole and a 1-tile hop will not clear it. Cut a diagonal stair out, or fell the olive tree for a ladder. Ascent takes ~4x the descent. | up is expensive, felt not told |
 | 1:20–1:40 | Sky darkens a notch. Clouds part, a shaft of light lands on the surface, an altar rises. **First Trial: deliver 10 raw copper.** | the gods ask |

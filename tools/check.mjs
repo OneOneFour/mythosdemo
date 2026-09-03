@@ -570,27 +570,99 @@ console.log('\n3. behaviour');
   if (!(p.x > x0 + 8)) fail(`walking right moved the player ${(p.x - x0).toFixed(1)} px`);
   else ok(`walks: ${(p.x - x0).toFixed(0)} px in 2 simulated seconds`);
 
-  let stuck = 0, nonFinite = 0, burdenOver = 0;
+  /* THE FUZZ NOW COLLECTS, AND IS HELD AGAINST THE CAP WHILE IT DOES
+     (Phase 13c, docs/PLAN-phase13.md §4.4). Until this landed the burden
+     assertion below was UNFALSIFIABLE: the fuzz never set `collect`, so
+     NOTHING could enter `run.inv` at all, `burdenOf()` was identically 0 for
+     all 7,200 frames, and the comparison passed while proving nothing
+     whatever about the refusal branch at `rules/items.js:124`.
+
+     Holding `collect` is necessary and, measured, nowhere near sufficient.
+     Three things were in the way, and all three are answered here:
+
+       1. NO TOOL. `rules/mining.js:139` gates on `hasPick()` and the stock
+          pickaxe is PLANTED on the ground rather than credited (invariant 5),
+          so `dig: true` broke nothing at all. A pick is credited directly --
+          the same `write.collect` precedent every other probe in this file
+          uses to skip re-proving pickup.
+       2. RANDOM DIGGING BARELY MINES. Instrumented over the real 7,200
+          frames: ONE tile broken and 2 pickups, because `dig` is re-rolled
+          every substep and the aim retargets as the player wanders, so
+          almost no tile ever accumulates its full hardness. Mined material
+          cannot be this probe's supply of mass.
+       3. THE ALTAR EATS THE PRELOAD. Cycle 1's altar stands within
+          `handFeed.reach` of spawn and takes ore with no key held, so a
+          one-shot preload drained from 38.5 T to 0.9 T inside the fuzz (38
+          `accept` rows, cycle 1 completed) and the cap stopped being
+          relevant a few hundred frames in.
+
+     So the mass is supplied and MAINTAINED: every quarter second the pockets
+     are topped back up to within one ore of `eff('burden')` and one copper
+     ore is dropped at the player's feet as a real falling item. The pickup
+     that follows is a real `rules/items.js` pickup through the one real gate,
+     and at that burden it must be REFUSED -- which is the branch under test.
+     Delete the check at `rules/items.js:124` and this probe reports burden
+     over the cap on thousands of frames; that is exactly how it was verified.
+
+     The top-up goes through `write.collect` DIRECTLY, which does not check
+     burden -- deliberately, because the cap is the RULE's decision and not
+     the model's storage -- so it computes a whole number of ore that keeps
+     itself under the cap, or it would trip the assertion on its own.
+     `heavyRefusals` is the ANTI-HOLLOW GUARD: if the fuzz ever stops reaching
+     the cap, the probe says so out loud instead of going quietly green. */
+  const CAP = mods.eff('burden');
+  const ORE_T = items.massOfPair(D_sub.S.copper, D_form.F.ore);
+  const TOP_UP_EVERY = 30;                       // substeps; a quarter second
+  /* Fill to the largest whole number of ore that still fits under the cap, so
+     one more ore cannot: burden lands in (CAP - ORE_T, CAP]. */
+  const topUp = () => {
+    if (!run.hasPick()) run.write.collect(D_sub.S.pick, D_form.F.relic, 1);
+    const n = Math.floor((CAP - run.burdenOf()) / ORE_T);
+    if (n > 0) run.write.collect(D_sub.S.copper, D_form.F.ore, n);
+  };
+
+  let stuck = 0, nonFinite = 0, burdenOver = 0, heavyRefusals = 0;
+  let jSeen = journal.journal.length;
   const seed = rng.mulberry(0xC0FFEE);
   for (let f = 0; f < 60 * 120; f++) {
+    if (f % TOP_UP_EVERY === 0) {
+      topUp();
+      if (p.band)
+        items.write.spawn(p.band, p.x + player.PW / 2, p.y + player.PH / 2,
+                          D_sub.S.copper, D_form.F.ore, 0, 0);
+    }
     const c = {
       left: seed() < 0.3, right: seed() < 0.3,
       up: seed() < 0.2, down: seed() < 0.25,
       hop: seed() < 0.06, dig: seed() < 0.5,
-      place: seed() < 0.02, hasMouse: false
+      place: seed() < 0.02, collect: seed() < 0.5, hasMouse: false
     };
     stepReal(1 / 120, c);
+    /* `stepReal` never drains the journal (see `runScript`'s note below), so
+       the rows pile up and can be read with an index rather than a copy per
+       frame. `newRun()` clears them, hence the pointer reset on death. */
+    for (let k = jSeen; k < journal.journal.length; k++) {
+      const row = journal.journal[k];
+      if (row.kind === 'refused' && row.data && row.data.why === 'TOO HEAVY TO CARRY') heavyRefusals++;
+    }
+    jSeen = journal.journal.length;
     if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.vy)) nonFinite++;
     if (run.burdenOf() > mods.eff('burden') + 1e-6) burdenOver++;
     if (p.band && tiles.solidAt(p.band, world.tileX(p.band, p.x + player.PW / 2),
                                         world.tileY(p.band, p.y + player.PH / 2))) stuck++;
-    if (run.run.dead) boot.newRun(1337);
+    if (run.run.dead) { boot.newRun(1337); topUp(); jSeen = journal.journal.length; }
   }
   if (nonFinite) fail(`${nonFinite} frames with non-finite player state`);
   if (stuck) fail(`player centre inside solid rock on ${stuck} frames`);
   if (!nonFinite && !stuck) ok('7,200-frame fuzz: no non-finite state, never inside rock');
   if (burdenOver) fail(`burden exceeded the hard cap on ${burdenOver} frames of the fuzz -- a pickup let mass through it should have refused`);
-  else ok('BURDEN: 7,200-frame fuzz never carried more than eff(\'burden\')');
+  else if (!heavyRefusals)
+    fail(`BURDEN: the fuzz never triggered a single TOO HEAVY refusal, so it never pressed against ` +
+         `eff('burden') = ${CAP} T and the assertion proved nothing -- the probe has gone hollow ` +
+         `(docs/PLAN-phase13.md §4.4). Check that the fuzz still holds \`collect\`, still credits a ` +
+         `pickaxe, and still tops the pockets up to within one ore of the cap.`);
+  else ok(`BURDEN: 7,200-frame fuzz with collect held never carried more than eff('burden') = ${CAP} T, ` +
+          `and refused ${heavyRefusals} over-cap pickup(s) at the boundary`);
 }
 
 /* --- a trinket is an item: drafting it drops a relic, picking it up and
@@ -849,6 +921,28 @@ console.log('\n4. Phase 6 probes');
   }
 }
 
+/* --- AUTO COLLECT RESETS TOO (D13-A, docs/PLAN-phase13.md §4.3). The
+   fingerprint probe above cannot see this one: `snapshotModel()` covers
+   exported MODEL objects and `ui.autoCollect` lives in `shell/ui.js`, which is
+   the correct layer for it (`rules/items.js` may not import `shell` at all).
+   It is nonetheless simulation-affecting INPUT and not a presentation
+   preference -- `shell/main.js#step` folds it into `cmd.collect`, which gates
+   `write.collect`, which moves `run.inv`, burden, climb speed and carrier
+   load. Left sticky it would make two `newRun(1337)`s replay differently
+   depending on what the player clicked before dying, which is the class of
+   bug invariant 8 names. Hence its own probe, in its own words. --- */
+{
+  shellUi.setAutoCollect(true);
+  if (shellUi.ui.autoCollect !== true)
+    fail('setAutoCollect(true) did not set ui.autoCollect -- the setter itself is broken');
+  boot.newRun(4242);
+  if (shellUi.ui.autoCollect !== false)
+    fail('newRun() RESET: ui.autoCollect survived a restart. AUTO COLLECT gates what enters run.inv, ' +
+         'so a sticky toggle makes two runs from the same seed diverge -- invariant 8. ' +
+         'shell/boot.js#newRun must call setAutoCollect(false) in its teardown block (D13-A).');
+  else ok('newRun() RESET: ui.autoCollect is false after a restart that began with it ON (D13-A)');
+}
+
 /* --- CONSERVATION: over a 10,000-substep random-intent fuzz, mass ADDED to
    any of the three held buckets (inventory, ground items, machine buffers)
    through their own accountable write functions must equal mass REMOVED
@@ -876,6 +970,16 @@ console.log('\n4. Phase 6 probes');
   machs.write.place(band, D_mach.M.furnace,
     world.tileX(band, player.player.x) - 1, world.tileY(band, player.player.y) + 2);
 
+  /* A PICKAXE, CREDITED BEFORE THE BASELINE IS TAKEN (Phase 13c,
+     docs/PLAN-phase13.md §4.4). `rules/mining.js:139` gates on `hasPick()`
+     and the stock pickaxe is planted on the ground rather than handed over
+     (invariant 5), so a fuzz that never collects also never MINES -- and this
+     probe's whole subject is what mining, crafting and pickup do to the three
+     held buckets. Credited here, above `reconstructed = actualHeldMass()`, so
+     it is part of the baseline rather than a write the wrappers have to
+     account for. */
+  run.write.collect(D_sub.S.pick, D_form.F.relic, 1);
+
   const actualHeldMass = () => {
     let m = 0;
     for (const slot of run.run.inv) if (slot) m += items.massOfPair(slot.sub, slot.form) * slot.n;
@@ -891,7 +995,12 @@ console.log('\n4. Phase 6 probes');
 
   items.write.spawn = (...a) => { const it = origSpawn(...a); if (it) reconstructed += items.massOf(it); return it; };
   items.write.remove = (it) => { reconstructed -= items.massOf(it); return origRemove(it); };
-  run.write.collect = (sub, form, n) => { reconstructed += items.massOfPair(sub, form) * n; return origCollect(sub, form, n); };
+  /* `collectCalls` is the ANTI-HOLLOW GUARD, asserted at the end: a fuzz that
+     never invokes this wrapper is not watching the ground-to-pockets transfer
+     at all, which is exactly the coverage this probe silently lost when
+     pickup became opt-in (docs/PLAN-phase13.md §4.4). */
+  let collectCalls = 0;
+  run.write.collect = (sub, form, n) => { collectCalls++; reconstructed += items.massOfPair(sub, form) * n; return origCollect(sub, form, n); };
   run.write.spend = (sub, form, n) => {
     const ok2 = origSpend(sub, form, n);
     if (ok2) reconstructed -= items.massOfPair(sub, form) * n;
@@ -910,9 +1019,36 @@ console.log('\n4. Phase 6 probes');
   const EPS = 1e-6;
   let driftAt = -1;
   for (let i = 0; i < 10000 && driftAt < 0; i++) {
+    /* `collect` IS HELD ON HALF THE SUBSTEPS, AND THERE IS SOMETHING TO
+       COLLECT (Phase 13c, docs/PLAN-phase13.md §4.4). `collect` was absent,
+       and pickup has been opt-in since Phase 12b, so the wrapped
+       `run.write.collect` above was never invoked through the real path at
+       all: this fuzz's coverage had silently shrunk to `items.spawn`/`remove`
+       plus the machine `take`/`consume` pair, and the one bucket transfer a
+       player performs most often -- ground to pockets -- was not being
+       watched by the probe that claims to watch all of them.
+
+       Holding the intent alone bought exactly ONE pickup in 10,000 substeps
+       (measured), for the same reason the burden fuzz above documents: random
+       `dig` re-rolled every substep hardly ever accumulates a tile's full
+       hardness, so there is almost nothing on the ground to pick up. So an
+       ore is dropped at the player's feet every half second, and the pocket
+       stack is spent back out every five seconds to keep room under the
+       burden cap -- both through the SAME wrapped, accountable writes every
+       other transfer in this probe goes through, so neither one can hide a
+       drift; they only make the ground-to-pockets leg busy. */
+    if (i % 60 === 0 && player.player.band)
+      items.write.spawn(player.player.band,
+                        player.player.x + player.PW / 2, player.player.y + player.PH / 2,
+                        D_sub.S.copper, D_form.F.ore, 0, 0);
+    if (i % 600 === 0) {
+      const held = run.invCount(D_sub.S.copper, D_form.F.ore);
+      if (held > 0) run.write.spend(D_sub.S.copper, D_form.F.ore, held);
+    }
     stepReal(1 / 120, {
       left: ctl() < 0.2, right: ctl() < 0.3, up: ctl() < 0.15, down: ctl() < 0.25,
-      hop: ctl() < 0.05, dig: ctl() < 0.6, craft: ctl() < 0.3, hasMouse: false
+      hop: ctl() < 0.05, dig: ctl() < 0.6, craft: ctl() < 0.3,
+      collect: ctl() < 0.5, hasMouse: false
     });
     if (Math.abs(actualHeldMass() - reconstructed) > EPS) driftAt = i;
   }
@@ -924,7 +1060,12 @@ console.log('\n4. Phase 6 probes');
   if (driftAt >= 0)
     fail(`CONSERVATION: reconstructed held mass drifted from the actual (inv+ground+buffers) total at substep ${driftAt} ` +
          `(actual ${actualHeldMass().toFixed(4)} T, reconstructed ${reconstructed.toFixed(4)} T)`);
-  else ok(`CONSERVATION: 10,000-substep fuzz -- reconstructed mass matches actual held mass throughout (${actualHeldMass().toFixed(2)} T)`);
+  else if (!collectCalls)
+    fail('CONSERVATION: the fuzz never invoked run.write.collect through the real pickup path, so the ' +
+         'ground-to-pockets transfer went unwatched and the probe proved less than it claims ' +
+         '(docs/PLAN-phase13.md §4.4). Check that the fuzz still holds `collect` and still credits a pickaxe.');
+  else ok(`CONSERVATION: 10,000-substep fuzz -- reconstructed mass matches actual held mass throughout ` +
+          `(${actualHeldMass().toFixed(2)} T, ${collectCalls} real pickups)`);
 }
 
 /* --- HAND EQUALS MACHINE: every hand:true recipe is the SAME OBJECT a
