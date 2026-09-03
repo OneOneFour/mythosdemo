@@ -2254,3 +2254,134 @@ above would read marginally better, and is not worth weakening the pixel-scope
 assertion (`tests/visual.spec.js`: *the growth cue actually changes pixels, and
 only on the tile that was planted*) that is the only proof the pass is doing
 anything at all.
+
+---
+
+## 23. The feed verb and the LMB dispatch order (Phase 16a)
+
+Locked here before it was written in code, per `CLAUDE.md`'s own convention.
+The design is `docs/PLAN-phase16-interaction-model-v2.md` §5 D16-A and D16-B;
+this section is the part of it that other code and other docs may rely on.
+
+### 23.1 Any occupied slot arms
+
+A click on an occupied slot in the Character tab's inventory grid or the
+quickbar arms that exact `{sub, form}` pair into `shell/ui.js#ui.armedPlace`.
+So does the matching digit key. **There is no form gate on either.** Before
+Phase 16a both gates required `FORM[form].tile || form === rig || form ===
+phial`, which made every ore, ingot, plate, brand and relic click-inert — a
+silent, complete no-op — because the only thing an arm could feed into was
+placement.
+
+The two gates (`shell/main.js#applyUiIntents`'s click-to-arm branch and
+`shell/input.js`'s digit-arm branch) are **identical by requirement**, not by
+coincidence: `view/ui/quickbar.js#DIGITS`'s own "press 3 and the slot showing
+3 cannot disagree" property is only true if the two ways of reaching a slot
+accept the same slots.
+
+Arming a pair that can neither be placed nor fed is legal and inert. Aiming
+it at open ground and pressing LMB refuses through
+`rules/placement.js#placeTile`'s existing `'THAT DOES NOT BUILD'`, which is
+the same refusal a `log` or a `gravel` already gets (§19.2). One press, one
+legible reason, no new string.
+
+### 23.2 The four-rule LMB dispatch, decided once at pointerdown
+
+`shell/input.js`'s `pointerdown` handler resolves LMB **once, at the instant
+of the press**, and never re-evaluates it for the rest of a held press. That
+is D-A's whole design (`docs/PLAN-phase12.md` §3): a press that decided
+"place" never sets `cmd.mouse`, so mining cannot spuriously start on the tile
+just placed, and a press that decided "feed" cannot become a mine without
+releasing.
+
+| # | condition | action | `aim.mode` |
+|---|---|---|---|
+| 1 | the armed pair is a `phial` | use the miracle | `place` |
+| 2 | a machine is under the reticle, within its own `handFeed.reach` of the player's box, and it carries a `handFeed` block at all | **feed ONE unit into it** (or refuse, per §23.4) | `place` |
+| 3 | something is armed and `tileAt(...) === AIR` | place it | `place` |
+| 4 | otherwise | mine | `dig` |
+
+Every rule but 4 additionally requires `aim.valid && aim.band`.
+
+**Rule 2 sits above rule 3 deliberately**, and the precedent is
+`shell/input.js`'s own RMB branch, which already puts "a machine is under the
+reticle, so deconstruct" above "place": a machine under the reticle means the
+machine. The stated cost is that a machine under the reticle with something
+armed cannot be mined through — `z` clears the hand in one press, which is
+the same mitigation D-A already accepted for rule 1.
+
+Rule 2 does **not** consult reach in `model/machines.js#feedCheck`. Reach is a
+fact about where the player is standing at the moment of the gesture, so it is
+asked exactly once, in `shell/input.js`, where the gesture is. `feedCheck`
+answers only "would this machine take this pair", which is what
+`view/hud.js`'s build ghost must be able to ask about a machine the player has
+not walked to yet.
+
+**Rule 2 also does not consult `feedCheck` for whether *this* pair is
+welcome.** A first draft required `feedCheck(...).ok` before rule 2 would even
+fire, on a literal reading of "and it accepts the armed pair" — and that made
+both of §23.4's refusal strings unreachable from a real press: the moment the
+armed pair was wrong or the machine was full, rule 2 would not fire at all and
+the press fell through to rule 3 (place), which is how a ladder rung ended up
+placed *inside* a furnace's own footprint instead of refusing to feed it.
+Found by hand during Phase 16a's own acceptance walkthrough, fixed the same
+phase (`shell/input.js#feedTargetAt`), and named here rather than left
+implicit: a reachable, hand-feedable machine under the reticle is **always**
+the target, and whether this pair is welcome is `handOne`'s question,
+downstream, asked once — which is exactly where its answer needs to turn into
+the `'refused'` row the player actually sees. `tests/visual.spec.js`'s "REAL
+CLICK: clicking an ore slot arms it..." test drives this exact case (a wrong
+pair, a real click, over a real machine) as a permanent regression.
+
+### 23.3 One unit per press
+
+`cmd.feed` is **EDGE-triggered**, declared and cleared in
+`shell/input.js#clearEdges()` in the same shape `cmd.place` already is. One
+physical press moves **exactly one unit** from the pockets into the buffer.
+
+Cycle 1 asks for 10 units (§18.4) and a furnace's ore cap is 8, so ten presses
+is the price of the most consequential action in the game and one-per-press is
+the rule that lets a player count what they gave. A hold at 120 Hz is what
+made the automatic proximity drain unreadable in the first place.
+
+**A successful feed does not clear the arm.** Ten units in a row is one
+continuous action; the staleness sweep in `shell/main.js#applyIntents` clears
+the arm on its own once the last unit is gone.
+
+### 23.4 The refusal strings, and their order of precedence
+
+`rules/machines.js#handOne` pushes a `'refused'` journal row carrying
+`feedCheck`'s own `why`. There are exactly two strings and the order between
+them is fixed:
+
+| order | string | condition |
+|---|---|---|
+| 1 | `'IT DOES NOT WANT THAT'` | no selector in `def.handFeed.from` matches the pair — including a machine with no `handFeed` block at all |
+| 2 | `'IT IS FULL'` | a selector matches, and `count(m, sel) >= capOf(def, sel)` |
+
+Wrong material wins over no room: a player holding gravel at a full furnace is
+told the furnace does not want gravel, which is the fact that matters, not
+that a buffer they cannot fill is full.
+
+There is deliberately **no third string for being out of reach.**
+`shell/input.js` never dispatches a feed from out of reach — the press means
+"mine" instead (rule 4) — so a reach refusal in `rules` would be unreachable
+code claiming a precedence this table does not grant it.
+
+**Both strings are reachable from a real LMB press**, per §23.2's amended rule
+2: a reachable, hand-feedable machine under the reticle is always the target,
+so `handOne`/`feedCheck` are always consulted and their refusal always reaches
+the player, whatever is armed. Tested twice over — `tools/check.mjs` section
+8i drives `handOne` directly (bypassing dispatch, to lock the strings and
+their precedence in isolation) and `tests/visual.spec.js`'s "REAL CLICK:
+clicking an ore slot arms it..." test drives the identical wrong-pair case
+through a real `pointerdown` over a real machine, and additionally asserts
+that nothing gets placed inside the machine's footprint as a side effect.
+
+### 23.5 What Phase 16a does NOT change
+
+`rules/machines.js#handFeed`, the automatic proximity drain, is **unchanged
+and still unconditional**: standing within `handFeed.reach` still empties the
+matching pockets into the machine at one unit per selector per substep.
+Retiring it behind a `ui.autoFeed` preference is Phase 16b (D16-C), and until
+then both paths are live. Nothing in §23 removes anything.

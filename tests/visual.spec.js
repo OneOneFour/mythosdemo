@@ -2475,10 +2475,16 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
     __mf.frames(1);
   });
 
-  /* RUBBLE IS NOT PLACEABLE ANY MORE, and the arm gate is where that is felt:
-     `shell/main.js`'s click-to-arm branch only arms a pair whose FORM carries
-     a `tile` block (or a `rig`/`phial`), so clicking the gravel slot leaves
-     `armedPlace` null rather than arming something 'E' would then refuse. */
+  /* RUBBLE IS STILL NOT PLACEABLE -- but as of Phase 16a the ARM GATE is no
+     longer where that is felt, and this is the one assertion in this file the
+     phase deliberately changed. Any occupied slot now arms (docs/SPEC.md
+     section 23.1), because an arm has two possible consequences rather than
+     one: gravel is a cycle-4 tribute demand and the feed verb is what hands
+     it over. So clicking the gravel slot ARMS it, and the refusal moved one
+     press later, to `rules/placement.js#placeTile`'s own
+     'THAT DOES NOT BUILD' -- which is asserted here rather than assumed,
+     because "rubble does not build" is what this test has always been for
+     and the layer it lives in is the only thing that moved. */
   const gravelSlot = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
@@ -2487,7 +2493,49 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
   });
   expect(gravelSlot).toBeTruthy();                   // it IS held, and shown
   await realClick(page, gravelSlot.x + gravelSlot.w / 2, gravelSlot.y + gravelSlot.h / 2);
-  expect(await page.evaluate(() => __mf.ui.armedPlace)).toBeNull();
+  const gravelArmed = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    return { armed: __mf.ui.armedPlace, sub: S.soil, form: F.gravel };
+  });
+  expect(gravelArmed.armed).toEqual({ sub: gravelArmed.sub, form: gravelArmed.form });
+
+  /* ...and placing it is refused, with a reason, instead of silently doing
+     nothing. Keyboard aim (no direction held, facing right) at the hole this
+     test just mined, so the ONLY thing standing between the press and a
+     placed tile is the form gate. */
+  const refusal = await page.evaluate(async ({ holeTx, ty }) => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    const { tileAt } = await import('/src/model/tiles.js');
+    const { bandOf } = await import('/src/model/world.js');
+    const { closeTop } = await import('/src/shell/ui.js');
+    const { toasts } = await import('/src/view/fx.js');
+    closeTop();
+    __mf.cmd.hasMouse = false;
+    __mf.frames(1);
+    const held = invCount(S.soil, F.gravel);
+    __mf.cmd.place = true;
+    __mf.frames(2);
+    /* Read the TOAST, not the journal: `__mf.frames` ends with the real
+       `shell/notify.js#drainJournal`, so by the time a test could look the
+       rows are already gone -- exactly as they are in a real session. The
+       refusal's own text surviving into `view/fx.js#toasts` is the same
+       read-back the unaffordable-recipe test above uses. */
+    const why = toasts.map(t => t.text);
+    return { why, held, tile: tileAt(bandOf('topsoil'), holeTx, ty), gravel: invCount(S.soil, F.gravel) };
+  }, { holeTx, ty });
+  expect(refusal.why).toContain('THAT DOES NOT BUILD');
+  expect(refusal.tile).toBe(0);                  // the hole is still a hole
+  expect(refusal.gravel).toBe(refusal.held);     // and not one unit of rubble was spent
+
+  await page.evaluate(async () => {
+    const { open, setTab } = await import('/src/shell/ui.js');
+    open('main');
+    setTab('main', 'char');
+    __mf.frames(1);
+  });
 
   /* PACK IT. `data/recipes.js#pack` wants 5 of one bulk element's gravel and
      is declared last, so with nothing else affordable it is the row
@@ -2562,6 +2610,281 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
   expect(result.tile).not.toBe(0);                    // solid again, not AIR
   expect(result.block).toBe(blockBefore - 1);          // exactly one unit spent
   expect(result.armedAfter).toBeNull();                // cleared on a successful placement
+});
+
+/* ============================================================
+   THE FEED VERB (Phase 16a, docs/SPEC.md section 23), end to end in a real
+   browser -- which is the only place the two halves this phase actually
+   added can BOTH be exercised: `tools/check.mjs` can fire `cmd.feed` but has
+   no pointer, so it cannot prove that a real `pointerdown` on a real machine
+   is what sets the flag (LMB rule 2), and it cannot see the slot border light
+   up at all.
+
+   THE MEASUREMENT IS A DIFFERENCE, and section 8i of `tools/check.mjs` says
+   why at length: Phase 16a adds a verb and removes nothing, so the automatic
+   proximity drain (`rules/machines.js#handFeed`) is still live and still
+   takes one unit per substep from a player standing in reach. A control frame
+   with no press is measured first and the press frame is asserted against it,
+   so this test is exactly as valid after 16b turns the magnet off.
+
+   A FURNACE, not the altar: `rules/cycles.js#drainReceivers` empties a
+   tribute receiver's buffer the same frame it fills, so an altar's buffer can
+   never be observed rising. A furnace with no fuel runs no recipe, so what
+   goes in stays in and is countable.
+   ============================================================ */
+
+const FEED = { tx: 22, ty: 117, farTx: 18 };   // the furnace, and a spot well out of its reach
+
+test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on a furnace in reach feeds exactly one unit per press', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+
+  /* A carved pocket in solid rock with a floor, the same hand-built scene
+     idiom every other machine test in this file uses rather than trusting
+     worldgen. The player starts at `farTx` -- 26 px clear of the footprint,
+     well outside `handFeed.reach` (10 px) -- so that opening the panel and
+     clicking a slot costs no ore to the magnet before the real measurement
+     even begins. */
+  await page.evaluate(async ({ tx, ty, farTx }) => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { M } = await import('/src/data/machines.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { write: pw } = await import('/src/model/player.js');
+    const { write: mw } = await import('/src/model/machines.js');
+
+    const band = bandOf('topsoil');
+    for (let y = ty - 6; y <= ty + 2; y++)
+      for (let x = tx - 8; x <= tx + 6; x++) tw.clear(band, x, y);
+    for (let x = tx - 8; x <= tx + 6; x++) tw.set(band, x, ty + 2, S.stone);
+    __mf.revealAll(band);
+
+    mw.place(band, M.furnace, tx, ty);
+    pw.band(band);
+    pw.move(worldX(band, farTx), worldY(band, ty));
+    pw.vel(0, 0);
+    pw.set('onGround', true);
+    __mf.give(S.copper, F.ore, 8);
+    __mf.cmd.hasMouse = false;
+    /* LET THE CAMERA CONVERGE BEFORE ANY UI CLICK. `shell/main.js#draw`
+       snapshots `drawCam` and `applyUiIntents` hit-tests a click against
+       THAT, but `updateCamera` keeps easing `cam` toward the player at 5% a
+       substep -- so while the camera is still travelling a screen-space slot
+       rect and the pointer disagree by tens of pixels and a real click lands
+       nowhere. Teleporting the player is a test-only move a real session
+       never makes, so this is the test's own mess to clean up. Costs nothing
+       in ore: the player is `farTx`, well outside `handFeed.reach`. */
+    __mf.frames(300);
+  }, FEED);
+
+  /* ---- half one: a click on an ORE slot arms it. Before Phase 16a this was
+     a confirmed, silent, complete no-op -- the click-to-arm gate required a
+     tile-capable form, a `rig` or a `phial`, and `ore` is none of the
+     three. ---- */
+  await page.evaluate(async () => {
+    const { open, setTab } = await import('/src/shell/ui.js');
+    open('main');
+    setTab('main', 'char');
+    __mf.frames(1);
+  });
+
+  const oreSlot = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const grid = __mf.ui.grids.find(g => g.id === 'inv');
+    return grid.slots.find(s => s.sub === S.copper && s.form === F.ore);
+  });
+  expect(oreSlot).toBeTruthy();
+  await realClick(page, oreSlot.x + oreSlot.w / 2, oreSlot.y + oreSlot.h / 2);
+
+  const armed = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    return { armedPlace: __mf.ui.armedPlace, sub: S.copper, form: F.ore };
+  });
+  expect(armed.armedPlace).toEqual({ sub: armed.sub, form: armed.form });
+
+  /* AND THE BORDER REALLY LIGHTS UP. CLAUDE.md's own rule: a test that
+     asserts a feature is visible must prove the pixels differ with it off.
+     Two draws with no step between them (so nothing else can move), the arm
+     suppressed for the first -- the identical shape the growth-cue pixel
+     probe further down this file uses. Slot rects are recorded in SCREEN
+     space, which is the canvas's own space, so no camera term appears. */
+  const border = await page.evaluate(async (slot) => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { armPlace, clearArmedPlace } = await import('/src/shell/ui.js');
+
+    const c = document.getElementById('stage');
+    const ctx = c.getContext('2d');
+    const grab = () => ctx.getImageData(0, 0, c.width, c.height).data;
+
+    clearArmedPlace();
+    __mf.draw();
+    const before = grab();
+
+    armPlace(S.copper, F.ore);
+    __mf.draw();
+    const after = grab();
+
+    const moved = i => before[i] !== after[i] ||
+                       before[i + 1] !== after[i + 1] ||
+                       before[i + 2] !== after[i + 2];
+    let total = 0;
+    for (let i = 0; i < before.length; i += 4) if (moved(i)) total++;
+    let inside = 0;
+    for (let y = slot.y; y < slot.y + slot.h; y++)
+      for (let x = slot.x; x < slot.x + slot.w; x++)
+        if (moved((y * c.width + x) * 4)) inside++;
+    return { total, inside };
+  }, oreSlot);
+  expect(border.inside).toBeGreaterThan(0);        // the border is actually painted...
+  expect(border.total).toBe(border.inside);        // ...and only on that one slot
+
+  /* ---- half two: LMB on the furnace feeds it. Close the panel first, or
+     `shell/input.js` routes the click to the widget layer instead of the
+     world, which is exactly what it is supposed to do. ---- */
+  await page.evaluate(async ({ tx, ty }) => {
+    const { closeTop } = await import('/src/shell/ui.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { write: pw } = await import('/src/model/player.js');
+    closeTop();
+    /* 6 px of clear air between the player's right edge and the footprint:
+       PW is 6, so one tile-width minus 12. Inside `handFeed.reach`, which is
+       the whole point -- the shell's reach gate must call this "beside it". */
+    const band = bandOf('topsoil');
+    pw.move(worldX(band, tx) - 12, worldY(band, ty));
+    pw.vel(0, 0);
+    pw.set('onGround', true);
+    __mf.frames(1);
+  }, FEED);
+
+  /* THE CONTROL FRAME: in reach, nothing pressed. Whatever this costs is the
+     magnet's, and the press frame below is asserted against it. */
+  const control = await page.evaluate(async ({ tx }) => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    const { count } = await import('/src/model/machines.js');
+    const m = __mf.machines.find(mm => mm.tx === tx);
+    const p0 = invCount(S.copper, F.ore), b0 = count(m, '*/#ore');
+    __mf.frames(1);
+    return { pockets: p0 - invCount(S.copper, F.ore), buffer: count(m, '*/#ore') - b0 };
+  }, FEED);
+
+  /* A REAL pointer over the furnace, and a real frame after the move so
+     `model/aim.js` catches up before `pointerdown` reads it -- the identical
+     gap `realRightClick` below documents for the deconstruct branch. */
+  const seen = await page.evaluate(async ({ tx, ty }) => {
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const band = bandOf('topsoil');
+    /* The centre of the furnace's LEFT column, in SCREEN px: nearest to the
+       player, so `eff('reach')`'s clamp in `rules/mining.js#aimAtWorld`
+       never comes into it, and derived from the band's own geometry rather
+       than typed as a pixel. */
+    return { sx: worldX(band, tx) + 4 - __mf.cam.x, sy: worldY(band, ty) + 8 - __mf.cam.y };
+  }, FEED);
+  const at = await toClient(page, seen.sx, seen.sy);
+  await page.mouse.move(at.x, at.y);
+  await page.evaluate(() => __mf.frames(1));
+
+  const aimed = await page.evaluate(async ({ tx }) => {
+    const { machineAt } = await import('/src/model/machines.js');
+    return {
+      tx: __mf.aim.tx, valid: __mf.aim.valid, wantTx: tx,
+      onMachine: !!(__mf.aim.band && machineAt(__mf.aim.band, __mf.aim.tx, __mf.aim.ty))
+    };
+  }, FEED);
+  expect(aimed.valid).toBe(true);
+  expect(aimed.onMachine).toBe(true);         // the reticle really is over the furnace
+
+  await page.mouse.down();
+
+  /* THE DISPATCH ITSELF, read before a single frame runs: `pointerdown`
+     decided "feed" once, at the instant of the press (D-A), and recorded it
+     on `aim.mode` for the reticle. This is the assertion no headless harness
+     can make. */
+  const dispatched = await page.evaluate(() => ({ feed: __mf.cmd.feed, mode: __mf.aim.mode }));
+  expect(dispatched.feed).toBe(true);
+  expect(dispatched.mode).toBe('place');
+
+  const press = await page.evaluate(async ({ tx }) => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    const { count } = await import('/src/model/machines.js');
+    const m = __mf.machines.find(mm => mm.tx === tx);
+    const p0 = invCount(S.copper, F.ore), b0 = count(m, '*/#ore');
+    __mf.frames(1);
+    return {
+      pockets: p0 - invCount(S.copper, F.ore), buffer: count(m, '*/#ore') - b0,
+      armedAfter: __mf.ui.armedPlace, feedFlag: __mf.cmd.feed
+    };
+  }, FEED);
+  await page.mouse.up();
+
+  /* The magnet is still live and still costs exactly one unit a substep --
+     asserted, not assumed, because "this phase removes nothing" is half of
+     what it claims. */
+  expect(control.pockets).toBe(1);
+  expect(control.buffer).toBe(1);
+  /* And the press is worth exactly ONE unit MORE than that frame was: one
+     press, one unit (docs/SPEC.md section 23.3). */
+  expect(press.pockets).toBe(control.pockets + 1);
+  expect(press.buffer).toBe(control.buffer + 1);
+  /* The edge was consumed, and the hand was NOT emptied -- ten ore in a row
+     is one continuous action (section 23.3). */
+  expect(press.feedFlag).toBe(false);
+  expect(press.armedAfter).toEqual({ sub: armed.sub, form: armed.form });
+
+  /* ---- half three: a WRONG pair, aimed at the same reachable furnace,
+     through the SAME real pointerdown path. `shell/input.js#feedTargetAt`'s
+     first draft required `feedCheck(...).ok` before rule 2 would even fire,
+     which made both of `feedCheck`'s refusal strings unreachable from a real
+     click: the press fell through to rule 3 (place) instead, and a rung
+     armed here would land INSIDE the furnace's own footprint rather than
+     refuse to feed it -- found by hand-verification during Phase 16a and
+     fixed by dropping that clause (docs/SPEC.md section 23.2 / 23.4: "a
+     machine under the reticle means the machine", full stop; whether THIS
+     pair is welcome is `handOne`'s question, downstream, and its answer is
+     what must reach the player). The reticle has not moved since half two,
+     so this is the identical real click, only what is armed differs. ---- */
+  await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { armPlace } = await import('/src/shell/ui.js');
+    const { write: rw } = await import('/src/model/run.js');
+    const { toasts } = await import('/src/view/fx.js');
+    rw.collect(S.timber, F.rung, 2);
+    armPlace(S.timber, F.rung);
+    toasts.length = 0;
+  });
+
+  await page.mouse.down();
+  const wrongDispatch = await page.evaluate(() => ({ feed: __mf.cmd.feed, mode: __mf.aim.mode }));
+  expect(wrongDispatch.feed).toBe(true);           // rule 2 fires even though the pair is wrong...
+  expect(wrongDispatch.mode).toBe('place');
+
+  const wrongResult = await page.evaluate(async ({ tx, ty }) => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { invCount } = await import('/src/model/run.js');
+    const { formOf, tileAt } = await import('/src/model/tiles.js');
+    const { bandOf } = await import('/src/model/world.js');
+    const { toasts } = await import('/src/view/fx.js');
+    __mf.frames(1);
+    return {
+      why: toasts.map(t => t.text),
+      rungsLeft: invCount(S.timber, F.rung),
+      placedThere: formOf(tileAt(bandOf('topsoil'), tx, ty)) === F.rung
+    };
+  }, FEED);
+  await page.mouse.up();
+
+  expect(wrongResult.why).toContain('IT DOES NOT WANT THAT');   // ...and says so
+  expect(wrongResult.rungsLeft).toBe(2);                        // nothing spent
+  expect(wrongResult.placedThere).toBe(false);                  // and NOT placed inside the machine
 });
 
 /* ============================================================

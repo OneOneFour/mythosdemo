@@ -174,14 +174,35 @@ console.log('\n   imported every layer without error');
    keystroke and every Playwright test ultimately writes to), calls the real
    `main.step(dt)`, then clears edge-triggered flags exactly the way
    `shell/main.js#frame`'s real RAF loop and `__mf.frames`/`hold` both do. */
+/* `action` is on this list for the same reason `craft` is: it is a HOLD, so
+   `clearEdges()` will not put it back down, and `cmd` is a module singleton
+   shared by every probe in this file -- a section that leaves a crank held
+   would silently power the next section's drivetrain. `feed` (Phase 16a) is
+   an EDGE and `clearEdges()` does drop it, but it is listed anyway so that
+   `want` is the whole truth about the input state of a probe's frame rather
+   than "the whole truth about twelve of the thirteen fields". */
+const CMD_FIELDS = ['left', 'right', 'up', 'down', 'hop', 'dig', 'place', 'feed',
+                    'craft', 'drop', 'action', 'collect', 'hasMouse'];
+const setCmd = want => { for (const k of CMD_FIELDS) input.cmd[k] = want[k] ?? false; };
+
 function stepReal(dt, want = {}) {
-  /* `turn` is on this list for the same reason `craft` is: it is a HOLD, so
-     `clearEdges()` will not put it back down, and `cmd` is a module singleton
-     shared by every probe in this file -- a section that leaves a crank held
-     would silently power the next section's drivetrain. */
-  for (const k of ['left', 'right', 'up', 'down', 'hop', 'dig', 'place', 'craft', 'drop', 'action', 'collect', 'hasMouse'])
-    input.cmd[k] = want[k] ?? false;
+  setCmd(want);
   main.step(dt);
+  input.clearEdges();
+}
+
+/* THE OTHER HALF OF THE REAL FRAME, for the ONE-SHOT INTENTS.
+   `stepReal` above drives the fixed substep, which is where every `rules`
+   module runs -- but placement, deconstruction, linking, the drop verb and
+   (Phase 16a) the feed verb are EVENTS, not steps: `shell/main.js#frame`
+   dispatches them through `applyIntents()` once per animation frame, outside
+   `step()`. A probe for one of those has to run both halves, in that order,
+   and this is the only difference between the two helpers. Used by section 8i
+   below; every other probe in this file still wants `stepReal`. */
+function frameReal(dt, want = {}) {
+  setCmd(want);
+  main.step(dt);
+  main.applyIntents();
   input.clearEdges();
 }
 function runReal(n, dt, want = {}) {
@@ -6299,6 +6320,175 @@ function seamRun(steps, dir, want = {}) {
   else
     ok(`BAND SEAM (astral): the surface/astral seam crosses cleanly in both directions — up to y ` +
        `${up.y.toFixed(0)}, down to y ${down.y.toFixed(0)}, 1 handoff each, 0 px against travel`);
+}
+
+console.log('\n8i. THE FEED VERB (Phase 16a, docs/SPEC.md section 23)');
+{
+  /* ONE PRESS, ONE UNIT -- and the measurement has to be a DIFFERENCE, which
+     is the single most important thing to understand about this probe.
+
+     Phase 16a adds the feed verb and removes nothing, so
+     `rules/machines.js#handFeed` -- the automatic proximity drain -- is still
+     live and still unconditional. A player standing 6 px from an altar with
+     copper ore in their pockets therefore loses ONE unit per substep to the
+     magnet whether or not they pressed anything, and a probe that stood there
+     and asserted "the pockets went down by exactly one" would be measuring
+     the magnet, passing for the wrong reason, and would keep passing with the
+     new verb deleted.
+
+     So: run the IDENTICAL frame twice from the identical seed, once without
+     the intent and once with it, and assert the DIFFERENCE is exactly one
+     unit. That is the verb's own contribution, isolated, and it is 0 if
+     `handOne` does nothing and 2+ if a press ever feeds a stack. When 16b
+     puts the magnet behind `ui.autoFeed`, the baseline frame below becomes a
+     zero and this assertion still holds unchanged.
+
+     MOUSE AIM, not keyboard aim, and the coordinate is derived rather than
+     typed: `rules/mining.js#aimAtKeys` only ever reaches ONE tile in the
+     facing direction, which is not far enough to point at a machine the
+     player is standing 6 px clear of. `cmd.mx/my` are WORLD px read off the
+     machine's own box, so this is not the hardcoded-screen-coordinate mistake
+     CLAUDE.md records -- there is no viewport in it. */
+  const SEED = 9160;
+  let bad = 0;
+
+  const feedScene = (defIdx) => {
+    boot.newRun(SEED);
+    const band = world.bandOf('topsoil');
+    for (let ty = 110; ty <= 119; ty++)
+      for (let tx = 16; tx <= 29; tx++) tiles.write.clear(band, tx, ty);
+    for (let tx = 16; tx <= 29; tx++) tiles.write.set(band, tx, 119, D_sub.S.stone);
+    const m = footUnder(machs.write.place(band, defIdx, 22, 117));
+    player.write.band(band);
+    /* 6 px of clear air between the player's right edge and the machine's
+       left edge: PW is 6, so the box left goes one tile-width minus 12 px
+       shy of the footprint. Inside `handFeed.reach` (10 px) either way, which
+       is the point -- the shell's own reach gate and the magnet must both
+       consider this "standing beside it". */
+    player.write.move(world.worldX(band, 22) - 12, world.worldY(band, 117));
+    player.write.vel(0, 0);
+    player.write.set('onGround', true);
+    input.cmd.mx = m.box.x + m.box.w / 2;
+    input.cmd.my = m.box.y + m.box.h / 2;
+    return { band, m };
+  };
+
+  const gap = m => Math.round(m.box.x - (player.player.x + player.PW));
+
+  /* BASELINE: the same frame, the same seed, no intent. */
+  const base = feedScene(D_mach.M.altar);
+  run.write.collect(D_sub.S.copper, D_form.F.ore, 3);
+  frameReal(1 / 120, { hasMouse: true });
+  const drained = 3 - run.invCount(D_sub.S.copper, D_form.F.ore);
+
+  /* THE VERB: identical, plus an armed pair and one edge-triggered press. */
+  const fed = feedScene(D_mach.M.altar);
+  run.write.collect(D_sub.S.copper, D_form.F.ore, 3);
+  shellUi.armPlace(D_sub.S.copper, D_form.F.ore);
+  frameReal(1 / 120, { hasMouse: true, feed: true });
+  const total = 3 - run.invCount(D_sub.S.copper, D_form.F.ore);
+  const armedAfter = shellUi.ui.armedPlace;
+
+  if (total - drained !== 1) {
+    fail(`FEED VERB: one cmd.feed press ${gap(fed.m)} px from a 2x2 altar with 3 copper/ore held and ` +
+         `the pair armed moved ${total} unit(s) out of the pockets, against ${drained} in the ` +
+         `identical frame with no press -- the verb's own contribution is ${total - drained}, want ` +
+         `exactly 1 (docs/SPEC.md section 23.3, one unit per press)`);
+    bad++;
+  } else {
+    console.log(`  ..  one press ${gap(fed.m)} px from the altar moved exactly 1 unit ` +
+                `(${total} total against a ${drained}-unit proximity baseline)`);
+  }
+  if (!armedAfter || armedAfter.sub !== D_sub.S.copper || armedAfter.form !== D_form.F.ore) {
+    fail(`FEED VERB: the armed pair after a SUCCESSFUL feed is ${JSON.stringify(armedAfter)} -- it must ` +
+         `survive, so ten ore into an altar is one continuous action (docs/SPEC.md section 23.3); the ` +
+         `staleness sweep in shell/main.js#applyIntents is what clears it when the last unit is gone`);
+    bad++;
+  } else {
+    console.log('  ..  the arm survived a successful feed, as section 23.3 requires');
+  }
+
+  /* REFUSAL 1 -- wrong material. Driven through the same `cmd.feed` the shell
+     sets, deliberately from a state `shell/input.js` would never dispatch
+     from (its own rule 2 tests `feedCheck` before setting the flag), because
+     the STRING and its precedence belong to `rules`/`model` and this is where
+     they are locked. */
+  const wrong = feedScene(D_mach.M.altar);
+  run.write.collect(D_sub.S.timber, D_form.F.rung, 2);
+  shellUi.armPlace(D_sub.S.timber, D_form.F.rung);
+  journal.write.drain();
+  frameReal(1 / 120, { hasMouse: true, feed: true });
+  const wrongWhy = journal.write.drain()
+    .filter(r => r.kind === 'refused').map(r => r.data?.why);
+  const rungsLeft = run.invCount(D_sub.S.timber, D_form.F.rung);
+  if (!wrongWhy.includes('IT DOES NOT WANT THAT') || rungsLeft !== 2) {
+    fail(`FEED VERB (wrong material): feeding a timber/rung to an altar (which takes ore, refined and ` +
+         `gravel) pushed refusals ${JSON.stringify(wrongWhy)} and left ${rungsLeft} rung(s) held -- want ` +
+         `'IT DOES NOT WANT THAT' and 2 (docs/SPEC.md section 23.4)`);
+    bad++;
+  } else {
+    console.log(`  ..  a rung at the ${D_mach.MACH[wrong.m.def].id}: 'IT DOES NOT WANT THAT', nothing spent`);
+  }
+
+  /* REFUSAL 2 -- right material, no room. A FURNACE, not the altar, and the
+     reason is the altar's own probe two sections up: `rules/cycles.js#
+     drainReceivers` empties a tribute receiver's buffer the same frame it
+     fills, so an altar can never be observed full. A furnace with no fuel
+     runs no recipe, so 8 ore parked in an 8-cap buffer stays there. */
+  const fullM = feedScene(D_mach.M.furnace);
+  machs.write.take(fullM.m, D_sub.S.copper, D_form.F.ore, 8);
+  run.write.collect(D_sub.S.copper, D_form.F.ore, 3);
+  shellUi.armPlace(D_sub.S.copper, D_form.F.ore);
+  journal.write.drain();
+  frameReal(1 / 120, { hasMouse: true, feed: true });
+  const fullWhy = journal.write.drain()
+    .filter(r => r.kind === 'refused').map(r => r.data?.why);
+  const oreLeft = run.invCount(D_sub.S.copper, D_form.F.ore);
+  const cap = machs.capOf(D_mach.MACH[D_mach.M.furnace], '*/#ore');
+  if (!fullWhy.includes('IT IS FULL') || oreLeft !== 3) {
+    fail(`FEED VERB (full): feeding copper/ore to a furnace already holding ${cap}/${cap} ore pushed ` +
+         `refusals ${JSON.stringify(fullWhy)} and left ${oreLeft} ore held -- want 'IT IS FULL' and 3 ` +
+         `(docs/SPEC.md section 23.4)`);
+    bad++;
+  } else {
+    console.log(`  ..  ore at a ${cap}/${cap} furnace: 'IT IS FULL', nothing spent`);
+  }
+
+  /* PRECEDENCE: the same full furnace, the WRONG material. Both refusals are
+     true at once and section 23.4 fixes which is said -- the material, not
+     the room, because a player holding a rung does not care that a buffer
+     they could never fill is full. */
+  const bothM = feedScene(D_mach.M.furnace);
+  machs.write.take(bothM.m, D_sub.S.copper, D_form.F.ore, 8);
+  run.write.collect(D_sub.S.timber, D_form.F.rung, 2);
+  shellUi.armPlace(D_sub.S.timber, D_form.F.rung);
+  journal.write.drain();
+  frameReal(1 / 120, { hasMouse: true, feed: true });
+  const bothWhy = journal.write.drain()
+    .filter(r => r.kind === 'refused').map(r => r.data?.why);
+  if (!bothWhy.includes('IT DOES NOT WANT THAT') || bothWhy.includes('IT IS FULL')) {
+    fail(`FEED VERB (precedence): a rung at a full furnace pushed ${JSON.stringify(bothWhy)} -- want ` +
+         `'IT DOES NOT WANT THAT' and NOT 'IT IS FULL' (docs/SPEC.md section 23.4's order)`);
+    bad++;
+  } else {
+    console.log('  ..  a rung at a full furnace says the material, not the room -- the locked order');
+  }
+
+  /* THE PROXIMITY DRAIN IS STILL LIVE, asserted rather than assumed: this
+     phase adds a verb and removes nothing, and `drained` above being 1 is
+     the whole of that claim. If a later phase turns the magnet off without
+     touching this file, THIS is the line that says so. */
+  if (drained !== 1) {
+    fail(`FEED VERB (baseline): a player standing ${gap(base.m)} px from an altar with 3 copper/ore and ` +
+         `NO press lost ${drained} unit(s) in one substep, not 1 -- rules/machines.js#handFeed is ` +
+         `supposed to be completely unchanged by Phase 16a (it is retired in 16b)`);
+    bad++;
+  }
+
+  if (!bad)
+    ok('FEED VERB: one cmd.feed press hands over exactly ONE unit (measured as a difference against ' +
+       'the still-live proximity drain), the arm survives it, and the two refusal strings fire in ' +
+       'docs/SPEC.md section 23.4\'s locked order');
 }
 
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +

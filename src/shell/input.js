@@ -20,9 +20,11 @@
    ours to fake. */
 
 import { VIEW, stage } from '../core/canvas.js';
-import { AIR, F, FORM } from '../data/forms.js';
+import { overlaps } from '../core/math.js';
+import { AIR, F } from '../data/forms.js';
 import { aim, write as aw } from '../model/aim.js';
-import { machineAt } from '../model/machines.js';
+import { defOf, machineAt } from '../model/machines.js';
+import { playerBox } from '../model/player.js';
 import { invCount, run } from '../model/run.js';
 import { tileAt } from '../model/tiles.js';
 import { drawn as uiDrawn } from '../view/ui/state.js';
@@ -43,6 +45,14 @@ export const cmd = {
   left: false, right: false, up: false, down: false,
   hop: false, dig: false, place: false, craft: false, drop: false,
   deconstruct: false, link: false, action: false, collect: false,
+  /* THE FEED VERB (Phase 16a, docs/SPEC.md section 23.3). EDGE-TRIGGERED, the
+     same shape as `place` beside it and for the same reason this file's own
+     header gives: one physical press hands over exactly ONE unit, so a player
+     can count what they gave. A hold at 120 Hz is precisely what made the
+     automatic proximity drain (`rules/machines.js#handFeed`) unreadable.
+     Set by `pointerdown`'s LMB rule 2 below, consumed and self-cleared by
+     `shell/main.js#applyIntents`, and cleared by `clearEdges()` regardless. */
+  feed: false,
   mouse: false, mx: 0, my: 0, hasMouse: false,
 
   /* UI pointer intents -- see docs/DEVELOPER_GUIDE.md#input-intents.
@@ -100,9 +110,10 @@ let hopHeld = false, dropHeld = false, deconHeld = false, linkHeld = false;
    g/h (grid/debug overlays), o (map overview), m (mute), z (cancel a
    selection, additive to Escape), Escape (close panel / cancel selection),
    the digits (arm the quickbar slot at that index), and t/b/k/y/p behind
-   `flags.showDebug` (debug drafts, and the chunk overlay). Mining, placing
-   and using a held miracle have no dedicated key at all -- they are LMB,
-   resolved once at `pointerdown` (D-A) -- and restart is a clickable button
+   `flags.showDebug` (debug drafts, and the chunk overlay). Mining, placing,
+   feeding a machine by hand and using a held miracle have no dedicated key at
+   all -- they are all LMB, resolved once at `pointerdown` (D-A, widened to
+   four rules by Phase 16a) -- and restart is a clickable button
    on the death screen (D-C), not a key. `x`/`j` (dig), `v` (use miracle),
    `i` (open panel) and `f` (crank) are RETIRED; `p` (equip) was retired in
    Phase 12b and its letter reused for the chunk toggle; `u` (hand-craft) is
@@ -278,6 +289,52 @@ function mapKey(k, shift) {
   }
 }
 
+/* ---- THE FEED TARGET (Phase 16a, docs/SPEC.md section 23.2) ----
+   The machine LMB rule 2 would hand `armed` to, or null. Two questions, in
+   the cheap-to-expensive order, and each is asked by whoever owns it:
+
+     is there a machine under the reticle, and can it be hand-fed at all?
+       -- `model/machines.js`, geometry and a frozen data key.
+     is the player standing close enough to reach it?
+       -- HERE, and ONLY here. Reach is a fact about where the player's body
+       is at the instant of the press, which is exactly what this handler
+       knows and what `model/machines.js#feedCheck` deliberately refuses to
+       ask (its other reader is `view`'s build ghost, which must be able to
+       preview a machine nobody has walked to). `def.handFeed.reach` is the
+       number, so no new tunable exists; `overlaps` with a slack is the same
+       expression `rules/machines.js#handFeed` and `rules/drive.js`'s crank
+       reach already use.
+
+   DELIBERATELY NOT "would it take this pair?" A first draft of this function
+   also required `feedCheck(...).ok`, on the plan's own literal wording --
+   and that made both of `feedCheck`'s refusal strings unreachable from LMB:
+   the moment the armed pair was wrong or the machine was full, rule 2 would
+   not fire AT ALL and the press fell through to rule 3 (place), which is how
+   a ladder rung ended up placed inside a furnace's own footprint instead of
+   refusing to feed it. `docs/SPEC.md` section 23.4 locks the fix: a
+   reachable, hand-feedable machine under the reticle is ALWAYS the target,
+   full stop -- "a machine under the reticle means the machine", the same
+   argument that already puts RMB deconstruct ahead of RMB place. Whether
+   THIS pair is welcome is `feedCheck`'s question, asked once, downstream, by
+   `rules/machines.js#handOne` -- which is exactly where its answer needs to
+   turn into the `'refused'` row the player actually sees.
+
+   Returning the MACHINE rather than a boolean so nothing has to find it
+   twice: `shell/main.js` re-resolves it from the same `aim` one tick later
+   for the same reason the RMB deconstruct branch does. `armed` is still a
+   parameter for symmetry with that re-resolution, but it plays no role in
+   the answer any more -- ANY armed pair aimed at a reachable, hand-feedable
+   machine targets it, and `feedCheck` sorts out the rest. */
+function feedTargetAt(armed) {
+  if (!armed || !aim.valid || !aim.band) return null;
+  const m = machineAt(aim.band, aim.tx, aim.ty);
+  if (!m) return null;
+  const def = defOf(m);
+  if (!def.handFeed) return null;
+  if (!overlaps(playerBox(), m.box, def.handFeed.reach)) return null;
+  return m;
+}
+
 export function installInput() {
   if (typeof addEventListener !== 'function') return;
 
@@ -396,12 +453,21 @@ export function installInput() {
        header), the same reasoning that already made its KEYS/legend toggle
        clickable with no panel open.
 
-       An empty slot, or a slot holding a pair that could never be placed at
-       all (dragged in, not armed by a click) does nothing at all -- no arm,
-       no journal row, no error -- mirroring exactly what a click on that
-       same slot would do in each of those cases (`shell/main.js`'s own
-       "clicked" branch gates arming on the identical tile-form-or-rig
-       check). Reads `run.inv[run.mainSlots + qslot]` directly (docs/
+       ANY OCCUPIED SLOT ARMS (Phase 16a, docs/SPEC.md section 23.1). The
+       tile-form-or-rig-or-phial gate that used to be here is gone: an arm
+       now has two possible consequences, not one, and every ore, ingot,
+       plate and brand -- click-inert before this phase, a confirmed silent
+       no-op -- is exactly what the feed verb hands over. A pair that can
+       neither be placed nor fed still arms, and is inert until it is aimed
+       at something; `rules/placement.js#placeTile`'s own
+       'THAT DOES NOT BUILD' is what refuses it then, one press later, with a
+       reason. `shell/main.js`'s click-to-arm branch carries the IDENTICAL
+       gate, and must: `view/ui/quickbar.js#DIGITS`'s "press 3 and the slot
+       showing 3 cannot disagree" property is only true while the two ways of
+       reaching a slot accept the same slots.
+
+       An empty slot still does nothing at all -- no arm, no journal row, no
+       error. Reads `run.inv[run.mainSlots + qslot]` directly (docs/
        PLAN-phase12.md §3 D-H) -- a positioned slot, not an assignment table
        or a derived list, so there is no staleness to guard: an occupied slot
        always has `n >= 1` by construction (`write.spend` clears to `null` at
@@ -410,8 +476,7 @@ export function installInput() {
     const qslot = slotForDigit(k);
     if (qslot >= 0) {
       const slot = run.inv[run.mainSlots + qslot];
-      if (slot && (FORM[slot.form]?.tile || slot.form === F.rig || slot.form === F.phial))
-        armPlace(slot.sub, slot.form);
+      if (slot && slot.sub != null) armPlace(slot.sub, slot.form);
     }
 
     if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k))
@@ -424,7 +489,7 @@ export function installInput() {
      changed stays down forever otherwise, and the player returns to a character
      walking into a wall. */
   addEventListener('blur', () => {
-    for (const k of ['left', 'right', 'up', 'down', 'dig', 'place', 'craft', 'action', 'collect', 'mouse', 'uiClick', 'uiRight', 'uiDown'])
+    for (const k of ['left', 'right', 'up', 'down', 'dig', 'place', 'feed', 'craft', 'action', 'collect', 'mouse', 'uiClick', 'uiRight', 'uiDown'])
       cmd[k] = false;
     cmd.uiCtrl = false; cmd.uiShift = false; cmd.uiWheel = 0;
     hopHeld = false; dropHeld = false; deconHeld = false; linkHeld = false;
@@ -568,24 +633,35 @@ export function installInput() {
     } else if (e.button === 2) {
       cmd.place = true;
     } else {
-      /* LMB, D-A's three-rule dispatch (docs/PLAN-phase12.md §4.4), decided
-         ONCE here at pointerdown rather than every frame of a held press: if
-         this press decides "place", `cmd.mouse` is never set true for the
-         rest of the hold, so mining cannot spuriously start on the tile just
+      /* LMB, D-A's dispatch (docs/PLAN-phase12.md §4.4, widened to FOUR rules
+         by Phase 16a -- docs/SPEC.md section 23.2), decided ONCE here at
+         pointerdown rather than every frame of a held press: if this press
+         decides "place" or "feed", `cmd.mouse` is never set true for the rest
+         of the hold, so mining cannot spuriously start on the tile just
          placed even if the button stays down through a later frame.
          `aim.mode` records which rule fired, through the previously-dead
          `model/aim.js#write.mode` setter, so the reticle colour
-         (`view/hud.js:513`) finally reflects it. */
+         (`view/hud.js:513`) finally reflects it.
+
+         RULE 2 SITS ABOVE RULE 3 DELIBERATELY, and the precedent is a dozen
+         lines up in this same handler: RMB already puts "a machine is under
+         the reticle, so deconstruct" above "place". A machine under the
+         reticle means the machine. The stated cost is that a machine cannot
+         be mined through while something is armed -- `z` clears the hand in
+         one press, the same mitigation D-A already accepted for rule 1. */
       const armed = ui.armedPlace && invCount(ui.armedPlace.sub, ui.armedPlace.form) > 0
         ? ui.armedPlace : null;
       if (armed && armed.form === F.phial && aim.valid && aim.band) {
         aw.mode('place');                 // rule 1 -- a miracle armed always wins
         cmd.place = true;
+      } else if (feedTargetAt(armed)) {
+        aw.mode('place');                 // rule 2 -- a reachable machine that wants it
+        cmd.feed = true;
       } else if (armed && aim.valid && aim.band && tileAt(aim.band, aim.tx, aim.ty) === AIR) {
-        aw.mode('place');                 // rule 2 -- open ground, something armed
+        aw.mode('place');                 // rule 3 -- open ground, something armed
         cmd.place = true;
       } else {
-        aw.mode('dig');                   // rule 3 -- mine, exactly as today
+        aw.mode('dig');                   // rule 4 -- mine, exactly as today
         cmd.mouse = true;
       }
     }
@@ -640,6 +716,7 @@ export const pointer = { cam: { x: 0, y: 0 }, toWorld: null };
 export function clearEdges() {
   cmd.hop = false;
   cmd.place = false;
+  cmd.feed = false;
   cmd.drop = false;
   cmd.deconstruct = false;
   cmd.link = false;

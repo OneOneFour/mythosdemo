@@ -2101,3 +2101,49 @@ Consequences, in the order they bite:
    rather than promised as 1-of-3). Nothing in this phase makes any of them
    easier or harder; they are named here only so the win screen's two new
    readouts are not mistaken for those items being closed.
+
+## Phase 16a (the feed verb) — one thing resolved, one narrowed, one parked
+
+1. **RESOLVED, same phase.** The feed verb's two refusal strings were
+   initially unreachable from LMB: `docs/PLAN-phase16-interaction-model-v2.md`
+   §6.2 step 3 specified rule 2 as *"a machine exists at the aimed tile, is
+   within `handFeed.reach`, **and `feedCheck(...).ok`** → `cmd.feed = true`"*,
+   and implementing that literally meant a machine that would refuse the pair
+   never set `cmd.feed` at all — the press fell through to rule 3 (place),
+   which in one measured case **placed a `timber/rung` inside a furnace's own
+   footprint** (tile byte 38 at the machine's own tile, toast `TIMBER LADDER
+   PLACED`) instead of refusing to feed it. Found in the same phase's hand
+   verification and fixed in the same phase: `shell/input.js#feedTargetAt` no
+   longer checks `feedCheck(...).ok` before setting `cmd.feed`, only that a
+   reachable, hand-feedable machine is under the reticle at all — matching §5
+   D16-A's own stated argument ("a machine under the reticle means the
+   machine"). `handOne`/`feedCheck` are now always consulted downstream and
+   their refusal always reaches the player. `docs/SPEC.md` §23.2/§23.4 record
+   the fix in place; `tools/check.mjs` section 8i (direct) and
+   `tests/visual.spec.js`'s "REAL CLICK: clicking an ore slot arms it..." test
+   (a real `pointerdown` over a real machine, wrong pair armed) both cover it
+   as a permanent regression.
+
+2. **NARROWED, not closed.** `rules/placement.js#placeTile` still never asks
+   `machineAt` — it tests bounds, `tileAt === AIR`, held count and the backing
+   predicate only, and a machine's footprint tiles are genuine `AIR` in the
+   tile grid. Item 1's fix shields this **only while something is armed**:
+   with rule 2 now unconditional, any armed pair aimed at a reachable,
+   hand-feedable machine feeds (or is refused) rather than reaching rule 3 at
+   all, so a rung can no longer land inside such a machine's footprint by this
+   path. But `placeTile` itself is unchanged, `rung` has always been armable,
+   and a machine with no `handFeed` block (or one out of reach) still offers
+   no protection — a `machineAt` clause in `placeTile` (which would need
+   `placementCheck`'s "one decision, two readers" pair to learn the same
+   refusal, so the build ghost agrees) is the real fix and remains out of
+   scope here.
+
+3. **Arming a non-placeable, non-feedable pair now costs a refusal toast where
+   it used to cost nothing.** Widening both arm gates (docs/SPEC.md §23.1) was
+   required and is right, but it means LMB at open air with, say, a
+   `copper/ingot` in hand now fires rule 3 and prints `'THAT DOES NOT BUILD'`,
+   where before the pair simply could not be armed. Judged acceptable — an
+   existing string, one press, and legible — but it is a new toast in a common
+   position and Phase 16c's legibility pass (D16-E, the `IN HAND` readout) is
+   the right place to decide whether the ghost should be saying "this feeds,
+   it does not build" before the press instead.

@@ -20,7 +20,7 @@ import { SUB } from '../data/substances.js';
 import { hasField, write as fw, fieldAt } from '../model/fields.js';
 import { push } from '../model/journal.js';
 import { itemsIn, parseKey, write as iw } from '../model/items.js';
-import { capOf, count, defOf, fill, firstMatching, machines, write as mw } from '../model/machines.js';
+import { acceptedBy, capOf, count, defOf, feedCheck, fill, firstMatching, machines, write as mw } from '../model/machines.js';
 import { unitsCrossed, write as digw, workAt } from '../model/mining.js';
 import { eff } from '../model/mods.js';
 import { playerBox } from '../model/player.js';
@@ -139,6 +139,44 @@ function handFeed(m, def) {
   }
 }
 
+/* ---------- THE FEED VERB (Phase 16a, docs/SPEC.md section 23) ----------
+   ONE unit of ONE named pair, handed over deliberately. This is what LMB on a
+   machine does; `handFeed` above is the proximity magnet that used to be the
+   only way material ever reached a buffer from a hand, and it is untouched
+   here on purpose (it is retired behind a preference in Phase 16b, not in this
+   phase).
+
+   The two differ in three ways and every one of them is the point: this takes
+   the pair the PLAYER named (`shell/ui.js#ui.armedPlace`) rather than whatever
+   `pocketedPair` happens to find first; it moves ONE unit per call rather than
+   one per selector per substep; and it SAYS WHY when it refuses. Everything
+   after the check is `handFeed`'s own body, verbatim, for one unit.
+
+   REACH IS NOT ASKED HERE. `shell/input.js`'s `pointerdown` asks it once, at
+   the instant of the press, and dispatches a mine instead when the answer is
+   no -- so a feed that reaches this function has already been decided to be a
+   feed, and a reach refusal here would be unreachable code claiming a
+   precedence docs/SPEC.md section 23.4 does not grant it.
+
+   Returns whether a unit actually moved, so `shell` can tell a fed press from
+   a refused one without reading the journal back. */
+export function handOne(m, sub, form) {
+  const chk = feedCheck(m, sub, form);
+  if (!chk.ok) {
+    push('refused', { x: m.box.x, y: m.box.y }, { def: m.def, sub, form, why: chk.why });
+    return false;
+  }
+  /* Not a refusal row: the caller re-checks `invCount > 0` immediately before
+     this (`shell/main.js#applyIntents`), so a failed spend here means the
+     pockets changed inside one frame -- a stale arm, not a player mistake, and
+     nothing a toast could usefully tell them. */
+  if (!rw.spend(sub, form, 1)) return false;
+  mw.take(m, sub, form, 1);
+  mw.fire(m, 1);
+  push('accept', { x: m.box.x, y: m.box.y }, { def: m.def, sub, form });
+  return true;
+}
+
 /* ---------- run a recipe ---------- */
 function produce(m, def, dt) {
   const r = choose(m, def);
@@ -252,16 +290,11 @@ function emit(m, def, dt) {
   }
 }
 
-/* Which `in` port selector, if any, accepts this pair. Returned rather than a
-   boolean because the CAP is per selector — the furnace's 4-ore / 2-fuel
-   asymmetry is expressed that way and this is where it is honoured. */
-function acceptedBy(def, sub, form) {
-  for (const p of def.ports) {
-    if (p.mode !== 'in' || !p.accepts) continue;
-    for (const sel of p.accepts) if (matches(sel, sub, form)) return sel;
-  }
-  return null;
-}
+/* `acceptedBy` -- which `in` port selector, if any, accepts this pair -- USED
+   TO BE DEFINED HERE. It moved to `model/machines.js` in Phase 16a, unchanged,
+   so that it and `feedCheck` (the hand-feed half of the same question) cannot
+   drift into two different answers to "does this machine take this pair". It
+   is still the only thing `catchFalling` above asks. */
 
 /* ---------- mine ----------
    A PLACED miner. GATES on top of `rules/mining.js`'s hardness, not a second

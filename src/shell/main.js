@@ -13,7 +13,7 @@
 
 import { VIEW, resize, stage } from '../core/canvas.js';
 import { clamp } from '../core/math.js';
-import { F, FORM } from '../data/forms.js';
+import { F } from '../data/forms.js';
 import { M, MACH } from '../data/machines.js';
 import { RECIPES } from '../data/recipes.js';
 import { aim } from '../model/aim.js';
@@ -25,6 +25,7 @@ import { canCraft, invCount, isKnown, machineIdFor, pocketRows, run, write as ru
 import { linkedTo, segments } from '../model/segments.js';
 import { bands, heightPx, widthPx, write as worldw } from '../model/world.js';
 import { dropHeaviest } from '../rules/items.js';
+import { handOne } from '../rules/machines.js';
 import { deconstruct, linkSegment, placeMachine, placeTile, placeableFromPockets, unlinkSegment } from '../rules/placement.js';
 import { step as stepFx } from '../view/fx.js';
 import { render } from '../view/scene.js';
@@ -152,8 +153,18 @@ export function step(dt) {
    gone along with the menu that set it -- see `shell/input.js`'s own comment
    at its digit-key handler and `docs/FINDINGS.md`. Placement now has exactly
    one path, `cmd.place` below, whether the pair placed is a tile or a
-   machine. */
-function applyIntents() {
+   machine.
+
+   EXPORTED as of Phase 16a, and only so `tools/check.mjs` can drive a
+   one-shot intent for real. Every behavioural probe in that file goes through
+   `main.step()` (its own `stepReal` helper) precisely so nothing
+   re-implements the loop -- but `step()` is the fixed substep and one-shot
+   intents are not in it, so an intent probe had no honest entry point at all
+   and the harness could only reach `rules` directly (the exception
+   `tools/check.mjs` documents for the link verb). One export is cheaper than
+   a second copy of this dispatch, and `frame()` and `__mf.frames`/`hold`
+   still call it exactly as they did. */
+export function applyIntents() {
   /* Same freeze as `step()`, and the same reason: placing a machine or
      drafting a boon resolves against `aim`, which is a reading of the world
      the player cannot currently see -- the map covers it. A press that lands
@@ -239,6 +250,34 @@ function applyIntents() {
       if (armed && placed) clearArmedPlace();
     }
     cmd.place = false;
+  }
+
+  /* THE FEED VERB (Phase 16a, docs/SPEC.md section 23), gated on the same
+     `aim.valid && aim.band` `cmd.place` above and `cmd.deconstruct` below
+     are, and for the same reason: you point at the machine you mean.
+
+     THE DECISION WAS ALREADY MADE. `shell/input.js`'s `pointerdown` resolved
+     "this press means feed" once, at the instant of the press, including the
+     reach test -- that is D-A's whole design and the reason this branch does
+     not re-litigate any of it. What it DOES re-check is the armed pair,
+     exactly the way `cmd.place` above re-checks it (`invCount > 0`): a craft
+     queue or a drag could have spent the pair between the press and this
+     call, and a stale arm must never hand over the wrong material. With
+     nothing armed, or with the aimed machine gone (deconstructed in the
+     interval), the press evaporates -- no journal row, the same as a
+     `cmd.place` with nothing placeable held.
+
+     THE ARM IS DELIBERATELY NOT CLEARED ON SUCCESS. Ten ore into an altar is
+     one continuous action, not ten gestures; the staleness sweep at the top
+     of this function clears the arm on its own the moment the last unit is
+     gone. That is the one way this branch differs in shape from `cmd.place`,
+     and docs/SPEC.md section 23.3 is where it is locked. */
+  if (cmd.feed && aim.valid && aim.band) {
+    const armed = ui.armedPlace && invCount(ui.armedPlace.sub, ui.armedPlace.form) > 0
+      ? ui.armedPlace : null;
+    const m = machineAt(aim.band, aim.tx, aim.ty);
+    if (armed && m) handOne(m, armed.sub, armed.form);
+    cmd.feed = false;
   }
 
   /* The drop verb (CLAUDE.md D4's prerequisite): no aim needed, it always
@@ -521,16 +560,26 @@ function applyUiIntents() {
     /* PLAIN CLICK, no drag threshold crossed, released on the SAME slot the
        press started on: arm that exact pair instead of running the
        drag-resolve branches below (Part 1, click-to-arm placement) -- see
-       `shell/ui.js#ui.armedPlace`'s own header. Restricted to a pair that
-       could actually BE placed (a tile-capable form or a machine's own
-       `rig`) and to the two grids a player actually holds placeables in, so
-       this never steals a click a real equip/quickbar drag needed, and never
-       arms a slot with nothing coherent to do once 'E' is pressed. */
+       `shell/ui.js#ui.armedPlace`'s own header. Still restricted to the two
+       grids a player actually holds material in, so this never steals a
+       click a real equip drag needed.
+
+       ANY OCCUPIED SLOT ARMS (Phase 16a, docs/SPEC.md section 23.1). The
+       form gate that used to be on this line -- a tile-capable form, a
+       machine's `rig`, or a `phial` -- is gone, because an arm now has two
+       possible consequences rather than one: LMB on open ground places it,
+       and LMB on a machine that wants it feeds it. Every ore, ingot, plate
+       and brand was click-inert before this phase (a confirmed silent
+       no-op), and those are precisely what the feed verb hands over. A pair
+       that can do neither still arms and is simply inert until aimed;
+       `rules/placement.js#placeTile`'s own 'THAT DOES NOT BUILD' is what
+       refuses it then, with a reason. `shell/input.js`'s digit-arm gate
+       carries the IDENTICAL test and must -- see
+       `view/ui/quickbar.js#DIGITS`. */
     const clicked = !dragExceeded && hit && dragStart &&
       hit.gridId === dragStart.gridId && hit.slot.index === dragStart.index;
     if (clicked && (hit.gridId === 'inv' || hit.gridId === 'quickbar') &&
-        hit.slot.sub != null &&
-        (FORM[hit.slot.form]?.tile || hit.slot.form === F.rig || hit.slot.form === F.phial)) {
+        hit.slot.sub != null) {
       armPlace(hit.slot.sub, hit.slot.form);
     } else if (hit && (hit.gridId === 'inv' || hit.gridId === 'quickbar') &&
                (ui.drag.from === 'inv' || ui.drag.from === 'quickbar')) {

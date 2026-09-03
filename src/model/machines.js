@@ -152,6 +152,66 @@ export function fill(m, sel) {
 
 export const full = (m, sel) => count(m, sel) >= capOf(MACH[m.def], sel);
 
+/* ---- does this machine accept this pair, and by which clause ----
+   TWO CALLERS, TWO SELECTOR LISTS, ONE MATCH RULE. A machine says what it
+   takes twice, for two different mouths: `ports[].accepts` is what may fall
+   or be belted IN, and `handFeed.from` is what a player standing beside it may
+   hand over. The LISTS differ per row and must stay separate; the question
+   asked of each ("which of these selectors covers this pair, if any") is the
+   same one, so it is `firstSel` below and nothing re-implements it.
+
+   Returned as the matching SELECTOR rather than a boolean because the CAP is
+   per selector -- the furnace's 8-ore / 2-fuel asymmetry is expressed that
+   way, and a caller that only learned "yes" would have to find the clause
+   again to honour it. */
+const firstSel = (sels, sub, form) => {
+  for (const sel of sels || []) if (matches(sel, sub, form)) return sel;
+  return null;
+};
+
+/* Which `in` port selector, if any, accepts this pair. Lives in `model`
+   rather than beside its caller in `rules/machines.js#catchFalling` (where it
+   was until Phase 16a) so that it and `feedCheck` below cannot drift into two
+   different answers to "does this machine take this". */
+export function acceptedBy(def, sub, form) {
+  for (const p of def.ports || []) {
+    if (p.mode !== 'in') continue;
+    const sel = firstSel(p.accepts, sub, form);
+    if (sel) return sel;
+  }
+  return null;
+}
+
+/* ---- WOULD THIS MACHINE TAKE THIS PAIR FROM A HAND, and how full is the
+   clause that would hold it? `{ ok, why, have, cap }`.
+
+   ONE DECISION, TWO READERS, the same arrangement `model/run.js#placementCheck`
+   and `model/segments.js#linkCheck` already have: `rules/machines.js#handOne`
+   ENFORCES this answer and `view/hud.js`'s build ghost PREVIEWS it, and `view`
+   may not import `rules`. `have`/`cap` are here for the preview's sake -- the
+   ghost prints them -- and are meaningless (both 0) when the refusal is
+   'IT DOES NOT WANT THAT', since no clause was found to measure.
+
+   REACH IS DELIBERATELY NOT CHECKED HERE, and this is the one thing to
+   understand before adding a third caller. Reach is a fact about where the
+   player's body is standing at the instant of a gesture, which is
+   `shell/input.js`'s question and is asked exactly once, there, at
+   `pointerdown` (docs/SPEC.md section 23.2). Folding it in would make this
+   query unusable for the ghost, whose whole job is to answer for a machine the
+   player has not walked to yet.
+
+   The ORDER of the two refusals is locked (docs/SPEC.md section 23.4): wrong
+   material beats no room, because a player holding gravel at a full furnace
+   needs to be told the furnace does not want gravel. */
+export function feedCheck(m, sub, form) {
+  const def = MACH[m.def];
+  const sel = def.handFeed ? firstSel(def.handFeed.from, sub, form) : null;
+  if (!sel) return { ok: false, why: 'IT DOES NOT WANT THAT', have: 0, cap: 0 };
+  const have = count(m, sel), cap = capOf(def, sel);
+  if (have >= cap) return { ok: false, why: 'IT IS FULL', have, cap };
+  return { ok: true, why: '', have, cap };
+}
+
 /* Which port/hand-feed/recipe selector, if any, is this definition's fuel
    requirement -- the exact star-slash-hash-fuel text every fuel-burning row
    already spells in `data/machines.js`'s `ports`/`handFeed` and
