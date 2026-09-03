@@ -174,6 +174,66 @@ them good.
 - **Tuning numbers belong in `docs/SPEC.md` first**, then in code. If they
   disagree, the spec is stale — fix it in the same commit.
 
+## Comments
+
+A comment must answer something the code cannot. Keep only these categories:
+
+- **Coordinate space and units.** Canvas y-down vs world y-up, tile vs pixel vs
+  chunk coords, talents vs kg, ticks vs ms vs frames. State it once at the
+  boundary where the conversion happens.
+- **Non-obvious invariants.** Inclusive/exclusive tile bounds, draw-order
+  dependencies, assumed canvas transform state on function entry, ctx.save()
+  balance across a call.
+- **Determinism constraints.** Anything where call order affects seeded RNG or
+  replay: `// consumes 2 draws; reordering breaks seed compatibility`.
+- **Deliberate non-idiomatic code, with the reason.** Object reuse to avoid
+  per-frame allocation, manual loops over .map in hot paths, bitpacking,
+  typed-array layout. Say what breaks if someone "cleans it up".
+- **Why a magic number is that number.** Cite the tuning pass, the physical
+  derivation, or the constraint it satisfies. Naming the number is not a reason.
+- **Registry coupling.** When a literal must match a key in data/*.js, say which
+  file owns it.
+- **Upstream/browser bugs worked around,** with a version or UA bound.
+- **TODO(rob): / FIXME:** with a concrete resolution condition.
+
+Delete everything else:
+
+- Restating the line below it in English.
+- Narrating control flow or the frame loop ("first we clear, then we draw...").
+- Diff and phase commentary: `// Phase 6.6`, `// now uses the registry`,
+  `// moved from renderer.js`, `// as per SPEC.md`, `// as requested`. Git and
+  SPEC.md own this.
+- Section banners (`// ===== RENDERING =====`).
+- Self-assessment ("this is critical", "clean approach here").
+- Restated JSDoc types, or JSDoc that only repeats the signature.
+- **Commented-out code.** Never leave a previous implementation in place
+  commented out. Delete it; git has it.
+- eslint-disable without a reason on the same line.
+
+One line unless the invariant genuinely needs two. Default to zero comments —
+every comment is a claim that a competent reader of this codebase would
+otherwise get it wrong.
+
+## JSDoc
+
+One imperative line saying what it does. Then only if non-obvious:
+
+- `@param` only for params whose units, coordinate space, valid range, or
+  mutation status aren't clear from the name and type. Don't list the rest for
+  symmetry. `@param {number} x - The x coordinate` is noise; `@param {number} y
+  - world tiles, positive down` is not.
+- `@returns` only if the shape, units, or aliasing isn't obvious. Say when a
+  returned object is a shared/reused instance rather than a fresh one.
+- Side effects: mutates an argument, writes to storage, touches ctx state,
+  registers a listener, allocates.
+- `@throws` only for what callers are expected to catch.
+
+No rationale, no design history, no usage tutorials, no prose essays. Over 12
+lines needs justification. Small private helpers with clear names get none.
+
+Rationale for a mechanic goes in DESIGN.md. Behavioural contracts go in SPEC.md.
+Irreversible technical decisions go in docs/adr/. Never inline.
+
 ## Mistakes already made here — don't repeat them
 
 - **Boot order.** `resize()` sets `VIEW.w/h`, `generate()` fills the grid and
