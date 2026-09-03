@@ -174,8 +174,11 @@ export function unlinkSegment(seg) {
 
 /* ---------- tiles ----------
    Only a form carrying a `tile` block may be placed as terrain -- `rung`,
-   `stair` and `block`. There is no ladder id, no ladder recipe and no ladder
-   code. `gravel` and `log` were also on that list until Phase 14a stripped
+   `stair`, `block` and, since Phase 15, `seed`. There is no ladder id, no
+   ladder recipe, no ladder code -- and no PLANT verb either: planting is
+   `cmd.place` on an armed `timber/seed` pair through the same unified
+   placement `placeableFromPockets` below already offers, with no special
+   case anywhere. `gravel` and `log` were also on that list until Phase 14a stripped
    their `tile` blocks (CLAUDE.md D12: a form is either feedstock or buildable,
    never both), which is also why NOTHING IN THIS FILE CHANGED for it -- "a
    deposit is never placeable" is a property of `data/forms.js#block`'s
@@ -183,7 +186,7 @@ export function unlinkSegment(seg) {
    docs/SPEC.md section 19. */
 
 /* Every `{sub, form}` pair in the pockets that could be PLACED -- a
-   tile-capable form (terrain: `rung`, `stair`, `block`) OR a
+   tile-capable form (terrain: `rung`, `stair`, `block`, `seed`) OR a
    machine's own `rig` pair (a structure: `rules/placement.js#placeMachine`)
    -- in HUD order. `shell/main.js#applyIntents`'s `cmd.place` branch places
    the first of these, dispatching to `placeTile` or `placeMachine`
@@ -205,10 +208,34 @@ export function placeTile(band, tx, ty, sub, form) {
   /* A ladder needs something to hang from: rock beside or above it, or another
      climbable tile to join. THE ONE BELOW COUNTS TOO — that is the direction you
      build when climbing out of your own shaft, and without it the last two rungs
-     cannot be placed and the shaft becomes a grave. */
+     cannot be placed and the shaft becomes a grave.
+
+     THE FIFTH SATISFIER IS OPTED INTO BY THE FORM, NOT ADDED TO THE RULE
+     (Phase 15, docs/PLAN-phase15-trees.md D15-C, docs/SPEC.md section 22).
+     A `tile.roots` form is backed by A SOLID TILE DIRECTLY BELOW as well,
+     because a seed dropped on open flat ground has soil beneath it and air
+     on all three other sides and would otherwise be refused with
+     'IT NEEDS SOMETHING TO HANG FROM' — correct for a ladder rung and
+     exactly wrong for a seed.
+
+     IT IS A KEY ON THE ROW AND NOT A SIXTH CLAUSE IN THE SHARED PREDICATE,
+     and that is the whole point of the flag. `solidAt(band, tx, ty + 1)`
+     added unconditionally would let a `rung` be placed standing on a floor
+     with nothing beside it — a real change to how a ladder is built, in the
+     one function CLAUDE.md records wedging a player in their own shaft — and
+     it would let a `block` be stacked on a floor with no wall to key into.
+     Gated on the form's own key, `rung`/`stair`/`block` placement is
+     BIT-IDENTICAL: none of the three carries `roots`, so the added term is
+     `false && ...` and short-circuits before the read. (`log` is not a
+     fourth case to hold identical — Phase 14a's D14-H deleted its `tile`
+     block, so the form gate above turns it away before this line.)
+     `tools/check.mjs` section 8g asserts all three, including that a rung
+     with only a floor under it still refuses. */
+  const t = FORM[form].tile;
   const backed = solidAt(band, tx - 1, ty) || solidAt(band, tx + 1, ty)
               || solidAt(band, tx, ty - 1)
-              || climbAt(band, tx, ty - 1) || climbAt(band, tx, ty + 1);
+              || climbAt(band, tx, ty - 1) || climbAt(band, tx, ty + 1)
+              || (t.roots === true && solidAt(band, tx, ty + 1));
   if (!backed) return no('IT NEEDS SOMETHING TO HANG FROM');
 
   if (!rw.spend(sub, form, 1)) return no('NOTHING TO BUILD WITH');

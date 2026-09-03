@@ -2040,3 +2040,217 @@ superseded within its own frame by the heart line. The debt row's sound and
 chips still land, and a punishment with no hearts (none ships) would show it.
 Left as it is: reordering the pushes would trade the heart count away for the
 favour count, and a toast *queue* is a bigger change than this phase.
+
+---
+
+## 22. Tree regrowth: the seed, the plant verb and growth (Phase 15)
+
+`docs/PLAN-phase15-trees.md` is the reasoning; these are the locked numbers.
+`log` is the only fuel in the game (`data/world.js`'s own `trees` row says
+so), so a player who fells every tree on the surface has quietly ended their
+own run. This section is the way back.
+
+### 22.1 The two tunables
+
+| id | kind | base | unit | meaning |
+|---|---|---|---|---|
+| `treeGrowSecs` | value | **180** | s | accumulated *simulation* seconds a planted seed takes to become a tree |
+| `seedYield` | value | **1** | units | seeds dropped when the last remaining trunk tile of a tree is felled |
+
+**180 s and not 90.** `brandSecs` is 90 and is the game's existing unit of
+"one long errand" (§11). A tree ought to cost more than one errand, and 180 s
+is about a quarter of a cycle-2 deadline (`deadlineSecs` 480). It is a guess
+and is marked as one: it is one row, and the acceptance walkthrough in
+`docs/PLAN-phase15-trees.md` §5 is the measurement.
+
+**`seedYield` is a value, not a `chance`, and there is deliberately no
+`seedChance` beside it.** A regrowth mechanic that sometimes gives you nothing
+is a mechanic that sometimes silently ends the timber economy. If scarcity is
+wanted later, the lever is `treeGrowSecs`.
+
+**Time comes from `dt`, never from a wall clock** (invariant 10).
+`rules/growth.js` accumulates the `dt` it is handed at the fixed 1/120 s
+substep, so a seed takes 180 s of simulation time at 20 fps and at 240 fps
+alike, and does not grow while the tab is in the background. `tools/check.mjs`
+§8g asserts the transition at all eight framerates §12's hardness table
+sweeps — 107 is in that list because a truncated per-tile byte once made
+granite unmineable above 106 fps, and a timed transition is the same class of
+bug one level up.
+
+### 22.2 The `seed` form
+
+```js
+{ id:'seed', label:'SEED',
+  size:2, massK:0.1, hudOrder:13,
+  tags:[], subTags:['organic'],
+  tile:{ solid:false, climb:false, hardK:0.05, roots:true } }
+```
+
+| key | value | why |
+|---|---|---|
+| `subTags` | `['organic']` | timber is the only substance that crosses, exactly the restriction `log`, `rung` and `brand` already use. `timber/seed` is the real pair; no substance row was spent (§15) |
+| `massK` | `0.1` → **0.035 T** | the lightest thing in the game. Mass conservation is not engaged: no recipe produces a seed, so there is no input to conserve against |
+| `solid` | `false` | you walk through a seedling. One that blocked movement would be a trap you planted for yourself |
+| `climb` | `false` | one that could be climbed would be a free ladder rung at a tenth of a rung's mass |
+| `hardK` | `0.05` → **0.0175 s** | near-instant, so a misplaced seed costs nothing to recover. `model/tiles.js#dropOf` gives the pair itself back for any placed form, so digging up a seedling returns the seed with no code |
+| `tags` | `[]` | a seed is not fuel, ore, or anything a selector should find by accident. It is also what keeps `seed` off the furnace's `*/#fuel` `handFeed.from` and therefore clear of D12 |
+
+**The form budget after this row** (§15's arithmetic, re-executed against the
+real modules):
+
+| state | `FORM.length` | `STRIDE` | `PACKABLE_MAX` | `PACKABLE_LIMIT` | guard LHS |
+|---|---|---|---|---|---|
+| after Phase 14a | 12 | 13 | 8 (`adamant`) | 18 | 117 of 255 |
+| **after `seed`** | **13** | **14** | **8** | **17** | **126 of 255** |
+
+`PACKABLE_MAX` did not move: `seed` admits `organic`, whose only member is
+`timber`, which was already packable as native terrain. §15's standing
+correction still holds — ordinals 9–17 are occupied by non-packable rows, so
+appendable headroom for a *tile-capable* substance remains zero and a future
+terrain substance must be *inserted* below ordinal 17.
+
+### 22.3 The drop condition
+
+When a **NATIVE** `timber` tile breaks, `rules/mining.js` drops one seed iff
+neither the tile above nor the tile below is now a NATIVE `timber` tile.
+
+A trunk is a contiguous vertical run felled one tile at a time from either end
+or from the middle outward, so the last tile standing is by definition the one
+with no trunk above or below it. Two reads, no loop, no state, correct for
+every felling order.
+
+- **`formOf(byte) === NATIVE` is load-bearing.** A placed `timber/rung`
+  reads `timber` through `subOf` exactly as a trunk does — only the form
+  differs — so without it a player could peg rungs into a wall and mine them
+  back out for free seeds.
+- **`data/drops.js` cannot express this and must not be bent to try.** A
+  `DROPS` row sees the substance and tier of the tile just broken and nothing
+  else; "the last remaining trunk tile" is a fact about the column.
+- **Fell a tree *completely*.** A player who fells three tiles of a 5-tall
+  tree and wanders off gets nothing yet. That is correct — the seed is still
+  in the two tiles still standing — and it is a reachable, confusing state
+  worth a callout beat if one is ever wanted.
+- **`rand()` ordering.** The seed spawn sits *after* the ordinary material
+  drop and *before* the rare-trinket `DROPS` loop, so that roll keeps its
+  exact position relative to the material drop. This changes what an existing
+  seed produces downstream of the first tree felled in a run, which adding any
+  new spawn to that branch must; invariant 7 requires that `newRun(s)` twice
+  still match, and it does.
+
+### 22.4 `tile.roots`: the plant verb
+
+Planting is `cmd.place` on an armed `timber/seed` pair through the same
+unified placement every other tile uses. There is no plant key, no plant verb
+and no seed-specific branch in `rules/placement.js`. What there is is one
+optional key on a form's `tile` block:
+
+> **`tile.roots`** — *this form takes root.* Two consequences, read in two
+> places:
+>
+> 1. **Placement.** A solid tile *directly below* satisfies this form's
+>    backing requirement, in addition to the four satisfiers
+>    `rules/placement.js#placeTile` already accepts (solid left, solid right,
+>    solid above, climbable above or below). A seed dropped on open flat
+>    ground has soil beneath it and air on all three other sides, and was
+>    refused with `'IT NEEDS SOMETHING TO HANG FROM'` before this key existed
+>    — correct for a ladder rung and exactly wrong for a seed.
+> 2. **Growth.** `model/tiles.js#write.setByte` enters the tile in
+>    `model/growth.js`'s ledger the moment it is written and removes it the
+>    moment it is overwritten — the same single funnel, and the same argument,
+>    §19's `digw.clear` already uses.
+
+**It is a key on the row and not a sixth clause in the shared predicate.**
+`solidAt(band, tx, ty + 1)` added unconditionally would let a `rung` be placed
+standing on a floor with nothing beside it — a real change to how a ladder is
+built, in the one function `CLAUDE.md` records wedging a player in their own
+shaft — and would let a `block` be stacked on a floor with no wall to key
+into. Gated on the form's own key, `rung`/`stair`/`block` placement is
+**bit-identical**: none of the three carries `roots`, so the added term
+short-circuits before the read. `tools/check.mjs` §8g asserts all 36
+neighbourhoods × 4 tile-capable forms against an independently written copy of
+the pre-Phase-15 predicate, including that a rung with only a floor beneath it
+still refuses.
+
+**A solid `roots` form is forbidden structurally.** `tools/content.mjs`
+assertion 24: a form carrying `roots` must be `solid:false`. A solid tile that
+needs nothing but a floor under it is a free-standing wall — stand on flat
+ground and stack a tower upward one tile at a time, with no ladder and no
+scaffold, which is "up is expensive" inverted. The failure would be silent
+because it would *work*.
+
+**A seed does not require soil specifically.** Any solid tile below will do.
+"A seed needs earth" is thematically right and would be `solidAt` narrowed to
+a `#bulk`-tagged substance — one clause and one refusal string away, and
+deliberately deferred: it is a second content rule to explain, and the
+interesting decision (where do I spend 180 seconds of growth) is not made more
+interesting by it.
+
+### 22.5 Growth
+
+`model/growth.js` is a sparse `Map` of accumulated seconds, keyed
+`b.ord * 0x1000000 + idx(b, tx, ty)` — verbatim `model/mining.js`'s own key,
+because the two address the same coordinates. `model/fields.js` was considered
+and rejected: a field *decays* by default and this *accumulates*, and a field
+costs a dense `Float32Array(tw × th)` per band (~28 KB for the surface band) to
+describe a mechanic with single-digit live instances.
+
+`rules/growth.js` sits **immediately before `fields`** in
+`shell/schedule.js#STEPS`, and inherits verbatim the "only so `fields last`
+stays literally true" argument the old `tutorial before fields` pair carried.
+It costs one frame of latency on `light`/`reveal` seeing a newly grown trunk,
+on an event 180 seconds in the making.
+
+**Height comes from `hash2`, never `rand()`.** A positional hash is
+deterministic regardless of *when* the seed resolves; a stream draw is not —
+two runs from one seed in which the player planted the same tile at different
+times would consume `rand()` at different cursors and diverge. The range is
+read off `data/world.js`'s own `trees` strata row (**[3, 5]**) rather than
+re-literalled, so a planted tree is the same size as a wild one by
+construction. §8g plants the same tile twice in one seed, once after a dig
+that provably moved the `rand()` cursor, and requires the same height.
+
+**A grown tree is not similar to a worldgen one — it is the same bytes.**
+`resolve` writes `h` NATIVE tiles upward from the seed's own tile through
+`model/tiles.js#write.set`, the identical call `rules/generate.js:293` makes.
+The canopy, the chunk invalidation and the seam repaint are therefore free:
+`view/paint.js#decorate` crowns it on the next repaint with no code. Nothing
+regrows a tree the player did not plant — worldgen's `trees` row is untouched,
+because a world that reforests itself removes the reason to carry a seed.
+
+**No journal row when a tree finishes growing.** The tile appearing *is* the
+event, and a notification for something 180 seconds downstream of any input
+the player made is noise rather than feedback — the same reason §19 declines a
+"vein exhausted" row.
+
+### 22.6 The growth cue
+
+Three discrete silhouettes — a **seed**, a **shoot**, a **sapling** — stepping
+at **1/3** and **2/3** of `treeGrowSecs`, drawn in the canopy's own greens
+(`vdC`/`vdB`/`vdA`) with the darkest wood tone for the seed itself.
+
+Quantised for the reason §11's darkness quantises its alpha: at 8 px a tile
+there are about six usable rows, so a continuous height would spend most of
+180 s not visibly changing and then change by one pixel.
+
+**It is an overlay and not a chunk bake**, for the reason §19's depletion cue
+gives: a chunk canvas caches the *static rock texture* and a growth stage is a
+*live condition*. `model/growth.js#write.add` bumps the epoch and never a
+chunk version, so a sprite painted in `paintTile` would only ever be as fresh
+as the last time something else in that chunk happened to invalidate it. The
+rejected alternative was calling `write.touch` at each stage change so the
+sprite could bake — legal and cheap, and rejected because a chunk repaint
+triggered by something that is not a tile-byte change is exactly the coupling
+`model/world.js`'s comments on `seen` and `light` argue against.
+
+**It shares Phase 14c's pass.** `view/scene.js#drawLiveTiles` (formerly
+`drawDepletion`) is one loop with two guarded cases. Two passes doing the same
+shape of work would walk the visible tile window twice per frame for one
+answer each; a third live per-tile cue joins it there rather than beside it.
+The two cases are mutually exclusive by construction — depletion only fires on
+a NATIVE `deposit` tile, growth only on a placed `roots` form.
+
+The sprite draws strictly inside its own tile. A sapling poking into the air
+above would read marginally better, and is not worth weakening the pixel-scope
+assertion (`tests/visual.spec.js`: *the growth cue actually changes pixels, and
+only on the tile that was planted*) that is the only proof the pass is doing
+anything at all.

@@ -113,6 +113,7 @@ const D_callouts = await import('../src/data/callouts.js');
 const world  = await import('../src/model/world.js');
 const tiles  = await import('../src/model/tiles.js');
 const mining = await import('../src/model/mining.js');
+const growth = await import('../src/model/growth.js');
 const items  = await import('../src/model/items.js');
 const machs  = await import('../src/model/machines.js');
 const segs   = await import('../src/model/segments.js');
@@ -229,6 +230,17 @@ function snapshotModel() {
       vx: +it.vx.toFixed(3), vy: +it.vy.toFixed(3), sub: it.sub, form: it.form, rest: it.rest
     })),
     mining: mining.activeCount(),
+    /* GROWTH IS THE WHOLE ENTRY AND NOT A COUNT, unlike `mining` above, and
+       the difference is what each one can hide. An accumulated pick time is
+       recoverable from `b.mat` plus the player's inputs; a growing seed
+       carries a SECOND number the tile grid cannot express -- how far along
+       it is -- so a count would fingerprint identically for a fresh seed and
+       for one 179 seconds in. Sorted by key so `Map` insertion order (which
+       depends on the order the player planted, not on the state) cannot make
+       two identical worlds compare unequal. Phase 15, invariant 8. */
+    growth: [...growth.planted().entries()]
+      .map(([k, e]) => ({ k, ord: e.ord, tx: e.tx, ty: e.ty, secs: +e.secs.toFixed(6) }))
+      .sort((a, b2) => a.k - b2.k),
     /* `torque` and `turn` are in here for invariant 8's sake as much as for
        determinism's: they are the two fields `rules/drive.js` writes on a
        machine record every frame, and a `turn` phase that survived a restart
@@ -5304,6 +5316,701 @@ console.log('\n8f. THE CLOSED LOOP (Phase 13d)');
   if (!bad)
     ok(`BEAT SHEET: 10 beats with 11 callout slots, ${C.filter(c => c).length} carrying a line -- ` +
        `cycle 2's plate, dock, chain and clock each have one`);
+}
+
+/* ============================================================
+   8g. GROWTH (Phase 15, docs/PLAN-phase15-trees.md, docs/SPEC.md section 22)
+   ------------------------------------------------------------
+   A felled tree drops a seed; a planted seed becomes a tree after
+   `eff('treeGrowSecs')` of ACCUMULATED SIMULATION TIME. Four separate
+   properties, and every one of them is a class of bug this project has
+   already been bitten by once:
+
+     A TIMED TRANSITION IS THE CLASSIC FRAMERATE-DEPENDENT BUG. CLAUDE.md
+     records that a fixed-`DT` harness cannot see one, which is why every
+     probe below drives the REAL `main.step()` through `stepReal` at each of
+     the 8 framerates section 3's hardness table sweeps -- 107 is in that
+     list because a truncated per-tile byte once made granite unmineable
+     above 106 fps, and a growth timer is the same shape of thing one level
+     up.
+
+     A HEIGHT DRAWN FROM `rand()` DIVERGES BETWEEN TWO RUNS OF ONE SEED
+     depending on WHEN the player planted, because `rand()` is a stream and
+     its value depends on how many draws preceded it. That is the obvious
+     thing to write and `rules/mining.js` next door already rolls `rand()`
+     for drops, so the probe plants the same tile at two DIFFERENT times in
+     the same seed and asserts the resolved height matches.
+
+     A `clearAll` THAT BOOT FORGETS IS HOW A FIELD SURVIVES A RESTART.
+     docs/FINDINGS.md (8d, #2) records exactly that happening to `segments`,
+     whose reset was verified by hand and invisible to this harness until
+     `snapshotModel` learned about it. `growth` is in that snapshot now (see
+     its own note there) and the reset probe below is the assertion.
+
+     AN ORPHANED GROWTH ENTRY accumulating time against a tile that is now
+     rock would be invisible: nothing draws it, nothing reports it, and the
+     tile it names would just refuse to ever become a tree.
+   ============================================================ */
+console.log('\n8g. GROWTH (Phase 15)');
+
+/* A FLAT SHELF WITH SOIL UNDER IT, cleared by hand rather than found, for
+   CLAUDE.md's own reason about not trusting natural worldgen: the seed's
+   whole placement legality is "a solid tile directly below and air on the
+   other three sides", and a found location makes the seed decide what that
+   is. Returns the band and the planting column.
+
+   The `surface` band and not `topsoil`, because a planted tree grows UPWARD
+   and needs open air above it -- `rules/growth.js#resolve` writes as many
+   tiles as fit and no more, which is correct behaviour but would make a
+   height assertion measure the ceiling instead of the hash. */
+function growScene(seed, { tx = 20, ty = 24 } = {}) {
+  boot.newRun(seed);
+  const band = world.bandOf('surface');
+  /* Ten rows of headroom above the planting row: `data/world.js`'s `trees`
+     row tops out at height 5, so nothing can clip. */
+  for (let dy = -10; dy <= 1; dy++)
+    for (let dx = -2; dx <= 2; dx++) tiles.write.clear(band, tx + dx, ty + dy);
+  tiles.write.set(band, tx, ty + 1, D_sub.S.soil);          // the floor it roots into
+  return { band, tx, ty };
+}
+
+/* Plant a seed through the REAL `rules/placement.js#placeTile`, not through
+   `model/tiles.js#write.set`: the whole of D15-C is that a seed is placed by
+   the same verb as everything else and is legal on a bare floor, so a probe
+   that wrote the tile directly would skip the one clause this phase added.
+   The unit is collected first because `placeTile` spends one. */
+function plantSeed(band, tx, ty) {
+  run.write.collect(D_sub.S.timber, D_form.F.seed, 1);
+  return R_place.placeTile(band, tx, ty, D_sub.S.timber, D_form.F.seed);
+}
+
+/* The height of the native trunk standing on (tx, ty), counted upward. Reads
+   the same two facts `rules/mining.js#trunkAt` does, for the same reason: a
+   PLACED timber tile is not a trunk. */
+function trunkHeight(band, tx, ty) {
+  let h = 0;
+  while (tiles.subAt(band, tx, ty - h) === D_sub.S.timber &&
+         tiles.formAt(band, tx, ty - h) === D_form.NATIVE) h++;
+  return h;
+}
+
+/* --- CLAIM 1: A PLANTED SEED BECOMES A TREE AFTER EXACTLY
+   `eff('treeGrowSecs')` OF ACCUMULATED SIMULATION TIME, AT ALL 8 FRAMERATES.
+
+   Stated as two bounds on the LEDGER READING at the top of the substep that
+   resolved it, exactly the way section 8e's depletion probe states its own --
+   and for the same reason that probe gives at length: reconstructing the
+   total as `frames x dt` disagrees with the running float sum by accumulated
+   rounding, and the running sum is what `rules/growth.js` actually compares.
+   So: it was still short of the total when that substep began (nothing
+   resolved early), and one more substep's `dt` reached it (nothing lingered).
+
+   `dig:false` and no keys held, because this is the ONE mechanic in the game
+   that advances with no input at all -- which is also why this is the probe
+   that would catch a `Date.now()` implementation: wall-clock time does not
+   pass between two synchronous `main.step()` calls, so a clock-driven seed
+   would never resolve here at any framerate. --- */
+{
+  const RATES = [20, 30, 60, 90, 107, 120, 144, 240];
+  let bad = 0, worst = 0, worstAt = '';
+  const total = mods.eff('treeGrowSecs');
+
+  for (const fps of RATES) {
+    const dt = 1 / fps;
+    const { band, tx, ty } = growScene(9600 + fps);
+    if (!plantSeed(band, tx, ty)) {
+      fail(`GROWTH: placeTile refused a timber/seed on a bare soil floor at ${fps} fps -- the ` +
+           `tile.roots clause (D15-C) is what makes planting on flat ground legal`);
+      bad++; continue;
+    }
+
+    let frames = 0, lastSecs = 0;
+    const cap = Math.ceil(fps * (total + 5));
+    while (growth.growingAt(band, tx, ty) && frames < cap) {
+      lastSecs = growth.grownAt(band, tx, ty);
+      stepReal(dt);
+      frames++;
+    }
+
+    if (growth.growingAt(band, tx, ty)) {
+      fail(`GROWTH: the seed never resolved at ${fps} fps -- ${frames} substeps, ` +
+           `${growth.grownAt(band, tx, ty).toFixed(4)}s of ${total}s accumulated`);
+      bad++; continue;
+    }
+    const h = trunkHeight(band, tx, ty);
+    if (h < 1) {
+      fail(`GROWTH: the seed resolved at ${fps} fps but left no native trunk at (${tx}, ${ty}) -- ` +
+           `tileAt reads ${tiles.tileAt(band, tx, ty)}`);
+      bad++; continue;
+    }
+    if (lastSecs >= total + 1e-9) {
+      fail(`GROWTH: at ${fps} fps the seed was still a seed with ${lastSecs.toFixed(6)}s of ${total}s ` +
+           `accumulated -- it should already have become a tree`);
+      bad++; continue;
+    }
+    if (lastSecs + dt < total - 1e-9) {
+      fail(`GROWTH: at ${fps} fps the seed became a tree with only ${(lastSecs + dt).toFixed(6)}s of ` +
+           `${total}s accumulated -- ${(total - lastSecs - dt).toFixed(6)}s early`);
+      bad++; continue;
+    }
+    const err = Math.abs(lastSecs + dt - total);
+    if (err > worst) { worst = err; worstAt = `${fps}fps`; }
+  }
+  if (!bad)
+    ok(`GROWTH: a planted timber/seed becomes a native trunk after exactly ` +
+       `eff('treeGrowSecs') = ${total}s of accumulated SIMULATION time, driven through the real ` +
+       `main.step() at 8 framerates (worst overshoot ${worst.toFixed(5)}s, ${worstAt}) -- and it ` +
+       `advances with no input held, so nothing here is wall-clock driven`);
+}
+
+/* --- CLAIM 2: THE RESOLVED HEIGHT IS A FUNCTION OF THE TILE AND NOTHING
+   ELSE. This is what `hash2` buys and what a `rand()` draw would not, and it
+   is asserted the only way that distinction is observable: plant the SAME
+   tile in the SAME seed at two DIFFERENT points in the run, and require the
+   same height.
+
+   "A different point in the run" has to mean the `rand()` STREAM HAS MOVED,
+   or the probe proves nothing -- two identical runs would agree even with a
+   `rand()` implementation. So the second run mines real tiles first, through
+   the real `rules/mining.js`, whose break branch draws from the stream for
+   every drop toss and every rare-trinket roll. `rand()` is then at a
+   different cursor when the seed is planted, and a stream-drawn height would
+   almost certainly differ.
+
+   THE SECOND HALF, and it is the one that makes this a test of `hash2`
+   rather than of determinism in general: two DIFFERENT tiles must be allowed
+   to differ, or a constant would pass. `data/world.js`'s `trees` row declares
+   height [3, 5], so a scan across enough columns must produce more than one
+   value -- otherwise `heightAt` is returning a constant and the positional
+   hash is not being consulted at all. --- */
+{
+  let bad = 0;
+  const SEED = 9620, tx = 20, ty = 24;
+  const total = mods.eff('treeGrowSecs');
+  const dt = 1 / 120;
+
+  const growTo = (band, x, y) => {
+    let n = 0;
+    while (growth.growingAt(band, x, y) && n < (total + 5) * 120) { stepReal(dt); n++; }
+    return trunkHeight(band, x, y);
+  };
+
+  /* Run A: plant immediately. */
+  const a = growScene(SEED, { tx, ty });
+  plantSeed(a.band, tx, ty);
+  const hA = growTo(a.band, tx, ty);
+
+  /* Run B: same seed, but dig a real shaft first so the stream has moved.
+     Driven through `stepReal` with `dig`/`down` held, i.e. the real break
+     branch, so the drop tosses and the `data/drops.js` rolls really do
+     consume `rand()`. */
+  const b = growScene(SEED, { tx, ty });
+  run.write.collect(D_sub.S.pick, D_form.F.relic, 1);
+  player.write.band(b.band);
+  player.write.move(world.worldX(b.band, tx + 6), world.worldY(b.band, ty - 1));
+  player.write.vel(0, 0);
+  player.write.set('onGround', true);
+  player.write.set('fallFrom', player.player.y);
+  const before = rng.rand();
+  runReal(2400, dt, { down: true, dig: true, hasMouse: false });
+  const after = rng.rand();
+  /* Re-cleared, because the shaft above may have dropped rubble into the
+     planting column and `placeTile` refuses a tile that is not AIR. The floor
+     is re-laid for the same reason. */
+  for (let dy = -10; dy <= 1; dy++)
+    for (let dx = -2; dx <= 2; dx++) tiles.write.clear(b.band, tx + dx, ty + dy);
+  tiles.write.set(b.band, tx, ty + 1, D_sub.S.soil);
+  plantSeed(b.band, tx, ty);
+  const hB = growTo(b.band, tx, ty);
+
+  if (before === after) {
+    fail(`GROWTH HEIGHT: the 2,400-substep dig consumed nothing from rand() (${before} both sides), ` +
+         `so this probe cannot distinguish hash2 from a stream draw -- the scene is not actually ` +
+         `mining anything`);
+    bad++;
+  }
+  if (hA !== hB) {
+    fail(`GROWTH HEIGHT: the same tile (${tx}, ${ty}) in seed ${SEED} grew ${hA} tiles tall when ` +
+         `planted immediately and ${hB} tiles tall when planted after a dig that moved the rand() ` +
+         `stream. Height must come from hash2(tx, ty) -- a positional hash consumes nothing and is ` +
+         `independent of WHEN the seed resolves (D15-D)`);
+    bad++;
+  }
+  const [lo, hi] = [3, 5];
+  if (hA < lo || hA > hi) {
+    fail(`GROWTH HEIGHT: ${hA} tiles is outside data/world.js's declared trees height [${lo}, ${hi}] ` +
+         `-- rules/growth.js reads that range off the strata row rather than re-literalling it, so a ` +
+         `planted tree is the same size as a wild one`);
+    bad++;
+  }
+
+  /* A CONSTANT WOULD PASS EVERYTHING ABOVE. This is the assertion that says
+     the hash is actually being consulted. */
+  const seen = new Set();
+  const c = growScene(9621);
+  for (let x = 10; x < 34; x++) {
+    for (let dy = -10; dy <= 1; dy++) tiles.write.clear(c.band, x, c.ty + dy);
+    tiles.write.set(c.band, x, c.ty + 1, D_sub.S.soil);
+    plantSeed(c.band, x, c.ty);
+  }
+  {
+    let n = 0;
+    while (growth.activeCount() > 0 && n < (total + 5) * 120) { stepReal(dt); n++; }
+  }
+  for (let x = 10; x < 34; x++) seen.add(trunkHeight(c.band, x, c.ty));
+  if (seen.size < 2) {
+    fail(`GROWTH HEIGHT: 24 seeds planted across 24 columns all grew to ${[...seen].join('/')} -- ` +
+         `heightAt is returning a constant, so hash2(tx, ty) is not being consulted and the ` +
+         `[3, 5] range is decorative`);
+    bad++;
+  }
+  if (!bad)
+    ok(`GROWTH HEIGHT: the same tile grew ${hA} tiles tall whether planted immediately or after a ` +
+       `2,400-substep dig that really did move the rand() cursor -- and 24 columns produced ` +
+       `${seen.size} distinct heights in [3, 5], so the positional hash is doing the work`);
+}
+
+/* --- CLAIM 3: MINING A GROWING SEED RETURNS THE SEED AND LEAVES NO ORPHANED
+   PROGRESS. Two facts in one probe because they are two halves of one
+   promise: a misplaced seed costs nothing to recover.
+
+   The ITEM half is free code and is asserted anyway --
+   `model/tiles.js#dropOf` returns the pair itself for any non-NATIVE form, so
+   digging a seedling gives back a `timber/seed` with no seed-specific line
+   anywhere. Counted as a SPAWNED ITEM, not as a journal row, for invariant
+   5's reason (mined material becomes a falling item) and section 8e's own
+   precedent.
+
+   The LEDGER half is the one that could rot silently. `model/growth.js`'s
+   entry is dropped by `model/tiles.js#write.setByte` the instant the byte
+   stops declaring `tile.roots`, so mining it out is enough -- but if that
+   hook were removed the entry would go on accumulating `dt` forever against
+   a tile that is now air, and NOTHING in the game would report it: no cue
+   (the overlay is keyed on the same map, so it would draw a seedling in
+   mid-air), no journal row, and no resolve (`rules/growth.js`'s own
+   still-there check would clear it, which is the belt to this braces).
+
+   HALFWAY THROUGH, deliberately: an entry with 90 seconds on it is the one
+   that would be visible as a stale seedling, where a fresh one looks like
+   nothing. --- */
+{
+  let bad = 0;
+  const { band, tx, ty } = growScene(9630);
+  plantSeed(band, tx, ty);
+
+  /* Half of `treeGrowSecs`, put on the ledger through the same
+     `model/growth.js#write.add` the real step calls -- driving 10,800 real
+     substeps to get there would measure nothing this probe is about and
+     `rules/growth.js`'s own timing is CLAIM 1's job. */
+  const total = mods.eff('treeGrowSecs');
+  growth.write.add(band, tx, ty, total / 2);
+  const midway = growth.grownAt(band, tx, ty);
+
+  /* The seedling has to be actually mineable by hand: `hardK:0.05` on a 0.35 s
+     substance is 0.0175 s, so this breaks in three substeps at 120 fps. The
+     player is planted two tiles above it so `resolveStraightDown` targets
+     that one column, exactly as section 8e's `handMineTile` does. */
+  run.write.collect(D_sub.S.pick, D_form.F.relic, 1);
+  player.write.band(band);
+  player.write.move(world.worldX(band, tx), world.worldY(band, ty - 2));
+  player.write.vel(0, 0);
+  player.write.set('onGround', true);
+  player.write.set('fallFrom', player.player.y);
+
+  let got = 0;
+  const orig = items.write.spawn;
+  items.write.spawn = (bb, x, y, sub, form, vx, vy) => {
+    if (sub === D_sub.S.timber && form === D_form.F.seed) got++;
+    return orig(bb, x, y, sub, form, vx, vy);
+  };
+  let n = 0;
+  while (tiles.tileAt(band, tx, ty) !== D_form.AIR && n < 600) {
+    stepReal(1 / 120, { down: true, dig: true, hasMouse: false });
+    n++;
+  }
+  items.write.spawn = orig;
+
+  if (!(midway > 0)) {
+    fail(`GROWTH RECOVERY: the probe never put any time on the ledger (${midway}s) -- ` +
+         `model/growth.js#write.add refused, so there is no growing seed under test`);
+    bad++;
+  }
+  if (tiles.tileAt(band, tx, ty) !== D_form.AIR) {
+    fail(`GROWTH RECOVERY: the seedling did not break in ${n} substeps -- at hardK 0.05 on timber's ` +
+         `0.35s it should take three`);
+    bad++;
+  }
+  if (got !== 1) {
+    fail(`GROWTH RECOVERY: mining a growing seedling spawned ${got} timber/seed item(s), want 1 -- ` +
+         `model/tiles.js#dropOf returns the pair itself for a placed form, so a misplaced seed must ` +
+         `come back`);
+    bad++;
+  }
+  if (growth.growingAt(band, tx, ty)) {
+    fail(`GROWTH RECOVERY: the growth entry survived the tile with ` +
+         `${growth.grownAt(band, tx, ty).toFixed(4)}s on it -- an orphaned entry accumulates dt ` +
+         `forever against a tile that is now air, and nothing in the game would report it ` +
+         `(model/tiles.js#write.setByte is what must drop it)`);
+    bad++;
+  }
+  /* AND IT MUST NOT RESOLVE INTO A TREE AFTERWARDS. The strongest single
+     statement that the entry is really gone: run past the full grow time and
+     require the column to still be empty. */
+  if (!bad) {
+    let m = 0;
+    while (m < (total + 5) * 120) { stepReal(1 / 120); m++; }
+    if (trunkHeight(band, tx, ty) > 0) {
+      fail(`GROWTH RECOVERY: ${trunkHeight(band, tx, ty)} native trunk tile(s) appeared at ` +
+           `(${tx}, ${ty}) after the seedling was mined out -- a cleared entry cannot resolve`);
+      bad++;
+    }
+  }
+  if (!bad)
+    ok(`GROWTH RECOVERY: a seedling ${midway.toFixed(1)}s into its ${total}s grows back one ` +
+       `timber/seed when mined, its ledger entry goes with the tile, and no tree ever appears ` +
+       `there -- no orphaned progress`);
+}
+
+/* --- CLAIM 4: A FELLED TREE DROPS EXACTLY ONE SEED, ON ITS LAST TRUNK TILE
+   AND NOT BEFORE (D15-A).
+
+   The condition is a COLUMN fact -- "the last remaining trunk tile" -- which
+   `data/drops.js` structurally cannot express, so it is real code in
+   `rules/mining.js` and needs a real probe. Three things are asserted, and
+   the middle one is the interesting one:
+
+     a 3-tile trunk felled tile by tile yields ONE seed, not three;
+     the seed arrives on the LAST tile, so a player who fells two of three
+       and wanders off has nothing yet -- which is a reachable and confusing
+       state, named in the plan's risk register, and correct;
+     a PLACED timber tile mined out yields NO seed, which is the
+       `formOf === NATIVE` half of the test. `data/forms.js#rung` is the pair
+       used, since D14-H means `log` no longer places at all -- a rung's byte
+       still reads `timber` through `subOf`, so without that half of the test
+       a player could peg rungs into a wall and farm them for seeds.
+
+   FELLED THE WAY A PLAYER FELLS: the player is dropped two tiles above the
+   crown, holds `dig` and `down`, and `rules/mining.js#resolveStraightDown`
+   does the rest -- as each tile breaks they fall one tile onto the next and
+   the aim retargets, which is why felling a tree needs no per-tile
+   repositioning here and none in the game. One tile of fall per break is far
+   inside `eff('fallSafe')` (5 tiles), so nothing gets hurt doing it. Driven
+   entirely through `stepReal`, so no second direct `rules` import joins
+   `R_place` at the top of this file. --- */
+{
+  let bad = 0;
+  const { band, tx, ty } = growScene(9640);
+
+  /* A 3-tile native trunk standing on soil, hand-built the way
+     `rules/generate.js#trees` builds one: NATIVE bytes, growing upward. */
+  tiles.write.set(band, tx, ty, D_sub.S.soil);
+  for (let k = 1; k <= 3; k++) tiles.write.set(band, tx, ty - k, D_sub.S.timber);
+
+  run.write.collect(D_sub.S.pick, D_form.F.relic, 1);
+  player.write.band(band);
+  player.write.move(world.worldX(band, tx), world.worldY(band, ty - 5));
+  player.write.vel(0, 0);
+  player.write.set('fallFrom', player.player.y);
+
+  let seeds = 0;
+  const orig = items.write.spawn;
+  items.write.spawn = (bb, x, y, sub, form, vx, vy) => {
+    if (sub === D_sub.S.timber && form === D_form.F.seed) seeds++;
+    return orig(bb, x, y, sub, form, vx, vy);
+  };
+
+  /* The seed count SNAPSHOTTED THE MOMENT EACH TRUNK TILE DISAPPEARS, which
+     is what turns "one seed" into "one seed, and only on the last tile". */
+  const remaining = () => {
+    let n = 0;
+    for (let k = 1; k <= 3; k++)
+      if (tiles.subAt(band, tx, ty - k) === D_sub.S.timber &&
+          tiles.formAt(band, tx, ty - k) === D_form.NATIVE) n++;
+    return n;
+  };
+  const seedsAfter = [];
+  let was = remaining(), n = 0;
+  while (was > 0 && n < 3000) {
+    stepReal(1 / 120, { down: true, dig: true, hasMouse: false });
+    n++;
+    const now = remaining();
+    if (now < was) { seedsAfter.push(seeds); was = now; }
+  }
+  items.write.spawn = orig;
+
+  if (seedsAfter.length !== 3) {
+    fail(`FELLING: ${seedsAfter.length} of 3 trunk tiles came down in ${n} substeps -- the probe ` +
+         `never actually felled the tree, so nothing below it means anything`);
+    bad++;
+  }
+  if (seeds !== 1) {
+    fail(`FELLING: a 3-tile trunk felled completely dropped ${seeds} seed(s), want exactly 1 -- ` +
+         `eff('seedYield') is 1 and the condition is "no NATIVE timber above or below the tile just ` +
+         `cleared" (D15-A)`);
+    bad++;
+  }
+  if (seedsAfter[0] !== 0 || seedsAfter[1] !== 0) {
+    fail(`FELLING: seeds after each of the three tiles went were ${JSON.stringify(seedsAfter)} -- ` +
+         `nothing may drop until the LAST trunk tile, or a player who fells one tile of a 5-tall tree ` +
+         `is handed the regrowth for free`);
+    bad++;
+  }
+
+  /* THE PLACED-LADDER PROBE. A `timber/rung` on its own, mined out: the
+     substance reads `timber` through `subOf` exactly as a trunk does, the
+     form does not read NATIVE, and no seed may appear.
+
+     STRUCK SIDEWAYS AND NOT FROM ABOVE, because a rung is `solid:false` --
+     a player standing over one falls straight through it and ends up digging
+     the floor underneath instead, which would pass this probe while testing
+     nothing. So: stone to stand on one column over, `face` set left, and
+     `aimAtKeys`'s bare horizontal branch (no `down`, no `up`) resolves to
+     the player's own centre row in the column they face. That row is the
+     rung's, since a 16 px body standing on row ty+1 has its centre in row
+     ty. */
+  {
+    const rx = tx + 8;
+    for (let dy = -4; dy <= 1; dy++)
+      for (let dx = 0; dx <= 1; dx++) tiles.write.clear(band, rx + dx, ty + dy);
+    tiles.write.set(band, rx + 1, ty + 1, D_sub.S.stone);       // the stance
+    tiles.write.set(band, rx, ty, D_sub.S.timber, D_form.F.rung);
+
+    let rungSeeds = 0;
+    const o2 = items.write.spawn;
+    items.write.spawn = (bb, x, y, sub, form, vx, vy) => {
+      if (sub === D_sub.S.timber && form === D_form.F.seed) rungSeeds++;
+      return o2(bb, x, y, sub, form, vx, vy);
+    };
+    player.write.move(world.worldX(band, rx + 1), world.worldY(band, ty - 1));
+    player.write.vel(0, 0);
+    player.write.set('onGround', true);
+    player.write.set('fallFrom', player.player.y);
+    player.write.set('face', -1);
+
+    let m = 0;
+    while (tiles.tileAt(band, rx, ty) !== D_form.AIR && m < 600) {
+      stepReal(1 / 120, { dig: true, hasMouse: false });
+      m++;
+    }
+    items.write.spawn = o2;
+
+    if (tiles.tileAt(band, rx, ty) !== D_form.AIR) {
+      fail(`FELLING: the placed timber/rung did not break in ${m} substeps ` +
+           `(aim resolved to ${aimModel.aim.tx}, ${aimModel.aim.ty}; want ${rx}, ${ty}), so the ` +
+           `NATIVE half of the seed condition was never actually exercised`);
+      bad++;
+    }
+    if (rungSeeds !== 0) {
+      fail(`FELLING: mining out a PLACED timber/rung dropped ${rungSeeds} seed(s) -- the ` +
+           `formOf(byte) === NATIVE half of D15-A's test is what stops a player pegging rungs into a ` +
+           `wall and farming them for seeds, since a rung's byte reads timber through subOf too`);
+      bad++;
+    }
+  }
+
+  if (!bad)
+    ok(`FELLING: a 3-tile native trunk felled top-down drops exactly ONE timber/seed, and only on ` +
+       `the last tile (${JSON.stringify(seedsAfter)}); a placed timber/rung mined out drops none`);
+}
+
+/* --- CLAIM 6: `tile.roots` CHANGED NOTHING FOR ANY OTHER FORM (D15-C).
+
+   The risk this exists for is named in the plan's own register: adding
+   solid-below to `rules/placement.js#placeTile`'s shared backing predicate
+   UNCONDITIONALLY is one fewer branch and reads like the obvious edit, and it
+   would quietly change how a ladder is built -- a rung standing on a floor
+   with nothing beside it, in the exact function CLAUDE.md records wedging a
+   player in their own shaft permanently.
+
+   So this is an exhaustive table rather than a spot check. Every distinct
+   NEIGHBOURHOOD the predicate can see -- above and below each one of
+   {air, solid, climbable}, left and right each one of {air, solid}, 36 in
+   all -- crossed with all four tile-capable forms, and each verdict compared
+   against the predicate computed here INDEPENDENTLY of the module under
+   test. `rung`/`stair`/`block` are held to the PRE-PHASE-15 rule with no
+   `roots` term at all; `seed` is held to that rule plus solid-below. A
+   regression in either direction fails: a rung that started accepting a bare
+   floor, and a seed that did not.
+
+   (`log` is not a fifth column. Phase 14a's D14-H deleted its `tile` block,
+   so `placeTile`'s form gate turns it away with 'THAT DOES NOT BUILD' before
+   the backing predicate is reached at all -- asserted below rather than
+   assumed, since this phase's plan was written when it was still placeable.)
+
+   The neighbourhood is built with `model/tiles.js#write.set` directly, not
+   through the rule: the fixture is the thing being varied and a climbable
+   above the target could not be legally placed there in the first place. The
+   VERDICT is always the real `R_place.placeTile`. --- */
+{
+  let bad = 0, cases = 0;
+  const OUTSIDE = ['air', 'solid'];
+  const VERT = ['air', 'solid', 'climb'];
+  /* Each form with a substance it legally crosses with, and whether its own
+     row carries `roots`. Read off the table rather than hardcoded, so a fifth
+     tile-capable form added later fails here loudly instead of going
+     unchecked. */
+  const FORMS = D_form.FORM
+    .map((f, i) => ({ f, i }))
+    .filter(({ f }) => f.tile)
+    .map(({ f, i }) => ({
+      id: f.id, form: i, roots: f.tile.roots === true,
+      sub: f.subTags.includes('organic') ? D_sub.S.timber
+         : f.subTags.includes('metal')   ? D_sub.S.copper
+         : D_sub.S.soil
+    }));
+
+  if (FORMS.length !== 4)
+    fail(`ROOTS: ${FORMS.length} tile-capable forms (${FORMS.map(r => r.id).join(', ')}), want 4 ` +
+         `(rung/stair/block/seed) -- a new one needs a column in this table`);
+
+  boot.newRun(9660);
+  const band = world.bandOf('surface');
+  const put = (x, y, kind) => {
+    if (kind === 'air') tiles.write.clear(band, x, y);
+    else if (kind === 'solid') tiles.write.set(band, x, y, D_sub.S.stone);
+    else tiles.write.set(band, x, y, D_sub.S.timber, D_form.F.rung);   // climbable, not solid
+  };
+
+  const tx = 30, ty = 24;
+  for (const row of FORMS) {
+    for (const above of VERT) for (const below of VERT)
+      for (const left of OUTSIDE) for (const right of OUTSIDE) {
+        /* Rebuilt from scratch every case, and the target cleared LAST, so a
+           `write.set` on a neighbour can never leave the target non-AIR. */
+        put(tx - 1, ty, left);
+        put(tx + 1, ty, right);
+        put(tx, ty - 1, above);
+        put(tx, ty + 1, below);
+        tiles.write.clear(band, tx, ty);
+
+        /* THE PRE-PHASE-15 PREDICATE, written out here rather than imported,
+           because a copy that could drift is the only kind of copy worth
+           having in an assertion: if `rules/placement.js` changes shape this
+           has to be re-derived by hand, which is the point. */
+        const solid = k => k === 'solid';
+        const climb = k => k === 'climb';
+        const wasBacked = solid(left) || solid(right) || solid(above)
+                       || climb(above) || climb(below);
+        const want = wasBacked || (row.roots && solid(below));
+
+        run.write.collect(row.sub, row.form, 1);
+        const got = R_place.placeTile(band, tx, ty, row.sub, row.form);
+        cases++;
+        if (got !== want) {
+          fail(`ROOTS: placing ${D_form.FORM[row.form].id} with left=${left} right=${right} ` +
+               `above=${above} below=${below} was ${got ? 'ACCEPTED' : 'REFUSED'}, want ` +
+               `${want ? 'ACCEPTED' : 'REFUSED'}. ` +
+               (row.roots
+                 ? `A \`roots\` form is backed by a solid tile directly below IN ADDITION to the ` +
+                   `four existing satisfiers (D15-C)`
+                 : `${D_form.FORM[row.form].id} carries no \`roots\` key, so its placement must be ` +
+                   `BIT-IDENTICAL to the pre-Phase-15 rule -- solid-below must not have leaked into ` +
+                   `the shared predicate`));
+          bad++;
+        }
+        /* Whatever was placed has to go before the next case, or the target is
+           not AIR. */
+        tiles.write.clear(band, tx, ty);
+      }
+  }
+
+  /* THE HEADLINE CASE, stated on its own so the failure names it: a rung
+     whose ONLY support is the floor under it still refuses. */
+  put(tx - 1, ty, 'air'); put(tx + 1, ty, 'air');
+  put(tx, ty - 1, 'air'); put(tx, ty + 1, 'solid');
+  tiles.write.clear(band, tx, ty);
+  run.write.collect(D_sub.S.timber, D_form.F.rung, 1);
+  if (R_place.placeTile(band, tx, ty, D_sub.S.timber, D_form.F.rung)) {
+    fail(`ROOTS: a timber/rung with nothing but a floor beneath it was ACCEPTED -- that is a real ` +
+         `change to how a ladder is built and the whole reason D15-C gated solid-below on the form's ` +
+         `own key instead of adding it to the predicate`);
+    bad++;
+  }
+  tiles.write.clear(band, tx, ty);
+
+  /* AND `log` REALLY IS OUT OF THIS FUNCTION ENTIRELY (D14-H). */
+  run.write.collect(D_sub.S.timber, D_form.F.log, 1);
+  put(tx - 1, ty, 'solid');
+  tiles.write.clear(band, tx, ty);
+  if (R_place.placeTile(band, tx, ty, D_sub.S.timber, D_form.F.log)) {
+    fail(`ROOTS: timber/log placed as a tile -- Phase 14a's D14-H deleted its \`tile\` block, so ` +
+         `placeTile's form gate must refuse it before the backing predicate is reached`);
+    bad++;
+  }
+
+  if (!bad)
+    ok(`ROOTS: ${cases} placement verdicts over all 36 neighbourhoods x 4 tile-capable forms match ` +
+       `the predicate computed independently -- rung/stair/block are BIT-IDENTICAL to the ` +
+       `pre-Phase-15 rule (a rung on a bare floor still refuses), seed differs in exactly the ` +
+       `solid-below case, and log does not reach the predicate at all`);
+}
+
+/* --- CLAIM 5: `newRun()` STILL FINGERPRINTS IDENTICALLY WITH A GROWING SEED
+   PLANTED IN BETWEEN (invariant 8). The standard pattern this file already
+   uses for `segments` and `ui.autoCollect`: fingerprint a fresh run, dirty
+   it, restart on the SAME seed, fingerprint again.
+
+   `snapshotModel()` covers `growth` as the full entry rather than as a count
+   (see its own note there), so this catches BOTH failure modes: a seed
+   surviving at all, and a seed surviving with its accumulated seconds
+   intact. `b.mat`'s checksum is in that snapshot too, so a seed tile left in
+   the grid fails here even if the ledger were somehow clean.
+
+   THE SEED IS PLANTED HIGH IN THE SKY, AND THAT IS THE WHOLE VALIDITY OF
+   THIS PROBE. Written first at the obvious spot -- row 24, the same shelf
+   every other claim in this section uses -- it PASSED with
+   `growthw.clearAll()` deleted from `shell/boot.js`, which is precisely the
+   trap CLAUDE.md records ("a test that measures the wrong thing passes and
+   teaches nothing"). The reason: `newRun` runs worldgen, worldgen writes
+   through `model/tiles.js#write.set`, and that funnels into the same
+   `setByte` hook that drops a growth entry when the byte at a coordinate
+   stops declaring `tile.roots`. So a stale seed anywhere worldgen writes is
+   swept up INCIDENTALLY, by a mechanism that has nothing to do with the
+   reset, and the reset itself goes unchecked.
+
+   Instrumented `setByte` over a real `newRun` to find where that does not
+   happen: rows 0-12 of the `surface` band are written by nothing at all (the
+   band is `fillByte`'d, which touches `b.mat` directly and bypasses the hook
+   by design, and the shallowest strata handler reaches row 13). A seed at
+   row 6 therefore survives a restart if and only if `clearAll` is missing --
+   which is the fact under test. Verified by deleting that line and watching
+   this fail. --- */
+{
+  const seed = 9650;
+  boot.newRun(seed);
+  const fresh = JSON.stringify(snapshotModel());
+
+  const band = world.bandOf('surface');
+  const tx = 20, ty = 6;                    // see the note above: worldgen never writes row 6
+  for (let dy = -2; dy <= 1; dy++)
+    for (let dx = -2; dx <= 2; dx++) tiles.write.clear(band, tx + dx, ty + dy);
+  tiles.write.set(band, tx, ty + 1, D_sub.S.soil);   // something to root into, 14 rows up
+  plantSeed(band, tx, ty);
+  runReal(600, 1 / 120);                    // five seconds of real growth
+  const dirtySecs = growth.grownAt(band, tx, ty);
+  const dirtyCount = growth.activeCount();
+
+  boot.newRun(seed);
+  const again = JSON.stringify(snapshotModel());
+
+  if (!(dirtyCount === 1 && dirtySecs > 0))
+    fail(`GROWTH RESET: the probe failed to dirty the run -- ${dirtyCount} seed(s) with ` +
+         `${dirtySecs}s on them. Without a live growing seed this assertion tests nothing, which is ` +
+         `the failure CLAUDE.md records twice`);
+  else if (growth.activeCount() !== 0)
+    fail(`GROWTH RESET: ${growth.activeCount()} growth entr(ies) survived newRun(${seed}) -- a seed ` +
+         `outliving a restart is invariant 8's determinism bug, and shell/boot.js#newRun must call ` +
+         `growthw.clearAll() in its teardown block (D15-B)`);
+  else if (fresh !== again) {
+    const a = JSON.parse(fresh), b2 = JSON.parse(again);
+    const key = Object.keys(a).find(k => JSON.stringify(a[k]) !== JSON.stringify(b2[k]));
+    fail(`GROWTH RESET: "${key}" differs between two fresh newRun(${seed}) calls around a run with a ` +
+         `growing seed in it\n    before: ${JSON.stringify(a[key]).slice(0, 300)}\n` +
+         `    after:  ${JSON.stringify(b2[key]).slice(0, 300)}`);
+  } else
+    ok(`GROWTH RESET: a seed ${dirtySecs.toFixed(4)}s into growing is gone after newRun(${seed}), and ` +
+       `every exported model object -- growth's own entries included -- fingerprints identically to a ` +
+       `fresh run on the same seed`);
 }
 
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +

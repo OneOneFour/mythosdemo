@@ -18,10 +18,12 @@
 import { EDGE_SUB, SUB, VOID_SUB } from '../data/substances.js';
 import { AIR, BEDROCK, F, FORM, NATIVE, formOfTile, packTile, subOfTile } from '../data/forms.js';
 import { bump } from './epoch.js';
-/* A legal model -> model edge (ARCHITECTURE section 1), and not a cycle:
-   `model/mining.js` imports only `model/epoch.js` and `model/world.js`, both
-   of which this file already imports, and it imports nothing from here.
-   `write.setByte` needs it for exactly one line -- see D14-E there. */
+/* TWO legal model -> model edges (ARCHITECTURE section 1), and neither is a
+   cycle: `model/mining.js` and `model/growth.js` each import only
+   `model/epoch.js` and `model/world.js`, both of which this file already
+   imports, and neither imports anything from here. `write.setByte` needs
+   them for exactly one line each -- see D14-E and D15-B there. */
+import { activeCount as growingCount, write as groww } from './growth.js';
 import { write as digw } from './mining.js';
 import { idx, inBounds } from './world.js';
 
@@ -152,6 +154,34 @@ export const write = {
        touched. Storage still owns no progress: it owns the fact that this
        coordinate changed, and tells the module that does. */
     digw.clear(b, tx, ty);
+
+    /* D15-B: THE SAME MOVE, ONE LEDGER OVER, and the reason it is here rather
+       than in `rules/placement.js` is the reason stated immediately above --
+       there is exactly one funnel for a terrain edit and this is it. A form
+       whose `tile` block declares `roots` TAKES ROOT: `rules/growth.js`
+       accumulates simulation seconds against it and eventually replaces it
+       with something else, and `model/growth.js` is the ledger of how far
+       along each one is. So the moment this coordinate becomes a rooting
+       tile it is entered in that ledger, and the moment it stops being one
+       -- mined back out, resolved into a trunk, swallowed by the `chasm`
+       miracle, or overwritten by anything at all -- it leaves.
+       `data/forms.js#seed` is the only row carrying the key today.
+
+       STORAGE STILL OWNS NO DECISION. When a seed becomes a tree, and how
+       tall, is entirely `rules/growth.js`'s; what this line owns is the same
+       fact the `digw.clear` above owns -- that this coordinate changed, and
+       which ledger needs to hear about it.
+
+       THE `growingCount()` GUARD IS NOT AN OPTIMISATION FOR ITS OWN SAKE.
+       Worldgen drives several hundred thousand `write.set` calls through
+       this function at boot, and with no seed anywhere in the world the
+       clear branch would still cost a key computation and a `Map.delete`
+       per generated tile. `Map.size` is O(1) and is zero for the whole of
+       worldgen. */
+    const f = byte === AIR || byte === BEDROCK ? NATIVE : formOfTile(byte);
+    if (f !== NATIVE && FORM[f]?.tile?.roots === true) groww.plant(b, tx, ty);
+    else if (growingCount() > 0) groww.clear(b, tx, ty);
+
     write.touch(b, tx, ty);
     bump();
     return true;

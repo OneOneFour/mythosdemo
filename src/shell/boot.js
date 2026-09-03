@@ -38,6 +38,7 @@ import { BANDS, SPAWN_BAND } from '../data/world.js';
 import { write as aimw } from '../model/aim.js';
 import { write as boonw } from '../model/boons.js';
 import { write as fieldw } from '../model/fields.js';
+import { write as growthw } from '../model/growth.js';
 import { write as itemw } from '../model/items.js';
 import { write as journalw } from '../model/journal.js';
 import { write as machw } from '../model/machines.js';
@@ -78,6 +79,15 @@ export function newRun(seed = (Math.random() * 1e9) | 0) {
                        // determinism bug invariant 8 exists to name
   itemw.clear();
   digw.clearAll();
+  growthw.clearAll();  // Phase 15 (docs/PLAN-phase15-trees.md D15-B): the one
+                       // ledger `model/tiles.js#write.setByte` cannot clear
+                       // for itself here, because `worldw.clear()` above
+                       // replaces `b.mat` wholesale rather than tile by tile
+                       // -- so a seed three-quarters grown would still be
+                       // three-quarters grown in the next run, at the same
+                       // coordinates, which is exactly invariant 8's
+                       // determinism bug and exactly what docs/FINDINGS.md
+                       // (8d, #2) records happening to `segments`
   modw.clear();
   boonw.clear();       // Phase 4 (docs/BUILD_PLAN.md): a boon surviving a
                         // restart is invariant 8's determinism bug, same as

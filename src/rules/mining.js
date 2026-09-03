@@ -31,7 +31,7 @@
    place `hard` is applied above, for the same reason. */
 
 import { rand } from '../core/rng.js';
-import { AIR, F } from '../data/forms.js';
+import { AIR, F, NATIVE } from '../data/forms.js';
 import { S, SUB } from '../data/substances.js';
 import { DROPS } from '../data/drops.js';
 import { aim, write as aw } from '../model/aim.js';
@@ -41,7 +41,7 @@ import { write as iw } from '../model/items.js';
 import { eff } from '../model/mods.js';
 import { PW, player, playerCentre } from '../model/player.js';
 import { bestTool, hasPick, invCount, run } from '../model/run.js';
-import { baseChargeAt, baseHardAt, dropAt, solidAt, subAt, tileAt, write as tw } from '../model/tiles.js';
+import { baseChargeAt, baseHardAt, dropAt, formAt, formOf, solidAt, subAt, tileAt, write as tw } from '../model/tiles.js';
 import { bandAt, inBounds, tileX, tileY, worldX, worldY } from '../model/world.js';
 
 /* A break above this many BASE seconds reads as stone rather than as soil. The
@@ -133,6 +133,18 @@ function resolve(px, py) {
   aw.set(b, tx, ty, inBounds(b, tx, ty));
 }
 
+/* IS THIS TILE PART OF A STANDING TRUNK? Both halves are needed and neither
+   is enough. The SUBSTANCE test alone would count a placed `timber/rung`
+   ladder as trunk (a rung's byte reads `timber` through `subOf` just as a
+   trunk's does -- only the form differs); the NATIVE test alone would count
+   any native tile at all, so a trunk sitting on soil would never read as
+   felled. Out of bounds is BEDROCK and above a band is AIR, both of which
+   answer `false` here with no boundary case -- which is what lets the seed
+   drop below read one tile past the top of the world without checking.
+   See the seed-drop block in `step` for why this is the whole test. */
+const trunkAt = (b, tx, ty) =>
+  subAt(b, tx, ty) === S.timber && formAt(b, tx, ty) === NATIVE;
+
 /* ---------- the step ---------- */
 export function step(dt, cmd) {
   const b = aim.band;
@@ -217,6 +229,61 @@ export function step(dt, cmd) {
   const it = iw.spawn(b, at.x + b.tile / 2, at.y + b.tile / 2,
                       drop.sub, drop.form, (rand() - 0.5) * 24, -30 - rand() * 20);
   if (it) push('drop', at, { sub: drop.sub, form: drop.form });
+
+  /* ---- THE LAST TILE OF A TRUNK DROPS A SEED (Phase 15,
+     docs/PLAN-phase15-trees.md D15-A, docs/SPEC.md section 22). `log` is the
+     only fuel in the game (`data/world.js`'s own `trees` row says so), so a
+     felled forest is a run that has quietly ended; this is the way back.
+
+     WHY THIS IS CODE AND NOT A `data/drops.js` ROW. That table is the
+     existing "mining X also drops Y" hook and it was considered first: a row
+     sees the SUBSTANCE and TIER of the tile just broken and nothing else.
+     "The last remaining trunk tile" is a fact about the COLUMN, which no
+     `DROPS` row can express and which the table must not be bent to try.
+     This file is the only one that can make that decision.
+
+     WHY TWO NEIGHBOUR READS AND NOT A COLUMN SCAN. A trunk is a contiguous
+     vertical run of tiles, and it is felled one tile at a time from either
+     end or from the middle outward -- so the last tile standing is, by
+     definition, the one with no trunk above it and none below it. Two reads,
+     no loop, no state, and correct for every felling order. `tw.clear` above
+     has already run, so both reads are of the world AFTER this tile went.
+
+     `formAt(...) === NATIVE` IS THE HALF THAT KEEPS A PLACED LADDER OUT.
+     `subOf` reads `timber` for a `timber/rung` tile exactly as it does for a
+     trunk -- the substance is the same and only the form differs -- so
+     without the NATIVE test a player could peg rungs into a wall and mine
+     them back out for free seeds. It is the same free predicate
+     `view/paint.js#decorate` already uses to keep a crown off a placed tile.
+     (Phase 14a's D14-H stripped `log`'s own `tile` block, so the placeable
+     timber forms are now `rung`, `stair` and `seed` rather than four; the
+     test is unchanged and excludes all of them, as it always did.)
+
+     ONE SEED, ALWAYS, AND NOT A `chance`. `eff('seedYield')` is a value row
+     and there is deliberately no `seedChance` beside it: a regrowth mechanic
+     that sometimes gives you nothing is a mechanic that sometimes silently
+     ends the timber economy. If scarcity is wanted later the lever is
+     `treeGrowSecs`, not the odds.
+
+     WHERE THIS SITS IN THE `rand()` STREAM IS LOAD-BEARING (invariant 7).
+     It is AFTER the ordinary material drop above and BEFORE the `DROPS` loop
+     below, so the rare-trinket roll keeps its exact position RELATIVE to
+     that drop -- the property `data/drops.js`'s odds were measured against.
+     The two `rand()` draws the toss below consumes are therefore a fixed,
+     deterministic insertion rather than a moving one. This DOES change what
+     an existing seed produces downstream of the first tree ever felled in a
+     run, which is what adding any new spawn to this branch must; what
+     invariant 7 requires is that `newRun(s)` twice still match, and it
+     does. ---- */
+  if (sub === S.timber && formOf(byte) === NATIVE
+      && !trunkAt(b, aim.tx, aim.ty - 1) && !trunkAt(b, aim.tx, aim.ty + 1)) {
+    const n = Math.max(0, Math.round(eff('seedYield')));
+    for (let i = 0; i < n; i++) {
+      const seed = iw.spawn(b, at.x + b.tile / 2, at.y + b.tile / 2,
+                            S.timber, F.seed, (rand() - 0.5) * 24, -30 - rand() * 20);
+      if (seed) push('drop', at, { sub: S.timber, form: F.seed });
+    }
+  }
 
   /* ---- RARE TRINKET DROP, the one live trinket source.
      Reads the ODDS from `data/drops.js` so they live in one table a

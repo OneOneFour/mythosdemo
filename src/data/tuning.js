@@ -182,6 +182,33 @@ export const TUNABLES = [
   { id:'hollowOre', kind:'value', base:0.25, unit:'fraction',
     note:'chance a carved hollow has its walls lined with ore. Read once per hollow, at worldgen.' },
 
+  /* ---- tree regrowth (Phase 15, docs/PLAN-phase15-trees.md D15-E,
+     docs/SPEC.md section 22). `log` is the only fuel in the game
+     (`data/world.js`'s own `trees` row says so), so a felled forest is a run
+     that has quietly ended. These two numbers are the whole of the answer.
+
+     `treeGrowSecs` IS 180 AND NOT 90, and 90 is the number it was measured
+     against: `brandSecs` above is 90 and is this game's existing unit of "one
+     long errand". A tree ought to cost more than one errand, and 180 s is
+     about a quarter of a cycle-2 deadline (`deadlineSecs` 480). It is a
+     guess and is marked as one -- it is one row, and the acceptance
+     walkthrough in docs/PLAN-phase15-trees.md section 5 is the measurement.
+     Read ONLY through `eff('treeGrowSecs')` in `rules/growth.js`, which
+     accumulates the `dt` it is handed at the fixed 1/120 s substep and never
+     `Date.now()` (invariant 10; a timed transition is exactly the class of
+     thing that silently breaks framerate independence, so `tools/check.mjs`
+     section 8g asserts it at all 8 framerates the hardness table sweeps).
+
+     `seedYield` IS 1 AND IS NOT A `chance`. A regrowth mechanic that
+     sometimes gives you nothing is a mechanic that sometimes silently ends
+     the timber economy. If scarcity is ever wanted, the lever is the growth
+     TIME above, not the drop odds -- which is why this is a value row and
+     there is no `seedChance` beside it. */
+  { id:'treeGrowSecs', kind:'value', base:180, unit:'s',
+    note:'accumulated simulation seconds a planted timber/seed takes to become a tree' },
+  { id:'seedYield',    kind:'value', base:1,   unit:'units',
+    note:'seeds dropped when the LAST remaining trunk tile of a tree is felled' },
+
   { id:'tossUp',     kind:'value', base:50, unit:'px/s', note:'upward toss on a newly dropped item; drop verb only, see docs/FINDINGS.md' },
   { id:'tossSpread', kind:'value', base:12, unit:'px/s', note:'horizontal scatter on the same drop' }
 ];

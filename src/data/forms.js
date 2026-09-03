@@ -14,10 +14,35 @@
      subTags   which substance tags may take this form. `ingot` requires
                `metal`, which is why there is no stone ingot and no row saying so.
      tile      present -> a PLACED unit of this form is a wall/ladder tile.
-               `block`, `rung` and `stair` are the three that have one:
-               placing a `rung` or a `stair` is how a ladder is built, and
-               placing a `block` is how a hole is filled back in.
+               `block`, `rung`, `stair` and `seed` are the four that have one:
+               placing a `rung` or a `stair` is how a ladder is built,
+               placing a `block` is how a hole is filled back in, and
+               placing a `seed` is how a felled tree comes back.
                hardK -> multiplies the substance hardness when placed.
+               roots -> OPTIONAL, Phase 15 (D15-C/D15-B). THIS FORM TAKES
+               ROOT, and that has two consequences read in two places.
+               (1) PLACEMENT: a solid tile DIRECTLY BELOW satisfies this
+               form's backing requirement, in ADDITION to the four
+               satisfiers `rules/placement.js#placeTile` already accepts.
+               (2) GROWTH: `model/tiles.js#write.setByte` enters the tile in
+               `model/growth.js`'s ledger the moment it is written and
+               removes it the moment it is overwritten, and
+               `rules/growth.js` is what eventually turns it into something
+               else. The two halves share one key because they are one
+               statement about one kind of tile; a future form that wants
+               floor-backing WITHOUT growing (or the reverse) is the day this
+               splits into two keys, and nothing else needs to change when it
+               does. Absent means the existing rule, unchanged -- which is
+               the whole reason it is a key here rather than a fifth clause
+               in that shared predicate: solid-below added unconditionally
+               would let a `rung` be placed standing on a floor with nothing
+               beside it, a real change to how a ladder is built. `seed` is
+               the only row that carries it, because a seed dropped on open
+               flat ground has soil beneath it and air on every other side.
+               `tools/content.mjs` assertion 24 requires `solid:false`
+               alongside it: a SOLID tile that only needs a floor under it is
+               a free-standing wall, which is a different mechanic nobody
+               asked for.
 
                A FORM IS EITHER FEEDSTOCK OR BUILDABLE, NEVER BOTH
                (CLAUDE.md D12). A form carrying a `tile` block may not also be
@@ -302,7 +327,54 @@ export const FORMS = [
     size:4, massK:2.0, hudOrder:12,
     tags:['built'],
     subTags:['bulk'],
-    tile:{ solid:true, climb:false, hardK:1.0 } }
+    tile:{ solid:true, climb:false, hardK:1.0 } },
+
+  /* ---- seed: THE ONLY THING IN THE GAME THAT TURNS INTO SOMETHING ELSE BY
+     ITSELF (Phase 15, docs/PLAN-phase15-trees.md D15-E, docs/SPEC.md
+     section 22). `rules/mining.js` drops one when the LAST remaining trunk
+     tile of a tree is broken; placing it plants it; `rules/growth.js`
+     accumulates simulation seconds against it and, at `eff('treeGrowSecs')`,
+     replaces it with a stack of NATIVE trunk tiles that the existing canopy
+     code crowns for free.
+
+     `subTags:['organic']` -- timber is the only substance that crosses,
+     exactly the restriction `log`, `rung` and `brand` already use. So
+     `timber/seed` is the real pair and there is no `acorn` substance row;
+     spending one of docs/SPEC.md section 15's remaining tile-capable
+     substance ordinals on a seedling would be the worst trade available.
+
+     `massK:0.1` -- the lightest thing in the game, and mass conservation
+     (`tools/content.mjs` assertion 6) is not engaged at all: NO RECIPE
+     PRODUCES A SEED, so there is no input to conserve it against. A tree
+     that yields one 0.035 T seed and 3-5 logs is not creating mass; the drop
+     is not a transformation.
+
+     `solid:false, climb:false` -- you walk straight through a seedling. A
+     seed that blocked movement would be a trap you planted for yourself, and
+     one that could be climbed would be a free ladder rung at a tenth of a
+     rung's mass.
+
+     `hardK:0.05` -- 0.0175 s, near-instant, so a misplaced seed costs
+     nothing to recover: `model/tiles.js#dropOf` returns the pair itself for
+     any placed form, so digging a seedling back up gives the SEED back with
+     no code, and `rules/growth.js`'s own "is the seed still there" check
+     drops the accumulated time with it.
+
+     `roots:true` -- see the `tile` block's own note in this file's header.
+     A seed planted on flat ground has a floor and nothing else.
+
+     `tags:[]` -- deliberately no tag membership, the same reasoning `rung`
+     gives above: a seed is not fuel, not ore, and nothing a selector should
+     be able to find by accident. It is also what keeps `seed` from ever
+     satisfying the furnace's own star-slash-hash-fuel `handFeed.from` and
+     so from colliding with CLAUDE.md D12 -- a form carrying a `tile` block
+     may not also be feedstock, and this one is named by no recipe, no
+     `handFeed.from` and no tribute demand. ---- */
+  { id:'seed', label:'SEED',
+    size:2, massK:0.1, hudOrder:13,
+    tags:[],
+    subTags:['organic'],
+    tile:{ solid:false, climb:false, hardK:0.05, roots:true } }
 ];
 
 export const FORM = Object.freeze(FORMS.map(Object.freeze));
@@ -330,8 +402,8 @@ export const crossable = (subOrd, formOrd) => {
 
    `formOrd === NATIVE` is the element as it comes out of the ground -- a copper
    vein, a granite wall, a standing trunk. Any other form is a PLACED unit.
-   The stride is `FORM.length + 1` -- 13 at the twelve forms above -- so a byte
-   holds 19 substances' worth of ordinals and the last one that fits is
+   The stride is `FORM.length + 1` -- 14 at the thirteen forms above -- so a
+   byte holds 17 substances' worth of ordinals and the last one that fits is
    `PACKABLE_LIMIT`. The guard below fails the build rather than wrapping
    silently. A FORM is cheap and a tile-capable SUBSTANCE is not appendable at
    all; that asymmetry is spelled out in `data/substances.js`'s header and in
@@ -355,10 +427,13 @@ const STRIDE = FORM.length + 1;
 
    So a substance is packable iff it is native terrain OR some tile-capable
    form is a legal crossing for it. Nothing else can be handed to `packTile`:
-   the three tile-capable forms are `rung` (`subTags` organic), `stair`
-   (metal) and `block` (bulk), so no `relic`, `miracle` or `machine` substance
-   crosses into any of them -- and, since Phase 14a, no `deposit` substance
-   crosses into one either (`block`'s own comment above).
+   the four tile-capable forms are `rung` (`subTags` organic), `stair`
+   (metal), `block` (bulk) and `seed` (organic), so no `relic`, `miracle` or
+   `machine` substance crosses into any of them -- and, since Phase 14a, no
+   `deposit` substance crosses into one either (`block`'s own comment above).
+   Phase 15's `seed` widened nothing: it admits `organic`, whose only member
+   is `timber`, which was already packable as native terrain, so
+   `PACKABLE_MAX` did not move off `adamant` at ordinal 8.
 
    The guard used to price EVERY row as if it were tile-capable
    (`1 + (SUB.length - 1) * STRIDE + FORM.length`), which at 19 substances read

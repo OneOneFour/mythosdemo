@@ -1069,6 +1069,54 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
+  /* ---- 24. A `tile.roots` FORM IS NEVER SOLID (Phase 15,
+     docs/PLAN-phase15-trees.md D15-C/D15-E, docs/SPEC.md section 22).
+
+     `roots` means two things at once (`data/forms.js`'s own header on the key
+     says so): a solid tile DIRECTLY BELOW satisfies this form's backing
+     requirement, and the tile is entered in `model/growth.js`'s ledger so
+     `rules/growth.js` will eventually turn it into something else. The first
+     half is what this checks, and it is the half that has a bad interaction
+     with `solid`.
+
+     A SOLID TILE THAT NEEDS NOTHING BUT A FLOOR UNDER IT IS A FREE-STANDING
+     WALL. `rules/placement.js#placeTile`'s backing predicate exists so that
+     terrain has to be keyed into terrain -- rock beside it, rock above it, or
+     a climbable to join. `roots` deliberately breaks that for a seedling,
+     which is safe precisely because a seedling is not collision: it is
+     `solid:false, climb:false`, you walk straight through it, and the worst a
+     misplaced one can do is take 0.0175 s to dig back up. Put the same key on
+     a SOLID form and the game gains a verb nobody designed: stand on flat
+     ground and stack a tower of blocks upward one tile at a time, with no
+     ladder, no scaffold and no material cost beyond the blocks themselves --
+     which is a direct assault on CLAUDE.md's premise that up is expensive.
+
+     It would also be silent. Nothing else in the project pairs the two keys,
+     `tools/layers.mjs` checks direction and names rather than sense, and the
+     resulting tower would place, paint and collide perfectly well. The whole
+     failure is that it works.
+
+     Stated over the FORM table rather than as a comment on the `seed` row for
+     the reason assertion 22 gives about `tile.charge`: the row that breaks
+     this is the row someone adds next, by copying the nearest existing one,
+     which is what a per-row reminder cannot reach. ---- */
+  for (const f of FORM) {
+    if (f.tile?.roots === undefined) continue;
+    checks++;
+    if (f.tile.roots !== true)
+      fail(`form "${f.id}": tile.roots is ${JSON.stringify(f.tile.roots)} -- it is a FLAG and ` +
+           `rules/placement.js tests it with \`=== true\`, so any other value silently means ` +
+           `"absent" while reading as if it were set. Write \`roots:true\` or drop the key`);
+    checks++;
+    if (f.tile.solid !== false)
+      fail(`form "${f.id}": carries tile.roots but tile.solid is ${JSON.stringify(f.tile.solid)} -- ` +
+           `a \`roots\` form is backed by a solid tile DIRECTLY BELOW and nothing else ` +
+           `(rules/placement.js#placeTile), so a SOLID one is a free-standing wall: stand on flat ` +
+           `ground and stack it upward one tile at a time with no ladder and no scaffold, which is ` +
+           `CLAUDE.md's "up is expensive" premise inverted. Set \`solid:false\` (docs/SPEC.md ` +
+           `section 22)`);
+  }
+
   if (!quiet) {
     for (const v of violations) console.error(`  FAIL ${v}`);
     const verdict = violations.length ? 'FAIL' : 'ok  ';

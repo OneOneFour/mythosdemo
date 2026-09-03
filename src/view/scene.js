@@ -13,7 +13,8 @@
    is no "current band" in the renderer; the camera is a window onto world
    pixels and the band a thing belongs to is a property of the thing.
 
-   PASS ORDER: void, then per band (sky, then chunks), then depletion, machines,
+   PASS ORDER: void, then per band (sky, then chunks), then the LIVE-TILE
+   overlay (depletion and growth, one pass — see `drawLiveTiles`), machines,
    items, player, chips, field overlay, darkness, fog of war, atmosphere, debug,
    HUD. Anything that reads as lighting comes after everything it lights.
    See docs/DEVELOPER_GUIDE.md#pass-order-and-darkness */
@@ -25,6 +26,7 @@ import { hash2 } from '../core/rng.js';
 import { colour } from '../data/palette.js';
 import { FIELDS } from '../data/world.js';
 import { fieldAt, hasField } from '../model/fields.js';
+import { activeCount as growingCount, growingAt, stageAt } from '../model/growth.js';
 import { items } from '../model/items.js';
 import { machines } from '../model/machines.js';
 import { progressAt, workAt } from '../model/mining.js';
@@ -67,7 +69,15 @@ const INK = {
      dark notch where each unit came out. See `drawDepletion`. */
   dust:   colour('limeC'),
   pit:    colour('abyA'),
-  pitLip: colour('limeD')
+  pitLip: colour('limeD'),
+  /* A seedling: the CANOPY's own three greens (`view/treatments.js#canopy`'s
+     `vdC`/`vdB`/`vdA` defaults) so a growing seed reads as the same plant as
+     the crown it becomes, plus the darkest wood tone for the seed itself --
+     a seed is not a leaf. See `seedling`. */
+  seed:   colour('woodD'),
+  stem:   colour('vdC'),
+  leaf:   colour('vdB'),
+  leafHi: colour('vdA')
 };
 
 export const stats = { chunksDrawn: 0, bandsDrawn: 0 };
@@ -103,10 +113,10 @@ export function render(g, f) {
   }
 
   /* Terrain paint, so it runs with the terrain: a machine, an item or the
-     player standing in front of a worked-out vein must cover the cue, and
-     darkness and fog (both later) must dim and hide it exactly as they do the
-     rock it sits on. */
-  drawDepletion(g, f);
+     player standing in front of a worked-out vein (or a seedling) must cover
+     the cue, and darkness and fog (both later) must dim and hide it exactly
+     as they do the rock it sits on. */
+  drawLiveTiles(g, f);
 
   for (const m of machines)
     paintMachine(g, m, (m.box.x - cam.x) | 0, (m.box.y - cam.y) | 0, f.t);
@@ -331,7 +341,26 @@ function drawChunks(g, b, cam, W, H) {
     }
 }
 
-/* ---------- depletion ----------
+/* ---------- the live-tile overlay ----------
+   TWO CUES, ONE PASS, AND THAT IS A REQUIREMENT RATHER THAN A TIDY-UP.
+   `drawDepletion` (Phase 14c) and the growth cue (Phase 15) are the same
+   shape of work: walk the visible tile window of every visible band, ask a
+   sparse `model` `Map` a question about one tile, and paint an integer-pixel
+   cue over whatever the chunk canvas already baked there. Written as two
+   functions they would walk that window twice per frame for one answer each,
+   and the second one added would silently double the cost of the first for
+   no pixels — docs/PLAN-phase15-trees.md step 8 names two passes as a
+   failure of that phase even if the resulting pixels are correct. So this is
+   one loop with two guarded cases, and a third live per-tile cue joins it
+   here rather than beside it.
+
+   THE TWO CASES ARE MUTUALLY EXCLUSIVE BY CONSTRUCTION and the loop relies
+   on it: depletion only ever fires on a NATIVE `deposit` tile (`charge > 1`),
+   growth only ever on a PLACED `tile.roots` form. A tile cannot be both, so
+   the growth case `continue`s and the ordering between them is arbitrary
+   rather than load-bearing.
+
+   ---------- case 1: depletion ----------
    HOW SPENT A DEPOSIT IS (Phase 14c, docs/PLAN-phase14-mining-and-drops.md
    D14-G). Since Phase 14b a `deposit` tile yields `tile.charge` units before
    it is gone, so a copper wall you have half worked looks exactly like a fresh
@@ -388,8 +417,19 @@ function drawChunks(g, b, cam, W, H) {
    at full wash is the tile that has already broken. */
 const DUST_MAX = 0.44;
 
-function drawDepletion(g, f) {
+function drawLiveTiles(g, f) {
   const { cam, W, H } = f;
+  /* HOISTED OUT OF EVERY LOOP, and both halves matter. `anyGrowing` is a
+     `Map.size` read, so with nothing planted -- which is the state of every
+     run until the player fells a whole tree and chooses to plant the seed --
+     the growth case below costs exactly one comparison for the entire frame
+     rather than a `Map.has` per visible tile. `growTotal` is the one `eff()`
+     call the case needs, and it is read once per frame rather than once per
+     seedling so that two seedlings on screen can never be measured against
+     different totals within one frame. */
+  const anyGrowing = growingCount() > 0;
+  const growTotal = anyGrowing ? eff('treeGrowSecs') : 0;
+
   for (const b of bands) {
     if (!visible(b, cam, W, H)) continue;
     const t = b.tile;
@@ -397,6 +437,19 @@ function drawDepletion(g, f) {
 
     for (let ty = y0; ty < y1; ty++)
       for (let tx = x0; tx < x1; tx++) {
+        /* ---- case 2: a planted seed. Guarded on the hoisted size read
+           above, then on a `Map.has` -- the same "ask the sparse map first,
+           pay for the substance lookups afterwards" cull the depletion case
+           below uses, for the same reason. `growingAt` and not
+           `grownAt() > 0`: a seed planted this substep has zero seconds on it
+           and must still draw at stage 0, which is exactly the read
+           `model/growth.js` exports both queries to distinguish. ---- */
+        if (anyGrowing && growingAt(b, tx, ty)) {
+          seedling(g, b.origin.x + tx * t - cam.x, b.origin.y + ty * t - cam.y,
+                   t, stageAt(b, tx, ty, growTotal));
+          continue;
+        }
+
         /* THE CULL IS A MAP LOOKUP, and it is the cheapest one available: a
            tile with no accumulated work cannot be spent, whatever it is made
            of, and `dig.work` holds an entry only for tiles something has
@@ -448,6 +501,94 @@ function drawDepletion(g, f) {
         }
       }
   }
+}
+
+/* ---------- case 2's sprite: a seedling ----------
+   THREE DISCRETE SILHOUETTES, NOT A CONTINUOUS INTERPOLATION (Phase 15,
+   docs/PLAN-phase15-trees.md D15-F, docs/SPEC.md section 22): a SEED, a
+   SHOOT, a SAPLING. Quantised for the reason `drawDarkness` quantises its
+   alpha and `drawLiveTiles`'s depletion case quantises its wash -- at 8 px a
+   tile there are about six usable rows, so a continuous height would spend
+   most of 180 seconds not visibly changing and then change by one pixel. A
+   player needs to be able to glance at a seedling and say which third it is
+   in; three states do that and a ramp does not.
+
+   IT IS AN OVERLAY AND NOT A CHUNK BAKE, for `model/world.js`'s own stated
+   reason and the same one the depletion case above gives: a chunk canvas
+   caches the STATIC ROCK TEXTURE and a growth stage is a LIVE condition.
+   `model/growth.js#write.add` bumps the epoch and never a chunk version, so
+   a sprite painted in `view/paint.js#paintTile` would only ever be as fresh
+   as the last time something ELSE in that chunk happened to invalidate it.
+   The rejected alternative was calling `model/tiles.js#write.touch` at each
+   of the three stage changes so the sprite could bake -- legal, and cheap in
+   the abstract (three repaints per seed over 180 s against a
+   `REPAINT_BUDGET` of 8 per frame) -- and it was rejected because a chunk
+   repaint triggered by something that is not a tile-byte change is exactly
+   the coupling `world.js`'s comments on `seen` and `light` argue against.
+
+   IT DRAWS OVER WHAT THE BAKE ALREADY PUT THERE, AND THAT IS DELIBERATE. A
+   `timber/seed` tile carries no form `look`, so `paintTile` paints it as
+   ordinary terrain: an 8x8 timber cube. This does not erase that (an overlay
+   cannot -- there is no record of what was behind it) and does not need to:
+   at this scale a small dark-brown block reads as a patch of turned earth,
+   which is the correct thing to be growing out of. The sprite is drawn in
+   the CANOPY's own greens (`vdA`/`vdB`/`vdC`, `view/treatments.js#canopy`'s
+   defaults) so a seedling reads as the same plant the crown it will
+   eventually grow belongs to.
+
+   STRICTLY INSIDE ITS OWN TILE. A sapling poking a row or two into the air
+   above would read slightly better and is not worth what it costs: the
+   pixel-scope assertion in `tests/visual.spec.js` ("the growth cue changes
+   pixels, and only on the tile that was planted") is what proves this pass
+   is doing anything at all, and a cue that bleeds into a neighbour makes
+   that assertion either weaker or a second copy of this function's geometry.
+
+   NO `rand()` AND NO MODEL WRITE (invariants 7 and 9). There is no
+   positional hash here either, and unlike the depletion notches it needs
+   none: a seedling's shape is a function of its stage alone, so two
+   seedlings at the same stage are identical -- which is what a row of
+   planted seeds should look like. Nothing on this path can consume the run's
+   stream or move the epoch counter. */
+
+/* Fractions of `treeGrowSecs` at which the silhouette steps up. Two numbers
+   for three stages, in thirds, so "roughly a third grown" in a test or an
+   acceptance walkthrough means exactly stage 1. */
+const SEED_STAGES = [1 / 3, 2 / 3];
+
+function seedling(g, sx, sy, t, stage) {
+  const cx = sx + (t >> 1) - 1;              // 2 px wide, centred, integer
+  const base = sy + t - 1;                   // the tile's own bottom row
+
+  /* STAGE 0 -- A SEED IN THE GROUND. Two pixels, sitting on the bottom row,
+     with a single lit pixel above them: it has to be visible at a glance
+     across a cavern and it must not look like a plant yet. */
+  if (stage < SEED_STAGES[0]) {
+    R(g, cx, base - 1, 2, 2, INK.seed);
+    R(g, cx, base - 2, 1, 1, INK.leafHi);
+    return;
+  }
+
+  /* STAGE 1 -- A SHOOT. A 1 px stem three rows tall with one leaf either
+     side of its top, which is the smallest arrangement that reads as
+     deliberately a plant rather than as a smudge. */
+  if (stage < SEED_STAGES[1]) {
+    R(g, cx, base - 3, 1, 4, INK.stem);
+    R(g, cx - 1, base - 3, 1, 1, INK.leaf);
+    R(g, cx + 1, base - 3, 1, 1, INK.leafHi);
+    return;
+  }
+
+  /* STAGE 2 -- A SAPLING. The stem reaches most of the tile and carries two
+     tiers of leaves, the upper pair wider than the lower, so the silhouette
+     broadens toward the top the way the canopy it is about to become does.
+     `t - 2` rows rather than `t`, so the sprite never touches the tile's top
+     edge and cannot read as joined to whatever is in the tile above. */
+  const h = Math.max(4, t - 2);
+  R(g, cx, base - h + 1, 1, h, INK.stem);
+  R(g, cx - 2, base - h + 2, 2, 1, INK.leaf);
+  R(g, cx + 1, base - h + 2, 2, 1, INK.leafHi);
+  R(g, cx - 1, base - h + 4, 1, 1, INK.leaf);
+  R(g, cx + 1, base - h + 4, 1, 1, INK.leaf);
 }
 
 /* ---------- entities ---------- */

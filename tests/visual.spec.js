@@ -4584,3 +4584,236 @@ test('the same ladder column lit by a brazier', async ({ page }) => {
   await frameLadder(page);
   await shot(page, 'ladder-lit-phone.png');
 });
+
+/* ============================================================
+   PHASE 15: A PLANTED SEED, AND THE TREE IT BECOMES
+   (docs/PLAN-phase15-trees.md D15-F, docs/SPEC.md section 22)
+
+   Two baselines and one pixel-diff, on exactly the structure the Phase 14c
+   depletion trio above already uses and for exactly the same reasons.
+
+   `seedling.png` is a mid-growth seedling: a LIVE OVERLAY, drawn every frame
+   from `model/growth.js#stageAt`, over a tile the chunk canvas has baked as
+   ordinary terrain. `grown-tree.png` is the same tile after
+   `rules/growth.js` has resolved it -- native trunk tiles with the existing
+   canopy on top, which is the whole claim of D15-A: a grown tree is not
+   similar to a worldgen one, it is the same bytes, and the crown, the chunk
+   invalidation and the seam repaint are all free.
+
+   THE THIRD TEST IS THE ONE THAT PROVES THE OVERLAY EXISTS. CLAUDE.md
+   records two tests that baselined a scene with the overlay flag misspelled
+   and passed anyway, so a screenshot pair alone is not evidence: it would
+   still pass with `seedling()` deleted, because a `timber/seed` tile paints
+   as brown terrain either way. So the third test renders ONE scene twice
+   with nothing changing between the two draws but the presence of the growth
+   entry -- which is exactly "the same partially-grown scene with the overlay
+   pass suppressed" -- and counts the pixels that moved and where.
+
+   THE SCENE IS HAND-CARVED WITH OPEN SKY ABOVE IT, per the depletion trio's
+   own note: `rules/light.js` seeds every tile from row 0 down to and
+   including the first solid one at `eff('lightMax')`, so clearing the pocket
+   to row 0 leaves the seedling's row fully lit and `drawDarkness` (94% black
+   over an unlit tile) with nothing to do to it. Open sky is also what
+   `model/tiles.js#skyExposedAt` needs for the grown tree to get a canopy at
+   all, so one property buys both baselines.
+
+   THE COLUMN IS CLEAR OF THE CHUNK SEAM ON PURPOSE, and that is the
+   difference between this and `tree-chunk-seam.png` above: that baseline
+   exists to prove the CANOPY bakes into both neighbouring chunk canvases and
+   is the file this phase must not move. This one is about growth, so it is
+   framed away from any seam and cannot be confused with it. */
+const SPROUT = { tx: 44, fy: 26 };          // fy is the floor; the seed sits at fy - 1
+
+/* Everything is driven through the MODEL and the REAL placement rule, never
+   through a click at a hardcoded pixel: these scenes are shot at two
+   viewports and CLAUDE.md records that a click at (400, 300) fails at the
+   other one. `placeTile` and not `write.set`, because D15-C's whole claim is
+   that a seed is planted by the same verb as everything else and is legal on
+   a bare floor -- writing the tile directly would skip the one clause this
+   phase added to that function. */
+async function sproutScene(page) {
+  await page.evaluate(async ({ tx, fy }) => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { bandOf, worldX, worldY, write: ww } = await import('/src/model/world.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { PH, write: pw } = await import('/src/model/player.js');
+    const { write: rw, run } = await import('/src/model/run.js');
+    const { placeTile } = await import('/src/rules/placement.js');
+    const { banner } = await import('/src/view/fx.js');
+
+    while (run.tutorialBeat < 4) rw.advanceBeat();      // docs/FINDINGS.md #10
+    const band = bandOf('surface');
+    for (let x = tx - 8; x <= tx + 8; x++) {
+      for (let y = 0; y < fy; y++) tw.clear(band, x, y);
+      tw.set(band, x, fy, S.stone);
+    }
+    rw.collect(S.timber, F.seed, 1);
+    if (!placeTile(band, tx, fy - 1, S.timber, F.seed))
+      throw new Error('the test scene could not plant a seed on a bare stone floor');
+
+    pw.band(band);
+    pw.move(worldX(band, tx - 4), worldY(band, fy) - PH);
+    ww.revealAll(band);
+    banner.fade = 0;
+  }, SPROUT);
+  await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(2); });
+}
+
+/* Centre the sprout in whatever viewport is current and render ONCE.
+   Separate from `sproutScene` and always called last, because a substep also
+   runs `updateCamera`, which would pull the camera back onto the player. */
+const frameSprout = page => page.evaluate(async ({ tx, fy }) => {
+  const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+  const { VIEW } = await import('/src/core/canvas.js');
+  const band = bandOf('surface');
+  __mf.cam.x = Math.round(worldX(band, tx) + 4 - VIEW.w / 2);
+  __mf.cam.y = Math.round(worldY(band, fy - 4) - VIEW.h / 2);
+  __mf.draw();
+}, SPROUT);
+
+/* Put `frac` of `eff('treeGrowSecs')` on the ledger through the same
+   `model/growth.js#write.add` the real step calls. Driving 7,200 real
+   substeps to reach a third of 180 s would measure nothing these baselines
+   are about, and `rules/growth.js`'s own timing is asserted at all 8
+   framerates in `tools/check.mjs` section 8g. */
+const growTo = (page, frac) => page.evaluate(async ({ spec, frac }) => {
+  const { bandOf } = await import('/src/model/world.js');
+  const { write: gw } = await import('/src/model/growth.js');
+  const { eff } = await import('/src/model/mods.js');
+  gw.add(bandOf('surface'), spec.tx, spec.fy - 1, eff('treeGrowSecs') * frac);
+}, { spec: SPROUT, frac });
+
+/* 0.4 and not exactly 1/3: `view/scene.js#SEED_STAGES` steps the silhouette
+   at a third and at two thirds, and a baseline that sat ON a boundary would
+   be one floating-point hair away from showing the previous stage -- the
+   same reason `spendUnits` above nudges past each unit boundary rather than
+   landing on it. 0.4 is comfortably inside the middle stage, which is what
+   "roughly a third grown" means to look at. */
+test('a planted seed part-way grown', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await sproutScene(page);
+  await frameSprout(page);              // bake the chunks before the ledger moves
+  await growTo(page, 0.4);
+  await frameSprout(page);
+  await shot(page, 'seedling.png');
+
+  await page.evaluate(() => __mf.resize(200, 180));
+  await frameSprout(page);
+  await shot(page, 'seedling-phone.png');
+});
+
+/* THE SAME TILE, ONCE IT IS A TREE. One real substep past the full grow time
+   so the REAL `rules/growth.js` is what resolves it -- not a hand-written
+   stack of trunk tiles, which would baseline this phase's own opinion of
+   what a tree looks like instead of what it actually produces. */
+test('the same tile once the seed has become a tree', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await sproutScene(page);
+  await frameSprout(page);
+  await growTo(page, 1);
+  const height = await page.evaluate(async ({ tx, fy }) => {
+    const { bandOf } = await import('/src/model/world.js');
+    const { subAt, formAt } = await import('/src/model/tiles.js');
+    const { S } = await import('/src/data/substances.js');
+    const { NATIVE } = await import('/src/data/forms.js');
+    __mf.frames(1);                     // rules/growth.js resolves it here
+    const band = bandOf('surface');
+    let h = 0;
+    while (subAt(band, tx, fy - 1 - h) === S.timber &&
+           formAt(band, tx, fy - 1 - h) === NATIVE) h++;
+    return h;
+  }, SPROUT);
+  /* Asserted, not assumed: a baseline of an unresolved seedling would look
+     plausible and prove nothing about growth at all. `data/world.js`'s own
+     `trees` row declares [3, 5] and `rules/growth.js` reads that range off
+     it, so a planted tree is the same size as a wild one. */
+  expect(height).toBeGreaterThanOrEqual(3);
+  expect(height).toBeLessThanOrEqual(5);
+
+  await frameSprout(page);
+  await shot(page, 'grown-tree.png');
+
+  await page.evaluate(() => __mf.resize(200, 180));
+  await frameSprout(page);
+  await shot(page, 'grown-tree-phone.png');
+});
+
+/* THE PROOF THAT THE GROWTH OVERLAY IS DOING SOMETHING, and the reason it is
+   a pixel count rather than a third screenshot: one scene, rendered twice,
+   with NOTHING different between the two draws but whether
+   `model/growth.js` holds an entry for the tile. Clearing the entry leaves
+   the `timber/seed` TILE exactly where it was -- the chunk canvas has
+   already baked it as ordinary terrain and `write.clear` on the LEDGER
+   touches no tile byte and no chunk version -- so this is precisely the same
+   scene with the overlay pass suppressed. If `seedling()` were removed,
+   misnamed, culled wrongly or gated on a condition that is never true,
+   `total` would be 0 and this test would fail while both baselines above
+   still passed.
+
+   It also pins the pass's SCOPE, which a screenshot cannot: the only pixels
+   that may move are the planted tile's own 8x8. `seedling()` draws strictly
+   inside its tile for exactly this reason -- a sapling poking into the air
+   above would read marginally better and would make this assertion either
+   weaker or a second copy of that function's geometry. */
+test('the growth cue actually changes pixels, and only on the tile that was planted', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await sproutScene(page);
+  await frameSprout(page);
+
+  const seen = await page.evaluate(async ({ tx, fy }) => {
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { write: gw, growingAt } = await import('/src/model/growth.js');
+    const { eff } = await import('/src/model/mods.js');
+    const band = bandOf('surface');
+    const py = fy - 1;
+
+    const c = document.getElementById('stage');
+    const ctx = c.getContext('2d');
+    const grab = () => ctx.getImageData(0, 0, c.width, c.height).data;
+
+    /* OVERLAY SUPPRESSED: the ledger entry goes, the tile stays. */
+    gw.clear(band, tx, py);
+    const wasSuppressed = !growingAt(band, tx, py);
+    __mf.draw();
+    const before = grab();
+
+    /* OVERLAY BACK, at the same 0.4 the `seedling.png` baseline uses. */
+    gw.plant(band, tx, py);
+    gw.add(band, tx, py, eff('treeGrowSecs') * 0.4);
+    __mf.draw();
+    const after = grab();
+
+    const moved = (i) => before[i] !== after[i] ||
+                         before[i + 1] !== after[i + 1] ||
+                         before[i + 2] !== after[i + 2];
+
+    let total = 0;
+    for (let i = 0; i < before.length; i += 4) if (moved(i)) total++;
+
+    /* Per-tile counts across the planted tile and three either side, so
+       "only the planted tile moved" is asserted rather than assumed. */
+    const t = band.tile, counts = [];
+    for (let k = -3; k <= 3; k++) {
+      const sx = worldX(band, tx + k) - __mf.cam.x, sy = worldY(band, py) - __mf.cam.y;
+      let n = 0;
+      for (let y = sy; y < sy + t; y++)
+        for (let x = sx; x < sx + t; x++) if (moved((y * c.width + x) * 4)) n++;
+      counts.push({ tx: tx + k, n });
+    }
+    return { total, counts, wasSuppressed, tile: t };
+  }, SPROUT);
+
+  // the suppression really happened, or the two draws are the same draw
+  expect(seen.wasSuppressed).toBe(true);
+  const at = dx => seen.counts.find(c => c.tx === SPROUT.tx + dx).n;
+  // the cue is visible at all
+  expect(at(0)).toBeGreaterThan(0);
+  // nothing else in the row moved
+  for (const c of seen.counts) if (c.tx !== SPROUT.tx) expect(c.n).toBe(0);
+  // and no pixel anywhere outside that one tile moved either
+  expect(seen.total).toBe(at(0));
+});

@@ -176,15 +176,60 @@
                            Phase 10b). Judging a beat mid-frame would mean a
                            callout could name something the player has not
                            finished doing yet.
-     tutorial before fields  ONLY so `fields last` below stays literally true.
-                           The two are unrelated ledgers — a beat predicate
-                           reads no field and emits none — so this pair is the
-                           one adjacency in this list that carries no freshness
-                           argument at all, and it is stated rather than left
-                           implied precisely because there isn't one:
-                           `fields`'s position is a statement about the NEXT
-                           frame, and nothing may be appended after it without
-                           re-arguing that.
+     tutorial before growth  THIS REPLACES, AND DOES NOT WEAKEN, THE OLD
+                           `tutorial before fields` PAIR (Phase 14-and-earlier),
+                           whose entire argument was "ONLY so `fields last`
+                           below stays literally true" — see `growth before
+                           fields` immediately below, which is where that
+                           argument now lives, unchanged.
+
+                           NO FRESHNESS ARGUMENT, and stated rather than
+                           implied, exactly as `grants before tutorial` above
+                           is: `rules/tutorial.js` is a pure observer and no
+                           beat in docs/SPEC.md section 5's sheet reads a
+                           growing seed, a planted tile or `model/growth.js`
+                           at all, so this pair could be either way round.
+                           `growth` is here, at the tail, for two reasons that
+                           are both about position rather than about
+                           `tutorial`: it is where the frame's facts have
+                           settled, and `fields` must stay last.
+
+                           IT IS DELIBERATELY NOT EARLIER, and that is the
+                           real decision this comment records. Putting
+                           `growth` before `light` would let a tree that
+                           finished growing THIS frame cast its own shade this
+                           frame instead of next — a freshness nobody can
+                           perceive on a 180-second timer (`treeGrowSecs`,
+                           docs/SPEC.md section 22) — and would cost
+                           re-arguing four adjacent pairs to buy it. Putting
+                           it before `mining` would be worse than useless: the
+                           seed drop lives in `rules/mining.js`'s own break
+                           branch, so a seed cannot exist before `mining` has
+                           run, and a step that grows what has not been
+                           planted yet is one frame of latency dressed up as
+                           precision.
+     growth before fields   `fields last` below is a STATED INVARIANT of this
+                           file, and this pair is what keeps it literally
+                           true — the identical job `tutorial before fields`
+                           did before `growth` existed, inherited verbatim
+                           along with its reasoning. The two are unrelated
+                           ledgers: `rules/growth.js` reads `model/growth.js`
+                           and writes tile bytes, `rules/fields.js` reads and
+                           writes a per-band scalar field, and neither so
+                           much as imports the other's storage (that
+                           non-relationship is itself argued at length in
+                           `model/growth.js`'s header, which records
+                           `model/fields.js` as the rejected home for growth
+                           state).
+
+                           SO THE ONE THING THIS ORDER COSTS, NAMED: a trunk
+                           tile written by `growth` this frame is not seen by
+                           `light`/`reveal` until the NEXT frame, so a tree
+                           that just grew fails to shadow anything for 1/120
+                           of a second. That is one frame of latency on an
+                           event 180 seconds in the making, and it is not
+                           worth reordering the list for. Nothing may be
+                           appended after `fields` without re-arguing this.
      fields last            emissions made this frame decay from NEXT frame, so a
                            recipe gate sees the heat that was just poured in.
 
@@ -199,6 +244,7 @@ import * as cycles from '../rules/cycles.js';
 import * as drive from '../rules/drive.js';
 import * as fields from '../rules/fields.js';
 import * as grants from '../rules/grants.js';
+import * as growth from '../rules/growth.js';
 import * as items from '../rules/items.js';
 import * as light from '../rules/light.js';
 import * as machines from '../rules/machines.js';
@@ -226,6 +272,7 @@ export const STEPS = [
   { id: 'cycles',   step: (dt) => cycles.step(dt) },
   { id: 'grants',   step: () => grants.step() },
   { id: 'tutorial', step: () => tutorial.step() },
+  { id: 'growth',   step: (dt) => growth.step(dt) },
   { id: 'fields',   step: (dt) => fields.step(dt) }
 ];
 
