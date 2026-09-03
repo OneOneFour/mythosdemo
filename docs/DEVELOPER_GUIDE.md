@@ -1229,6 +1229,21 @@ Contracts:
   speed, so a sticky one would make two runs from the same seed diverge
   (invariant 8, D13-A / docs/PLAN-phase13.md §4.3). Set it from a test with
   `setAutoCollect(bool)` and read it back off `__mf.ui.autoCollect`.
+  **Feeding a machine is opt-in the same way** (Phase 16b, docs/SPEC.md
+  §23.6). `rules/machines.js#step(dt, cmd)` runs the proximity drain
+  (`#handFeed`) only while `cmd.autoFeed` is true, and `shell/main.js#step`
+  supplies that as plain `ui.autoFeed` — there is no key to fold in, because
+  the manual path is not a hold but the **feed verb**: click a held pair to
+  arm it, aim at a machine within `handFeed.reach`, LMB, one unit per press
+  (`rules/machines.js#handOne`). `ui.autoFeed` (the Character tab's AUTO FEED
+  row, directly under AUTO COLLECT) is input state for exactly the same
+  reason its neighbour is, and `newRun` resets it identically — D16-C's
+  answer *is* D13-A's, not a second policy. Set it with `setAutoFeed(bool)`,
+  read it back off `__mf.ui.autoFeed`. **In a test, if a scene needs material
+  to reach a buffer, decide which one you mean**: `setAutoFeed(true)` when
+  the feeding is incidental setup (a lighting scene, a mass-conservation
+  fuzz), or drive `cmd.feed` for real when the delivery *is* the subject —
+  `tools/check.mjs#feedByHand` is that idiom, written once.
 - **`wants`** — one-shot requests to the shell, not movement (drafting).
   Restart moved off `wants.restart`/any key entirely in Phase 12d, onto a
   real, clickable death-screen button (D-C) — see below.
@@ -1236,10 +1251,16 @@ Contracts:
   because `view` may not import `shell`.
 
 **LMB is one unified, contextual verb, resolved once at `pointerdown`**
-(docs/PLAN-phase12.md §3 D-A, §4.4): an armed miracle always fires; else an
-armed placeable over open ground places; else it mines. Decided ONCE per
-press, not every frame of a held one, specifically so a continuous hold
-cannot flip meaning mid-press. RMB still deconstructs a machine under the
+(docs/PLAN-phase12.md §3 D-A, §4.4; extended to four rules by Phase 16a,
+docs/SPEC.md §23.2): an armed miracle always fires; else a **reachable,
+hand-feedable machine under the reticle is fed one unit** of whatever is
+armed; else an armed placeable over open ground places; else it mines.
+Decided ONCE per press, not every frame of a held one, specifically so a
+continuous hold cannot flip meaning mid-press. Rule 2 does **not** ask
+whether the machine wants the armed pair — `rules/machines.js#feedCheck`
+answers that downstream, so its refusal reaches the player instead of the
+press silently falling through to "place" and dropping a tile inside the
+machine's own footprint (which is what the first draft did). RMB still deconstructs a machine under the
 reticle, else places — a harmless, redundant second path to the same place
 outcome LMB's own rule 2 also reaches.
 
@@ -1413,6 +1434,25 @@ Consequences to remember:
   frozen data, so the caches are bounded by the content.
 - Buffer insertion order is the tiebreak in `takeBuffered` — stable and therefore
   deterministic, but **not** a design statement about which ore is preferred.
+
+**How material gets from the pockets into a buffer.** Three ways, and only
+three:
+
+1. **It falls in.** `catchBox` swallows anything through the mouth, free and
+   unconditional — invariant 5, and the whole thesis of the game.
+2. **A hand puts it in, deliberately.** `rules/machines.js#handOne`: arm a
+   held pair with a click, aim at a machine inside its own
+   `handFeed.reach`, LMB. **One unit per press** (docs/SPEC.md §23.3), and
+   the arm survives so ten in a row is one continuous action.
+3. **The proximity drain, if the player asked for it.**
+   `rules/machines.js#handFeed` takes one unit per matching selector per
+   substep for merely standing in reach — **off by default** since Phase 16b
+   and gated on `cmd.autoFeed` (docs/SPEC.md §23.6).
+
+`handFeed:{reach, from}` in `data/machines.js` is the *data* both hand paths
+read: how far "beside it" is, and which selectors are welcome. It is not a
+key and never was; three comments in this repo claimed otherwise for four
+phases (`docs/PLAN-phase16-interaction-model-v2.md` §3.4).
 
 An item is a `{sub, form}` pair plus a mass, and that is all it is. Purity,
 fragility and temperature are deliberately absent: a field nothing reads is a

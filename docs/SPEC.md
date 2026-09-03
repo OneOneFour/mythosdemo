@@ -1353,11 +1353,22 @@ TRIBUTE RECEIVERS"): `ports` + `buffer.cap` + `catchBox` + `handFeed` +
 `tribute:{}`, and no `recipes` on either row. What differs is `hub` — the
 dock has one, the altar does not — and the catch-box slack.
 
+**`handFeed` on both rows is the REACH and the MATERIAL CLASSES a hand may
+put in, not a key.** This table's `hub` row said "holds the feed key" from
+Phase 10b until Phase 16b and there was no such key at any point in between
+(the audit: `docs/PLAN-phase16-interaction-model-v2.md` §3.4). The verb is
+§23's: click a held pair to arm it, aim at a machine inside
+`handFeed.reach`, LMB, one unit per press. The *automatic* proximity drain
+that stood in for it — `rules/machines.js#handFeed`, one unit per selector
+per substep for merely standing there — is opt-in as of Phase 16b (the
+Character tab's AUTO FEED row, default off, reset every run like AUTO
+COLLECT).
+
 | | `cloud_dock` | `altar` |
 |---|---|---|
 | footprint | 2x1 | 2x2 |
 | footing | 2 | 2 |
-| `hub` | `{ reach:96, carries:['material','player'] }` | none — cycle 1 is unmoved at the surface (§4, §5); the player walks up and holds the feed key |
+| `hub` | `{ reach:96, carries:['material','player'] }` | none — cycle 1 is unmoved at the surface (§4, §5); the player walks up and hands the ore over, one unit per click (§23) |
 | `band` | **`'astral'`** — placeable nowhere else (§20.1) | none — placed by the director, not the player |
 | `accepts` | `*/#ore`, `*/#refined`, `*/gravel` | same |
 | `buffer.cap` | 64 per class | 64 per class |
@@ -2378,10 +2389,46 @@ clicking an ore slot arms it..." test drives the identical wrong-pair case
 through a real `pointerdown` over a real machine, and additionally asserts
 that nothing gets placed inside the machine's footprint as a side effect.
 
-### 23.5 What Phase 16a does NOT change
+### 23.5 What Phase 16a did NOT change
 
-`rules/machines.js#handFeed`, the automatic proximity drain, is **unchanged
-and still unconditional**: standing within `handFeed.reach` still empties the
-matching pockets into the machine at one unit per selector per substep.
-Retiring it behind a `ui.autoFeed` preference is Phase 16b (D16-C), and until
-then both paths are live. Nothing in §23 removes anything.
+`rules/machines.js#handFeed`, the automatic proximity drain, was **unchanged
+and still unconditional** through 16a: standing within `handFeed.reach`
+emptied the matching pockets into the machine at one unit per selector per
+substep. Nothing in 16a removed anything. §23.6 is what changed that.
+
+### 23.6 The proximity drain is opt-in (Phase 16b)
+
+`ui.autoFeed`, `shell/ui.js`, **default `false`**, surfaced as the **AUTO
+FEED** row directly under AUTO COLLECT in the Character tab. It is the exact
+shape of `ui.autoCollect` (`docs/PLAN-phase12.md` §3 D-E/D-F) because it is
+the same class of fact:
+
+| | items | machines |
+|---|---|---|
+| the magnet | `ui.autoCollect` | `ui.autoFeed` |
+| default | `false` | `false` |
+| folded into | `cmd.collect`, `shell/main.js#step` | `cmd.autoFeed`, same place |
+| read by | `rules/items.js#step(dt, cmd)` | `rules/machines.js#step(dt, cmd)` |
+| the deliberate verb it replaced | hold `c` | click-arm, aim, LMB (§23.1–§23.3) |
+
+**It is INPUT, not a presentation preference, so `newRun()` resets it** —
+`shell/boot.js#newRun`'s teardown calls `setAutoFeed(false)` beside
+`setAutoCollect(false)`. This is D13-A's answer applied unchanged, not a
+second policy (D16-C requires exactly that): the flag decides whether
+standing beside a machine spends `run.inv` into it, which moves burden, climb
+speed, what a recipe can run, and — through
+`rules/cycles.js#drainReceivers` — whether a trial gets paid. A toggle
+surviving a restart would make two runs from one seed diverge on what the
+player clicked before dying, which is invariant 8's determinism bug.
+
+**`handFeed`'s body is byte-for-byte unchanged.** Only the call site is
+gated. The `handFeed:{reach, from}` data block still means what it always
+meant to *both* paths: how far "beside it" is, and which selectors a hand may
+put in.
+
+**Two guards written against the unconditional drain are kept, with only
+their reasoning corrected**: `rules/cycles.js#SPAWN_GAP` (4 tiles between
+spawn and the altar) and `tools/check.mjs`'s burden probe digging `+15` tiles
+clear of it. Neither hazard is unconditional any more, but both are one click
+from returning, and the altar's 4-tile gap is correct staging regardless
+(§5's first beat is a walk).

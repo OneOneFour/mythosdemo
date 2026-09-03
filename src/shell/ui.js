@@ -83,6 +83,36 @@ export const ui = {
      so nothing survives a page reload either way. */
   autoCollect: false,
 
+  /* AUTO FEED (Phase 16b, docs/PLAN-phase16-interaction-model-v2.md §5
+     D16-C): whether the old always-on PROXIMITY DRAIN is restored. Default
+     FALSE -- standing beside a machine no longer empties your pockets into
+     it; the feed verb (Phase 16a: click a slot to arm the pair, aim at a
+     reachable machine, LMB) hands over ONE unit per press instead.
+
+     THE EXACT SHAPE OF `autoCollect` ABOVE, DELIBERATELY, and for the same
+     two reasons. It lives in `shell` because `rules/machines.js` may only
+     import `core`/`data`/`model` (`tools/layers.mjs`), so it could never read
+     a `shell` field by import even if it wanted to -- `shell/main.js#step()`
+     folds it into the narrowed command object every `rules` step already
+     receives, which is the same "which device/preference asked is a shell
+     question" merge `digging` and `collect` are. And it is not on `run`
+     because that would need a `RUN_SCHEMA` field for a fact no world-state
+     fingerprint should carry.
+
+     AND IT IS SIMULATION-AFFECTING INPUT STATE, NOT A PRESENTATION
+     PREFERENCE LIKE MUTE OR THE GRID OVERLAY, so it is RESET ON EVERY RUN
+     the same way -- `shell/boot.js#newRun`'s teardown calls
+     `setAutoFeed(false)` immediately beside `setAutoCollect(false)`. This is
+     D13-A's answer applied unchanged rather than a second policy invented
+     beside it (D16-C says so in as many words): it gates
+     `rules/machines.js#handFeed`, which spends `run.inv` and fills a
+     machine buffer, which moves burden, climb speed, what a recipe can run
+     and -- through `rules/cycles.js#drainReceivers` -- whether a trial gets
+     paid. Left sticky, a restart on the same seed would replay differently
+     depending on what the player had clicked before dying, which is exactly
+     invariant 8's determinism bug. */
+  autoFeed: false,
+
   /* CLICK-TO-ARM PLACEMENT: `{ sub, form } | null` -- the specific held pair
      a click on its Character-tab or quickbar slot has selected as "place
      THIS one next", replacing the placeholder rule (`rules/placement.js
@@ -288,6 +318,18 @@ export function toggleHints() { ui.hintsOpen = !ui.hintsOpen; }
    Character-tab row as the one control. */
 export function toggleAutoCollect() { ui.autoCollect = !ui.autoCollect; }
 export function setAutoCollect(v) { ui.autoCollect = !!v; }
+
+/* ---------- auto feed (Phase 16b, D16-C) ----------
+   TWO functions, for the two callers the pair above already has and for the
+   identical reasons: the Character-tab row flips it blind, and
+   `shell/boot.js#newRun` (plus every probe in `tools/check.mjs` and
+   `tests/visual.spec.js` that wants the old magnet back for a scene whose
+   subject is something else) has to STATE the state it wants. A teardown
+   that toggled would leave the next run in whichever state the last one
+   ended in -- which is the determinism bug D13-A named, not a smaller
+   version of it. */
+export function toggleAutoFeed() { ui.autoFeed = !ui.autoFeed; }
+export function setAutoFeed(v) { ui.autoFeed = !!v; }
 
 /* ---------- click-to-arm placement ----------
    `armPlace` takes ORDINALS (a substance x form pair), the same shape

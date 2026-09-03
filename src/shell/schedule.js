@@ -267,7 +267,14 @@ export const STEPS = [
   { id: 'crafting', step: (dt, cmd) => crafting.step(dt, cmd) },
   { id: 'trinkets', step: () => trinkets.step() },
   { id: 'boons',    step: (dt) => boons.step(dt) },
-  { id: 'machines', step: (dt) => machines.step(dt) },
+  /* `machines` takes `cmd` as of Phase 16b, for exactly one field --
+     `cmd.autoFeed`, the preference that decides whether the proximity drain
+     runs at all (docs/PLAN-phase16-interaction-model-v2.md §5 D16-C). The
+     second sibling brought in line with `items`, which Phase 12b gave `cmd`
+     for the identical reason (`cmd.collect`, the pickup magnet's own
+     preference). Nothing about the ORDER changes: a preference is not a
+     dependency on another step. */
+  { id: 'machines', step: (dt, cmd) => machines.step(dt, cmd) },
   { id: 'drive',    step: (dt, cmd) => drive.step(dt, cmd) },
   { id: 'cycles',   step: (dt) => cycles.step(dt) },
   { id: 'grants',   step: () => grants.step() },

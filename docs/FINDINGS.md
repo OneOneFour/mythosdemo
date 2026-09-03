@@ -2147,3 +2147,53 @@ Consequences, in the order they bite:
    position and Phase 16c's legibility pass (D16-E, the `IN HAND` readout) is
    the right place to decide whether the ghost should be saying "this feeds,
    it does not build" before the press instead.
+
+## Phase 16b (the proximity drain becomes opt-in) — three parked, one plan erratum
+
+1. **PLAN ERRATUM, harmless.** `docs/PLAN-phase16-interaction-model-v2.md`
+   §3.4 says "**Seven** machines carry a `handFeed` block" and then lists
+   **eight** in the same sentence. Eight is right, and eight is what the repo
+   has: `furnace`, `press`, `belt_r`, `brazier`, `talos_head`,
+   `cyclops_maw`, `cloud_dock`, `altar` (plus four `variantOf` rows that
+   inherit — `kiln_divine`, `belt_l`, `talos_head_l`, `cyclops_maw_l`, which
+   is presumably where the miscount came from). The phase's design does not
+   depend on the number: the gate is one line at the single call site and
+   applies to every row that has the block. Recorded rather than silently
+   corrected, because §6.4's own prompt makes the count a stop condition.
+
+2. **PARKED — `docs/PLAN-phase10.md:815` still asserts the feed key.** The
+   three live claims 16b was asked to fix are fixed (`data/machines.js` ×2,
+   `docs/SPEC.md` §18.3, plus `data/machines.js`'s own `handFeed` key
+   reference and `docs/DEVELOPER_GUIDE.md`). `docs/PLAN-phase10.md` is a
+   HISTORICAL plan document, like `PLAN-phase12`/`13`, and its sentence is a
+   true record of what Phase 10b intended rather than a claim about the repo
+   today — so it was left alone on the same principle those documents' own
+   stale recommendations are. Named here so a future reader who greps
+   `"feed key"` finds the reason instead of a fourth bug.
+
+3. **PARKED — the Character tab has no vertical budget, and this phase spent
+   the last of it.** `view/ui/mainPanel.js#drawMainPanel` fixes the panel at
+   `h = min(vh - 8, 176)` and `drawCharacterTab` already clips its STATS
+   block to `body.bottom` (`if (ry > body.bottom - 8) break`), so of four
+   declared stat rows the desktop buffer showed exactly **one**. A stacked
+   AUTO FEED row cost 11 px and took that one away, leaving a `STATS`
+   heading with nothing under it — which is precisely the mockup overflow
+   bug CLAUDE.md D8 says not to copy. Fixed here the cheap way: the two
+   toggles share one measured row when both fit (they do at 232 px and at
+   the 200 px phone floor's 188 px), and stack otherwise. The REAL issue is
+   untouched: this tab wants a scroll region or a taller panel, and three of
+   four stat rows are still invisible at every viewport. Phase 16c owns
+   `src/view/` and is the right place.
+
+4. **PARKED — `handFeed`'s automatic path is now dead weight for content, and
+   that is deliberate.** D16-C explicitly rejected deleting it this wave (a
+   one-click revert for the reviewer, and a flag is cheaper than rewriting
+   every proximity-feed scene in the same commit that adds a gesture). The
+   consequence is that `rules/machines.js#handFeed` now runs in exactly two
+   situations: a player who turned AUTO FEED on, and two test scenes that ask
+   for it by name (`tools/check.mjs`'s conservation fuzz, which needs it as
+   an accountable `take` writer, and three `tests/visual.spec.js` scenes
+   whose subject is light/smelting/hover rather than feeding). If a later
+   phase does delete it, those are the five call sites to convert, and
+   section 8j's anti-hollow half is the assertion that would need rewriting
+   rather than deleting.

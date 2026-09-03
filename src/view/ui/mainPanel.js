@@ -45,7 +45,8 @@ import { drawTooltip } from './tooltip.js';
 
 /* `DIM` IS THE STATE TONE IN THIS FILE, NOT A BODY TONE (Phase 13a,
    docs/PLAN-phase13.md §2.3). Four of the ten load-bearing greys live here and
-   all four keep it: AUTO COLLECT's off reading, the search box's empty
+   all four keep it: AUTO COLLECT's and (Phase 16b) AUTO FEED's off reading,
+   the search box's empty
    placeholder, an undiscovered recipe's frame and notice, and `STATE_COLOUR`'s
    UNFUELLED/IDLE rungs (which `view/overview.js#drawMachines` also reads, so
    whitening either would change the map's glyphs too). `INK2` is the
@@ -175,12 +176,39 @@ function drawCharacterTab(g, f, body) {
      way the crafting tab's search box and `view/ui/quickbar.js`'s own
      hints-toggle already are, so a click here is never mistaken for a click
      on the grid beneath it. */
+  /* AUTO FEED (Phase 16b, docs/SPEC.md §23.6) is the machine-side half of
+     exactly the same preference: standing beside a machine no longer empties
+     your pockets into it -- arming a pair and clicking the machine hands
+     over one unit per press (`rules/machines.js#handOne`) -- and this toggle
+     restores the old always-on drain for whoever would rather have it back.
+     Two magnets, items and machines, one line.
+
+     THE TWO SHARE A ROW WHEN BOTH FIT, AND THAT IS A MEASUREMENT, NOT A
+     GUESS (CLAUDE.md D8: "panels are positioned by an anchored layout pass
+     over measured text, never by hardcoded pixel origins"). Stacking them
+     unconditionally cost 11 px, and this tab has no spare 11 px -- the
+     STATS block below already clips to `body.bottom` and a second row pushed
+     the last surviving stat line off the panel, leaving a "STATS" heading
+     with nothing under it. Side by side costs zero rows and is legible at
+     both the desktop buffer (`w` 232) and the 200 px phone floor (`w` 188,
+     against 182 px of worst-case text). The fallback is not dead code
+     insurance either: a longer label, a bigger font scale or a narrower
+     floor makes it the right layout, and it reads better than the clip. */
   const acLabel = 'AUTO COLLECT ' + (f.ui.autoCollect ? 'ON' : 'OFF');
-  const acCol = f.ui.autoCollect ? GOOD : DIM;
+  const afLabel = 'AUTO FEED ' + (f.ui.autoFeed ? 'ON' : 'OFF');
   const acW = Math.min(textWidth(acLabel) + 4, w);
+  const afW = Math.min(textWidth(afLabel) + 4, w);
+  const oneRow = acW + 2 + afW <= w;
+
   drawPanel(g, { id: 'main-auto-collect', x, y: ry, w: acW, h: 9, vw, vh, alpha: 0.6 });
-  drawText(g, acLabel, x + 2, ry + 1, acCol, 1, 1);
-  ry += 11;
+  drawText(g, acLabel, x + 2, ry + 1, f.ui.autoCollect ? GOOD : DIM, 1, 1);
+
+  const afX = oneRow ? x + acW + 2 : x;
+  const afY = oneRow ? ry : ry + 11;
+  drawPanel(g, { id: 'main-auto-feed', x: afX, y: afY, w: afW, h: 9, vw, vh, alpha: 0.6 });
+  drawText(g, afLabel, afX + 2, afY + 1, f.ui.autoFeed ? GOOD : DIM, 1, 1);
+
+  ry = afY + 11;
 
   /* Inventory grid: one cell per SLOT, `run.inv.slice(0, run.mainSlots)`,
      empty slots included and drawn empty (docs/PLAN-phase12.md §3 D-G/D-H).

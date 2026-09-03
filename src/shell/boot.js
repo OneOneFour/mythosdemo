@@ -53,7 +53,7 @@ import { reset as resetFx, title } from '../view/fx.js';
 import { resetChunks } from '../view/paint.js';
 import { initAudio, resetAudio } from './audio.js';
 import { installInput } from './input.js';
-import { setAutoCollect } from './ui.js';
+import { setAutoCollect, setAutoFeed } from './ui.js';
 
 /* Once per PAGE. Everything here is a device or a listener, and none of it is
    allowed to depend on a world existing yet. */
@@ -102,8 +102,21 @@ export function newRun(seed = (Math.random() * 1e9) | 0) {
                           // restart would make two runs from the same seed
                           // diverge on what the player clicked before dying,
                           // which is exactly invariant 8's determinism bug.
-                          // The ONLY `shell` state on this teardown list, and
-                          // it is here for that reason and not for tidiness.
+                          // Was the ONLY `shell` state on this teardown list;
+                          // as of Phase 16b there are two, and both are here
+                          // for that reason and not for tidiness.
+  setAutoFeed(false);     // D16-C's answer is D13-A's, unchanged
+                          // (docs/PLAN-phase16-interaction-model-v2.md §5
+                          // D16-C says so in as many words: "the same kind of
+                          // fact takes the same answer; 16b must not
+                          // introduce a second policy"). AUTO FEED is an
+                          // INPUT too -- it gates `rules/machines.js#
+                          // handFeed`, which spends `run.inv` into a machine
+                          // buffer, which moves burden and climb speed and,
+                          // through `rules/cycles.js#drainReceivers`,
+                          // whether a trial gets paid. A toggle surviving a
+                          // restart would make two runs from the same seed
+                          // diverge on what the player clicked before dying.
   resetChunks();               // canvases holding the previous world
   resetFx();                   // chips and toasts from the previous world
   resetAudio();

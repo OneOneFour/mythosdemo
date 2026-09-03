@@ -89,13 +89,24 @@ const recipes = (def, i) => {
   return r;
 };
 
-/* ---------- the step ---------- */
-export function step(dt) {
+/* ---------- the step ----------
+   `cmd` is the narrowed command object `shell/main.js#step` builds, and this
+   step reads exactly ONE field of it: `cmd.autoFeed`, which decides whether
+   the proximity drain below runs at all (Phase 16b,
+   docs/PLAN-phase16-interaction-model-v2.md §5 D16-C). The same shape
+   `rules/items.js` has taken since Phase 12b for `cmd.collect`. */
+export function step(dt, cmd) {
   for (const m of machines) {
     const def = defOf(m);
     mw.fire(m, Math.max(0, m.fire - dt * 0.7));
     if (def.catchBox) catchFalling(m, def);
-    if (def.handFeed) handFeed(m, def);
+    /* THE GATE, AND IT IS THE WHOLE OF PHASE 16b. `handFeed`'s body is
+       byte-for-byte what it always was; the only change is that it is now
+       OPT-IN. A catch box is still free and still unconditional above --
+       material that FALLS in is the thesis of the game (invariant 5) and
+       was never a surprise. What was a surprise is a machine reaching into
+       your pockets because you walked past it. */
+    if (def.handFeed && cmd.autoFeed) handFeed(m, def);
     produce(m, def, dt);
     if (def.emit) emit(m, def, dt);
     if (def.mine) mine(m, def, dt);
@@ -123,10 +134,24 @@ function catchFalling(m, def) {
   }
 }
 
-/* ---------- hand feed ----------
-   Stand within reach and the machine draws from your pockets. The trap the
-   design wants — hauling ore up to a machine you placed in the wrong place —
-   is this working exactly as intended. */
+/* ---------- hand feed: THE OPT-IN PROXIMITY MAGNET ----------
+   Stand within reach and the machine draws from your pockets, one unit per
+   accepted selector per substep. OFF BY DEFAULT as of Phase 16b
+   (docs/PLAN-phase16-interaction-model-v2.md §5 D16-C): the caller above
+   gates it on `cmd.autoFeed`, the Character tab's AUTO FEED row, whose only
+   default is `false`. THE REAL VERB IS `handOne` BELOW -- click a slot to arm
+   the pair, aim at a reachable machine, LMB, one unit per press.
+
+   WHY IT SURVIVES AT ALL rather than being deleted: it is the one-click
+   revert to the behaviour every run had before 16b, and it is symmetric with
+   AUTO COLLECT -- a player who wants a magnet gets a magnet, for items and
+   for machines, from one panel.
+
+   The trap the design wants -- hauling ore up to a machine you placed in the
+   wrong place -- is unaffected either way: it is a fact about DISTANCE, and
+   both this and `handOne` require the player to be standing there. What is
+   no longer true is that walking past a machine costs you your cargo without
+   asking. The body below is byte-for-byte unchanged by 16b. */
 function handFeed(m, def) {
   if (!overlaps(playerBox(), m.box, def.handFeed.reach)) return;
   for (const sel of def.handFeed.from) {
@@ -142,9 +167,9 @@ function handFeed(m, def) {
 /* ---------- THE FEED VERB (Phase 16a, docs/SPEC.md section 23) ----------
    ONE unit of ONE named pair, handed over deliberately. This is what LMB on a
    machine does; `handFeed` above is the proximity magnet that used to be the
-   only way material ever reached a buffer from a hand, and it is untouched
-   here on purpose (it is retired behind a preference in Phase 16b, not in this
-   phase).
+   only way material ever reached a buffer from a hand. As of Phase 16b it is
+   retired behind `cmd.autoFeed` and off by default, so THIS is how a hand
+   fills a buffer unless the player asked for the magnet back.
 
    The two differ in three ways and every one of them is the point: this takes
    the pair the PLAYER named (`shell/ui.js#ui.armedPlace`) rather than whatever

@@ -104,15 +104,31 @@ function ensureLiveCycle() {
    invariant 2. `spawnTx`/`floorTy` are per-band and per-seed; this reads them
    rather than assuming topsoil's current numbers.
 
-   `SPAWN_GAP` TILES CLEAR OF `spawnTx`, NOT FLUSH AGAINST IT. `handFeed` is
-   real and unconditional from the frame this places it (reach 10 px, no key
-   -- `data/machines.js`'s own altar-row comment), so flush-against-spawn
-   would mean a player who has taken zero steps, doing nothing, is already
-   standing in its reach with whatever they were handed at run start. 4 tiles
-   clears `handFeed.reach` plus the player's own width (`model/player.js#PW`)
-   with room over, while staying a short, deliberate walk -- found the hard
-   way: `tools/check.mjs`'s BURDEN test and a furnace-crafting scene both fed
-   the player ore near spawn and had it silently vanish into the altar. */
+   `SPAWN_GAP` TILES CLEAR OF `spawnTx`, NOT FLUSH AGAINST IT. THE GAP STAYS;
+   ITS REASON CHANGED (Phase 16b, docs/PLAN-phase16-interaction-model-v2.md
+   §5 D16-C).
+
+   ORIGINALLY (Phase 10b): `handFeed` was real and unconditional from the
+   frame this placed it (reach 10 px, no key), so flush-against-spawn meant a
+   player who had taken zero steps, doing nothing, was already standing in
+   its reach with whatever they were handed at run start. Found the hard way:
+   `tools/check.mjs`'s BURDEN test and a furnace-crafting scene both fed the
+   player ore near spawn and had it silently vanish into the altar.
+
+   NOW: that drain is opt-in (`cmd.autoFeed`, the Character tab's AUTO FEED
+   row, default off and reset every `newRun`), so the hazard is a preference
+   the player has to ask for rather than a fact of the world. The 4 tiles are
+   kept anyway, for two reasons that are enough on their own:
+
+     1. AUTO FEED is one click from being on, and the trap it re-creates is
+        exactly as unfair with the click as it was without it. A gap costs
+        nothing; discovering this again would cost the same day it cost the
+        first time.
+     2. FRAMING. An altar in the player's own footprint on frame one is bad
+        staging regardless of what it does or does not take -- 4 tiles clears
+        `handFeed.reach` plus the player's own width (`model/player.js#PW`)
+        with room over, while staying a short, deliberate walk, and that walk
+        is the first thing docs/SPEC.md §5's beat sheet asks for. */
 const SPAWN_GAP = 4;
 
 function ensureAltarPlaced() {

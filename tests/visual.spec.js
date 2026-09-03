@@ -1562,7 +1562,7 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
     const { F } = await import('/src/data/forms.js');
     const { invCount } = await import('/src/model/run.js');
     const { bandOf } = await import('/src/model/world.js');
-    const { setAutoCollect } = await import('/src/shell/ui.js');
+    const { setAutoCollect, setAutoFeed } = await import('/src/shell/ui.js');
     __mf.revealAll(bandOf('surface'));
     /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now, not automatic
        -- this flow's own point is craft -> place -> feed -> smelt, not the
@@ -1570,6 +1570,15 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
        holding 'c' through two separate waits below. A SETTER, not a toggle
        (Phase 13c). */
     setAutoCollect(true);
+    /* AND THE MACHINE-SIDE MAGNET, for the same shape of reason (Phase 16b,
+       docs/SPEC.md §23.6). The `feed` link in this test's own chain is now a
+       deliberate click-arm-aim-LMB verb, and driving it here would mean
+       twelve real pointer presses at a machine this test teleports the
+       player under -- while what the four assertions below actually check is
+       that a CRAFTED rig places, is spent, and that the placed furnace
+       SMELTS. THE FLAG, not the verb; the verb's own end-to-end coverage is
+       the "REAL CLICK: clicking an ore slot arms it..." test. */
+    setAutoFeed(true);
     /* "mine 12 copper ore" is stood in for by `give` -- the flow's own point
        is the chain (craft -> place -> feed -> smelt), not the mining grind.
        A furnace is CRAFTED (`data/recipes.js#furnace`: 12 copper/ore + 6
@@ -1693,7 +1702,14 @@ test('craft peg rungs by hand, place a brazier in a dark room, and the strata be
     /* `brazier` is a held `brazier/rig` item (given directly -- this test's
        own point is the light, not the crafting grind), spent by `placeMachine`
        at placement. The timber given here is pure FUEL for the machine's own
-       buffer (`handFeed` pulls it from the pockets within reach). */
+       buffer, and AUTO FEED is what pulls it out of the pockets: the
+       proximity drain is opt-in and off by default as of Phase 16b
+       (docs/SPEC.md §23.6). THE FLAG, NOT THE REAL FEED VERB, deliberately
+       -- this test asserts LIGHT and REVEAL at a tile in the far corner of a
+       sealed room, and fuel reaching the brazier is setup for that and
+       nothing else. */
+    const { setAutoFeed } = await import('/src/shell/ui.js');
+    setAutoFeed(true);
     __mf.give(S.brazier, F.rig, 1);
     __mf.give(S.timber, F.log, 4);
     const brazier = placeMachine(band, 'brazier', tx0 + 2, ty0 + h - 1);   // adjacent, in hand-feed reach
@@ -2621,11 +2637,13 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
    up at all.
 
    THE MEASUREMENT IS A DIFFERENCE, and section 8i of `tools/check.mjs` says
-   why at length: Phase 16a adds a verb and removes nothing, so the automatic
-   proximity drain (`rules/machines.js#handFeed`) is still live and still
-   takes one unit per substep from a player standing in reach. A control frame
-   with no press is measured first and the press frame is asserted against it,
-   so this test is exactly as valid after 16b turns the magnet off.
+   why at length: when this was written the automatic proximity drain
+   (`rules/machines.js#handFeed`) was still live and unconditional and took
+   one unit per substep from a player standing in reach, so a control frame
+   with no press is measured first and the press frame is asserted against
+   it. PHASE 16b TURNED THE MAGNET OFF (docs/SPEC.md §23.6) and the promise
+   held: the control frame's expected value went 1 -> 0 and not one assertion
+   about the verb itself moved.
 
    A FURNACE, not the altar: `rules/cycles.js#drainReceivers` empties a
    tribute receiver's buffer the same frame it fills, so an altar's buffer can
@@ -2824,11 +2842,17 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
   }, FEED);
   await page.mouse.up();
 
-  /* The magnet is still live and still costs exactly one unit a substep --
-     asserted, not assumed, because "this phase removes nothing" is half of
-     what it claims. */
-  expect(control.pockets).toBe(1);
-  expect(control.buffer).toBe(1);
+  /* THE MAGNET IS OFF, asserted rather than assumed (Phase 16b,
+     docs/SPEC.md §23.6). These two lines read `1` from Phase 16a until 16b:
+     the drain was live and unconditional and cost exactly one unit a
+     substep, and "this phase removes nothing" was half of what 16a claimed.
+     16b put it behind AUTO FEED, default off, and the control frame is
+     therefore free -- so the two assertions BELOW, which are the ones about
+     the verb, did not have to change at all. That is what measuring a
+     difference bought, and it is the same trade `tools/check.mjs` section 8i
+     documents at length. */
+  expect(control.pockets).toBe(0);
+  expect(control.buffer).toBe(0);
   /* And the press is worth exactly ONE unit MORE than that frame was: one
      press, one unit (docs/SPEC.md section 23.3). */
   expect(press.pockets).toBe(control.pockets + 1);
@@ -2888,6 +2912,168 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
 });
 
 /* ============================================================
+   AUTO FEED (Phase 16b, docs/SPEC.md §23.6) -- THE SINGLE MOST
+   PLAYER-VISIBLE BEHAVIOUR CHANGE IN THIS WAVE, end to end in a real
+   browser, in three acts:
+
+     1. OFF (the default): walk a full lap past a machine that accepts
+        exactly what you are carrying, in and back out of its reach, and
+        lose NOTHING.
+     2. ON, through a REAL CLICK on the Character tab's own row -- not
+        `setAutoFeed(true)` -- and the old magnet returns exactly: the same
+        lap empties the pockets into the buffer.
+     3. RESTART, and the toggle is back off (D16-C = D13-A, invariant 8).
+
+   `tools/check.mjs` section 8j asserts act 1 headlessly and act 2 as its
+   anti-hollow guard. What it CANNOT do is act 2's real pointer -- proving
+   the row is actually hit-testable where `view/ui/mainPanel.js` drew it,
+   which is the half of D2 (`view` records rects, `shell` hit-tests them)
+   that only a browser can check. Nothing here is a screenshot: the row's
+   own appearance is covered by the `ui-character*.png` baselines.
+
+   THE WALK IS REAL, held keys and physics, not a teleport, because "walked
+   past it" is the literal claim. A machine has no collision (it is not a
+   tile -- invariant 1), so the lap passes straight through the footprint,
+   which is as far inside `handFeed.reach` as it is possible to be. The
+   minimum gap over the whole lap is measured and asserted, so a lap that
+   silently missed cannot pass act 1 for the wrong reason.
+   ============================================================ */
+
+const LAP = { tx: 22, ty: 117, startTx: 17, endTx: 27, ore: 8 };
+
+/* One lap: right until well past the footprint, then back left to where it
+   started, sampling the closest the player's box ever came to the machine's.
+   Returns the lap's cost in ore, its effect on the buffer, and that minimum
+   gap in px (negative = overlapping the footprint outright). */
+const feedLap = page => page.evaluate(async ({ tx, endTx, startTx }) => {
+  const { S } = await import('/src/data/substances.js');
+  const { F } = await import('/src/data/forms.js');
+  const { invCount } = await import('/src/model/run.js');
+  const { count } = await import('/src/model/machines.js');
+  const { PW } = await import('/src/model/player.js');
+  const { bandOf, worldX } = await import('/src/model/world.js');
+
+  const band = bandOf('topsoil');
+  const m = __mf.machines.find(mm => mm.tx === tx);
+  const p0 = invCount(S.copper, F.ore), b0 = count(m, '*/#ore');
+
+  let minGap = Infinity;
+  const sample = () => {
+    const gap = Math.max(m.box.x - (__mf.player.x + PW), __mf.player.x - (m.box.x + m.box.w));
+    if (gap < minGap) minGap = gap;
+  };
+
+  const walkTo = (targetX, key) => {
+    __mf.cmd[key] = true;
+    for (let i = 0; i < 400; i++) {
+      __mf.frames(4);
+      sample();
+      if (key === 'right' ? __mf.player.x >= targetX : __mf.player.x <= targetX) break;
+    }
+    __mf.cmd[key] = false;
+  };
+
+  walkTo(worldX(band, endTx), 'right');
+  walkTo(worldX(band, startTx), 'left');
+  __mf.frames(30);
+
+  return {
+    spent: p0 - invCount(S.copper, F.ore),
+    buffered: count(m, '*/#ore') - b0,
+    minGap: Math.round(minGap)
+  };
+}, LAP);
+
+test('AUTO FEED off (the default): a real lap past a hungry furnace costs nothing; one real click on the Character tab row brings the magnet back', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+
+  await page.evaluate(async ({ tx, ty, startTx, ore }) => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { M } = await import('/src/data/machines.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { write: pw } = await import('/src/model/player.js');
+    const { write: mw } = await import('/src/model/machines.js');
+
+    /* A carved corridor with a floor and a furnace standing on it -- the same
+       hand-built scene idiom every other machine test in this file uses
+       rather than trusting worldgen to put a walkable flat somewhere. */
+    const band = bandOf('topsoil');
+    for (let y = ty - 6; y <= ty + 2; y++)
+      for (let x = tx - 8; x <= tx + 8; x++) tw.clear(band, x, y);
+    for (let x = tx - 8; x <= tx + 8; x++) tw.set(band, x, ty + 2, S.stone);
+    __mf.revealAll(band);
+
+    mw.place(band, M.furnace, tx, ty);
+    pw.band(band);
+    pw.move(worldX(band, startTx), worldY(band, ty));
+    pw.vel(0, 0);
+    pw.set('onGround', true);
+    __mf.give(S.copper, F.ore, ore);
+    __mf.cmd.hasMouse = false;
+    /* LET THE CAMERA CONVERGE BEFORE ANY UI CLICK, for the reason the feed
+       test above documents at length: `applyUiIntents` hit-tests against the
+       camera `draw` snapshotted, and `updateCamera` is still easing toward a
+       teleported player for hundreds of substeps. Costs nothing in ore --
+       AUTO FEED is off, which is this test's whole first act. */
+    __mf.frames(300);
+  }, LAP);
+
+  /* THE DEFAULT IS OFF, read off the real projection rather than assumed --
+     `newRun` resets it, and `settle()` above called `newRun`. */
+  expect(await page.evaluate(() => __mf.ui.autoFeed)).toBe(false);
+
+  /* ---- act 1: the lap costs nothing ---- */
+  const off = await feedLap(page);
+  expect(off.minGap).toBeLessThan(0);      // really walked THROUGH the footprint...
+  expect(off.spent).toBe(0);               // ...and the pockets are untouched
+  expect(off.buffered).toBe(0);            // ...and the buffer never saw a unit
+
+  /* ---- act 2: turn it on with a REAL CLICK on the row `view` drew ---- */
+  await page.evaluate(async () => {
+    const { open, setTab } = await import('/src/shell/ui.js');
+    open('main');
+    setTab('main', 'char');
+    __mf.frames(1);
+  });
+
+  const row = await page.evaluate(() => __mf.ui.panels.find(p => p.id === 'main-auto-feed'));
+  expect(row).toBeTruthy();                // `view` really registered a rect for it
+  await realClick(page, row.x + row.w / 2, row.y + row.h / 2);
+
+  const toggled = await page.evaluate(() => ({
+    autoFeed: __mf.ui.autoFeed, autoCollect: __mf.ui.autoCollect
+  }));
+  expect(toggled.autoFeed).toBe(true);
+  /* AND ONLY THAT ROW. The two toggles share a line, so a click that landed
+     on the wrong rect (or on the panel behind both) is exactly the mistake
+     worth catching here. */
+  expect(toggled.autoCollect).toBe(false);
+
+  /* ---- act 2b: the identical lap, and the magnet is back exactly ---- */
+  await page.evaluate(async () => {
+    const { closeTop } = await import('/src/shell/ui.js');
+    closeTop();
+    __mf.frames(1);
+  });
+
+  const on = await feedLap(page);
+  expect(on.minGap).toBeLessThan(0);
+  /* A furnace's ore cap is 8 (`data/machines.js#furnace`) and the pockets
+     hold exactly 8, so "the magnet took the lot" is a precise number rather
+     than "some". Nothing runs it -- no fuel was ever given -- so what went
+     in stays in and is countable. */
+  expect(on.spent).toBe(LAP.ore);
+  expect(on.buffered).toBe(LAP.ore);
+
+  /* ---- act 3: a restart puts it back off (D16-C, matching D13-A) ---- */
+  await page.evaluate(() => { __mf.newRun(1337); __mf.frames(2); });
+  expect(await page.evaluate(() => __mf.ui.autoFeed)).toBe(false);
+});
+
+/* ============================================================
    FEATURE 1 (the stalled-machine warning + hover status/producing line) and
    FEATURE 2 (right-click deconstruct), end to end: the full furnace build
    lifecycle, screenshotted at five stages -- opening the crafting UI, the
@@ -2932,8 +3118,19 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
        below and for the deconstruct refund at the very end of this test,
        rather than holding 'c' through two separate windows. A SETTER, not a
        toggle (Phase 13c). */
-    const { setAutoCollect } = await import('/src/shell/ui.js');
+    /* AND AUTO FEED, for stages 4 and 5 (Phase 16b, docs/SPEC.md §23.6):
+       the proximity drain is opt-in and off by default now, and those two
+       stages give the furnace its fuel and its ore by putting them in the
+       pockets and waiting. THE FLAG, NOT THE REAL FEED VERB, deliberately:
+       this test's subject is the machine's LOOK and its hover status lines
+       across a lifecycle -- NO FUEL, IDLE, RUNNING, MAKING SMELT -- and how
+       the material got into the buffer is not what any of its six
+       screenshots or ten assertions are about. The real verb has its own
+       end-to-end test ("REAL CLICK: clicking an ore slot arms it...").
+       A SETTER, not a toggle (Phase 13c). */
+    const { setAutoCollect, setAutoFeed } = await import('/src/shell/ui.js');
     setAutoCollect(true);
+    setAutoFeed(true);
     __mf.cmd.hasMouse = false;
     __mf.hold({ right: 1 }, 90);
     __mf.cmd.right = false;

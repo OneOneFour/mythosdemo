@@ -2659,21 +2659,26 @@ worth knowing whether or not the wave ever runs:
    items 4 and 5, and `docs/PLAN-phase16-interaction-model-v2.md` §7.3 for
    why the draft's own UI belongs in a Phase 17 document rather than in
    either of them.
-3. **Clicking a non-placeable inventory slot does nothing at all.** The
-   click-to-arm gate (`shell/main.js:514-517`, mirrored at
-   `shell/input.js:411-412`) requires a tile-capable form, `F.rig` or
-   `F.phial`, so every ore, ingot, plate, brand and relic is click-inert —
-   control falls through to `runw.moveSlot(i, i)`, which returns immediately
-   on `from === to`. See `docs/PLAN-phase16-interaction-model-v2.md` §3.3.
-4. **There is no way to feed a machine on purpose.**
-   `rules/machines.js#handFeed` is proximity-only and ungated, called from a
-   `step(dt)` that takes no `cmd`, once per machine per fixed substep — so an
-   altar takes everything you carry in under a second and
-   `rules/cycles.js#drainReceivers` credits it the same frame.
-   `rules/cycles.js:84-93`'s `SPAWN_GAP = 4` and two offsets in
-   `tools/check.mjs` (`:1154-1160`, `:3552`) exist only to work around it,
-   and three comments (`data/machines.js:655`, `:745`, `docs/SPEC.md` §18.3)
-   describe a "feed key" that has never existed. See
+3. ~~**Clicking a non-placeable inventory slot does nothing at all.**~~
+   **FIXED by Phase 16a** (docs/SPEC.md §23.1): any occupied slot arms, on
+   both the click and the digit path. It *was* true — the gate required a
+   tile-capable form, `F.rig` or `F.phial`, so every ore, ingot, plate,
+   brand and relic was click-inert, control falling through to
+   `runw.moveSlot(i, i)`, which returns immediately on `from === to`. See
+   `docs/PLAN-phase16-interaction-model-v2.md` §3.3.
+4. ~~**There is no way to feed a machine on purpose.**~~ **FIXED by Phase
+   16a, and the fallback retired by Phase 16b** (docs/SPEC.md §23). The verb
+   is `rules/machines.js#handOne`: arm a held pair, aim at a machine inside
+   `handFeed.reach`, LMB, one unit per press. The proximity drain
+   (`#handFeed`) is now gated on `cmd.autoFeed` — the Character tab's AUTO
+   FEED row, default off, reset every run (§23.6) — and `step` takes `cmd`.
+   It *was* true, and unpleasantly so: an altar took everything you carried
+   in under a second and `rules/cycles.js#drainReceivers` credited it the
+   same frame. `rules/cycles.js`'s `SPAWN_GAP = 4` and the `+15` offset in
+   `tools/check.mjs`'s burden probe are **kept**, with their reasoning
+   corrected rather than removed (the hazard is opt-in now, not gone, and
+   the altar's gap is correct staging regardless). The three "feed key"
+   comments (`data/machines.js` ×2, `docs/SPEC.md` §18.3) are gone. See
    `docs/PLAN-phase16-interaction-model-v2.md` §3.4–3.5.
 5. **`docs/PLAN-phase12.md` D-I never landed**, despite that document's
    status line. `git log -- src/view/ui/slot.js` shows no Phase 12 commit and

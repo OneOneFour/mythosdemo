@@ -209,6 +209,44 @@ function runReal(n, dt, want = {}) {
   for (let i = 0; i < n; i++) stepReal(dt, want);
 }
 
+/* HAND `n` UNITS OVER FOR REAL (Phase 16b).
+   Every probe in this file that used to fill a machine by standing beside it
+   and waiting was measuring `rules/machines.js#handFeed`, the proximity
+   drain -- which is OFF BY DEFAULT as of Phase 16b
+   (docs/PLAN-phase16-interaction-model-v2.md §5 D16-C). The scenes whose
+   subject is the TRIBUTE/DELIVERY LOOP were switched to this instead of
+   being given the flag back, because real coverage of the path a player
+   actually uses is worth more than preserving the old test mechanics; the
+   scenes whose subject is something else entirely (the mass-conservation
+   fuzz) set `shellUi.setAutoFeed(true)` and say so.
+
+   This is the WHOLE of the real verb, in the order `shell` drives it: arm
+   the pair (`shell/ui.js#armPlace`, what a click on an inventory slot does),
+   point at the machine, and fire ONE edge-triggered `cmd.feed` per unit
+   through `frameReal` -- which runs `main.step` AND `main.applyIntents`,
+   because the feed verb is a one-shot EVENT and not a substep intent.
+
+   MOUSE AIM, and the coordinate is DERIVED from the machine's own box rather
+   than typed, so this is not the hardcoded-screen-coordinate mistake
+   CLAUDE.md records -- there is no viewport in it. `aimAtWorld` clamps to
+   `eff('reach')` from the player's centre, so the caller has to be standing
+   within reach; that is the same requirement the real verb has and the same
+   one the old magnet had, only 2.5 tiles wider.
+
+   Returns how many units actually left the pockets, so a caller can fail on
+   the SETUP rather than on the assertion it meant to make. */
+function feedByHand(m, sub, form, n) {
+  const before = run.invCount(sub, form);
+  shellUi.armPlace(sub, form);
+  for (let i = 0; i < n; i++) {
+    input.cmd.mx = m.box.x + m.box.w / 2;
+    input.cmd.my = m.box.y + m.box.h / 2;
+    frameReal(1 / 120, { hasMouse: true, feed: true });
+  }
+  shellUi.clearArmedPlace();
+  return before - run.invCount(sub, form);
+}
+
 /* ============================================================
    SHARED HELPERS for the determinism / reset probes below.
    ============================================================ */
@@ -623,11 +661,15 @@ console.log('\n3. behaviour');
           every substep and the aim retargets as the player wanders, so
           almost no tile ever accumulates its full hardness. Mined material
           cannot be this probe's supply of mass.
-       3. THE ALTAR EATS THE PRELOAD. Cycle 1's altar stands within
-          `handFeed.reach` of spawn and takes ore with no key held, so a
-          one-shot preload drained from 38.5 T to 0.9 T inside the fuzz (38
+       3. THE ALTAR ATE THE PRELOAD. Cycle 1's altar stands within
+          `handFeed.reach` of spawn and USED to take ore with no key held, so
+          a one-shot preload drained from 38.5 T to 0.9 T inside the fuzz (38
           `accept` rows, cycle 1 completed) and the cap stopped being
-          relevant a few hundred frames in.
+          relevant a few hundred frames in. As of Phase 16b (D16-C) that
+          drain is opt-in and this fuzz never asks for it, so the altar takes
+          nothing -- but the MAINTAINED top-up below is what makes this probe
+          honest at all and is not being unwound on the strength of a
+          preference that one click could flip back.
 
      So the mass is supplied and MAINTAINED: every quarter second the pockets
      are topped back up to within one ore of `eff('burden')` and one copper
@@ -984,6 +1026,29 @@ console.log('\n4. Phase 6 probes');
   else ok('newRun() RESET: ui.autoCollect is false after a restart that began with it ON (D13-A)');
 }
 
+/* --- AND SO DOES AUTO FEED (Phase 16b, D16-C -- which is D13-A's answer
+   applied unchanged rather than a second policy). Everything the probe above
+   says applies word for word one layer over: `ui.autoFeed` lives in
+   `shell/ui.js` because `rules/machines.js` may not import `shell` at all,
+   `snapshotModel()` therefore cannot see it, and it is simulation-affecting
+   INPUT rather than presentation -- `shell/main.js#step` folds it into
+   `cmd.autoFeed`, which gates `rules/machines.js#handFeed`, which spends
+   `run.inv` into a machine buffer and, through
+   `rules/cycles.js#drainReceivers`, decides whether a trial gets paid. Its
+   own probe, because a shared one would report the wrong flag's name. --- */
+{
+  shellUi.setAutoFeed(true);
+  if (shellUi.ui.autoFeed !== true)
+    fail('setAutoFeed(true) did not set ui.autoFeed -- the setter itself is broken');
+  boot.newRun(4243);
+  if (shellUi.ui.autoFeed !== false)
+    fail('newRun() RESET: ui.autoFeed survived a restart. AUTO FEED gates whether standing beside a ' +
+         'machine spends run.inv into it, so a sticky toggle makes two runs from the same seed diverge ' +
+         '-- invariant 8. shell/boot.js#newRun must call setAutoFeed(false) in its teardown block ' +
+         '(D16-C, matching D13-A exactly).');
+  else ok('newRun() RESET: ui.autoFeed is false after a restart that began with it ON (D16-C = D13-A)');
+}
+
 /* --- CONSERVATION: over a 10,000-substep random-intent fuzz, mass ADDED to
    any of the three held buckets (inventory, ground items, machine buffers)
    through their own accountable write functions must equal mass REMOVED
@@ -1007,7 +1072,20 @@ console.log('\n4. Phase 6 probes');
   /* One placed furnace, fed for free (bypassing cost) so catchFalling AND
      handFeed both get exercised by whatever the fuzz digs near it -- both
      are additional accountable writers (`take`) this probe must prove
-     balance the same as the six top-level ones. */
+     balance the same as the six top-level ones.
+
+     AUTO FEED IS TURNED ON FOR THIS PROBE AND ONLY THIS PROBE (Phase 16b,
+     D16-C), and it is the FLAG rather than the real feed verb deliberately:
+     the subject here is BOOKKEEPING -- that every path which moves mass
+     between the three held buckets goes through an accountable write -- and
+     `handFeed` is one of those paths whether or not a player would ever
+     trigger it today. Driving the verb instead would prove `handOne`
+     balances (which section 8i's own probe already exercises) and leave
+     `handFeed` untouched by the fuzz, quietly deleting a writer from this
+     probe's coverage. Reset immediately after the loop below, because `cmd`
+     and `ui` are module singletons shared by every section in this file --
+     the same reason `action` is on `CMD_FIELDS`. */
+  shellUi.setAutoFeed(true);
   machs.write.place(band, D_mach.M.furnace,
     world.tileX(band, player.player.x) - 1, world.tileY(band, player.player.y) + 2);
 
@@ -1097,6 +1175,7 @@ console.log('\n4. Phase 6 probes');
   items.write.spawn = origSpawn; items.write.remove = origRemove;
   run.write.collect = origCollect; run.write.spend = origSpend;
   machs.write.take = origTake; machs.write.consume = origConsume;
+  shellUi.setAutoFeed(false);        // borrowed for this probe only -- see above
 
   if (driftAt >= 0)
     fail(`CONSERVATION: reconstructed held mass drifted from the actual (inv+ground+buffers) total at substep ${driftAt} ` +
@@ -1334,12 +1413,23 @@ const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate
   {
     boot.newRun(1234);
     const band = player.player.band;
-    /* Phase 10b: `rules/cycles.js` places the surface altar two tiles left
-       of `spawnTx` from the run's first frame, and its `handFeed` (reach 10 px)
-       is real and unconditional -- a shaft dug AT `spawnTx` itself (this
-       test's own column, before this phase) sits close enough that the altar
-       quietly ate ore out of the very pockets this test just loaded, which is
-       not what the assertion below means to measure. Dug well clear of it. */
+    /* THE `+15` STAYS, AND ITS REASON CHANGED (Phase 16b, D16-C).
+       Phase 10b: `rules/cycles.js` places the surface altar two tiles left of
+       `spawnTx` from the run's first frame, and its `handFeed` (reach 10 px)
+       USED TO BE unconditional -- a shaft dug AT `spawnTx` itself (this
+       test's own column, before Phase 10b) sat close enough that the altar
+       quietly ate ore out of the very pockets this test had just loaded,
+       which is not what the assertion below means to measure. Dug well clear
+       of it.
+
+       That hazard is now OPT-IN: the drain runs only when `cmd.autoFeed` is
+       set, and it is off by default and reset on every `newRun`. The offset
+       is kept anyway, unchanged, and not because it is harmless: AUTO FEED is
+       one click away from being on, and a probe that only measures what it
+       claims while a preference happens to be off is a probe that will
+       silently start measuring something else the first time somebody flips
+       it in a scene above this one. The distance costs nothing and removes
+       the question. */
     const tx = world.tileX(band, player.player.x) + 15, ty = world.tileY(band, player.player.y);
     for (let dy = -1; dy <= 4; dy++) tiles.write.clear(band, tx, ty + dy);
     /* `F.rung`, not `F.log`: Phase 14a stripped `log`'s `tile` block (CLAUDE.md
@@ -3729,9 +3819,20 @@ console.log('\n6. the tribute loop (Phase 10b)');
     }
   }
 
-  /* CLAIM 2 -- hand-fed. `handFeed` needs no key: standing inside `reach` of
-     the footprint is the whole verb (`rules/machines.js#handFeed`), which is
-     what makes cycle 1's "walk up carrying ore" work with no new code. */
+  /* CLAIM 2 -- HAND-FED, THROUGH THE REAL VERB (rewritten in Phase 16b).
+     This used to stand the player beside the altar and wait 240 substeps for
+     `rules/machines.js#handFeed` to empty their pockets into it. That drain
+     is opt-in and off by default now (D16-C), and THE FLAG WAS DELIBERATELY
+     NOT USED HERE: this claim is about the TRIBUTE LOOP -- ten ore get from
+     a hand into the altar and cycle 1 gets paid -- so it is driven through
+     the verb a player actually has (`feedByHand`, ten presses, one unit
+     each, docs/SPEC.md section 23.3), which is strictly more of the real
+     path than the old version tested.
+
+     The GEOMETRY is unchanged: the player still stands 8 px from a 2x2 altar
+     on a hand-built floor, because "standing beside it" is still the
+     requirement -- `shell/input.js#feedTargetAt` asks `handFeed.reach` for
+     exactly that. Only who initiates the transfer moved. */
   {
     boot.newRun(9111);
     const band = world.bandOf('topsoil');
@@ -3744,7 +3845,14 @@ console.log('\n6. the tribute loop (Phase 10b)');
     player.write.vel(0, 0);
     player.write.set('onGround', true);
     run.write.collect(D_sub.S.copper, D_form.F.ore, 10);
-    runReal(240, 1 / 120, { hasMouse: false });
+    const moved = feedByHand(m, D_sub.S.copper, D_form.F.ore, 10);
+    if (moved !== 10) {
+      fail(`ALTAR HAND FEED: ten real cmd.feed presses ${Math.round(m.box.x - player.player.x)} px from ` +
+           `the altar moved ${moved} unit(s), not 10 -- the SETUP failed, so nothing below is proven ` +
+           `(one press must hand over exactly one unit, docs/SPEC.md section 23.3)`);
+      bad++;
+    }
+    runReal(2, 1 / 120, { hasMouse: false });    // let the director see the last unit
     /* 10 copper/ore is the WHOLE of cycle 1's demand (docs/SPEC.md 18.4), so
        feeding it all in does not just fill a buffer -- `rules/cycles.js`
        drains the altar into the ledger the same frame (buffer back to 0) and
@@ -3756,20 +3864,21 @@ console.log('\n6. the tribute loop (Phase 10b)');
     const paid = run.run.cycle > 1 && run.run.granted.includes('furnace') &&
                  run.run.granted.includes('cloud_dock');
     if (held !== 0 || left !== 0 || !paid) {
-      fail(`ALTAR HAND FEED: standing ${Math.round(m.box.x - player.player.x)} px from a 2x2 altar with ` +
-           `10 copper/ore in the pockets left ${held} in its buffer (want 0, drained), ${left} still held ` +
-           `(want 0), and cycle 1 paid = ${paid} (want true) -- handFeed's reach ${ALTAR.handFeed.reach} ` +
-           `does not cover walking up to it, or the director never saw the delivery`);
+      fail(`ALTAR HAND FEED: standing ${Math.round(m.box.x - player.player.x)} px from a 2x2 altar and ` +
+           `feeding 10 copper/ore by hand left ${held} in its buffer (want 0, drained), ${left} still held ` +
+           `(want 0), and cycle 1 paid = ${paid} (want true) -- either the reticle never found a machine ` +
+           `${ALTAR.handFeed.reach} px away or the director never saw the delivery`);
       bad++;
     } else {
-      console.log(`  ..  altar: 10 copper/ore hand-fed from ${Math.round(m.box.x - player.player.x)} px ` +
-                  `away in ${240 / 120} s, pockets empty, cycle 1 paid (furnace and dock granted)`);
+      console.log(`  ..  altar: 10 copper/ore fed by hand, one press each, from ` +
+                  `${Math.round(m.box.x - player.player.x)} px away -- pockets empty, cycle 1 paid ` +
+                  `(furnace and dock granted)`);
     }
   }
 
   if (!bad)
     ok('THE ALTAR: no substance, no recipe, and placementCheck refuses it with \'NOTHING BUILT YET\' even ' +
-       'when granted -- and a player standing beside one hand-feeds 10 ore into it with no key held');
+       'when granted -- and a player standing beside one pays cycle 1 with ten real feed presses');
 }
 
 console.log('\n7. tutorial beats 5 and 6 (Phase 10b, D-E/E1)');
@@ -3794,9 +3903,17 @@ console.log('\n7. tutorial beats 5 and 6 (Phase 10b, D-E/E1)');
 
     /* Beat 6: hand-feed the whole of cycle 1's demand to the altar the
        director already placed, and watch the SAME completion that pays the
-       trial also advance the beat -- one state, two readers. */
+       trial also advance the beat -- one state, two readers.
+
+       FED THROUGH THE REAL VERB as of Phase 16b (`feedByHand`, ten presses),
+       not by standing still and waiting: the proximity drain is off by
+       default now (D16-C). The flag was not used here either, for the same
+       reason as THE ALTAR probe above -- beat 6's predicate is `run.cycle`,
+       so what this probe needs is a cycle really completing, and the only
+       way a player completes one is the verb. */
     const band = world.bandOf('surface'); // SPAWN_BAND -- see data/world.js
-    if (!machs.machines.some(mm => mm.def === D_mach.M.altar))
+    const altar = machs.machines.find(mm => mm.def === D_mach.M.altar);
+    if (!altar)
       fail('TUTORIAL BEAT 6: no altar exists even after beat 5 fired -- nothing to hand-feed');
     /* One tile left of the altar's own footprint, same row as its top --
        real, untouched surface terrain, the same ground every run spawns
@@ -3806,7 +3923,11 @@ console.log('\n7. tutorial beats 5 and 6 (Phase 10b, D-E/E1)');
     player.write.vel(0, 0);
     player.write.set('onGround', true);
     run.write.collect(D_sub.S.copper, D_form.F.ore, 10);
-    runReal(240, 1 / 120, { hasMouse: false });
+    const movedB6 = altar ? feedByHand(altar, D_sub.S.copper, D_form.F.ore, 10) : 0;
+    runReal(2, 1 / 120, { hasMouse: false });
+    if (movedB6 !== 10)
+      fail(`TUTORIAL BEAT 6: ten real feed presses at the director's own altar moved ${movedB6} ` +
+           `unit(s), not 10 -- the SETUP failed and the beat assertion below proves nothing`);
     if (run.run.tutorialBeat !== 6 || run.run.cycle <= 1) {
       fail(`TUTORIAL BEAT 6: fed the altar cycle 1's whole demand -- tutorialBeat is ` +
            `${run.run.tutorialBeat} (want 6) and run.cycle is ${run.run.cycle} (want > 1) -- ` +
@@ -4441,7 +4562,7 @@ console.log('\n8b. broken-chain delivery (rules/drive.js fix, checked here)');
 
 /* --- HEAVENS LEDGER, sub-bullet: cycle completion unlocks exactly one band.
    `rules/cycles.js#complete`'s `for (const id of reward.charts ?? []) rw.chart(id)`
-   is the mechanism -- driven here through the SAME real hand-feed idiom THE
+   is the mechanism -- driven here through the SAME real feed verb THE
    ALTAR test (section 6, above) already uses, twice, for cycle 1 (charts
    'astral') and cycle 2 (charts 'topsoil'). No two shipped rows in
    `data/cycles.js#CYCLES` chart the same band, so the table itself never
@@ -4461,13 +4582,14 @@ console.log('\n8c. HEAVENS LEDGER: cycle completion unlocks exactly one band');
      `rules/cycles.js#ensureAltarPlaced`'s own `machines.some(...)` guard sees
      one already exists and never places a second -- the same order THE
      ALTAR test (section 6) already relies on. */
-  footUnder(machs.write.place(topsoil, D_mach.M.altar, 22, 117));
+  const chartAltar = footUnder(machs.write.place(topsoil, D_mach.M.altar, 22, 117));
   player.write.band(topsoil);
   player.write.move(world.worldX(topsoil, 21), world.worldY(topsoil, 117));
   player.write.vel(0, 0);
   player.write.set('onGround', true);
   run.write.collect(D_sub.S.copper, D_form.F.ore, 10);
-  runReal(240, 1 / 120, { hasMouse: false });
+  feedByHand(chartAltar, D_sub.S.copper, D_form.F.ore, 10);
+  runReal(2, 1 / 120, { hasMouse: false });
 
   if (run.run.cycle <= 1 || run.run.charted.length !== 1 || run.run.charted[0] !== 'astral') {
     fail(`CYCLE CHARTS: after cycle 1 completes, run.charted is ${JSON.stringify(run.run.charted)} (want ` +
@@ -4476,22 +4598,29 @@ console.log('\n8c. HEAVENS LEDGER: cycle completion unlocks exactly one band');
   } else {
     console.log('  ..  cycle charts: cycle 1 completion charted exactly [\'astral\']');
 
-    /* CYCLE 2: `cloud_dock`, 3 copper/plate, hand-fed the same way -- but
-       FIVE TILES FURTHER ALONG, and that distance is the whole point (Phase
-       13d). The dock used to sit directly above the altar with the player
-       between them, which worked only because `drainReceivers` credited
-       either receiver: `rules/machines.js#handFeed` feeds EVERY machine whose
-       box the player overlaps within its own reach, and at tx 21 the altar
-       (tx 22-23, ty 117-118) is 8 px away -- inside its `handFeed.reach:10`
-       -- so it actually took two of the three plates and the dock took one.
-       Now only the live cycle's receiver credits, so a probe standing in the
-       altar's reach would hand two plates to a machine that can no longer
-       pay for anything and cycle 2 would never complete. tx 26 puts the
-       player 16 px clear of the altar and 2 px from the dock. */
-    footUnder(machs.write.place(topsoil, D_mach.M.cloud_dock, 27, 115));
+    /* CYCLE 2: `cloud_dock`, 3 copper/plate, fed the same way -- and still
+       FIVE TILES FURTHER ALONG, deliberately unchanged (Phase 13d). The dock
+       used to sit directly above the altar with the player between them,
+       which worked only because `drainReceivers` credited either receiver:
+       `rules/machines.js#handFeed` fed EVERY machine whose box the player
+       overlapped within its own reach, and at tx 21 the altar (tx 22-23,
+       ty 117-118) is 8 px away -- inside its `handFeed.reach:10` -- so it
+       actually took two of the three plates and the dock took one. tx 26
+       puts the player 16 px clear of the altar and 2 px from the dock.
+
+       PHASE 16b WOULD MAKE THAT DISTANCE UNNECESSARY -- the feed verb names
+       ONE machine, so nothing spills sideways into the wrong receiver even
+       standing between them -- BUT THE GEOMETRY STAYS, for the same reason
+       `SPAWN_GAP` does: `handFeed` is one AUTO FEED click away from being
+       live again, and a scene that only works with a preference off is a
+       scene one click from lying. The 13d gate itself is proven properly, at
+       point-blank range and through the real verb, in section 8f's TRIBUTE
+       GATE below. */
+    const chartDock = footUnder(machs.write.place(topsoil, D_mach.M.cloud_dock, 27, 115));
     player.write.move(world.worldX(topsoil, 26), world.worldY(topsoil, 115));
     run.write.collect(D_sub.S.copper, D_form.F.plate, 3);
-    runReal(240, 1 / 120, { hasMouse: false });
+    feedByHand(chartDock, D_sub.S.copper, D_form.F.plate, 3);
+    runReal(2, 1 / 120, { hasMouse: false });
 
     if (run.run.cycle <= 2 || run.run.charted.length !== 2 ||
         run.run.charted[0] !== 'astral' || run.run.charted[1] !== 'topsoil') {
@@ -4531,7 +4660,8 @@ console.log('\n8c. HEAVENS LEDGER: cycle completion unlocks exactly one band');
    own `tickDeadline`/`resolve`, never `run.write.miss()` called directly --
    the one existing caller of that, in the reset-fingerprint probe elsewhere
    in this file, never drives it through gameplay at all). Cycle 1 is
-   completed first, for real (the same hand-feed idiom as above), so cycle 2
+   completed first, for real (the same `feedByHand` idiom as above -- ten
+   presses, the Phase 16b verb, not the retired proximity drain), so cycle 2
    is actually the LIVE one with a real clock counting down. */
 console.log('\n8d. HEAVENS LEDGER: two misses ends the run');
 {
@@ -4541,13 +4671,14 @@ console.log('\n8d. HEAVENS LEDGER: two misses ends the run');
   for (let ty = 110; ty <= 119; ty++)
     for (let tx = 16; tx <= 29; tx++) tiles.write.clear(topsoil, tx, ty);
   for (let tx = 16; tx <= 29; tx++) tiles.write.set(topsoil, tx, 119, D_sub.S.stone);
-  footUnder(machs.write.place(topsoil, D_mach.M.altar, 22, 117));
+  const missAltar = footUnder(machs.write.place(topsoil, D_mach.M.altar, 22, 117));
   player.write.band(topsoil);
   player.write.move(world.worldX(topsoil, 21), world.worldY(topsoil, 117));
   player.write.vel(0, 0);
   player.write.set('onGround', true);
   run.write.collect(D_sub.S.copper, D_form.F.ore, 10);
-  runReal(240, 1 / 120, { hasMouse: false });
+  feedByHand(missAltar, D_sub.S.copper, D_form.F.ore, 10);
+  runReal(2, 1 / 120, { hasMouse: false });
 
   if (run.run.cycle <= 1 || !run.run.tribute || run.run.tribute.left === null) {
     fail(`TWO MISSES: cycle 1 never completed into a clocked cycle 2 -- run.cycle ${run.run.cycle}, ` +
@@ -5089,9 +5220,20 @@ function handMineTile(subId, fps, { seed = 1461, tool = null } = {}) {
 console.log('\n8f. THE CLOSED LOOP (Phase 13d)');
 
 /* --- CLAIM 1: cycle 2 cannot be paid at cycle 1's altar. Driven through the
-   real hand-feed, with the altar and the dock BOTH in reach at once -- which
+   real feed verb, with the altar and the dock BOTH in reach at once -- which
    is the arrangement the exploit lived in, and the only arrangement that can
-   prove the gate rather than prove a distance. --- */
+   prove the gate rather than prove a distance.
+
+   PHASE 16b CHANGED HOW THE SPLIT HAPPENS, NOT WHAT IS CLAIMED. The old
+   version stood between the two receivers and let `rules/machines.js#
+   handFeed` decide the split for it -- the altar got two plates because it
+   sorts earlier in `machines`, the dock got one, and the probe asserted
+   against whatever fell out. That drain is off by default now (D16-C), and
+   the flag was deliberately NOT used here: this probe's subject IS the
+   tribute loop, so it now feeds the split ON PURPOSE, two presses aimed at
+   the wrong receiver and one at the right one, which is exactly the exploit
+   a player would attempt by hand. The geometry, the seed and every assertion
+   are unchanged. --- */
 {
   let bad = 0;
   boot.newRun(9600);
@@ -5111,20 +5253,29 @@ console.log('\n8f. THE CLOSED LOOP (Phase 13d)');
   player.write.vel(0, 0);
   player.write.set('onGround', true);
   run.write.collect(D_sub.S.copper, D_form.F.plate, 3);
-  runReal(240, 1 / 120, { hasMouse: false });
+  /* TWO to the altar (cycle 1's receiver, and the wrong one now), ONE to the
+     dock (the live one) -- the same 2/1 split the magnet used to produce by
+     accident, chosen here rather than fallen into. */
+  const fedAltar = feedByHand(altar, D_sub.S.copper, D_form.F.plate, 2);
+  const fedDock  = feedByHand(dock,  D_sub.S.copper, D_form.F.plate, 1);
+  runReal(2, 1 / 120, { hasMouse: false });
+  if (fedAltar !== 2 || fedDock !== 1) {
+    fail(`TRIBUTE GATE: the SETUP failed -- ${fedAltar} plate(s) reached the altar (want 2) and ` +
+         `${fedDock} the dock (want 1), so the split this claim is about never happened`);
+    bad++;
+  }
 
   const inAltar = machs.count(altar, '*/#refined');
   const inDock  = machs.count(dock, '*/#refined');
   const credited = run.run.tribute?.have?.['copper/plate'] ?? 0;
   const held = run.invCount(D_sub.S.copper, D_form.F.plate);
 
-  /* Both machines were in reach, so `handFeed` fed both -- the altar first
-     (it is earlier in `machines`). What must be true is that only the DOCK's
-     share credited, and that the altar's share is still sitting in the altar
-     rather than having vanished. */
+  /* Both machines were in reach and both were really fed. What must be true
+     is that only the DOCK's share credited, and that the altar's share is
+     still sitting in the altar rather than having vanished. */
   if (inAltar < 1) {
-    fail(`TRIBUTE GATE: after hand-feeding 3 plates within reach of BOTH receivers, the altar holds ` +
-         `${inAltar} (want >= 1, uncredited but not destroyed) -- either handFeed never reached it or ` +
+    fail(`TRIBUTE GATE: after feeding 3 plates by hand within reach of BOTH receivers, the altar holds ` +
+         `${inAltar} (want >= 1, uncredited but not destroyed) -- either the feed never reached it or ` +
          `the wrong-receiver material is being eaten`);
     bad++;
   }
@@ -5144,7 +5295,7 @@ console.log('\n8f. THE CLOSED LOOP (Phase 13d)');
     bad++;
   }
   if (!bad)
-    ok(`TRIBUTE GATE: with the altar and the dock both inside handFeed reach, cycle 2 credited only the ` +
+    ok(`TRIBUTE GATE: with the altar and the dock both inside feed reach, cycle 2 credited only the ` +
        `dock's ${credited} plate(s); the ${inAltar} fed to the altar sit uncredited in its buffer and ` +
        `the trial stays armed`);
 }
@@ -6324,24 +6475,27 @@ function seamRun(steps, dir, want = {}) {
 
 console.log('\n8i. THE FEED VERB (Phase 16a, docs/SPEC.md section 23)');
 {
-  /* ONE PRESS, ONE UNIT -- and the measurement has to be a DIFFERENCE, which
-     is the single most important thing to understand about this probe.
+  /* ONE PRESS, ONE UNIT -- and the measurement is a DIFFERENCE, which is the
+     single most important thing to understand about this probe.
 
-     Phase 16a adds the feed verb and removes nothing, so
-     `rules/machines.js#handFeed` -- the automatic proximity drain -- is still
-     live and still unconditional. A player standing 6 px from an altar with
-     copper ore in their pockets therefore loses ONE unit per substep to the
-     magnet whether or not they pressed anything, and a probe that stood there
-     and asserted "the pockets went down by exactly one" would be measuring
-     the magnet, passing for the wrong reason, and would keep passing with the
-     new verb deleted.
+     WHEN IT WAS WRITTEN (Phase 16a), `rules/machines.js#handFeed` -- the
+     automatic proximity drain -- was still live and still unconditional. A
+     player standing 6 px from an altar with copper ore in their pockets lost
+     ONE unit per substep to the magnet whether or not they pressed anything,
+     so a probe that stood there and asserted "the pockets went down by
+     exactly one" would have been measuring the magnet, passing for the wrong
+     reason, and would have kept passing with the new verb deleted.
 
      So: run the IDENTICAL frame twice from the identical seed, once without
      the intent and once with it, and assert the DIFFERENCE is exactly one
      unit. That is the verb's own contribution, isolated, and it is 0 if
-     `handOne` does nothing and 2+ if a press ever feeds a stack. When 16b
-     puts the magnet behind `ui.autoFeed`, the baseline frame below becomes a
-     zero and this assertion still holds unchanged.
+     `handOne` does nothing and 2+ if a press ever feeds a stack.
+
+     PHASE 16b PUT THE MAGNET BEHIND `ui.autoFeed` (default false), so the
+     baseline is now a zero -- and NOT ONE ASSERTION HERE HAD TO CHANGE
+     except the one that measures the baseline itself, at the bottom. That is
+     the whole payoff of measuring a difference instead of a total, and it is
+     the reason this section is worth reading before writing another one.
 
      MOUSE AIM, not keyboard aim, and the coordinate is derived rather than
      typed: `rules/mining.js#aimAtKeys` only ever reaches ONE tile in the
@@ -6474,21 +6628,106 @@ console.log('\n8i. THE FEED VERB (Phase 16a, docs/SPEC.md section 23)');
     console.log('  ..  a rung at a full furnace says the material, not the room -- the locked order');
   }
 
-  /* THE PROXIMITY DRAIN IS STILL LIVE, asserted rather than assumed: this
-     phase adds a verb and removes nothing, and `drained` above being 1 is
-     the whole of that claim. If a later phase turns the magnet off without
-     touching this file, THIS is the line that says so. */
-  if (drained !== 1) {
+  /* THE PROXIMITY DRAIN IS OFF, asserted rather than assumed (Phase 16b,
+     D16-C). This line used to require `drained === 1` and its comment said
+     "if a later phase turns the magnet off without touching this file, THIS
+     is the line that says so" -- 16b is that phase, and this is that line,
+     inverted rather than deleted. The difference assertion above did not
+     move: one press was worth exactly one unit MORE than doing nothing when
+     doing nothing cost one, and it still is now that doing nothing costs
+     zero. Which is what "measure a difference" bought.
+     The 240-substep version of this claim is section 8j below. */
+  if (drained !== 0) {
     fail(`FEED VERB (baseline): a player standing ${gap(base.m)} px from an altar with 3 copper/ore and ` +
-         `NO press lost ${drained} unit(s) in one substep, not 1 -- rules/machines.js#handFeed is ` +
-         `supposed to be completely unchanged by Phase 16a (it is retired in 16b)`);
+         `NO press lost ${drained} unit(s) in one substep, not 0 -- rules/machines.js#handFeed must run ` +
+         `ONLY when cmd.autoFeed is set, and shell/ui.js#ui.autoFeed defaults to false (Phase 16b)`);
     bad++;
   }
 
   if (!bad)
-    ok('FEED VERB: one cmd.feed press hands over exactly ONE unit (measured as a difference against ' +
-       'the still-live proximity drain), the arm survives it, and the two refusal strings fire in ' +
+    ok('FEED VERB: one cmd.feed press hands over exactly ONE unit (measured as a difference against a ' +
+       'now-zero proximity baseline), the arm survives it, and the two refusal strings fire in ' +
        'docs/SPEC.md section 23.4\'s locked order');
+}
+
+/* ============================================================
+   8j. STANDING STILL COSTS NOTHING (Phase 16b, D16-C)
+   ------------------------------------------------------------
+   THE HEADLINE BEHAVIOUR CHANGE OF THE WHOLE PHASE, and the only probe in
+   this file whose subject is something the game DOES NOT do. Two seconds of
+   simulated time, a player 4 px from an altar that accepts exactly what they
+   are carrying, ten copper ore in the pockets, and NO input at all: the
+   pockets must still read ten.
+
+   4 px, not the 6 the section above uses, deliberately: `handFeed.reach` is
+   10 px, so this is comfortably inside the reach of the very thing being
+   asserted not to fire. A probe standing out of reach would pass with the
+   gate deleted.
+
+   AND THE ANTI-HOLLOW HALF, which matters more than the first: the identical
+   scene with `setAutoFeed(true)` must lose everything. Without that, this
+   probe would keep passing if the scene were quietly wrong -- an altar that
+   does not accept ore, a player standing 40 px away, a machine that was
+   never placed -- which is exactly the mistake CLAUDE.md records twice
+   ("a test that measures the wrong thing passes and teaches nothing";
+   "prove the pixels differ with it off").
+   ============================================================ */
+console.log('\n8j. STANDING STILL COSTS NOTHING (Phase 16b)');
+{
+  let bad = 0;
+  const N = 240;                                  // substeps; two seconds at 1/120
+
+  /* One scene builder, run twice with the flag in each state, so nothing but
+     the flag can differ between the two readings. */
+  const standScene = () => {
+    boot.newRun(9170);
+    const band = world.bandOf('topsoil');
+    for (let ty = 110; ty <= 119; ty++)
+      for (let tx = 16; tx <= 29; tx++) tiles.write.clear(band, tx, ty);
+    for (let tx = 16; tx <= 29; tx++) tiles.write.set(band, tx, 119, D_sub.S.stone);
+    const m = footUnder(machs.write.place(band, D_mach.M.altar, 22, 117));
+    player.write.band(band);
+    /* 4 px of clear air between the player's right edge and the footprint:
+       PW is 6, so the box left is the footprint minus 10. */
+    player.write.move(m.box.x - 4 - player.PW, world.worldY(band, 117));
+    player.write.vel(0, 0);
+    player.write.set('onGround', true);
+    run.write.collect(D_sub.S.copper, D_form.F.ore, 10);
+    return { band, m };
+  };
+
+  /* THE CLAIM: AUTO FEED off (the default -- `newRun` above has just reset it,
+     which is itself asserted in section 3's newRun-reset probe). */
+  const off = standScene();
+  const offGap = Math.round(off.m.box.x - (player.player.x + player.PW));
+  runReal(N, 1 / 120, { hasMouse: false });
+  const offHeld = run.invCount(D_sub.S.copper, D_form.F.ore);
+  const offBuf = machs.count(off.m, '*/#ore');
+
+  /* THE TEETH: the identical scene, the flag on, nothing else touched. */
+  standScene();
+  shellUi.setAutoFeed(true);
+  runReal(N, 1 / 120, { hasMouse: false });
+  const onHeld = run.invCount(D_sub.S.copper, D_form.F.ore);
+  shellUi.setAutoFeed(false);
+
+  if (offHeld !== 10 || offBuf !== 0) {
+    fail(`STANDING STILL: ${N} substeps ${offGap} px from an altar that accepts copper/ore, with ` +
+         `AUTO FEED off and no input at all, left ${offHeld} ore in the pockets (want 10, untouched) ` +
+         `and ${offBuf} in the altar's buffer (want 0) -- rules/machines.js#handFeed ran without ` +
+         `cmd.autoFeed, or something else is reaching into run.inv`);
+    bad++;
+  }
+  if (onHeld !== 0) {
+    fail(`STANDING STILL (anti-hollow): the IDENTICAL scene with setAutoFeed(true) left ${onHeld} ore ` +
+         `in the pockets (want 0, magnet took the lot) -- so the pass above proves nothing: this scene ` +
+         `cannot feed the altar even when the magnet is ON, and the assertion is hollow`);
+    bad++;
+  }
+  if (!bad)
+    ok(`STANDING STILL COSTS NOTHING: ${N} substeps ${offGap} px from a feed-capable altar with 10 ore ` +
+       `held and no input leaves all 10 held and its buffer empty -- and the same scene with AUTO FEED ` +
+       `ON loses every one of them, so the claim has teeth (Phase 16b, D16-C)`);
 }
 
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +

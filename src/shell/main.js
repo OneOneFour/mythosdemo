@@ -36,7 +36,8 @@ import { boons, grants, miracles, stepAll, trinkets } from './schedule.js';
 import {
   armLink, armPlace, cancelQueued, clearArmedPlace, clearDrag, clearLink,
   close as closePanel, closeTop, isOpen,
-  queueCraft, scrollBy, setDrag, setSearchFocus, setTab, toggleAutoCollect, toggleHints, ui
+  queueCraft, scrollBy, setDrag, setSearchFocus, setTab, toggleAutoCollect, toggleAutoFeed,
+  toggleHints, ui
 } from './ui.js';
 import { hoverInfo } from '../view/hud.js';
 import { drawn as uiDrawn } from '../view/ui/state.js';
@@ -125,6 +126,16 @@ export function step(dt) {
        asked is a shell question" this function already states for `digging`
        above. */
     collect: ui.autoCollect || cmd.collect,
+    /* `autoFeed` is a PREFERENCE WITH NO KEY BESIDE IT (Phase 16b, D16-C),
+       which is the one way it differs in shape from `collect` above: the
+       proximity drain has no manual hold to fold into, because the manual
+       path is the feed verb itself (`cmd.feed`, a one-shot EVENT dispatched
+       from `applyIntents`, not a substep intent). So this field is the whole
+       of the question `rules/machines.js#step` asks before running the
+       magnet -- and it is on THIS object rather than read off `ui` inside the
+       rule because this narrowed set is the whole of what `rules` may see of
+       the session (Phase 8f), and `rules` may not import `shell` at all. */
+    autoFeed: ui.autoFeed,
     hasMouse: cmd.hasMouse, mx: cmd.mx, my: cmd.my
   };
 
@@ -484,11 +495,17 @@ function applyUiIntents() {
          are -- `view/ui/mainPanel.js#drawCharacterTab` draws it and records
          it; this is the one place that reacts. */
       const onAutoCollect = panelHit?.id === 'main-auto-collect';
+      /* AUTO FEED (Phase 16b, D16-C): the same row, one line lower, for the
+         proximity drain the feed verb replaced. Its own registered rect, so
+         a click on it is never mistaken for a click on AUTO COLLECT above it
+         or the inventory grid below. */
+      const onAutoFeed = panelHit?.id === 'main-auto-feed';
 
       if (tabHit) setTab(tabHit.row, tabHit.tab);
       else if (onSearch) setSearchFocus(true);
       else if (onHints) toggleHints();
       else if (onAutoCollect) toggleAutoCollect();
+      else if (onAutoFeed) toggleAutoFeed();
       else if (slotHit?.gridId === 'recipes' || slotHit?.gridId === 'craft-queue') {
         const ids = uiDrawn.recipeIndex[slotHit.gridId];
         const id = ids && ids[slotHit.slot.index];
@@ -827,6 +844,12 @@ function installTestHook() {
            state it wants and then verify it took -- which is what the
            newRun-resets-it probe (D13-A) actually asserts. */
         autoCollect: ui.autoCollect,
+        /* AUTO FEED, readable from day one (Phase 16b, D16-C's own note on
+           13c §4.5's complaint): the flag is what decides whether a player
+           standing beside a machine loses their pockets to it, so a test
+           asserting either half of that has to be able to read the value
+           back rather than assume `setAutoFeed` took. */
+        autoFeed: ui.autoFeed,
         panels: uiDrawn.panels.map(p => ({ ...p, closeHit: p.closeHit ? { ...p.closeHit } : null })),
         tabs: uiDrawn.tabs.map(t => ({ ...t, hits: t.hits.map(h => ({ ...h })) })),
         grids: uiDrawn.grids.map(gr => ({ ...gr, slots: gr.slots.map(s => ({ ...s })) })),

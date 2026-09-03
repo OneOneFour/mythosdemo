@@ -20,8 +20,16 @@
                  for free. This is the thesis of the game in one flag: placing a
                  machine under a vein beats placing it on the surface.
 
-     handFeed    { reach, from } draws from the player's pockets while they
-                 stand within `reach` px.
+     handFeed    { reach, from } WHAT A HAND MAY PUT IN, AND FROM HOW FAR.
+                 `reach` px is what "standing beside it" means and is read by
+                 BOTH hand paths; `from` is the selectors it will accept.
+                 The real verb is deliberate (Phase 16a, docs/SPEC.md section
+                 23): arm a held pair with a click, aim, LMB, one unit per
+                 press (`rules/machines.js#handOne`). The AUTOMATIC drain of
+                 the same block -- one unit per selector per substep for
+                 merely standing there -- is `rules/machines.js#handFeed`,
+                 and as of Phase 16b it runs only while the Character tab's
+                 AUTO FEED row is on, which defaults to off every run.
 
      emit        [{ field, at, rate, whileRunning }] pours into a scalar field.
 
@@ -664,8 +672,19 @@ export const MACHINES = [
      They are ONE receiver block twice, and that is the design: `ports` +
      `buffer.cap` + `catchBox` + `handFeed` + `tribute:{}`, no `recipes`. The
      dock adds `hub` and the altar does not, which is the whole difference
-     between "a carrier arrives here" and "you walk up and hold the feed key".
+     between "a carrier arrives here" and "you walk up and hand it over".
      One drain path in `rules/cycles.js` serves both.
+
+     THERE IS NO "FEED KEY", AND THERE NEVER WAS -- this comment said there
+     was for four phases, and so did the altar row below and docs/SPEC.md
+     18.3, all three describing a verb nobody had written (the audit that
+     found it: docs/PLAN-phase16-interaction-model-v2.md 3.4). The real verb,
+     as of Phase 16a: CLICK the pair in your pockets to arm it, AIM at a
+     machine within `handFeed.reach`, and LMB. One press, one unit
+     (docs/SPEC.md section 23). `handFeed:{}` below is the automatic
+     proximity drain that stood in for it -- opt-in and off by default as of
+     Phase 16b -- and what the block now declares is the REACH and the
+     MATERIAL CLASSES the real verb reads, for both paths.
 
      WHAT THEY ACCEPT, AND WHY IT IS NOT A STAR. Any element in an ore-tagged
      form, in a refined-tagged form (which is `ingot` and `plate`, by their own
@@ -765,7 +784,10 @@ export const MACHINES = [
      that call exists and what it costs).
 
      NO `hub`: cycle 1 is unmoved at the surface (docs/SPEC.md 4 and 5), and
-     the player walks up carrying ore and holds the feed key. `catchBox` too,
+     the player walks up carrying ore and hands it over a unit at a time --
+     arm the ore in the pockets with a click, aim at the altar, LMB
+     (docs/SPEC.md section 23; there is no feed KEY, and the note at the top
+     of this block records how long that was claimed). `catchBox` too,
      at the furnace's own `slack:2`, because ore that falls in is free and an
      altar is a catch box like anything else -- CLAUDE.md invariant 5's whole
      point. Nothing releases a haul inside THIS footprint, so it does not need
