@@ -853,6 +853,41 @@ that a `look` row may use, and `tools/resolve.mjs` fails the build on a name tha
 is not in it. Add a named entry — art-direction aliases in `data/`, new hex in
 `core/` — rather than inlining hex at a call site.
 
+**Three ink tones, and one of them is not a body tone.** Text in `view/` picks
+from exactly three names, and picking the wrong one deletes information rather
+than just looking wrong:
+
+| name | role | use it for |
+|---|---|---|
+| `ui` | primary | a label, a heading, line 0 of a tooltip |
+| `uiInk2` | secondary body | de-emphasised text that must still READ: a bar's value, a tooltip's body, a stat row, a key hint, a column header |
+| `uiDim` | **state** | dim *means* something: unknown/masked, UNFUELLED/IDLE, a toggle that is off, an inactive tab, an empty placeholder |
+
+`uiDim` was raised in Phase 13a (4.16:1 → 6.16:1 against `uiBack`) rather than
+retired, because ten sites encode state in dim-vs-ink and are enumerated in
+`docs/PLAN-phase13.md` §2.3. **A blanket `uiDim → ui` sweep passes
+`npm run check` and every screenshot test, and silently deletes all ten.** If
+text looks too grey, the question is whether that grey is saying something.
+
+**`uiShade` is a 1 px text shadow**, `core/font.js#drawText`'s optional 8th
+argument (and `view/ui/bar.js`'s `shadow` option, which forwards it). The rule
+for when to use it, so it does not become taste:
+
+- text **inside a panel** gets no shadow — the panel is the backing.
+- text with **no panel but something adjacent already backed** gets a backing
+  rect, extending `view/ui/ruler.js`'s and `view/overview.js`'s existing idiom.
+- text with **no panel and nothing to back it against** gets the shadow. That
+  is the always-on HUD bars (BURDEN, TRIBUTE, FAVOUR), the boon rows, the
+  build/cable-ghost refusals, the title banner, and `view/scene.js#bandLabel`
+  — which is written that way but **has no caller today**, so nothing draws
+  it. Measured: `uiInk2` on lit sky with no backing is 1.73:1; with a shadow
+  under it, 15.72:1.
+
+The shadow pass is a **complete second string traversal**, so a shadowed
+string costs two `fillStyle` writes, not two per pixel. Never move it inside
+the glyph loop. `textWidth` is deliberately unaffected — every anchored layout
+pass measures with it.
+
 **Treatments** (`view/treatments.js`) are how "this material glints" became a row
 edit:
 

@@ -668,11 +668,26 @@ function overlay(g, cam, W, H, pitch, col, alpha) {
 }
 
 /* A one-line band label, so the seam between two bands is legible while the
-   world is still this thin. `drawText` and not `fillText`, always. */
+   world is still this thin. `drawText` and not `fillText`, always.
+
+   THE WORST CONTRAST CASE IN THE GAME, and the one the Phase 13a acceptance
+   test is written about: it is drawn straight onto rendered terrain with NO
+   panel, no backing block and nothing else near it to back against, so it
+   takes both halves of that phase's fix -- the secondary body tone
+   (`uiInk2`; it encodes nothing, it was grey only to sit quietly) AND
+   `drawText`'s shadow argument, which is the branch of §2.4's rule for a site
+   with nothing to be backed against.
+
+   CAVEAT, FOUND WHILE DOING THAT AND NOT FIXED HERE: this function currently
+   has NO CALLER. It is exported and nothing in `src/`, `tools/` or `tests/`
+   invokes it, so the band name is not on screen at all today and the recolour
+   above is latent. Wiring it back into the draw order is a HUD-layout
+   decision (which anchor, whose bottom edge, D8) and is out of a
+   contrast-only phase's scope; see docs/FINDINGS.md. */
 export function bandLabel(g, f) {
   const b = player.band;
   if (!b) return;
-  drawText(g, b.name, 6, f.H - 26, colour('uiDim'), 1, 1);
+  drawText(g, b.name, 6, f.H - 26, colour('uiInk2'), 1, 1, colour('uiShade'));
 }
 
 /* Chips are drawn from `view/fx.js`; re-exported so `shell` has one import for

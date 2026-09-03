@@ -43,7 +43,16 @@ import { drawn } from './state.js';
 import { drawTabs } from './tabs.js';
 import { drawTooltip } from './tooltip.js';
 
-const INK = colour('ui'), DIM = colour('uiDim'), BACK = colour('uiBack');
+/* `DIM` IS THE STATE TONE IN THIS FILE, NOT A BODY TONE (Phase 13a,
+   docs/PLAN-phase13.md §2.3). Four of the ten load-bearing greys live here and
+   all four keep it: AUTO COLLECT's off reading, the search box's empty
+   placeholder, an undiscovered recipe's frame and notice, and `STATE_COLOUR`'s
+   UNFUELLED/IDLE rungs (which `view/overview.js#drawMachines` also reads, so
+   whitening either would change the map's glyphs too). `INK2` is the
+   secondary body tone and is what the stat rows and the LOGISTICS table now
+   use. No shadow anywhere in this file: every line of it is drawn inside
+   `view/ui/panel.js`'s own frame. */
+const INK = colour('ui'), INK2 = colour('uiInk2'), DIM = colour('uiDim'), BACK = colour('uiBack');
 const GOOD = colour('uiGood'), AMBER = colour('uiAmber'), HEART = colour('uiHeart');
 const RELIC = colour('ichor');
 
@@ -237,7 +246,7 @@ function drawCharacterTab(g, f, body) {
   for (const s of stats) {
     if (ry > body.bottom - 8) break;
     const v = eff(s.id, s.scope);
-    drawText(g, `${s.label} ${fmtNum(v)}${unitOf(s.id)}`, x + 2, ry, DIM, 1, 1);
+    drawText(g, `${s.label} ${fmtNum(v)}${unitOf(s.id)}`, x + 2, ry, INK2, 1, 1);
     ry += 8;
   }
 
@@ -482,7 +491,14 @@ function recipeTooltip(r) {
   }
   const machineName = MACH.find(m => (m.recipes || []).some(x => x === r.id || x?.id === r.id))?.name;
   lines.push(`BY HAND: ${r.secs.toFixed(1)} S` + (machineName ? ` -- SAME AS ${machineName}` : ''));
-  if (!isKnown(r.id)) lines.push('', 'UNKNOWN -- NOT YET STOLEN');
+  /* THE ONE BODY LINE IN THE GAME THAT KEEPS THE STATE TONE (§2.3 #10). Every
+     other tooltip body line now draws in `uiInk2`; this one is not
+     de-emphasis, it is the same "you have not stolen this yet" state the '?'
+     glyph and the `frameColour: DIM` on the slot above already say, so it is
+     handed its own colour rather than letting `view/ui/tooltip.js` guess from
+     the string -- see that file's header for why the primitive must not learn
+     which of its lines are semantic. */
+  if (!isKnown(r.id)) lines.push('', { s: 'UNKNOWN -- NOT YET STOLEN', col: DIM });
   return lines;
 }
 
@@ -573,13 +589,13 @@ function drawLogisticsTab(g, f, body) {
   let ry = y + 2;
 
   if (!machines.length) {
-    drawText(g, 'NOTHING PLACED', x, ry, DIM, 1, 1);
+    drawText(g, 'NOTHING PLACED', x, ry, INK2, 1, 1);
     return;
   }
 
-  drawText(g, 'MACHINE', x, ry, DIM, 1, 1);
-  drawText(g, 'STATE', x + Math.max(60, w - 90), ry, DIM, 1, 1);
-  drawText(g, 'DEPTH', x + w - 28, ry, DIM, 1, 1);
+  drawText(g, 'MACHINE', x, ry, INK2, 1, 1);
+  drawText(g, 'STATE', x + Math.max(60, w - 90), ry, INK2, 1, 1);
+  drawText(g, 'DEPTH', x + w - 28, ry, INK2, 1, 1);
   ry += 9;
 
   const rowMax = Math.max(0, Math.floor((bottom - ry) / 9));
@@ -592,9 +608,9 @@ function drawLogisticsTab(g, f, body) {
     drawText(g, st, x + nameW, ry, STATE_COLOUR[st] || DIM, 1, 1);
     const d = depthOf(m.band, m.ty);
     const ds = (d >= 0 ? d : '+' + -d) + 'M';
-    drawText(g, ds, x + w - textWidth(ds), ry, DIM, 1, 1);
+    drawText(g, ds, x + w - textWidth(ds), ry, INK2, 1, 1);
     ry += 9;
   }
   if (machines.length > shown.length)
-    drawText(g, `+${machines.length - shown.length} MORE`, x, ry, DIM, 1, 1);
+    drawText(g, `+${machines.length - shown.length} MORE`, x, ry, INK2, 1, 1);
 }

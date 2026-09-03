@@ -91,6 +91,12 @@ import { drawTooltip } from './ui/tooltip.js';
 const INK = {
   void:  colour('abyC'),
   ui:    colour('ui'),
+  /* `ink2` is the SECONDARY BODY tone and `dim` is the STATE tone (Phase 13a,
+     docs/PLAN-phase13.md §2.3). Two of the ten load-bearing greys are in this
+     file and both keep `dim`: FOLLOW's off reading in the header and a layer
+     toggled off in the legend. `dim` is also still the geometry tone for the
+     chain bracket's own rules, which are lines and not text. */
+  ink2:  colour('uiInk2'),
   dim:   colour('uiDim'),
   back:  colour('uiBack'),
   /* The player's own marker. `ichor` is the divine-gold this codebase already
@@ -477,8 +483,21 @@ function drawPiles(g, v) {
     R(g, x, y, cell, cell, INK.back);
     R(g, x, y, cell, 1, INK.ui);
     /* The count, when there is room for it beside the marker -- a number drawn
-       over a 3 px block is a smudge. */
-    if (cell >= 4) drawText(g, String(p.n), x + cell + 1, y - 1, INK.ui, 1, 1);
+       over a 3 px block is a smudge.
+
+       ON ITS OWN BACKING RECT (Phase 13a, §2.4's second clause): the count
+       sits BESIDE the marker, not inside it, so the block two lines up backs
+       the marker and not the digits, and mottled rock behind a 5x7 numeral is
+       the exact unreadable case this function's own neighbour `drawMachines`
+       already answers with a block. A backing rect rather than a text shadow
+       because the marker it is annotating is backed the same way, and two
+       mechanisms side by side for one problem is the thing D7 argues against
+       for paint. */
+    if (cell >= 4) {
+      const s = String(p.n), tw = textWidth(s);
+      g.globalAlpha = 0.72; R(g, x + cell, y - 2, tw + 2, 9, INK.back); g.globalAlpha = 1;
+      drawText(g, s, x + cell + 1, y - 1, INK.ui, 1, 1);
+    }
   }
 }
 
@@ -830,8 +849,17 @@ function bracket(g, v, chain) {
   R(g, x, y0, 1, y1 - y0 + 1, INK.dim);
   R(g, x, y0, 3, 1, INK.dim);
   R(g, x, y1, 3, 1, INK.dim);
+  /* The count on its own backing rect, and on the secondary body tone rather
+     than the state tone: the number of segments in a chain is a quantity, not
+     a status. Same reasoning as the pile count in `drawItemPiles` -- there is
+     a 1 px bracket rule beside it and nothing behind it, and the rules
+     themselves stay on `dim` because they are geometry. */
   const s = String(chain.length);
-  if (y1 - y0 >= 10) drawText(g, s, x + 3, ((y0 + y1) >> 1) - 3, INK.dim, 1, 1);
+  if (y1 - y0 >= 10) {
+    const ty = ((y0 + y1) >> 1) - 3;
+    g.globalAlpha = 0.72; R(g, x + 2, ty - 1, textWidth(s) + 2, 9, INK.back); g.globalAlpha = 1;
+    drawText(g, s, x + 3, ty, INK.ink2, 1, 1);
+  }
 }
 
 /* ---------- the player ----------
@@ -885,7 +913,7 @@ function header(g, f, v) {
   let x = 4;
   const put = (s, col) => { drawText(g, s, x, 2, col, 1, 1); x += textWidth(s) + 6; };
   put('OVERVIEW', INK.ui);
-  put('X' + v.zoom, INK.dim);
+  put('X' + v.zoom, INK.ink2);
   /* FOLLOW is a state, so it is drawn as one: lit when on, dim when a manual
      scroll has turned it off (`shell/ui.js#mapScroll` does that, once, for every
      input path). */
@@ -893,7 +921,11 @@ function header(g, f, v) {
   /* 'F' is not spelled out as "F FOLLOW" here because the word FOLLOW is
      already on this line as a STATE, two fields to the left, and one line
      saying it twice reads as two different things. */
-  put('WASD/DRAG SCROLL  -/+ ZOOM  F  1-9 LAYERS  O CLOSE', INK.dim);
+  /* The key hints read as body text, not as a state: `ink2`. The word FOLLOW
+     two fields to the left keeps `dim`, because THERE it is the off reading of
+     a toggle (§2.3 #7) and the only other cue is the word itself. Both sit on
+     the header's own solid `INK.back` strip, so neither takes a shadow. */
+  put('WASD/DRAG SCROLL  -/+ ZOOM  F  1-9 LAYERS  O CLOSE', INK.ink2);
 }
 
 /* ---------- the layer legend ----------

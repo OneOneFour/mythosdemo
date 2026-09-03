@@ -1970,3 +1970,49 @@ Consequences, in the order they bite:
    A Maw-driven depletion case is the obvious extension, and it needs the
    `minDepth:200` gate satisfied, which is why it is parked rather than
    squeezed in.
+
+---
+
+## Phase 13a (UI text contrast) — three things parked
+
+1. **`view/scene.js#bandLabel` has no caller and is not on screen at all.**
+   It is exported and nothing in `src/`, `tools/` or `tests/` invokes it
+   (grepped exhaustively), so the band name the acceptance step for this phase
+   asks you to read at the bottom-left is simply not drawn. The tone and
+   shadow were applied there anyway, per the phase's own file ownership, and
+   are latent until it is wired back in. **Wiring it back is a layout
+   decision, not a contrast one:** the bottom-left corner already holds the
+   journal, and D8 requires an anchored pass over measured text rather than
+   the hardcoded `f.H - 26` the function still carries. Parked with the phase's
+   "no layout change of any kind" rule.
+
+2. **`maxDiffPixels: 0` is not bit-exactness, and the committed baselines were
+   already drifting under it.** `playwright.config.js` sets `maxDiffPixels: 0`
+   but leaves `threshold` at Playwright's default `0.2` — a per-pixel YIQ
+   colour tolerance — so a difference of a few units per channel counts as
+   "not different" and never reaches the pixel budget. Measured while chasing
+   what looked like a scope leak in this phase: at commit `84c0320`, with NO
+   code change at all, the live render of the `shaft-unlit` scene differed from
+   its own committed baseline by **239,932 of 1,024,000 pixels, max delta 8**,
+   and the test passed. The same is true of `shaft-lit`, `topsoil`,
+   `hollow-unlit` and `hollow-relic-unlit` — every one a dark, low-light
+   scene, which is where a small absolute delta is proportionally largest. The
+   render itself is perfectly repeatable (three fresh page loads of the same
+   scene: 0 pixels different, max delta 0), so this is baseline staleness
+   absorbed by the threshold, not nondeterminism. **Setting `threshold: 0`
+   would make the suite genuinely bit-exact and is the right fix**, but it
+   must land as its own commit with a full re-baseline, because it will
+   immediately fail on drift that has nothing to do with whatever change is in
+   flight — which is exactly how it wasted time here.
+
+3. **`view/overview.js#drawMachines` draws a state-coloured glyph on a
+   backing block tinted 45% toward that same colour**, so the glyph and its
+   own backing are the two closest tones on screen: for the UNFUELLED/IDLE
+   rung that is `uiDim` on roughly `#4b4644`, about 2.4:1. Not touched here —
+   the block is what makes the glyph legible against mottled rock at all, and
+   changing the tint ratio is a map-legibility decision that wants to be made
+   for all five state colours at once rather than as a side effect of a text
+   phase. `view/paint.js#INK.pipOff` shifted slightly as a knock-on of raising
+   `uiDim` (it is `mix(uiBack, uiDim, 0.25)`); that is derived arithmetic, not
+   a call-site edit, and the phase's "out of scope" note about `pipOff` was
+   about not recolouring it, which was honoured.

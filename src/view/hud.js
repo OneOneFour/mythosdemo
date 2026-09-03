@@ -71,9 +71,27 @@ import { drawQuickbar } from './ui/quickbar.js';
 import { drawRuler, masked, roman, rulerWidth } from './ui/ruler.js';
 import { drawn as uiDrawn, resetDrawn as resetUiDrawn } from './ui/state.js';
 
+/* THREE INK TONES, AND `dim` IS NOT ONE OF THE BODY ONES (Phase 13a,
+   docs/PLAN-phase13.md §2.3/§2.4). `ink` is primary, `ink2` is the secondary
+   body tone for de-emphasised text that must still READ, and `dim` now means
+   only what it encodes: in this file, exactly one site -- `depth()`'s
+   at-or-above-the-datum reading. Everything that used `dim` merely to look
+   quieter is on `ink2`.
+
+   `shade` is the text-shadow tone, passed as `drawText`'s 8th argument (and
+   through `view/ui/bar.js`'s own `shadow` option) ONLY at the sites in this
+   file that draw straight onto rendered world with no panel behind them: the
+   burden bar and its lockout line, TRIBUTE's heading/rows/clock, FAVOUR's
+   rows, the boon rows, the two build-ghost refusals and the title banner.
+   Anything this file draws inside `panel()`/`drawPanel()` -- the tooltip, the
+   depth readout, the callout, the debug rows, the death screen and its
+   restart button -- gets NO shadow, because the panel is already the
+   backing. */
 const UI = {
   ink:    colour('ui'),
+  ink2:   colour('uiInk2'),
   dim:    colour('uiDim'),
+  shade:  colour('uiShade'),
   back:   colour('uiBack'),
   heart:  '#d8433a',
   hollow: '#2c2028',
@@ -178,12 +196,15 @@ function burden(g, x, y, W) {
 
   const bar = drawBar(g, {
     id: 'hud-burden', x, y, w: 50, h: 3, frac, fillColour: col, vw: W,
-    valueText: `${burdenOf().toFixed(1)} / ${cap.toFixed(0)} T`
+    valueText: `${burdenOf().toFixed(1)} / ${cap.toFixed(0)} T`,
+    /* No panel behind it, unlike the Character tab's own copy of this bar --
+       see `view/ui/bar.js`'s `shadow` note. */
+    shadow: UI.shade
   });
 
   let by = bar.y + bar.h;
   if (locked) {
-    drawText(g, 'TOO HEAVY TO CLIMB', x, by + 2, UI.heart, 1, 1);
+    drawText(g, 'TOO HEAVY TO CLIMB', x, by + 2, UI.heart, 1, 1, UI.shade);
     by += 9;
   }
   return by + 2;
@@ -232,7 +253,7 @@ function tribute(g, x, y, W) {
   const cyc = cycleRow();
   if (!cyc) return y;
 
-  drawText(g, 'TRIBUTE ' + roman(run.cycle - 1), x, y, UI.ink, 1, 1);
+  drawText(g, 'TRIBUTE ' + roman(run.cycle - 1), x, y, UI.ink, 1, 1, UI.shade);
   let ry = y + 8;
 
   const rows = cyc.demand
@@ -253,7 +274,7 @@ function tribute(g, x, y, W) {
     const bar = drawBar(g, {
       id: 'tribute-' + d.sub + '-' + d.form, x, y: ry, w: TRIBUTE_BAR_W, h: 3,
       frac: d.n > 0 ? h / d.n : 1, vw: W,
-      label: labelOf(d.so, d.fo), valueText: `${h} / ${d.n}`
+      label: labelOf(d.so, d.fo), valueText: `${h} / ${d.n}`, shadow: UI.shade
     });
     ry = bar.y + bar.h + TRIBUTE_ROW_GAP;
   }
@@ -261,13 +282,14 @@ function tribute(g, x, y, W) {
   const aggFrac = need > 0 ? have / need : 0;
   const agg = drawBar(g, {
     id: 'tribute-progress', x, y: ry, w: TRIBUTE_BAR_W, h: 3, frac: aggFrac, vw: W,
-    valueText: Math.round(aggFrac * 100) + '%'
+    valueText: Math.round(aggFrac * 100) + '%', shadow: UI.shade
   });
   ry = agg.y + agg.h + TRIBUTE_ROW_GAP;
 
   if (run.tribute.left !== null) {
     const secs = Math.max(0, Math.ceil(run.tribute.left));
-    drawText(g, ((secs / 60) | 0) + ':' + String(secs % 60).padStart(2, '0'), x, ry, UI.dim, 1, 1);
+    drawText(g, ((secs / 60) | 0) + ':' + String(secs % 60).padStart(2, '0'), x, ry,
+             UI.ink2, 1, 1, UI.shade);
     ry += 9;
   }
 
@@ -309,7 +331,7 @@ function tooltip(g, f) {
   const by = Math.min(y + 8, f.H - h - 2);
 
   panel(g, bx, by, w, h, 0.92);
-  lines.forEach((l, i) => drawText(g, l, bx + 4, by + 3 + i * 8, i === 0 ? UI.ink : UI.dim, 1, 1));
+  lines.forEach((l, i) => drawText(g, l, bx + 4, by + 3 + i * 8, i === 0 ? UI.ink : UI.ink2, 1, 1));
 }
 
 /* One tile reads as one metre, measured from the SPAWN band's ground line — so
@@ -322,6 +344,11 @@ function depth(g, W, y) {
   const s = (d >= 0 ? d : '+' + -d) + 'M';
   const w = textWidth(s) + 8;
   panel(g, W - w - 6, y - 2, w, 11);
+  /* `dim` IS LOAD-BEARING HERE (§2.3 #9): it says the reading is at or above
+     the spawn datum, i.e. the '+32M'/'0M' case, where the number is a fact
+     about the surface rather than about a descent. Left on the state tone
+     deliberately; it is legible because `uiDim` was raised, and because this
+     one sits inside `panel()` above. */
   drawText(g, s, W - w - 2, y, d > 0 ? UI.ink : UI.dim, 1, 1);
 }
 
@@ -400,18 +427,18 @@ function boonStack(g, f, W, startY) {
     const x = Math.max(2, W - w - 6);
 
     R(g, x, y, 4, 4, UI.relic);                              // a god's gift, same accent a trinket's border uses
-    drawText(g, label, x + 6, y - 1, flash ? UI.heart : UI.ink, 1, 1);
+    drawText(g, label, x + 6, y - 1, flash ? UI.heart : UI.ink, 1, 1, UI.shade);
     const barX = x + 6 + textWidth(label) + 4;
     R(g, barX, y, barW, 3, UI.hollow);
     R(g, barX, y, Math.round(barW * frac), 3, flash ? UI.heart : UI.good);
-    drawText(g, timeStr, barX + barW + 4, y - 1, UI.dim, 1, 1);
+    drawText(g, timeStr, barX + barW + 4, y - 1, UI.ink2, 1, 1, UI.shade);
 
     y += BOON_ROW_H;
   }
 
   if (overflow > 0) {
     const s = '+' + overflow;
-    drawText(g, s, Math.max(2, W - textWidth(s) - 6), y - 1, UI.dim, 1, 1);
+    drawText(g, s, Math.max(2, W - textWidth(s) - 6), y - 1, UI.ink2, 1, 1, UI.shade);
     y += BOON_ROW_H;
   }
 
@@ -496,7 +523,7 @@ function favour(g, W, startY) {
   for (const r of rows) {
     const bar = drawBar(g, {
       id: 'favour-' + r.god, x, y, w: barW, h: 3, vw: W,
-      frac: r.frac, label: r.label, valueText: r.valueText
+      frac: r.frac, label: r.label, valueText: r.valueText, shadow: UI.shade
     });
     y = bar.y + bar.h + FAVOUR_ROW_GAP;
   }
@@ -547,7 +574,7 @@ function drawFootprintGhost(g, f, band, tx, ty, tw, th, ok, why) {
   if (!ok && why) {
     const x = (band.origin.x + tx * t - f.cam.x) | 0;
     const y = (band.origin.y + ty * t - f.cam.y) | 0;
-    drawText(g, why, x, y - 8, UI.heart, 1, 1);
+    drawText(g, why, x, y - 8, UI.heart, 1, 1, UI.shade);
   }
 }
 
@@ -642,7 +669,7 @@ function cableGhost(g, f) {
   if (check && !check.ok) {
     const w = textWidth(check.why);
     drawText(g, check.why, Math.max(2, Math.min(x1 + 5, f.W - w - 2)),
-             Math.max(2, Math.min(y1 - 4, f.H - 10)), UI.heart, 1, 1);
+             Math.max(2, Math.min(y1 - 4, f.H - 10)), UI.heart, 1, 1, UI.shade);
   }
 }
 
@@ -753,7 +780,11 @@ function deathScreen(g, W, H) {
   const lines = [
     ['THE EAGLE COMES', UI.heart, 2],
     [run.deathCause || 'UNKNOWN', UI.ink, 1],
-    ['DEPTH REACHED ' + Math.max(0, Math.round((run.deepest - datum) / tile)) + 'M', UI.dim, 1]
+    /* `ink2`, not `dim`: this row encodes nothing -- it is the third line of a
+       three-line stack and only wanted to sit quieter than the cause above
+       it. No shadow, because the full-screen wash two lines up is the
+       backing. */
+    ['DEPTH REACHED ' + Math.max(0, Math.round((run.deepest - datum) / tile)) + 'M', UI.ink2, 1]
   ];
   let y = (H >> 1) - 26;
   for (const [s, col, sc] of lines) {
@@ -770,10 +801,13 @@ function deathScreen(g, W, H) {
 
 function title(g, W, H) {
   g.globalAlpha = Math.min(1, banner.fade);
+  /* Straight onto the rendered world with nothing behind it, so both lines
+     take the shadow. The sub-line moves off `dim` (it encoded nothing; it was
+     just the smaller of two). */
   drawText(g, banner.text, Math.max(2, (W - textWidth(banner.text, 2)) >> 1),
-           (H >> 1) - 30, UI.ink, 2, 2);
+           (H >> 1) - 30, UI.ink, 2, 2, UI.shade);
   drawText(g, banner.sub, Math.max(2, (W - textWidth(banner.sub)) >> 1),
-           (H >> 1) - 8, UI.dim, 1, 2);
+           (H >> 1) - 8, UI.ink2, 1, 2, UI.shade);
   g.globalAlpha = 1;
 }
 
