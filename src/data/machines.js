@@ -114,6 +114,18 @@
                  phase; refused with a reason, like every other placement
                  gate on this list.
 
+     band        a `data/world.js` BAND ID this machine may be placed in and
+                 nowhere else (Phase 13d, docs/SPEC.md section 20.1). The
+                 COARSE half of the pair `minDepth` above is the fine half
+                 of, and deliberately not expressible as one: a negative
+                 `minDepth` would say "somewhere above the surface datum" in
+                 arithmetic derived from a band's own `origin`/`floorTy`,
+                 which is a number that drifts the moment a band moves,
+                 whereas a band id cannot (`tools/content.mjs` proves the row
+                 names a real band). Refused with the band's display NAME, so
+                 the message reads as a place rather than as a key. Only
+                 `cloud_dock` carries it today -- see its own row.
+
      tribute     `{}` -- Phase 10b's marker key, and the only one on this list
                  with no fields. It says A CYCLE MAY BE PAID HERE, and it is
                  what `rules/cycles.js` scans `machines` for: every machine
@@ -709,9 +721,20 @@ export const MACHINES = [
      one endpoint of each segment draws each, chosen by `machines` order
      (`view/paint.js`'s segment pass), so a dock without them would leave
      whichever spans it happened to be first or last for undrawn. Marble
-     rather than iron, because it stands in astral. ---- */
+     rather than iron, because it stands in astral.
+
+     `band:'astral'` IS THE WHOLE ASCENT, AS ONE KEY (Phase 13d,
+     docs/SPEC.md section 20.1). Until this row carried it the dock was
+     placeable on flat ground four tiles from spawn, so every cycle from the
+     second on could be paid without a hub, a segment or a metre of climb --
+     "ascend to the Heavens" was fiction, and nothing in the code said
+     otherwise. A band id rather than a negative `minDepth` per CLAUDE.md
+     D9; see the `band` entry in this file's header for why the arithmetic
+     is the half that drifts. ---- */
   { id:'cloud_dock', name:'THE CLOUD DOCK', glyph:'D',
     tw:2, th:1, footing:2,
+
+    band:'astral',
 
     hub:{ reach:96, carries:['material', 'player'] },
 

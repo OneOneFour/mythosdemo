@@ -133,8 +133,34 @@
                            reached the top — the same freshness argument
                            `items before machines` already makes about the
                            catch box, one link further along the chain.
+     cycles before grants   THE GRANT BRIDGE, and it is the tightest pair in
+                           this array. `rules/cycles.js` decides that a
+                           completed trial awards a machine but may not
+                           perform it — `rules/grants.js` is a SIBLING, and
+                           it is the only module in the project that pushes a
+                           `'grant'` journal row — so the director writes the
+                           machine ids onto `run.awarded` and this step
+                           performs them (`model/run.js#RUN_SCHEMA.awarded`).
+                           Immediately after, not later in the frame and not
+                           in `shell/main.js#applyIntents`, so the BUILD list
+                           gains the row and the toast fires in the SAME
+                           substep the trial was paid in rather than one
+                           animation frame behind it. Nothing between them
+                           could write `run.awarded`, because nothing else
+                           anywhere does.
+     grants before tutorial  NO FRESHNESS ARGUMENT, and stated rather than
+                           implied: no beat predicate reads `run.granted`
+                           (beat 6 reads `run.cycle`), so this pair could be
+                           either way round. It is here because the pair
+                           BELOW is the one that carries the argument, and
+                           inserting the bridge anywhere else would have put
+                           it between `cycles` and `tutorial` and broken
+                           that argument's own adjacency instead.
      cycles before tutorial  THIS REPLACES, VERBATIM IN ITS REASONING, THE OLD
                            `drive before tutorial` PAIR (Phase 8-and-earlier):
+                           (Still true, transitively, with `grants` between
+                           them: `grants` writes `run.granted` and a journal
+                           row, and no beat predicate reads either.)
                            `rules/tutorial.js` is a pure OBSERVER: every one of
                            docs/SPEC.md section 5's beat conditions is a READ of
                            state another step wrote, and the only things it
@@ -198,6 +224,7 @@ export const STEPS = [
   { id: 'machines', step: (dt) => machines.step(dt) },
   { id: 'drive',    step: (dt, cmd) => drive.step(dt, cmd) },
   { id: 'cycles',   step: (dt) => cycles.step(dt) },
+  { id: 'grants',   step: () => grants.step() },
   { id: 'tutorial', step: () => tutorial.step() },
   { id: 'fields',   step: (dt) => fields.step(dt) }
 ];
@@ -220,5 +247,7 @@ export function stepAll(dt, cmd) {
    using a miracle are events, not steps, and putting them in the array above
    would be a lie about when they happen (docs/DEVELOPER_GUIDE.md#the-rules-order).
    `boons` is exported for its `grant`/`draftable` pair even though it ALSO has
-   a per-frame `step` in `STEPS` above, the same dual role `trinkets` has. */
+   a per-frame `step` in `STEPS` above, the same dual role `trinkets` has --
+   and as of Phase 13d so does `grants`, whose `step` drains the reward-grant
+   bridge while its `grant`/`draftable` pair still serves the draft. */
 export { boons, grants, miracles, trinkets };

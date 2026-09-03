@@ -108,6 +108,36 @@ refinement quotas push them down.
 progression) wait on the `essence`/`ambrosia` tiers above, which are still
 not implemented.
 
+*Implemented as of Phase 13d.* Paying all four cycles now **ends the run**
+with a real win state and screen (`run.won`, `docs/SPEC.md` §20.2); it used to
+return silently and let the game run out. Cycles 2–4 can only be paid at the
+Cloud Dock, which can only stand in the astral band (§20.1) — so the ascent is
+the progression rather than an optional flourish.
+
+*Three promises in the two paragraphs above are NOT IMPLEMENTED*, and each is
+named here rather than deleted, because the intent is still the design:
+
+- **"the earth opens further (a new depth band unlocks)"** — there is **no band
+  lock anywhere in this game**, and `model/run.js`'s own comment on
+  `run.charted` says so in capitals: charting is *knowledge and not access*.
+  A cycle's `charts` reward takes the `????????` mask off a band's **name** on
+  the ruler (`view/ui/ruler.js#masked`) and nothing else. Nothing stops a
+  player digging into topsoil on minute three, and "depth band = act" is
+  therefore a statement about pacing, not about a gate that exists.
+- **"you draft a boon"** — the *tier* is real and all four ship
+  (`CLAUDE.md` D1), but the **draft is 1-of-1, not a choice**:
+  `shell/main.js` takes `draftable()[0]` and grants it outright, with no
+  offer and no pause, and three of the four tiers ship exactly one content
+  row. See `docs/SPEC.md` §18.6.
+- **"keeping only stolen recipes and banked favour with individual gods"** —
+  there is **no meta-progression and no save**. `meta` has three fields and no
+  serialiser (`model/run.js`), `run.favour` is deliberately run-scoped so the
+  FAVOUR panel is a picture of *this* Torment, and `run.known` is seeded with
+  every hand recipe at run start because no source exists that reveals one —
+  so nothing is stolen and nothing is banked. `CLAUDE.md` also forbids
+  `localStorage`, so a save is a real design question and not a missing
+  function call.
+
 ## Physics that generate difficulty for free
 
 **Heat is buoyant.** Model heat as a field where hot cells push upward and

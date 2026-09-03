@@ -72,8 +72,16 @@ cargo are parked in `FUTURE_IDEAS.md`.
 
 **Deliver 10 raw copper to the altar. No clock.**
 
-Gentle by design. The refinement and throughput quotas escalate from cycle 2
-onward; cycle 1 only has to teach that the gods ask and the player answers.
+Gentle by design. The refinement quotas escalate from cycle 2 onward; cycle 1
+only has to teach that the gods ask and the player answers.
+
+**Throughput quotas are NOT IMPLEMENTED**, and this line used to promise them
+without saying so. Every shipped demand is a flat count plus a linear
+wall-clock budget (`data/cycles.js`: `demand` + `deadlineSecs`); nothing
+anywhere measures a sustained production *rate*. The design intent stands —
+`docs/DESIGN.md`'s "refinement, not volume" argument wants a rate demand
+eventually — but no code reads one and none of §18.4's four rows expresses
+one. See `docs/PLAN-phase13.md` §5.2 #14.
 The furnace arrives as the cycle-1 reward, which means minute two ends on
 "gods give machines" rather than on a timer.
 
@@ -1350,6 +1358,7 @@ dock has one, the altar does not — and the catch-box slack.
 | footprint | 2x1 | 2x2 |
 | footing | 2 | 2 |
 | `hub` | `{ reach:96, carries:['material','player'] }` | none — cycle 1 is unmoved at the surface (§4, §5); the player walks up and holds the feed key |
+| `band` | **`'astral'`** — placeable nowhere else (§20.1) | none — placed by the director, not the player |
 | `accepts` | `*/#ore`, `*/#refined`, `*/gravel` | same |
 | `buffer.cap` | 64 per class | 64 per class |
 | `catchBox` slack | **6** | **2** — the furnace's own slack |
@@ -1391,12 +1400,33 @@ the bug `SPAWN_GAP`'s own comment in `rules/cycles.js` records finding.
 **A receiver is a sink by mechanism, not by any one line that says so.**
 Neither row carries `recipes`, so `rules/machines.js#produce` never runs for
 either — nothing is ever crafted out of what a receiver holds. What actually
-empties them is `rules/cycles.js#drainReceivers`: every frame, for every
-machine tagged `tribute:{}`, every non-zero buffer entry is spent through
-`model/machines.js#write.consume` and credited to `run.tribute.have` in the
-same motion. Material goes in, is subtracted from the buffer, and nothing is
-ever produced back out of it — the receiver's buffer is a counting ledger
-with a footprint, not a hopper feeding a recipe.
+empties them is `rules/cycles.js#drainReceivers`: every frame, for the machine
+the **live cycle's own `at` names**, every non-zero buffer entry is spent
+through `model/machines.js#write.consume` and credited to `run.tribute.have`
+in the same motion. Material goes in, is subtracted from the buffer, and
+nothing is ever produced back out of it — the receiver's buffer is a counting
+ledger with a footprint, not a hopper feeding a recipe.
+
+**Only the live cycle's receiver credits it, and this section used to say the
+opposite** (Phase 13d). The drain used to run for *every* machine tagged
+`tribute:{}` regardless of which one `cyc.at` named, on the argument that
+nothing about a `sub/form` key says which building it arrived at. True about
+the key, wrong about the game: the altar stands four tiles from spawn for the
+whole run and accepts the same three material classes the dock does, so
+cycles 2, 3 and 4 were all payable by hand-feeding it — no ascent, no dock, no
+drivetrain, no climb.
+
+**Material fed to the wrong receiver stays in that machine's buffer,
+uncredited.** It is not refused at the port and it is not destroyed. Refusing
+it would put "which cycle is live" inside `rules/machines.js`'s generic port
+interpreter — director policy in the machine layer, and a second place that
+has to agree with `drainReceivers` about which receiver is live — and it would
+contradict invariant 5, since a catch box swallowing what falls into it is
+physics rather than permission. The pile is bounded by the row's own
+`buffer.cap` (64 per class), visible in the machine's tooltip, and drained in
+full the instant a cycle does name that machine. The altar after cycle 1 is
+the honest cost: nothing later asks for it, so what is fed to it there stays
+there.
 
 ### 18.4 The cycle table
 
@@ -1409,9 +1439,9 @@ units, gated by `tile.tier` rather than by compression.
 | # | god | at | demand | ore-equiv. | deadline | reward | punishment |
 |---|---|---|---|---|---|---|---|
 | 1 | hephaestus | `altar` | 10 `copper/ore` | 10 | **none** | +1 favour; grant `furnace` + `cloud_dock`; chart `astral` | — (cannot be missed) |
-| 2 | hephaestus | `cloud_dock` | 3 `copper/plate` | 36 (+12 fuel across the two compression steps) | 480 s | +2 favour; chart `topsoil`; draft 1-of-3 `grant` | 1 heart, −1 favour |
-| 3 | athena | `cloud_dock` | 6 `copper/plate` + 4 `tin/ingot` | 72 + 16 = 88 | 420 s | +2 favour; draft 1-of-3 `boon` | 2 hearts, −1 favour |
-| 4 | poseidon | `cloud_dock` | 8 `copper/plate` + 8 `granite/gravel` | 96 + 8 tier-2 rock | 360 s | +3 favour; draft 1-of-3 `trinket` | 2 hearts, −1 favour |
+| 2 | hephaestus | `cloud_dock` | 3 `copper/plate` | 36 (+12 fuel across the two compression steps) | 480 s | +2 favour; chart `topsoil`; draft `grant` (1-of-1 today, see §18.6) | 1 heart, −1 favour |
+| 3 | athena | `cloud_dock` | 6 `copper/plate` + 4 `tin/ingot` | 72 + 16 = 88 | 420 s | +2 favour; draft `boon` (1-of-1 today, see §18.6) | 2 hearts, −1 favour |
+| 4 | poseidon | `cloud_dock` | 8 `copper/plate` + 8 `granite/gravel` | 96 + 8 tier-2 rock | 360 s | +3 favour; draft `trinket` (1-of-1 today, see §18.6) | 2 hearts, −1 favour |
 
 **Cycle 1 is the altar and every later cycle is the dock** — data expressing
 §4's "cycle 1 is unmoved at the surface" as a table lookup rather than as a
@@ -1488,9 +1518,17 @@ mix of:
   `topsoil` chart is close to a no-op on its own — any player who has dug at
   all has already entered that band — the payoff arrives once more bands
   exist to chart.
-- **`draft`** — one of `'grant' | 'boon' | 'trinket' | 'miracle'`, offered
-  1-of-3 through `run.offer` (§18.5). Cycles 2–4 each draft a different tier,
-  in that order.
+- **`draft`** — one of `'grant' | 'boon' | 'trinket' | 'miracle'`, handed over
+  through `run.offer` (§18.5). Cycles 2–4 each draft a different tier, in that
+  order. **It is 1-of-1 today, not 1-of-3.** This section used to say
+  "offered 1-of-3" as though that shipped; it does not.
+  `shell/main.js`'s draft branches take `draftable()[0]` and grant it
+  outright — no offer, no choice, no pause — and three of the four tiers ship
+  exactly one content row (`data/grants.js`, `data/trinkets.js`,
+  `data/miracles.js` each say so in their own headers), so 1-of-3 is not
+  constructible from the content even with a UI for it. A real draft needs
+  both an offer surface and more rows in three tables; it is
+  `docs/PLAN-phase13.md` §5.2 #4/#5 and is not scheduled.
 
 A miss's `punishment` is `{ hearts?, favour? }`, both real numbers rather
 than a flat penalty: hearts scale from 1 (cycle 2) to 2 (cycles 3–4) as the
@@ -1821,3 +1859,184 @@ rich" is a pacing judgement with no locked number behind it. Both failure
 branches were confirmed live rather than assumed — `r:1.0` (5 cells, 20 units)
 trips the furnace-bill branch on every seed, and `dy:20` trips the
 no-copper-in-reach branch on every seed.
+
+## 20. Closing the tribute loop (Phase 13d)
+
+Locked with `docs/PLAN-phase13.md` §5.3 and `CLAUDE.md` D5 (cargo ascends,
+the player is not walled out), D6 (the First Trial does not move) and D9 (the
+depth datum does not move). Five things, four of which are new numbers or
+mechanisms and belong here rather than only in code.
+
+### 20.1 The Cloud Dock's band gate
+
+**`data/machines.js#cloud_dock` carries `band:'astral'`, and that is the whole
+mechanism.** One optional machine-row key, one clause in
+`model/run.js#placementCheck`:
+
+```
+band   a data/world.js BAND ID this machine may be placed in and nowhere
+       else. Optional; only `cloud_dock` carries it today.
+       Refusal: 'ONLY IN ' + BAND[def.band].name  ->  'ONLY IN THE MINOR HEAVENS'
+```
+
+| | |
+|---|---|
+| key | `band` (machine row, `data/machines.js`) |
+| value on `cloud_dock` | `'astral'` |
+| read by | `model/run.js#placementCheck`, checked **before** the `minDepth` gate |
+| refusal string | `ONLY IN THE MINOR HEAVENS` (the band's own `name`, never a literal) |
+| validated by | `tools/content.mjs` assertion 18 — a `band` naming no real band fails at lint |
+
+**A band id and not a negative `minDepth`.** D9 fixes the depth datum at the
+spawn band's own floor line, so "at least 30 tiles above the datum" and "in
+astral" would be two independently-driftable ways of saying one thing — and
+the arithmetic is the half that drifts, because it is derived from a band's
+own `origin` and `floorTy` and nobody moving a band would remember a
+threshold computed from them. A band id cannot drift and is provable at lint
+time. The gate is checked before `minDepth` because it is the coarser of the
+two location questions.
+
+**Why it matters.** Until this key existed the dock had no depth or band
+restriction of any kind and was placeable on flat ground four tiles from
+spawn, so §18.4's cycles 2–4 could all be paid without a hub, a segment or a
+metre of climb. "Ascend to the Heavens" was fiction and nothing in the code
+said otherwise. `placementCheck` is one decision with two readers
+(`rules/placement.js` and the build ghost), so the refusal shows on the ghost
+before the click as well as in the journal after it.
+
+**It gates the player, not the director.** `model/machines.js#write.place` —
+the sanctioned worldgen-and-director route — asks nothing about bands, exactly
+as it asks nothing about footing or grants. Nothing places a dock that way
+today; the altar is the only machine that arrives by it.
+
+### 20.2 The win condition
+
+**`run.cycle > CYCLES.length` is the fact; `run.won` is the event.**
+
+| | |
+|---|---|
+| condition | `run.cycle > CYCLES.length` — every shipped trial paid (4 today) |
+| state | `run.won`, a `RUN_SCHEMA` boolean, reset by `newRun()` like everything else |
+| set by | `rules/cycles.js#ensureLiveCycle`, **once**, guarded on `run.won` |
+| announced by | a `win` journal row → `data/sfx.js#KIND_SFX.win` (`triumph`) and `shell/notify.js#TEXT.win` (`THE GODS ARE ANSWERED`) |
+| drawn by | `view/hud.js#winScreen`, through the same `endScreen` helper the death screen uses |
+| restart | a measured button registered into `drawn.panels` as `'win-restart'`, hit-tested by `shell/input.js#onEndRestart` alongside `'death-restart'` |
+| the run stops | `shell/main.js#step` returns early on `run.won` — no clock, no `stepAll`, no camera |
+
+Before this, `ensureLiveCycle` hit that boundary and returned forever: the
+TRIBUTE panel simply stopped drawing, FAVOUR kept reading full, and the game
+did not end so much as run out. **The boundary is the table's own length**, so
+cycles 5–6 (waiting on the `essence`/`ambrosia` tiers, §8) move it with no
+edit anywhere.
+
+**Death outranks the win** in `view/hud.js#drawHUD`. A won run cannot then
+die, because nothing steps — but both are `rules/cycles.js#step` decisions and
+could land in one frame, and a victory drawn over a corpse is the wrong
+screen.
+
+**There is one restart button, drawn twice.** `endScreen` owns the layout, the
+measured button and the `drawn.panels` registration; the two screens differ
+only in wash, lines and the id they record. The id is what makes them
+hit-testable apart.
+
+### 20.3 The reward-grant bridge
+
+`rules/cycles.js#complete` used to call `model/run.js#write.grant` directly,
+which appended the machine id to `run.granted` and pushed nothing — so cycle
+1's furnace-and-dock reward, the most important gift in the game, arrived with
+no toast, no sound and no journal row. `rules/grants.js#grant` is the only
+thing in the project that pushes a `'grant'` row, and it is a `rules` sibling
+`rules/cycles.js` may not import (`tools/layers.mjs`).
+
+**So the reward goes over a bridge, exactly as a draft already does:**
+
+```
+rules/cycles.js#complete   ->  run.awarded = [machineId, ...]   (rw.award)
+shell/schedule.js          ->  'grants' step, immediately after 'cycles'
+rules/grants.js#step       ->  clears the queue, then award(id) per id
+rules/grants.js#award      ->  write.grant(id) + push('grant', {machine:id})
+shell/notify.js#TEXT.grant ->  '<MACHINE NAME> IS GRANTED'
+```
+
+| | `run.offer` (draft) | `run.awarded` (reward grant) |
+|---|---|---|
+| written by | `rules/cycles.js#complete` | `rules/cycles.js#complete` |
+| holds | a tier name | machine ids |
+| performed by | `shell/main.js#applyIntents` | `rules/grants.js#step`, scheduled |
+| latency | one animation frame | **zero** — same substep |
+
+**This is not a second grant path.** Both entry points in
+`rules/grants.js` — `grant(grantId)` for a drafted `data/grants.js` row and
+`award(machineId)` for a reward — end in the same `write.grant` plus the same
+`'grant'` journal kind, and after this phase those two functions are the only
+callers of `write.grant` in all of `src/`. The award is *scheduled* rather
+than dispatched from `applyIntents` (where the draft bridge is performed)
+because it is not an intent: no device asked for it, nothing aims it, and the
+BUILD list should gain the row in the same substep the trial was paid rather
+than an animation frame later. `shell/schedule.js` argues the two new
+adjacencies in place.
+
+`award()` does not and must not get a `data/grants.js` row: a GRANT row is by
+definition draftable (`draftable()` filters on exactly the machine ids not yet
+granted), and neither the furnace nor the dock is a draft.
+
+### 20.4 The beat sheet past cycle 1
+
+§5's sheet is the first two minutes and stops at beat 6 (cycle 1 paid).
+`rules/tutorial.js#BEATS` and `data/callouts.js#CALLOUTS` stopped there too,
+with a comment saying there was "nothing left to teach" — written before cycle
+2's requirements existed. The instant cycle 1 pays, cycle 2 asks for four
+things a player has never done once.
+
+| beat | predicate (state, never a new counter) | callout shown while it is pending |
+|---|---|---|
+| 7 | one `copper/plate` exists, pockets **or** ground | `SMELT, THEN PRESS -- THE GODS WANT COPPER PLATE` |
+| 8 | a `cloud_dock` placed in the band its own row names | `BUILD THE CLOUD DOCK -- IT STANDS ONLY IN THE HEAVENS` |
+| 9 | a segment anchored to that dock | `LINK HUBS UP TO THE DOCK -- ONE CABLE REACHES 12 TILES` |
+| 10 | `run.cycle > 2` — cycle 2 paid, clock beaten | `CRANK THE PLATES UP -- THIS TRIAL HAS A CLOCK` |
+
+Each is a read of state another step already wrote, per `rules/tutorial.js`'s
+own rule that no beat gets a counter, flag or hook of its own. Beat 8 reads
+the band off `MACH[M.cloud_dock].band` rather than the literal `'astral'`, so
+§20.1's key and this beat can never disagree. Beat 9 asks for **one** segment,
+not three: the player discovers they need three from the reach they have
+(96 px against §18.2's 240 px gap), which is the arithmetic teaching the
+lesson the callout only points at. Beat 10 fires on cycle 2 paid because there
+is nothing to observe about *noticing* a clock — and a miss does not advance
+`run.cycle` (§18.5), so the callout correctly stays up through a retry.
+
+`CALLOUTS` is indexed by beats **already fired** (0..10, 11 rows).
+`rules/tutorial.js` **fails at import** if the two arrays' lengths disagree —
+the same guard idiom `data/sfx.js` uses for a kind mapped to a missing
+sound — because a beat with no row draws nothing at all rather than failing
+(`docs/FINDINGS.md` #10's own failure mode). Index 10 is `null` on purpose:
+cycles 3–4 ask for more of the same three verbs, and a callout that repeated
+itself there would be noise.
+
+### 20.5 The loop's feedback
+
+The three journal kinds `rules/cycles.js` has pushed since Phase 10b had no
+entry in `shell/notify.js`'s `TEXT`/`CHIPS` tables nor in
+`data/sfx.js#KIND_SFX`, so completion, payment and debt were all silent.
+
+| kind | sound | `MIN_GAP` | chips | text |
+|---|---|---|---|---|
+| `tribute` | `tithe` (new) | **0.12 s** | 2 | `N COPPER PLATE TITHED` |
+| `cycle` | `trial` | — | 14 | `HEPHAESTUS IS SATISFIED` |
+| `debt` | `debt` (new) | — | 8 | `HEPHAESTUS TURNS AWAY -- 1 HEART, -1 FAVOUR` |
+| `win` | `triumph` (new) | — | — (`at` is null) | `THE GODS ARE ANSWERED` |
+
+`tithe` carries the widest gap in the table because `handFeed` moves one unit
+per selector per substep and the drain credits it the same substep: ten ore
+means ten rows in ten consecutive 1/120 s steps, which is 120 Hz of bell and
+ten fresh ZzFX buffers a frame. `cycle`, `debt` and `win` need no gap — each
+fires at most once per trial.
+
+**A known ordering artifact, stated rather than discovered.**
+`rules/cycles.js#miss` pushes the `debt` row and *then* calls `hurtFor`, whose
+`hurt` row toasts the cause; `view/fx.js#toast` keeps one line and the newest
+fact wins, so on every punishable cycle shipped today the debt line is
+superseded within its own frame by the heart line. The debt row's sound and
+chips still land, and a punishment with no hearts (none ships) would show it.
+Left as it is: reordering the pushes would trade the heart count away for the
+favour count, and a toast *queue* is a bigger change than this phase.

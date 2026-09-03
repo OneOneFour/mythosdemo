@@ -538,6 +538,17 @@ Only two things vary between tiers:
 independent of any tile's hardness. A smaller `secs` is a **thirstier** machine,
 not a faster one. Fuel drains with time spent chewing, never per tile broken.
 
+`band` (a `data/world.js` band id) keeps a machine to **one band and no
+other** — the coarse half of the same question `minDepth` answers finely, and
+deliberately not expressible as one number: a negative `minDepth` would say
+"somewhere above the surface datum" in arithmetic derived from a band's own
+`origin`/`floorTy`, which drifts the moment a band moves, while a band id
+cannot and is provable at lint time (`tools/content.mjs` assertion 18). Only
+`cloud_dock` carries it (`band:'astral'`, `docs/SPEC.md` §20.1); the refusal
+prints the band's own display `name`, never the id. It gates the *player* —
+`model/machines.js#write.place`, the worldgen-and-director route, asks nothing
+about bands, exactly as it asks nothing about footing or grants.
+
 `minDepth` keeps a machine out of reach until a shaft is deep enough. Derive it
 from the strata rows of the material it is for, not from a round number — see
 `cyclops_maw` (`machines.js:433`), and note the catch-22 it avoids: a machine

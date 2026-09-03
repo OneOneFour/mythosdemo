@@ -2052,3 +2052,52 @@ Consequences, in the order they bite:
    a `look` needs that one line and nothing will fail if it is forgotten. A
    registry of "tables that may carry a look" would close it permanently and is
    probably not worth a fourth abstraction yet.
+
+## Phase 13d (closing the tribute loop) — four things parked
+
+1. **Reaching the Cloud Dock means tunnelling nine rows of astral's own floor
+   slab, and nothing anywhere says so.** `docs/SPEC.md` §18.2/§18.7 price the
+   ascent as the 240 px gap between the two ground lines and a 3-segment chain,
+   which is true about *reach* and silent about *rock*: astral is 40 rows with
+   `floorTy:30`, so rows 30–39 are solid, and `model/segments.js#linkCheck`
+   sweeps for solidity along the whole span. Verified by hand while driving the
+   acceptance play-through — a link from a hub below to a dock standing on
+   astral's floor is refused `THE PATH IS BLOCKED` until rows **31–39** are
+   cleared. Row 30 is the one that does not need clearing, because
+   `#headframe` exempts `ty + floor(th/2) .. ty + th`, which for the dock's
+   `th:1` is exactly rows 29–30 (Phase 10a's own note, #1614, is the same
+   mechanism). Two consequences worth a design decision rather than a
+   discovery: the dock's `footing:2` must survive the shaft the cable comes up,
+   and nine rows of tier-? astral rock is an unpriced material cost on the
+   critical path of cycle 2. Neither is a bug; both belong in §18 next to the
+   240 px figure.
+
+2. **A cycle completion's toast is structurally unwinnable, which is why
+   Phase 13d gave it the banner instead.** `view/fx.js#toast` keeps one line
+   ("the newest fact wins"), and a completion frame contains several facts: the
+   last `tribute` credit, the `cycle` row, and — for cycle 1 — two `grant` rows
+   pushed by `rules/grants.js#step` in the same substep. Measured, not
+   theorised: the toast ended on `THE CLOUD DOCK IS GRANTED` every time. The
+   fix taken was to move the completion onto the banner slot nothing else
+   competes for. The same collision still eats the `debt` row's line (the
+   `hurt` row follows it in the same frame) and is documented in §20.5; a real
+   fix for that class is a toast **queue** with per-kind priority, which is a
+   `view/fx.js` change and was out of this phase's scope.
+
+3. **`shell/main.js#step` now has two "this frame does not simulate" guards
+   and they are not the same shape.** `flags.showMap` freezes a run that will
+   resume; `run.won` freezes one that never will. They are one line apart and
+   read identically, so a third would be the point at which the reason
+   belongs in a named predicate rather than in a comment. Also worth stating:
+   `run.dead` is deliberately NOT on that line — the world stays live behind
+   the death screen, items keep falling, and nothing in this phase examined
+   whether that is right.
+
+4. **Fifteen of the twenty punch-list items in `docs/PLAN-phase13.md` §5.2 are
+   untouched and still true**, including three the win screen now brushes
+   against: `run.misses` is displayed on the win screen and nowhere else (#11),
+   favour is summed there and still has no *spender* anywhere (#12), and the
+   draft is still 1-of-1 (#4/#5, now marked as such in `docs/SPEC.md` §18.6
+   rather than promised as 1-of-3). Nothing in this phase makes any of them
+   easier or harder; they are named here only so the win screen's two new
+   readouts are not mistaken for those items being closed.

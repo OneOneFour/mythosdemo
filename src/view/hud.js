@@ -154,7 +154,14 @@ export function drawHUD(g, f) {
   drawMainPanel(g, f);
   hint(g, f, W, H);
   if (f.flags.showDebug) debug(g, f, W, favourBottom);
+  /* DEATH OUTRANKS THE WIN, and it is a real ordering rather than a
+     defensive one: `shell/main.js#step` stops stepping the moment `run.won`
+     is set, so a player cannot die after winning -- but the reverse can
+     happen inside a single frame (a miss's second heart loss and cycle 4's
+     completion are both `rules/cycles.js#step` decisions), and an end screen
+     that showed a victory over a corpse would be the wrong one. */
   if (run.dead) deathScreen(g, W, H);
+  else if (run.won) winScreen(g, W, H);
   else if (banner.fade > 0) title(g, W, H);
   else tooltip(g, f);
 }
@@ -711,8 +718,10 @@ function buildGhost(g, f) {
    is more urgent than standing guidance. With none showing, this falls back
    to whichever SPEC §5 beat the player has not finished yet
    (`model/tutorial.js#beat`, Phase 8a's read-only query, and
-   `data/callouts.js#CALLOUTS`, indexed by it). Beats 5-6 are `null` rows
-   (Phase 10's altar/furnace gift, not fired yet) and simply show nothing. */
+   `data/callouts.js#CALLOUTS`, indexed by it). Two indices are `null` and
+   simply show nothing: 4 (beat 5 fires a frame later with no action in
+   between) and 10 (cycle 2 paid -- the sheet is genuinely over there, see
+   that file's own header). */
 const CALLOUT_FADE_SECS = 0.4;
 const calloutFade = { beat: -1, since: 0 };
 
@@ -772,31 +781,86 @@ function debug(g, f, W, top = 22) {
    never a second copy of this layout math. */
 const RESTART_LABEL = 'BEGIN THE NEXT TORMENT';
 
-function deathScreen(g, W, H) {
-  g.globalAlpha = 0.78; R(g, 0, 0, W, H, '#0a0206'); g.globalAlpha = 1;
-  const ref = bandOf(SPAWN_BAND);
-  const datum = ref ? worldY(ref, ref.cfg.floorTy ?? 0) : 0;
-  const tile = ref ? ref.tile : 8;
-  const lines = [
-    ['THE EAGLE COMES', UI.heart, 2],
-    [run.deathCause || 'UNKNOWN', UI.ink, 1],
-    /* `ink2`, not `dim`: this row encodes nothing -- it is the third line of a
-       three-line stack and only wanted to sit quieter than the cause above
-       it. No shadow, because the full-screen wash two lines up is the
-       backing. */
-    ['DEPTH REACHED ' + Math.max(0, Math.round((run.deepest - datum) / tile)) + 'M', UI.ink2, 1]
-  ];
+/* THERE ARE TWO END-OF-RUN SCREENS AND ONE IMPLEMENTATION OF ONE (Phase 13d).
+   `deathScreen` and `winScreen` below differ only in their wash, their lines
+   and the id their button records -- everything about the layout, the
+   measured button and the `drawn.panels` registration is HERE, once, because
+   a second copy of it is a second thing `shell/input.js`'s hit-test would
+   have to be taught about separately. `id` is what makes the two hit-testable
+   apart at all; the geometry it records is identical in shape either way. */
+function endScreen(g, W, H, { wash, lines, id }) {
+  g.globalAlpha = 0.78; R(g, 0, 0, W, H, wash); g.globalAlpha = 1;
   let y = (H >> 1) - 26;
-  for (const [s, col, sc] of lines) {
+  for (const [s, col, want] of lines) {
+    /* A DOUBLE-SIZE HEADLINE DROPS TO SINGLE RATHER THAN OVERFLOWING, per D8
+       ("positioned by an anchored layout pass over measured text") and its own
+       warning that the mockup's overflow is a bug to fix and not a target to
+       copy. `THE EAGLE COMES` is 164 px at scale 2 and fits the 200 px phone
+       floor (`core/canvas.js#resize`); `THE GODS ARE ANSWERED` is 252 px and
+       does not, and it clipped mid-word until this clause existed. Measured,
+       so no line has to be kept short by hand. */
+    const sc = want > 1 && textWidth(s, want) > W - 8 ? want - 1 : want;
     drawText(g, s, Math.max(4, (W - textWidth(s, sc)) >> 1), y, col, sc, 1);
     y += sc === 2 ? 22 : 13;
   }
 
   const bw = textWidth(RESTART_LABEL) + 8, bh = 11;
-  const btn = drawPanel(g, {
-    id: 'death-restart', x: (W - bw) >> 1, y, w: bw, h: bh, vw: W, vh: H, alpha: 0.9
-  });
+  const btn = drawPanel(g, { id, x: (W - bw) >> 1, y, w: bw, h: bh, vw: W, vh: H, alpha: 0.9 });
   drawText(g, RESTART_LABEL, btn.x + 4, btn.y + 2, UI.good, 1, 1);
+}
+
+/* Depth reached, in the SAME datum `depth()` above draws off and
+   `model/run.js#placementCheck` gates on (CLAUDE.md D9) -- never a second
+   arithmetic. Shared by both end screens. */
+function depthReached() {
+  const ref = bandOf(SPAWN_BAND);
+  const datum = ref ? worldY(ref, ref.cfg.floorTy ?? 0) : 0;
+  const tile = ref ? ref.tile : 8;
+  return Math.max(0, Math.round((run.deepest - datum) / tile));
+}
+
+function deathScreen(g, W, H) {
+  endScreen(g, W, H, {
+    wash: '#0a0206',
+    id: 'death-restart',
+    lines: [
+      ['THE EAGLE COMES', UI.heart, 2],
+      [run.deathCause || 'UNKNOWN', UI.ink, 1],
+      /* `ink2`, not `dim`: this row encodes nothing -- it is the third line of
+         a three-line stack and only wanted to sit quieter than the cause above
+         it. No shadow, because the full-screen wash two lines up is the
+         backing. */
+      ['DEPTH REACHED ' + depthReached() + 'M', UI.ink2, 1]
+    ]
+  });
+}
+
+/* THE WIN SCREEN, docs/SPEC.md section 20.2. `run.won` is set once by
+   `rules/cycles.js#ensureLiveCycle` the frame `run.cycle` passes the last
+   shipped row, so this draws for the rest of the process's life and the run
+   is over -- `shell/main.js#step` stops stepping, exactly as `run.dead`
+   already stops most of it.
+
+   NOT A SECOND UI MECHANISM: it is `endScreen` above with a different wash,
+   different lines and the id `'win-restart'`, and `shell/input.js` hit-tests
+   it through the same `drawn.panels` lookup the death button has used since
+   Phase 12d. The two totals it prints are read straight off `run` (`favour`
+   summed across gods, `misses`), which is also the first time either number
+   has been shown anywhere outside the FAVOUR panel -- FINDINGS' "the player
+   never learns their miss count" is narrowed, not closed, by that. */
+function winScreen(g, W, H) {
+  const favourTotal = Object.values(run.favour ?? {}).reduce((a, b) => a + b, 0);
+  endScreen(g, W, H, {
+    /* A pale gold wash rather than the death screen's near-black red: the two
+       endings must not be mistakable for each other at a glance. */
+    wash: '#1b1608',
+    id: 'win-restart',
+    lines: [
+      ['THE GODS ARE ANSWERED', UI.good, 2],
+      [CYCLES.length + ' TRIALS PAID -- ' + favourTotal + ' FAVOUR', UI.ink, 1],
+      ['MISSES ' + run.misses + ' -- DEPTH REACHED ' + depthReached() + 'M', UI.ink2, 1]
+    ]
+  });
 }
 
 function title(g, W, H) {

@@ -3642,6 +3642,13 @@ test('drive: a carrier at a band seam', async ({ page }) => {
    lands exactly on the floor: `VIEW.scale` clamps to 2 at this size, so
    `VIEW.w = max(200, ceil(200/2)) = 200` and `VIEW.h = max(180, ...) = 180`.
 
+   THE "PAST EVERY CALLOUT" NUMBER IS NOT ONE NUMBER, and Phase 13d is why:
+   `CALLOUTS[4]` is `null` (beat 5 fires a frame later with no player action
+   in between), so `< 4` still means "no callout" and every scene using it is
+   unaffected; the end of the sheet, however, moved from 6 to 10 when beats
+   7-10 landed. A scene that wants NO callout must therefore either stop at 4
+   or run to 10 -- 6 is now mid-sheet and draws a line.
+
    Every scene sets `run.tutorialBeat` explicitly, past the point any
    `data/callouts.js` row has a string (FINDINGS #10) -- the same
    `while (run.tutorialBeat < N) rw.advanceBeat()` idiom `driveScene` already
@@ -3692,7 +3699,14 @@ test('tribute and favour: mid-cycle-3, two of three gods known, a boon active', 
     const { write: rw, run } = await import('/src/model/run.js');
     const { grant } = await import('/src/rules/boons.js');
     const { BOONS } = await import('/src/data/boons.js');
-    while (run.tutorialBeat < 6) rw.advanceBeat();
+    /* 10, NOT 6 (Phase 13d). This scene's own rule -- stated in the block
+       comment above it -- is "past the point any `data/callouts.js` row has a
+       string", so that a panel-crowding shot is not dominated by a callout
+       that has nothing to do with it. Beat 6 WAS that point; the sheet now
+       runs to 10 (cycle 2's four first-time asks, docs/SPEC.md 20.4) and
+       `CALLOUTS[6..9]` all carry copy. And 10 is the honest number for this
+       scene besides: a run genuinely at cycle 3 has fired every beat. */
+    while (run.tutorialBeat < 10) rw.advanceBeat();
     rw.cycle(3);
     rw.tribute({ id: 'grey-eyed-tithe', have: {}, left: 300 });
     rw.favour('hephaestus', 3);
@@ -3726,6 +3740,50 @@ test('tribute: the over-cap burden scene', async ({ page }) => {
   await shot(page, 'tribute-overcap-burden.png');
   await phoneFloor(page);
   await shot(page, 'tribute-overcap-burden-phone.png');
+});
+
+/* ---- 4. THE WIN SCREEN (Phase 13d, docs/SPEC.md §20.2) ----
+   ONE NEW BASELINE, and the only one this phase adds: a whole end-of-run
+   screen shipped with no pixels under test is exactly the gap this file
+   exists for, and `view/hud.js#winScreen` shares `endScreen` with the death
+   screen, so a layout regression here would take both down together.
+
+   REACHED THROUGH THE REAL DIRECTOR, not by drawing the screen directly:
+   `rw.cycle(CYCLES.length + 1)` plus a cleared ledger is the state a fourth
+   completion leaves behind, and the two frames after it are what
+   `rules/cycles.js#ensureLiveCycle` needs to notice the boundary, set
+   `run.won` and push the `win` row (which `shell/notify.js` then turns into
+   the toast visible through the wash). `run.favour`/`run.misses` are written
+   with their own real writers so the two totals the screen prints are not
+   zeroes.
+
+   `__mf.frames` STOPS MATTERING THE INSTANT IT WINS -- `shell/main.js#step`
+   returns early on `run.won` -- so the frame count below is not a timing
+   window: any count of 1 or more lands in exactly the same state. */
+test('the win screen: every shipped trial paid', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { write: rw, run } = await import('/src/model/run.js');
+    const { CYCLES } = await import('/src/data/cycles.js');
+    while (run.tutorialBeat < 10) rw.advanceBeat();
+    rw.favour('hephaestus', 3);
+    rw.favour('athena', 2);
+    rw.favour('poseidon', 3);
+    rw.miss();
+    rw.tribute(null);
+    rw.cycle(CYCLES.length + 1);
+    __mf.frames(2);
+    __mf.draw();
+  });
+  const won = await page.evaluate(async () => {
+    const { run } = await import('/src/model/run.js');
+    return run.won;
+  });
+  expect(won).toBe(true);
+  await shot(page, 'win-screen.png');
+  await phoneFloor(page);
+  await shot(page, 'win-screen-phone.png');
 });
 
 /* ============================================================

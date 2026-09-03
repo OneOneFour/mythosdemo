@@ -129,7 +129,8 @@ function set(k, down) {
      to fire; there is only a key that is either down or not, and
      `rules/drive.js` supplies torque for exactly the frames it is down.
      `r` was restart until this phase relocated that onto a real death-screen
-     button (D-C) -- see `pointerdown`'s own death-restart branch below.
+     button (D-C), shared with the win screen since Phase 13d -- see
+     `pointerdown`'s own end-restart branch below.
      Released on blur with the other holds below; NOT listed in
      `clearEdges()`, which would turn a hold into an edge. */
   if (key === 'r')                  cmd.action = down;
@@ -366,7 +367,8 @@ export function installInput() {
     if (k === 'm') audio.muted = !audio.muted;
     /* Restart used to be `r`, live at any time -- `r` is now the crank/action
        hold (D-J), so restart moved to a real clickable button on the death
-       screen (D-C): see `pointerdown`'s own death-restart branch below. */
+       screen, and the win screen shares it (Phase 13d): see
+       `pointerdown`'s own end-restart branch below. */
 
     /* Every "spawn a tier from nothing" path lives behind `flags.showDebug`
        and nowhere else: 't' trinket, 'b' the timed boon tier, 'k' the machine
@@ -467,17 +469,23 @@ export function installInput() {
     return !!p && sx >= p.x && sx < p.x + p.w && sy >= p.y && sy < p.y + p.h;
   };
 
-  /* THE DEATH-SCREEN RESTART BUTTON (docs/PLAN-phase12.md §3 D-C). Restart
+  /* THE END-SCREEN RESTART BUTTON (docs/PLAN-phase12.md §3 D-C). Restart
      moved off `r` (now the crank/action hold, D-J) onto a real, discoverable
-     control -- `view/hud.js#deathScreen` draws it and registers its rect
-     into `drawn.panels` under `'death-restart'`, the identical idiom
-     `onAlwaysOnUi` above already uses for the hints toggle. Only live while
-     `run.dead`, so the id existing at all (from a stale previous frame) can
-     never fire outside the one screen that draws it. */
-  const onDeathRestart = e => {
-    if (!run.dead) return false;
+     control -- `view/hud.js#endScreen` draws it and registers its rect
+     into `drawn.panels`, the identical idiom `onAlwaysOnUi` above already
+     uses for the hints toggle.
+
+     TWO IDS, ONE HIT-TEST (Phase 13d): the death screen records
+     `'death-restart'` and the win screen `'win-restart'`, and the gate below
+     is `run.dead || run.won` -- so the id existing at all (from a stale
+     previous frame) can never fire outside a frame in which one of the two
+     screens is actually being drawn. Kept as one function rather than two
+     because the button means the same thing on both screens, and a second
+     copy would be a second place to forget the `run.*` gate. */
+  const onEndRestart = e => {
+    if (!run.dead && !run.won) return false;
     const { sx, sy } = toScreen(e);
-    const p = uiDrawn.panels.find(p => p.id === 'death-restart');
+    const p = uiDrawn.panels.find(p => p.id === 'death-restart' || p.id === 'win-restart');
     return !!p && sx >= p.x && sx < p.x + p.w && sy >= p.y && sy < p.y + p.h;
   };
 
@@ -528,11 +536,11 @@ export function installInput() {
       e.preventDefault();
       return;
     }
-    /* THE DEATH-SCREEN RESTART BUTTON, checked before anything else below --
-       a click on it means "restart", full stop, never a same-press mine or
-       place at whatever the reticle happens to be aimed at underneath the
-       screen it covers. */
-    if (onDeathRestart(e)) {
+    /* THE END-SCREEN RESTART BUTTON (death or win), checked before anything
+       else below -- a click on it means "restart", full stop, never a
+       same-press mine or place at whatever the reticle happens to be aimed at
+       underneath the screen it covers. */
+    if (onEndRestart(e)) {
       wants.restart = true;
       cv.setPointerCapture(e.pointerId);
       e.preventDefault();

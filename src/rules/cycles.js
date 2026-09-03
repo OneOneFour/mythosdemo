@@ -35,6 +35,13 @@
    `shell/main.js` performs it next frame, exactly as it already does for the
    four debug-key drafts (`model/run.js#RUN_SCHEMA.offer`'s own comment).
 
+   A REWARD GRANT GOES THROUGH THE SAME KIND OF BRIDGE, `run.awarded`, and
+   for the identical reason: `rules/grants.js#grant` is the only thing in the
+   project that pushes a `'grant'` journal row, and it is one of the four
+   siblings above. `complete()` writes the machine ids; `rules/grants.js#step`
+   performs them, immediately after this module in `shell/schedule.js`, so the
+   BUILD list gains the row the same frame the trial pays.
+
    NO `rand()` outside the drop roll (invariant 7), and the deadline
    accumulates from `dt` alone, never `Date.now()` (invariant 10) -- see
    `RUN_SCHEMA.tribute.left`'s own comment in `model/run.js`. */
@@ -64,11 +71,27 @@ export function step(dt) {
 /* `run.tribute === null` is "nothing armed" -- true on a fresh run (`cycle`
    starts at 1) and true again the instant a cycle completes or is missed
    below, so THIS is the one place a new cycle ever arms, whether it is the
-   first or a retry of one just missed. Beyond the shipped table (D-J: cycles
-   5-6 do not exist yet) there is nothing to arm and the ledger stays empty. */
+   first or a retry of one just missed.
+
+   PAST THE LAST SHIPPED ROW, THE RUN IS WON (Phase 13d, docs/SPEC.md
+   section 20.2). This used to `return` and do nothing, for ever: the TRIBUTE
+   panel simply stopped drawing, FAVOUR kept reading full, and the game did
+   not end so much as run out. `run.cycle > CYCLES.length` was already the
+   fact; `rw.win()` is the EVENT, set exactly once (guarded on `run.won`,
+   which is why a second frame is silent) with a journal row for
+   `shell/notify.js` to sound and `view/hud.js#winScreen` to draw. Cycles 5-6
+   still wait on the `essence`/`ambrosia` tiers (docs/SPEC.md section 8), so
+   the boundary this fires at is the shipped table's own length and moves on
+   its own when the table grows -- there is no literal 4 anywhere. */
 function ensureLiveCycle() {
   if (run.tribute) return;
-  if (run.cycle > CYCLES.length) return;
+  if (run.cycle > CYCLES.length) {
+    if (!run.won) {
+      rw.win();
+      push('win', null, { cycles: CYCLES.length, favour: { ...run.favour }, misses: run.misses });
+    }
+    return;
+  }
   const cyc = CYCLES[run.cycle - 1];
   rw.tribute({ id: cyc.id, have: {}, left: cyc.deadlineSecs });
   if (cyc.at === 'altar') ensureAltarPlaced();
@@ -99,16 +122,47 @@ function ensureAltarPlaced() {
   mw.place(band, M.altar, band.cfg.spawnTx - def.tw - SPAWN_GAP, band.cfg.floorTy - def.th);
 }
 
-/* Every machine tagged `tribute:{}` (today: the altar and the dock) empties
-   its own buffer into the live ledger every frame, regardless of which one
-   `cyc.at` names -- ONE DRAIN PATH SERVES BOTH, per `data/machines.js`'s own
-   header on the two receiver rows, and a pair fed to the "wrong" receiver
-   still counts because nothing about a `sub/form` key says which building it
-   arrived at. Draining is real consumption (`mw.consume`), not a peek --
-   the buffer must not also feed some future recipe on the same machine. */
+/* ONLY THE LIVE CYCLE'S OWN RECEIVER PAYS IT (Phase 13d, docs/SPEC.md
+   section 18.3 as amended). This comment used to argue the opposite -- that
+   every machine tagged `tribute:{}` drains into the live ledger "regardless of
+   which one `cyc.at` names", because nothing about a `sub/form` key says
+   which building it arrived at -- and that reasoning was true about the KEY
+   and wrong about the GAME: with the altar standing four tiles from spawn
+   for the whole run and accepting the same three material classes the dock
+   does, cycles 2, 3 and 4 were all payable by hand-feeding it. No ascent, no
+   dock, no drivetrain, no climb. The one thing the second half of this game
+   is about was optional, and the only thing standing between a player and
+   skipping it was not knowing they could.
+
+   So `cyc.at` is now the gate it always read as being. One drain path still
+   serves both receivers -- the loop below is unchanged in shape and there is
+   still no machine name in this file -- it simply runs for the ONE machine
+   the live row names.
+
+   MATERIAL FED TO THE WRONG RECEIVER STAYS IN THAT MACHINE'S BUFFER,
+   uncredited, rather than being refused at its port. Refusing it would mean
+   `rules/machines.js`'s generic port interpreter asking what the live cycle
+   is, which is director policy inside the machine layer and a second place
+   that would have to agree with this one about which receiver is live; and
+   it would contradict invariant 5 -- a catch box swallowing what falls into
+   it is physics, not permission. A receiver's buffer is a ledger with a
+   footprint (`data/machines.js`'s own `cap:64`), so the pile is visible,
+   bounded, and drained in full the moment a cycle does name that machine.
+   The altar after cycle 1 is the honest cost of that choice: nothing later
+   asks for it, so what is fed to it there stays there.
+
+   Draining is real consumption (`mw.consume`), not a peek -- the buffer must
+   not also feed some future recipe on the same machine. */
 function drainReceivers() {
   if (!run.tribute) return;
+  /* Resolved by ID through `CYCLE`, never by `CYCLES[run.cycle - 1]`: the
+     live ledger's own id is the authority on what is armed, the same reason
+     `model/run.js#cycleRow` resolves it that way. */
+  const at = CYCLE[run.tribute.id]?.at;
+  const want = at === undefined ? undefined : M[at];
+  if (want === undefined) return;
   for (const m of machines) {
+    if (m.def !== want) continue;
     if (!defOf(m).tribute) continue;
     for (const k of Object.keys(m.buf)) {
       const n = m.buf[k];
@@ -152,7 +206,21 @@ function complete(cyc) {
   const pos = m ? { x: m.box.x + m.box.w / 2, y: m.box.y } : null;
   const reward = cyc.reward;
   if (reward.favour) rw.favour(cyc.god, reward.favour);
-  for (const id of reward.grants ?? []) rw.grant(id);
+  /* THE GRANT BRIDGE, NOT `rw.grant` (Phase 13d, docs/SPEC.md section 20.3).
+     This line used to call the raw model writer directly, which appended the
+     machine id to `run.granted` and pushed NOTHING -- so cycle 1's reward,
+     the furnace and the dock, the single most important gift in the game,
+     arrived with no toast, no sound and no line anywhere. `rules/grants.js`
+     is the only module that pushes a `'grant'` row, and it is a `rules`
+     SIBLING this file may not import (`tools/layers.mjs`), so the ids go
+     onto `run.awarded` and `rules/grants.js#step` -- scheduled immediately
+     after this module in `shell/schedule.js` -- performs them the same frame
+     through the same `award()` path a drafted grant takes. Exactly the
+     shape `run.offer` below already uses for a draft, for exactly the same
+     reason, and NOT a second grant path: `model/run.js#write.grant` is still
+     called from exactly one module in all of `src/`, and that module is
+     `rules/grants.js`. */
+  if (reward.grants?.length) rw.award([...reward.grants]);
   for (const id of reward.charts ?? []) rw.chart(id);
   if (reward.draft) rw.offer(reward.draft);
   rollTributeDrop(m);

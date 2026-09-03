@@ -21,9 +21,9 @@
    ONE beat fires per frame, which also means the journal can never emit two
    callouts a player would see as one.
 
-   BEATS 5 AND 6 ARE `rules/cycles.js`'S BEATS, PER D-E/E1
+   BEATS 5, 6 AND 10 ARE `rules/cycles.js`'S BEATS, PER D-E/E1
    (docs/PLAN-phase10.md 3.5): the director is the only writer of the STATE
-   these two predicates read (the altar's existence, `run.cycle`), but
+   these predicates read (the altar's existence, `run.cycle`), but
    `rules/tutorial.js` stays the only WRITER of `run.tutorialBeat` -- one
    writer, two reads, the same split `model/segments.js#linkCheck` and
    `rules/drive.js` already use for a link's own legality. `shell/schedule.js`
@@ -36,13 +36,15 @@
    nothing. `data/sfx.js` has no `tutorial` entry, so the row is silent by
    design until something wants it audible. */
 
+import { CALLOUTS } from '../data/callouts.js';
 import { F } from '../data/forms.js';
-import { M } from '../data/machines.js';
+import { M, MACH } from '../data/machines.js';
 import { S } from '../data/substances.js';
 import { SPAWN_BAND } from '../data/world.js';
 import { items } from '../model/items.js';
 import { push } from '../model/journal.js';
 import { machines } from '../model/machines.js';
+import { segments } from '../model/segments.js';
 import { PH, player } from '../model/player.js';
 import { hasPick, invCount, run, write as rw } from '../model/run.js';
 import { bandOf, worldY } from '../model/world.js';
@@ -57,6 +59,17 @@ const COPPER_TARGET = 6;
    is. Tiles rather than px so they survive a band with a different tile size. */
 const WENT_DOWN_TILES = 2, BACK_UP_TILES = 1;
 
+/* How much of one pair this run has produced, near enough: what the pockets
+   hold plus what is still lying on the ground. The ground half is the point
+   in both places it is used -- ore falls to the bottom of the shaft (beat 3)
+   and a pressed plate falls out of the press (beat 7), and invariant 5 means
+   neither is ever credited straight to the pockets. */
+function pairSeen(sub, form) {
+  let n = invCount(sub, form);
+  for (const it of items) if (it.sub === sub && it.form === form) n++;
+  return n;
+}
+
 /* How much copper ore this run has produced, near enough: what the pockets
    hold plus what is still lying on the ground. NOT a mined-ever counter --
    there is no such field and inventing one would be a second ledger that can
@@ -66,11 +79,7 @@ const WENT_DOWN_TILES = 2, BACK_UP_TILES = 1;
    is read the same frame the sixth ore spawns and long before anything could
    eat it. The `items` scan is bounded in practice as well as in principle: it
    is only ever reached while `run.tutorialBeat === 2`. */
-function copperOreSeen() {
-  let n = invCount(S.copper, F.ore);
-  for (const it of items) if (it.sub === S.copper && it.form === F.ore) n++;
-  return n;
-}
+const copperOreSeen = () => pairSeen(S.copper, F.ore);
 
 /* The surface floor line and the spawn band's tile size, or null headless /
    before worldgen. The same datum `view/hud.js`'s depth gauge and
@@ -83,8 +92,11 @@ function surface() {
 }
 
 /* Index N holds the condition for beat N; index 0 is unused so the array
-   index IS the beat number, and 5/6 are `null` rather than `() => false` so
-   "reserved, nothing advances into it yet" is visible rather than inferred. */
+   index IS the beat number. Every index from 1 to the end now carries a real
+   predicate: beats 1-6 are docs/SPEC.md section 5's two-minute sheet and
+   beats 7-10 are cycle 2 (Phase 13d, docs/SPEC.md section 20.4). Nothing is
+   `null` as a placeholder any more -- the array simply ENDS, and running off
+   the end is what stops `step()` below. */
 const BEATS = [
   null,
 
@@ -158,13 +170,67 @@ const BEATS = [
      is the only place `run.cycle` ever advances, and only once
      `model/run.js#tributeMet()` is true -- so "cycle 1 is over" is exactly
      "the first trial was paid". */
-  () => run.cycle > 1
+  () => run.cycle > 1,
+
+  /* ============================================================================
+     BEATS 7-10 ARE CYCLE 2 (Phase 13d, docs/SPEC.md section 20.4), and they
+     are past the end of section 5's own two-minute sheet on purpose. The sheet
+     stopped here, and the comment that used to sit at the bottom of this file
+     said there was "nothing left to teach" -- which was written before cycle
+     2's requirements existed. Cycle 2 asks for four things a player has never
+     done ONCE: refine ore into plate, build the Cloud Dock, get a segment
+     chain up to it, and beat a clock. That is four first-time asks arriving in
+     the same instant all guidance stopped.
+
+     THEY ARE STILL PURE OBSERVATIONS OF STATE ANOTHER STEP WROTE, exactly like
+     beats 1-6, and not one of them adds a counter, flag or hook anywhere else
+     (this file's own header). Each names the state that PROVES the lesson
+     landed, never a second ledger of whether it did.
+     ============================================================================ */
+
+  /* 7 — REFINEMENT. Cycle 2 wants three copper PLATE, which is two compression
+     steps and 36 ore (docs/SPEC.md section 18.4) -- the first ask in the game
+     that cannot be answered by mining harder. Fires on the FIRST plate, not on
+     three: the lesson is "ore is not the currency any more", and it is learned
+     the moment one exists. Counted on the ground as well as in the pockets
+     (`pairSeen`), because a pressed plate falls out of the press. */
+  () => pairSeen(S.copper, F.plate) >= 1,
+
+  /* 8 — THE DOCK, AND WHERE IT GOES. Cycle 2 is paid at `cloud_dock` and
+     nowhere else (`data/cycles.js`'s `at`, enforced since Phase 13d in
+     `rules/cycles.js#drainReceivers`), and the dock may only stand in the band
+     its own row names (`data/machines.js#cloud_dock`'s `band` key, gated in
+     `model/run.js#placementCheck`). So the predicate asks for a dock placed in
+     exactly that band -- read OFF THE MACHINE ROW rather than as the literal
+     'astral', so a row that ever names a different band moves this beat with
+     it and cannot silently stop firing. */
+  () => machines.some(m => m.def === M.cloud_dock &&
+                           m.band?.id === MACH[M.cloud_dock].band),
+
+  /* 9 — THE CHAIN. A dock standing in the Heavens with nothing linked to it is
+     a dock nothing can deliver to: cargo reaches it only along a segment
+     (CLAUDE.md D10, docs/SPEC.md section 17). One segment anchored to the dock
+     is the proof, not three -- `model/segments.js#chains` is the derived query
+     for a whole run of them and this beat has no business re-deriving it. The
+     player will discover they need three from the reach they actually have
+     (96 px against astral's 240 px gap, docs/SPEC.md section 18.2), which is
+     the lesson the callout names and the arithmetic teaches. */
+  () => segments.some(s => s.a.def === M.cloud_dock || s.b.def === M.cloud_dock),
+
+  /* 10 — THE CLOCK. Cycle 1 famously has none (`deadlineSecs:null`,
+     docs/SPEC.md section 4); cycle 2 has 480 seconds and a punishment. There
+     is nothing to OBSERVE about noticing a clock, so the beat fires on the
+     only thing that proves the player beat it: cycle 2 paid. A miss does not
+     advance `run.cycle` (`rules/cycles.js#miss` -- the retry is the mercy), so
+     this beat also cannot fire off a failed attempt, and the callout stays up
+     through the retry, which is exactly when it is worth reading. */
+  () => run.cycle > 2
 ];
 
 /* Run once a frame (see `shell/schedule.js`). One beat at most, and nothing at
-   all once the sheet has run out of implemented beats -- the `null` at index 5
-   is what stops this, so no separate "the tutorial is over" flag exists to get
-   out of step with the counter. */
+   all once the sheet has run out of beats -- `BEATS[next]` being `undefined`
+   past the end of the array is what stops this, so no separate "the tutorial
+   is over" flag exists to get out of step with the counter. */
 export function step() {
   if (run.dead) return;
   const next = run.tutorialBeat + 1;
@@ -173,3 +239,16 @@ export function step() {
   rw.advanceBeat();
   push('tutorial', null, { beat: next });
 }
+
+/* FAIL AT IMPORT ON A BEAT WITH NO CALLOUT SLOT (Phase 13d). `CALLOUTS` is
+   indexed by beats ALREADY FIRED -- 0 through `BEATS.length - 1` -- so the two
+   arrays must be exactly the same length, and a beat appended here without a
+   row there would draw `undefined` (silently nothing, per
+   `view/hud.js#hint`'s early return) rather than fail. That is
+   docs/FINDINGS.md #10's own failure mode: guidance that is absent rather
+   than wrong is guidance nobody notices is missing. Same import-time-guard
+   idiom `data/sfx.js` uses for a kind mapped to a sound that does not exist;
+   `tools/check.mjs` imports every module, so this runs in `npm run check`. */
+if (CALLOUTS.length !== BEATS.length)
+  throw new Error(`tutorial: ${BEATS.length - 1} beats but ${CALLOUTS.length} callout slots -- ` +
+                  `data/callouts.js needs exactly ${BEATS.length} rows (index 0 is "nothing fired yet")`);

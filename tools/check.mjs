@@ -867,6 +867,14 @@ console.log('\n4. Phase 6 probes');
   run.write.miss();
   run.write.cycle(3);
   run.write.offer('grant');
+  /* Phase 13d's two new `run` fields, dirtied the same way: `won` is the win
+     state (a run that ended in victory must not hand the next run a win
+     screen) and `awarded` is the reward-grant bridge `rules/grants.js#step`
+     drains (a queue surviving a reset would grant the next run a machine it
+     never earned). Neither is a container, so both come back off the frozen
+     template -- which is exactly the claim being tested. */
+  run.write.win();
+  run.write.award(['furnace']);
   mods.write.add('phase6-test', [{ key: 'walk', mul: 1.1 }]);
   machs.write.place(player.player.band, 0, 5, 5);
   sched.grants.grant(D_grant.GRANTS[0].id);
@@ -3568,6 +3576,16 @@ console.log('\n6. the tribute loop (Phase 10b)');
      power their own segment -- docs/SPEC.md 17.6). */
   {
     boot.newRun(9102);
+    /* CYCLE 2 IS MADE LIVE BEFORE THE DELIVERY (Phase 13d). It used not to
+       matter which cycle was armed -- `drainReceivers` credited any
+       `tribute:{}` machine's buffer regardless of which one `cyc.at` named,
+       and this probe's own comment below used to say so. Now only the live
+       cycle's own receiver pays it, and cycle 1's receiver is the ALTAR, so
+       an ore cranked to the dock under cycle 1 correctly credits nothing.
+       Cycle 2 is the first row whose `at` is `cloud_dock` (`data/cycles.js`),
+       which is exactly the state this claim is about. */
+    run.write.cycle(2);
+    run.write.tribute(null);
     const band = world.bandOf('topsoil');
     for (let ty = 100; ty <= 119; ty++)
       for (let tx = 16; tx <= 29; tx++) tiles.write.clear(band, tx, ty);
@@ -3594,12 +3612,13 @@ console.log('\n6. the tribute loop (Phase 10b)');
          ascent, plus the frames the release and the catch take. */
       for (let i = 0; i < 120 * 40 && seg.t < 1; i++) stepReal(1 / 120, { action: true, hasMouse: false });
       runReal(30, 1 / 120, { action: true, hasMouse: false });
-      /* The dock's own buffer is TRANSIENT once `rules/cycles.js` exists: any
-         `tribute:{}` receiver is drained into `run.tribute.have` the same
-         frame it is fed (`data/machines.js`'s "one drain path serves both"),
-         regardless of which cycle is actually live -- cycle 1 here is still
-         the ALTAR's, so this ore counts toward it even though it never
-         touched the altar. The buffer reading 0 IS the pass. */
+      /* The dock's own buffer is TRANSIENT while a cycle that names it is
+         live: `rules/cycles.js#drainReceivers` empties the LIVE cycle's own
+         receiver into `run.tribute.have` the same frame it is fed. Cycle 2 is
+         armed above precisely so that receiver is this dock; an ore is not
+         part of cycle 2's demand (three plates are), so it lands in `have` as
+         an over-delivery of a pair nobody asked for and the trial stays
+         armed. The buffer reading 0 IS the pass. */
       const held = machs.count(dock, '*/#ore');
       const credited = run.run.tribute?.have?.['copper/ore'] ?? 0;
       if (seg.t < 1) {
@@ -4424,9 +4443,20 @@ console.log('\n8c. HEAVENS LEDGER: cycle completion unlocks exactly one band');
   } else {
     console.log('  ..  cycle charts: cycle 1 completion charted exactly [\'astral\']');
 
-    /* CYCLE 2: `cloud_dock`, 3 copper/plate, hand-fed the same way. */
-    footUnder(machs.write.place(topsoil, D_mach.M.cloud_dock, 22, 115));
-    player.write.move(world.worldX(topsoil, 21), world.worldY(topsoil, 115));
+    /* CYCLE 2: `cloud_dock`, 3 copper/plate, hand-fed the same way -- but
+       FIVE TILES FURTHER ALONG, and that distance is the whole point (Phase
+       13d). The dock used to sit directly above the altar with the player
+       between them, which worked only because `drainReceivers` credited
+       either receiver: `rules/machines.js#handFeed` feeds EVERY machine whose
+       box the player overlaps within its own reach, and at tx 21 the altar
+       (tx 22-23, ty 117-118) is 8 px away -- inside its `handFeed.reach:10`
+       -- so it actually took two of the three plates and the dock took one.
+       Now only the live cycle's receiver credits, so a probe standing in the
+       altar's reach would hand two plates to a machine that can no longer
+       pay for anything and cycle 2 would never complete. tx 26 puts the
+       player 16 px clear of the altar and 2 px from the dock. */
+    footUnder(machs.write.place(topsoil, D_mach.M.cloud_dock, 27, 115));
+    player.write.move(world.worldX(topsoil, 26), world.worldY(topsoil, 115));
     run.write.collect(D_sub.S.copper, D_form.F.plate, 3);
     runReal(240, 1 / 120, { hasMouse: false });
 
@@ -5009,6 +5039,271 @@ function handMineTile(subId, fps, { seed = 1461, tool = null } = {}) {
     ok(`PACK: the real hand-craft turns ${need} soil/gravel (${wantIn.toFixed(2)} T) into exactly one ` +
        `SOIL block (${wantOut.toFixed(2)} T) -- the element carried across, ` +
        `${(wantIn - wantOut).toFixed(2)} T lost as waste, nothing created`);
+}
+
+/* ============================================================
+   8f. THE CLOSED LOOP (Phase 13d, docs/PLAN-phase13.md 5.3)
+   ------------------------------------------------------------
+   Four claims, one per thing the phase changed that is not a string:
+     1. only the live cycle's own receiver credits it (the tribute-anywhere
+        exploit), and the material fed to the wrong one is still THERE.
+     2. `cloud_dock` may only be placed in the band its row names.
+     3. every shipped trial paid sets `run.won`, pushes a `win` row, and draws
+        a restart button the pointer can actually find.
+     4. a reward grant reaches `run.granted` AND pushes a `grant` journal row
+        -- the bridge, not `rw.grant` direct.
+   ============================================================ */
+console.log('\n8f. THE CLOSED LOOP (Phase 13d)');
+
+/* --- CLAIM 1: cycle 2 cannot be paid at cycle 1's altar. Driven through the
+   real hand-feed, with the altar and the dock BOTH in reach at once -- which
+   is the arrangement the exploit lived in, and the only arrangement that can
+   prove the gate rather than prove a distance. --- */
+{
+  let bad = 0;
+  boot.newRun(9600);
+  const band = world.bandOf('topsoil');
+  for (let ty = 110; ty <= 119; ty++)
+    for (let tx = 16; tx <= 29; tx++) tiles.write.clear(band, tx, ty);
+  for (let tx = 16; tx <= 29; tx++) tiles.write.set(band, tx, 119, D_sub.S.stone);
+
+  const altar = footUnder(machs.write.place(band, D_mach.M.altar, 22, 117));
+  const dock  = footUnder(machs.write.place(band, D_mach.M.cloud_dock, 20, 115));
+  /* Cycle 2 armed directly (its own writer, the same one the director uses),
+     so the live receiver is the dock and the altar is the wrong one. */
+  run.write.cycle(2);
+  run.write.tribute(null);
+  player.write.band(band);
+  player.write.move(world.worldX(band, 21), world.worldY(band, 117));
+  player.write.vel(0, 0);
+  player.write.set('onGround', true);
+  run.write.collect(D_sub.S.copper, D_form.F.plate, 3);
+  runReal(240, 1 / 120, { hasMouse: false });
+
+  const inAltar = machs.count(altar, '*/#refined');
+  const inDock  = machs.count(dock, '*/#refined');
+  const credited = run.run.tribute?.have?.['copper/plate'] ?? 0;
+  const held = run.invCount(D_sub.S.copper, D_form.F.plate);
+
+  /* Both machines were in reach, so `handFeed` fed both -- the altar first
+     (it is earlier in `machines`). What must be true is that only the DOCK's
+     share credited, and that the altar's share is still sitting in the altar
+     rather than having vanished. */
+  if (inAltar < 1) {
+    fail(`TRIBUTE GATE: after hand-feeding 3 plates within reach of BOTH receivers, the altar holds ` +
+         `${inAltar} (want >= 1, uncredited but not destroyed) -- either handFeed never reached it or ` +
+         `the wrong-receiver material is being eaten`);
+    bad++;
+  }
+  /* The dock's own buffer reads 0 because the director DRAINED it -- what it
+     took is in `credited`. So the conserved sum is ledger + altar + pockets,
+     and the ledger must be strictly short of the 3-plate demand. */
+  if (inDock !== 0 || credited < 1 || credited >= 3 || credited + inAltar + held !== 3) {
+    fail(`TRIBUTE GATE: 3 plates fed; the ledger credits ${credited}, the dock holds ${inDock} (want 0, ` +
+         `drained), the altar holds ${inAltar}, the pockets hold ${held} -- the ledger must hold exactly ` +
+         `what the LIVE receiver drained (1 or 2, never all 3), and ledger + altar + pockets must still ` +
+         `be 3: nothing may go missing`);
+    bad++;
+  }
+  if (run.run.cycle !== 2) {
+    fail(`TRIBUTE GATE: run.cycle is ${run.run.cycle} (want 2, still armed) -- cycle 2 completed off ` +
+         `plates that were partly fed to cycle 1's altar, which is the exploit this gate closes`);
+    bad++;
+  }
+  if (!bad)
+    ok(`TRIBUTE GATE: with the altar and the dock both inside handFeed reach, cycle 2 credited only the ` +
+       `dock's ${credited} plate(s); the ${inAltar} fed to the altar sit uncredited in its buffer and ` +
+       `the trial stays armed`);
+}
+
+/* --- CLAIM 2: the band gate. `placementCheck` is the one decision both
+   `rules/placement.js` and the build ghost read (`model/run.js`'s own
+   "one decision, two readers"), so asserting it here covers both. --- */
+{
+  let bad = 0;
+  boot.newRun(9601);
+  const DOCK = D_mach.MACH[D_mach.M.cloud_dock];
+  if (DOCK.band !== 'astral') {
+    fail(`DOCK BAND GATE: data/machines.js#cloud_dock declares band ${JSON.stringify(DOCK.band)}, not ` +
+         `'astral' -- docs/SPEC.md 20.1 locks the key and its value`);
+    bad++;
+  }
+  /* Everything else a placement needs, so the ONLY thing the check can refuse
+     for is the band: granted, held, and a cleared footprint with a floor. */
+  run.write.grant('cloud_dock');
+  run.write.collect(D_sub.S.cloud_dock, D_form.F.rig, 1);
+  const rig = (bandId, ty) => {
+    const b = world.bandOf(bandId);
+    for (let j = ty - 2; j <= ty + 1; j++)
+      for (let i = 40; i <= 45; i++) tiles.write.clear(b, i, j);
+    for (let i = 40; i <= 45; i++) tiles.write.set(b, i, ty + 1, D_sub.S.stone);
+    return b;
+  };
+  const inAstral  = run.placementCheck(rig('astral', 29), 'cloud_dock', 41, 29);
+  const inSurface = run.placementCheck(rig('surface', 18), 'cloud_dock', 41, 18);
+  const inTopsoil = run.placementCheck(rig('topsoil', 60), 'cloud_dock', 41, 60);
+  const wantWhy = 'ONLY IN ' + D_world.BAND.astral.name;
+
+  if (!inAstral.ok) {
+    fail(`DOCK BAND GATE: placementCheck refuses the dock on astral's own cleared floor ` +
+         `(${inAstral.why}) -- the gate must allow the one band it names`);
+    bad++;
+  }
+  for (const [where, chk] of [['surface', inSurface], ['topsoil', inTopsoil]]) {
+    if (chk.ok || chk.why !== wantWhy) {
+      fail(`DOCK BAND GATE: placementCheck in ${where} says ${JSON.stringify(chk)} -- want refused with ` +
+           `${JSON.stringify(wantWhy)}. Placeable at the surface is the whole "ascend to the Heavens is ` +
+           `optional" bug (docs/PLAN-phase13.md 5.2 #2)`);
+      bad++;
+    }
+  }
+  if (!bad)
+    ok(`DOCK BAND GATE: cloud_dock places in astral and is refused in surface and topsoil with ` +
+       `'${wantWhy}' -- everything else about the placement (granted, held, clear, floored) held equal`);
+}
+
+/* --- CLAIM 3: the win state. Driven by paying every shipped cycle through
+   the REAL director rather than by writing `run.cycle` past the end: what is
+   under test is `ensureLiveCycle`'s own boundary, and `CYCLES.length` is read
+   from the table so a fifth row moves this test with it. --- */
+{
+  let bad = 0;
+  boot.newRun(9602);
+  /* One completion per cycle, each through `tributeMet()` -- the demand rows
+     are credited straight into the live ledger the same way `creditTribute`
+     does, since what this claim is about is the BOUNDARY, not the delivery
+     (claim 1 and section 6 both cover deliveries end to end). */
+  for (let i = 0; i < D_cycles.CYCLES.length; i++) {
+    stepReal(1 / 120, { hasMouse: false });               // arm the row
+    const row = D_cycles.CYCLES[run.run.cycle - 1];
+    const have = {};
+    for (const d of row.demand) have[`${d.sub}/${d.form}`] = d.n;
+    run.write.tribute({ ...run.run.tribute, have });
+    stepReal(1 / 120, { hasMouse: false });               // resolve it
+  }
+  stepReal(1 / 120, { hasMouse: false });                  // the frame past the last row
+  const rows = journal.peek();
+  const won = run.run.won;
+  const winRows = rows.filter(r => r.kind === 'win').length;
+
+  if (run.run.cycle !== D_cycles.CYCLES.length + 1 || !won) {
+    fail(`WIN STATE: after paying all ${D_cycles.CYCLES.length} shipped cycles, run.cycle is ` +
+         `${run.run.cycle} (want ${D_cycles.CYCLES.length + 1}) and run.won is ${won} (want true)`);
+    bad++;
+  } else if (winRows !== 1) {
+    fail(`WIN STATE: run.won is set but the journal holds ${winRows} 'win' row(s) (want exactly 1) -- ` +
+         `an end state with no row is an end state with no sound and no toast`);
+    bad++;
+  } else {
+    /* And it must not fire twice: `ensureLiveCycle` runs every frame for the
+       rest of the run and is guarded on `run.won`. `main.step` returns early
+       on a won run, so the director is driven directly here. */
+    const before = journal.peek().length;
+    const director = sched.STEPS.find(s => s.id === 'cycles');
+    director.step(1 / 120);
+    director.step(1 / 120);
+    if (journal.peek().length !== before) {
+      fail('WIN STATE: two more director steps on a won run pushed further rows -- the win must fire ' +
+           'exactly once');
+      bad++;
+    }
+  }
+
+  /* THE SCREEN, and the button the pointer has to find. Same `drawn.panels`
+     lookup `shell/input.js#onEndRestart` performs. */
+  if (!bad) {
+    main.draw();
+    const btn = uiState.drawn.panels.find(p => p.id === 'win-restart');
+    if (!btn || btn.w <= 0 || btn.h <= 0) {
+      fail(`WIN SCREEN: after a won run, drawn.panels holds ${JSON.stringify(btn)} for 'win-restart' -- ` +
+           `shell/input.js#onEndRestart hit-tests exactly this rect, so no rect is no restart`);
+      bad++;
+    } else if (uiState.drawn.panels.some(p => p.id === 'death-restart')) {
+      fail('WIN SCREEN: the death screen\'s own button is registered too -- the two end screens must be ' +
+           'mutually exclusive');
+      bad++;
+    } else {
+      console.log(`  ..  win screen: 'win-restart' registered at ${btn.w}x${btn.h} px, and no ` +
+                  `'death-restart' beside it`);
+    }
+  }
+
+  if (!bad)
+    ok(`WIN STATE: paying all ${D_cycles.CYCLES.length} shipped cycles sets run.won exactly once, pushes ` +
+       `one 'win' journal row, and draws a hit-testable restart button -- the game ENDS rather than ` +
+       `running out`);
+}
+
+/* --- CLAIM 4: the reward-grant bridge. `rules/cycles.js` may not import
+   `rules/grants.js`, so the ids go onto `run.awarded` and the scheduled
+   `rules/grants.js#step` performs them. The claim is that BOTH halves happen:
+   the id lands in `run.granted` (it always did) and a `'grant'` row is pushed
+   (it never was). --- */
+{
+  let bad = 0;
+  boot.newRun(9603);
+  journal.write.clear();
+  stepReal(1 / 120, { hasMouse: false });                  // arm cycle 1
+  const row = D_cycles.CYCLES[0];
+  const have = {};
+  for (const d of row.demand) have[`${d.sub}/${d.form}`] = d.n;
+  run.write.tribute({ ...run.run.tribute, have });
+  stepReal(1 / 120, { hasMouse: false });                  // complete it
+
+  const granted = (row.reward.grants ?? []).every(id => run.run.granted.includes(id));
+  const grantRows = journal.peek().filter(r => r.kind === 'grant');
+  const awarded = grantRows.map(r => r.data?.machine).sort();
+  const wantIds = [...(row.reward.grants ?? [])].sort();
+
+  if (!granted) {
+    fail(`GRANT BRIDGE: cycle 1 completed but run.granted is ${JSON.stringify(run.run.granted)} -- it ` +
+         `must contain ${JSON.stringify(row.reward.grants)}`);
+    bad++;
+  }
+  if (awarded.join() !== wantIds.join()) {
+    fail(`GRANT BRIDGE: cycle 1's reward pushed 'grant' rows for ${JSON.stringify(awarded)}, want ` +
+         `${JSON.stringify(wantIds)} -- rules/cycles.js used to call the raw model writer, so the most ` +
+         `important gift in the game arrived with no toast at all`);
+    bad++;
+  }
+  if (run.run.awarded !== null) {
+    fail(`GRANT BRIDGE: run.awarded is ${JSON.stringify(run.run.awarded)} after the drain (want null) -- ` +
+         `a queue that is not cleared is a grant that fires every frame`);
+    bad++;
+  }
+  if (!bad)
+    ok(`GRANT BRIDGE: cycle 1's reward reaches run.granted AND pushes one 'grant' row per machine ` +
+       `(${wantIds.join(', ')}) through rules/grants.js#step, with run.awarded cleared -- one grant path, ` +
+       `no rules-sibling import`);
+}
+
+/* --- CLAIM 5: the beat sheet reaches the end of cycle 2, and cycle 2's four
+   first-time asks each have a line to show. The LENGTH agreement between
+   `BEATS` and `CALLOUTS` is guarded at import in `rules/tutorial.js` itself
+   (every module is imported at the top of this file, so that guard runs
+   here); what is checked below is that the four new slots actually carry
+   copy, which is docs/FINDINGS.md #10's own failure mode -- guidance that is
+   absent rather than wrong is guidance nobody notices is missing. --- */
+{
+  let bad = 0;
+  const C = D_callouts.CALLOUTS;
+  /* 6..9 are the instructions for beats 7..10: plate, the dock, the chain,
+     the clock. 10 is the end of the sheet and is `null` on purpose. */
+  for (const i of [6, 7, 8, 9]) {
+    if (typeof C[i] !== 'string' || !C[i].length) {
+      fail(`CALLOUTS: index ${i} is ${JSON.stringify(C[i])} -- beats 7-10 are cycle 2's four ` +
+           `first-time asks (docs/SPEC.md 20.4) and each needs a line`);
+      bad++;
+    }
+  }
+  if (C.length !== 11 || C[10] !== null) {
+    fail(`CALLOUTS: ${C.length} rows with index 10 = ${JSON.stringify(C[10])} -- want 11 rows ending in ` +
+         `null (cycle 2 paid, the sheet is over)`);
+    bad++;
+  }
+  if (!bad)
+    ok(`BEAT SHEET: 10 beats with 11 callout slots, ${C.filter(c => c).length} carrying a line -- ` +
+       `cycle 2's plate, dock, chain and clock each have one`);
 }
 
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +

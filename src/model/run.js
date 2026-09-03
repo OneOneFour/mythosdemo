@@ -16,7 +16,7 @@ import { S, SUB } from '../data/substances.js';
 import { STARTING_MACHINES } from '../data/grants.js';
 import { HAND_RECIPES, RECIPES } from '../data/recipes.js';
 import { M, MACH, MACHINES } from '../data/machines.js';
-import { SPAWN_BAND } from '../data/world.js';
+import { BAND, SPAWN_BAND } from '../data/world.js';
 import { bump } from './epoch.js';
 import { keyOf, massOfPair } from './items.js';
 import { machineAt } from './machines.js';
@@ -89,6 +89,34 @@ export const RUN_SCHEMA = Object.freeze({
      run in the process would share. */
   cycle: 1, tribute: null,
   favour: null, charted: null, misses: 0,
+
+  /* EVERY SHIPPED TRIAL PAID -- the run's one win state, and the only end
+     condition in the game that is not death (docs/SPEC.md section 20.2).
+     `run.cycle > CYCLES.length` is the FACT; this flag is the EVENT, set
+     once by `rules/cycles.js#ensureLiveCycle` the frame it first becomes
+     true, and it exists rather than being re-derived in `view` for the same
+     reason `run.dead` does: an end-of-run screen needs a moment to announce,
+     and only a `rules` module may push the journal row that announces it. A
+     boolean and not a timestamp, because nothing measures how long ago the
+     run was won. */
+  won: false,
+
+  /* `awarded` IS THE GRANT BRIDGE, and it is `offer`'s sibling immediately
+     below for the identical reason: `rules/cycles.js` may not import
+     `rules/grants.js` (`tools/layers.mjs`'s rules-sibling ban), so a
+     completed trial's `reward.grants` cannot be performed where it is
+     decided. The director writes the MACHINE IDS here and
+     `rules/grants.js#step` -- scheduled immediately after it in
+     `shell/schedule.js`, which is what keeps the latency at zero frames --
+     performs each through the same `award()`/journal-row path a drafted
+     grant already takes. That is what makes it ONE grant path rather than
+     two: `write.grant` below has exactly one CALLING MODULE in `src/`, and it
+     is `rules/grants.js` (its `grant` and `award` are the two entry points).
+
+     A fresh ARRAY per write and `null` when empty, the same shape `tribute`
+     above uses, so no fresh-container rebuild is needed in `write.reset()`
+     -- the frozen template's own `null` is the reset. */
+  awarded: null,
 
   /* `offer` IS THE DRAFT BRIDGE, and it exists only because a `rules` module
      may not reach `shell/input.js#wants` (`tools/layers.mjs`'s `rules -> shell`
@@ -294,6 +322,17 @@ export const write = {
   cycle(n)          { run.cycle = n; bump(); },
   offer(tier)       { run.offer = tier; bump(); },
 
+  /* ONE-WAY, LIKE `advanceBeat` ABOVE AND FOR THE SAME REASON: it takes no
+     argument, so a writer that cannot be handed a boolean cannot be handed
+     `false`. A won run is not un-won. See `RUN_SCHEMA.won`. */
+  win()             { run.won = true; bump(); },
+
+  /* The grant bridge's one setter -- machine ids in, or `null` to clear.
+     `rules/grants.js#step` clears it BEFORE performing the ids it took, so
+     nothing can re-enter this queue from inside the award it triggered. See
+     `RUN_SCHEMA.awarded`. */
+  award(machineIds) { run.awarded = machineIds; bump(); },
+
   /* One trinket slot, Phase 4 STEP 4. `sub` is a substance ordinal or
      `null` (empties the slot). `rules/trinkets.js#step` is the only caller
      that ever passes a real `sub` -- it is the one place that decides an
@@ -410,6 +449,20 @@ export function placementCheck(band, machineId, tx, ty) {
   let footing = 0;
   for (let i = 0; i < def.tw; i++) if (solidAt(band, tx + i, ty + def.th)) footing++;
   if (footing < def.footing) return { ok:false, why:'NEEDS A FLOOR' };
+
+  /* BAND GATE (Phase 13d, docs/SPEC.md section 20.1). A BAND ID and not a
+     negative `minDepth`, per CLAUDE.md D9: the depth datum is fixed at the
+     spawn band's own floor line, so "above the datum by at least 30 tiles"
+     and "in astral" would be two independently-driftable ways of saying the
+     same thing -- and the one that drifts is the arithmetic, because the
+     band carries its own `origin` and `floorTy` and may be moved without
+     anyone remembering a threshold derived from them. A band id cannot
+     drift: `tools/content.mjs` proves the row names a real band.
+     Checked BEFORE the depth gate below because it is the coarser of the two
+     location questions, and refused with the band's own display NAME rather
+     than its id, so the message reads as a place. */
+  if (def.band && band.id !== def.band)
+    return { ok:false, why:'ONLY IN ' + (BAND[def.band]?.name ?? String(def.band).toUpperCase()) };
 
   /* DEPTH GATE, identical datum the HUD's depth gauge reads -- see
      `rules/placement.js`'s own copy of this comment, which this replaces. */

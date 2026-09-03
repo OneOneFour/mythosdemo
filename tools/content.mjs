@@ -616,7 +616,9 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* ---- 18. THE TRANSPORT INTERPRETER BLOCKS ARE WELL FORMED (Phase 8g).
+  /* ---- 18. THE SILENT-FAILURE MACHINE KEYS ARE WELL FORMED — the transport
+     interpreter blocks (Phase 8g) and, since Phase 13d, the `band` placement
+     gate, which shares their exact failure mode.
      `hub`, `crank` and `gear` are read by exactly the generic-interpreter
      route every other key here takes, which means a typo in one of them fails
      SILENTLY and permanently rather than loudly: `hub:{ carries:['players'] }`
@@ -671,6 +673,20 @@ export function checkContent({ quiet = false } = {}) {
       if (!finitePos(m.crank.reach))
         fail(`machine "${m.id}": crank.reach is ${JSON.stringify(m.crank.reach)}, not a finite ` +
              `positive number of px -- it is the slack in the same overlaps() call handFeed uses`);
+    }
+    /* THE BAND GATE (Phase 13d, docs/SPEC.md 20.1). Same silent-failure
+       argument as `hub.carries` above, one notch worse: a `band` naming no
+       real band makes `model/run.js#placementCheck` refuse the machine in
+       EVERY band for the whole run, with a refusal message built from the id
+       it could not resolve -- a machine that can never be placed anywhere and
+       nothing thrown. Optional, so only a row that carries the key is
+       checked. */
+    if (m.band !== undefined) {
+      checks++;
+      if (typeof m.band !== 'string' || !BANDS.some(b => b.id === m.band))
+        fail(`machine "${m.id}": band is ${JSON.stringify(m.band)}, which is not a data/world.js band ` +
+             `id (${BANDS.map(b => b.id).join(', ')}) -- placementCheck would refuse this machine in ` +
+             `every band in the game and never say why`);
     }
     if (m.gear) {
       seen.gear++;

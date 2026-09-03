@@ -78,6 +78,17 @@ export function step(dt) {
      is waiting the instant the map closes. */
   if (flags.showMap) return;
 
+  /* A WON RUN IS OVER (Phase 13d, docs/SPEC.md section 20.2). `run.won` is
+     set by `rules/cycles.js` the frame `run.cycle` passes the last shipped
+     trial, and from that frame nothing advances: not the clock, not
+     `stepAll`, not the camera. Guarded HERE rather than as a `if (run.won)
+     return` added to fifteen `rules` modules -- the map freeze one line up is
+     the precedent, and it is the same fact ("this frame does not simulate")
+     stated once. `run.dead` is deliberately NOT on this line: death leaves
+     the world live behind the death screen, items still fall, and changing
+     that is not this phase's business. */
+  if (run.won) return;
+
   /* THE CRAFT QUEUE RE-ASSERTS THE SAME ONE INTENT, every substep it is
      non-empty -- see `shell/ui.js#ui.craftQueue`'s own header for why this is
      a convenience over `rules/crafting.js`'s one-pair-of-hands scalar rather
@@ -150,6 +161,12 @@ function applyIntents() {
      wipes `wants.draft`/`cmd.place` on its own schedule whether or not this
      function consumed them. */
   if (flags.showMap) return;
+
+  /* And the same for a won run, for the same reason `step()` above returns on
+     it: the run is over, so a press that lands on the win screen resolves
+     nothing in a world that is no longer advancing. `wants.restart` is
+     unaffected -- `frame()` consumes it before either guard. */
+  if (run.won) return;
 
   /* THE ARMED PAIR TRACKS THE POCKETS (Part 1, click-to-arm placement): the
      instant the pockets no longer hold the EXACT armed pair -- spent by a
