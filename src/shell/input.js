@@ -121,12 +121,6 @@ function set(k, down) {
   const key = k.toLowerCase();
   if (KEYS[key]) cmd[KEYS[key]] = down;
   if (key === ' ')                  { if (down && !hopHeld) cmd.hop = true; hopHeld = down; }
-  /* `u` (a manual craft hold) is RETIRED, docs/PLAN-phase12.md D-B: a click
-     on the recipe grid already queues and auto-completes a craft
-     (`shell/ui.js#ui.craftQueue`, `shell/main.js#step`'s own re-assertion of
-     `cmd.craft` every substep the queue is non-empty) with no key held at
-     all, so `u`'s own hold was fully redundant. `cmd.craft` itself is kept
-     -- the queue's re-assertion still writes it every substep it runs. */
   /* 'r' to ACT on a placed machine within reach -- turn a crank, today's only
      such machine (Phase 8f, docs/PLAN-gears-and-winches.md section 4.2),
      renamed from `f`/`cmd.turn` per docs/PLAN-phase12.md §3 D-J: the brief
@@ -593,7 +587,7 @@ export function installInput() {
          placed even if the button stays down through a later frame.
          `aim.mode` records which rule fired, through the previously-dead
          `model/aim.js#write.mode` setter, so the reticle colour
-         (`view/hud.js:513`) finally reflects it.
+         (`view/hud.js#reticle`) finally reflects it.
 
          RULE 2 SITS ABOVE RULE 3 DELIBERATELY, and the precedent is a dozen
          lines up in this same handler: RMB already puts "a machine is under

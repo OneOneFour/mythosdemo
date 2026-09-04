@@ -298,13 +298,6 @@ export function cancelQueued(index) {
 
 export function clearCraftQueue() { ui.craftQueue.length = 0; }
 
-/* ---------- the quickbar ----------
-   Deleted (Phase 12c2, docs/PLAN-phase12.md §3 D-H): `assignQuickbar`/
-   `clearQuickbar` wrote a session-only assignment table that no longer
-   exists. Repositioning a quickbar slot now means `model/run.js#write.
-   moveSlot`, called directly from `shell/main.js`'s drag-resolve dispatch --
-   real storage, not a `shell/ui.js` mutator. */
-
 export function toggleHints() { ui.hintsOpen = !ui.hintsOpen; }
 
 /* ---------- auto collect (docs/PLAN-phase12.md §3 D-F) ----------

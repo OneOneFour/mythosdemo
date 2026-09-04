@@ -343,14 +343,6 @@ export function applyIntents() {
     cmd.link = false;
   }
 
-  /* USE a held miracle (Phase 4 STEP 3, docs/BUILD_PLAN.md) used to be its
-     own standalone verb here, aimed exactly like a placement or a
-     deconstruct, fired by `cmd.miracle` (the 'v' key). Phase 12d retired 'v'
-     -- D-A's `cmd.place` branch above now fires `miracles.use` directly for
-     an armed miracle, so this had no remaining caller (`cmd.miracle` itself
-     was dropped from `shell/input.js#cmd`) and is deleted rather than kept
-     as a dead branch nothing can ever reach. */
-
   /* A cycle completion (`rules/cycles.js#complete`) arrives as `run.offer`,
      since a `rules` module may not reach `shell/input.js#wants` -- see
      `model/run.js#RUN_SCHEMA.offer`'s own comment. Folding it into `wants.draft`
