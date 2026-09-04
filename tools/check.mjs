@@ -79,9 +79,6 @@ const fail = m => { console.error('  FAIL: ' + m); failures++; process.exitCode 
 const ok   = m => console.log('  ok   ' + m);
 
 
-/* ============================================================
-   0. DEPENDENCY DIRECTION
-   ============================================================ */
 console.log('\n0. dependency direction');
 {
   const r = await checkLayers({ quiet: true });
@@ -246,10 +243,6 @@ function feedByHand(m, sub, form, n) {
   shellUi.clearArmedPlace();
   return before - run.invCount(sub, form);
 }
-
-/* ============================================================
-   SHARED HELPERS for the determinism / reset probes below.
-   ============================================================ */
 
 /* Cheap rolling checksum over a typed array -- `b.mat`/`b.seen`/`b.light` are
    each tens of thousands of bytes, and a full JSON dump of three of them per
@@ -430,9 +423,6 @@ if (process.argv.includes('--determinism-probe')) {
 }
 
 
-/* ============================================================
-   1. NAME RESOLUTION — a typo in data/ must fail here, not at 3am
-   ============================================================ */
 console.log('\n1. content resolves');
 {
   const formIds = new Set(Object.keys(D_form.FORMS));
@@ -534,9 +524,6 @@ console.log('\n1. content resolves');
 }
 
 
-/* ============================================================
-   1b. CONTENT LINT — recipe reachability, mass, and tunable resolution
-   ============================================================ */
 console.log('\n1b. content lint');
 {
   const r = checkContent({ quiet: true });
@@ -556,9 +543,6 @@ if (!boot.booted()) fail('boot() did not place the player in a band');
 else ok(`booted: player in band "${player.player.band.id}"`);
 
 
-/* ============================================================
-   2. PURITY — view may read the model, never write it
-   ============================================================ */
 console.log('\n2. rendering is pure');
 {
   main.step(1 / 120);                       // let one frame settle
@@ -583,9 +567,6 @@ console.log('\n2. rendering is pure');
 }
 
 
-/* ============================================================
-   3. BEHAVIOUR
-   ============================================================ */
 console.log('\n3. behaviour');
 
 /* --- hardness is seconds-to-break, at any framerate --- */
@@ -820,9 +801,6 @@ console.log('\n3. behaviour');
   }
 }
 
-/* ============================================================
-   4. PHASE 6 — new behavioural probes, over the REAL step()
-   ============================================================ */
 console.log('\n4. Phase 6 probes');
 
 /* --- DETERMINISM: same seed + same scripted intents -> identical state hash
@@ -2541,7 +2519,6 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
       const grew = segs.segments.length - before;
       tally[verdict.why ?? 'ok'] = (tally[verdict.why ?? 'ok'] || 0) + 1;
 
-      /* CLAIM 1 */
       if (verdict.ok !== !!made || grew !== (verdict.ok ? 1 : 0)) {
         fail(`LINK LEGALITY: ${fam.id} trial ${i} -- linkCheck said ${verdict.ok ? 'ok' : verdict.why} ` +
              `but linkSegment ${made ? 'created' : 'refused'} (segments ${grew > 0 ? '+' + grew : grew})`);
@@ -2573,14 +2550,12 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
       }
 
       if (verdict.ok) {
-        /* CLAIM 2 */
         if (worst >= tile * 0.5 - 1e-9) {
           fail(`LINK LEGALITY: ${fam.id} trial ${i} -- an ACCEPTED ${len.toFixed(1)} px span cuts ` +
                `${worst.toFixed(2)} px through solid ${at}, which is half a tile or more; the half-tile ` +
                `sweep is guaranteed to have sampled inside it`);
           bad++;
         } else if (worst > 0) { clips++; worstClip = Math.max(worstClip, worst); }
-        /* CLAIM 3 */
         if (off) {
           fail(`LINK LEGALITY: ${fam.id} trial ${i} -- an ACCEPTED span passes through (${off.x.toFixed(1)}, ` +
                `${off.y.toFixed(1)}), which resolves to no band at all`);
@@ -2908,11 +2883,9 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
   span('12 tiles straight up, footing under the RIGHT column', 'ok', [1]);
   span('12 tiles straight up, footing under BOTH columns', 'ok', [0, 1]);
 
-  /* CLAIM 3 */
   span('a stone mid-span in the left column', 'THE PATH IS BLOCKED', [0], [[20, 111]]);
   span('a stone mid-span in the right column', 'THE PATH IS BLOCKED', [0], [[21, 111]]);
 
-  /* CLAIM 4 */
   span('a stone ONE ROW below the exemption, left column', 'THE PATH IS BLOCKED', [0], [[20, 108]]);
   span('a stone ONE ROW below the exemption, right column', 'THE PATH IS BLOCKED', [0], [[21, 108]]);
 
@@ -3080,7 +3053,6 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     const want = predictV(crankTorque(), mass, 1);
     const k = v > 0 ? r.band.tile / v : Infinity;
     rows.push({ tier, mass, v, want, k, be: (RATIOS[tier] * oreSecs) / k });
-    /* CLAIM 1 */
     if (Math.abs(v - want) > 1e-6) {
       fail(`BREAK-EVEN MEASURED: one copper ${tier} (${mass} T) aboard a vertical segment on one crank ` +
            `climbs at ${v.toFixed(4)} px/s; docs/SPEC.md 17.8 gives ${want.toFixed(4)} -- section 3 is ` +
@@ -3096,7 +3068,6 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
                 `break-even ${r.be.toFixed(2)} tiles`);
 
   for (let i = 1; i < rows.length; i++) {
-    /* CLAIM 2 */
     /* STRICTLY greater, with no epsilon of slack in the permissive direction:
        "equal" is what a drivetrain that had stopped reading mass at all would
        produce, and that must be a failure here rather than a pass. */
@@ -3106,7 +3077,6 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
            `${rows[i - 1].k.toFixed(3)} -- mass must cost seconds`);
       bad++;
     }
-    /* CLAIM 3 */
     if (!(rows[i].be > rows[i - 1].be)) {
       fail(`BREAK-EVEN MEASURED: ${rows[i].tier} breaks even at ${rows[i].be.toFixed(2)} tiles, not deeper ` +
            `than ${rows[i - 1].tier} at ${rows[i - 1].be.toFixed(2)} -- compression must buy depth, in ` +
@@ -3120,10 +3090,6 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
        `orders ore ${rows[0].be.toFixed(2)} < ingot ${rows[1].be.toFixed(2)} < plate ` +
        `${rows[2].be.toFixed(2)} tiles -- section 3's price is the one the game charges`);
 }
-
-/* ============================================================
-   TIER 2 — THE INVARIANTS, APPLIED TO SEGMENT TRANSPORT
-   ============================================================ */
 
 /* --- RENDER PURITY OVER THE DRIVETRAIN'S OWN DRAW PATHS (invariants 9 and 7).
    Section 2 proves the plain HUD and the terrain are pure and section 4 proves

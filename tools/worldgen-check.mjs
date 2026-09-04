@@ -398,9 +398,6 @@ function checkSeed(seed) {
   }
 }
 
-/* ============================================================
-   THE SWEEP
-   ============================================================ */
 console.log(`\nworldgen properties over seeds 1..${SEEDS} (WORLDGEN_SEEDS to change)`);
 const t0 = Date.now();
 
