@@ -56,14 +56,7 @@ export const slotForDigit = k => DIGITS.indexOf(k);
 /* One line of key bindings, collapsed by default (`ui.hintsOpen`). Named
    here rather than pulled from `shell/input.js` (`view` may not import
    `shell`) -- a legend is presentation text describing bindings that file
-   already owns, not a second source of truth for what a key DOES.
-
-   Written for the END STATE of docs/PLAN-phase12.md §4.1's keymap table --
-   `e`/menu, `r`/action, `c`/collect and `z`/cancel are all real today, but
-   `x`/dig, `u`/craft, `v`/use and `p`/equip are not actually removed as
-   physical keys until Phase 12d lands. Until then this legend and the live
-   key table legitimately disagree; that is a known, named discrepancy
-   (12c2's own prompt), not a bug to "fix" by reverting this string. */
+   already owns, not a second source of truth for what a key DOES. */
 const LEGEND = 'E MENU  R ACTION  Q DROP  C COLLECT  Z CANCEL  L LINK  LMB ACT';
 
 export function drawQuickbar(g, f) {

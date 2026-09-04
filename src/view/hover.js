@@ -24,9 +24,8 @@ import { baseHardOf, formRowOf, rowOf, tileAt } from '../model/tiles.js';
 import { bandAt, seenAt, tileX, tileY } from '../model/world.js';
 
 /* Plain words for `model/machines.js#statusOf`'s three states -- the hover
-   tooltip's own second line for a placed machine, so a stall is legible
-   before this task there was NO visible sign of one at all beyond a fire
-   glow that simply never lit. */
+   tooltip's own second line for a placed machine, so a stall is finally
+   legible instead of a fire glow that simply never lit. */
 const STATUS_WORDS = { running: 'RUNNING', 'no-fuel': 'NO FUEL', idle: 'IDLE' };
 
 /* The recipe this machine would run right now, judged by the SAME "every

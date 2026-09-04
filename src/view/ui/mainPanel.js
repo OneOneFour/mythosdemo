@@ -147,10 +147,6 @@ export function drawMainPanel(g, f) {
   else drawLogisticsTab(g, f, body);
 }
 
-/* ========================================================================
-   TAB 1 -- CHARACTER
-   ======================================================================== */
-
 /* The one place this project deliberately diverges from every other factory
    game's inventory: slots are stack-based, but the BINDING constraint is
    mass, so the burden bar is the most legible thing this tab draws --
@@ -236,7 +232,6 @@ function drawCharacterTab(g, f, body) {
   frameArmedSlot(g, grid, f.ui.armedPlace);
   ry = grid.y + grid.h + 4;
 
-  /* Equipment: `eff('trinketSlots')` slots over `run.equipped`. */
   const slots = eff('trinketSlots') | 0;
   const equipItems = Array.from({ length: slots }, (_, i) => {
     const sub = run.equipped[i];
@@ -367,10 +362,6 @@ function drawCharacterTooltip(g, f, grid, eqGrid) {
   }
 }
 
-/* ========================================================================
-   TAB 2 -- CRAFTING
-   ======================================================================== */
-
 const CATEGORY_TABS = [
   { id: 'raw', label: 'RAW' }, { id: 'refined', label: 'REFINED' },
   { id: 'tools', label: 'TOOLS' }, { id: 'placeables', label: 'PLACE' },
@@ -450,8 +441,7 @@ function drawCraftingTab(g, f, body) {
                colour: BACK, glyph: '?', frameColour: DIM };
     }
     const base = rep ? swatchOf(rep.sub) : DIM;
-    /* A craftable recipe used to show a bare swatch with no glyph at all --
-       the placeholder identity glyph fills that in (Polish 5). A recipe
+    /* The placeholder identity glyph shows on a craftable recipe. A recipe
        missing an ingredient keeps its own, more useful, single-letter
        selector glyph instead. */
     if (craftable) return { sub: rep?.sub, form: rep?.form, n: 0, mass: 0, colour: base, frameColour: GOOD,
