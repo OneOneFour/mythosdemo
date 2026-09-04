@@ -120,10 +120,10 @@ function signatureOf(emitters) {
 
 /* ---------- the dirty check ----------
    Keyed by the band OBJECT, not by `b.ord`, and deliberately module-local
-   rather than in `model/` -- exactly `rules/reveal.js#passB`'s own perf cache
-   one function up in that file, for the identical reason: `newRun()` always
-   hands out fresh band records, so a stale entry here can never be read back
-   into a live run, and there is no reset call to wire up or forget. */
+   rather than in `model/` -- exactly `rules/reveal.js#passB`'s own perf
+   cache, for the identical reason: `newRun()` always hands out fresh band
+   records, so a stale entry here can never be read back into a live run,
+   and there is no reset call to wire up or forget. */
 const bandState = new WeakMap();
 
 function isDirty(b, sig) {
