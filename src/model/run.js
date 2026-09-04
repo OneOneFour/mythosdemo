@@ -495,11 +495,6 @@ export function placementCheck(band, machineId, tx, ty) {
   return { ok:true, why:null };
 }
 
-/* Does the pocket ledger hold at least `n` of a SINGLE pair matching `sel`?
-   Mirrors `rules/machines.js`'s private `best`, specialised to `run.inv` --
-   exposed here rather than left inside a `rules` module for the same reason
-   the CRAFT panel needs any of this file's other queries: it must grey out
-   an unaffordable hand-recipe with no `rules` import available to it. */
 /* Total carried mass, in TALENTS -- CLAUDE.md D3. A query on numbers, so it
    is `model`, not `rules`: the DECISION about what a burdened player may
    still do -- `rules/player.js`'s climb falloff and ladder/hop lockout,
@@ -517,6 +512,11 @@ export function burdenOf() {
    where climb speed starts falling off before that. */
 export const burdenFrac = () => burdenOf() / eff('burden');
 
+/* Does the pocket ledger hold at least `n` of a SINGLE pair matching `sel`?
+   Mirrors `rules/machines.js`'s private `best`, specialised to `run.inv` --
+   exposed here rather than left inside a `rules` module for the same reason
+   the CRAFT panel needs any of this file's other queries: it must grey out
+   an unaffordable hand-recipe with no `rules` import available to it. */
 export function pocketsHave(sel, n) {
   for (const slot of run.inv) if (slot && slot.n >= n && matches(sel, slot.sub, slot.form)) return true;
   return false;
