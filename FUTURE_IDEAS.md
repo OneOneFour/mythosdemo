@@ -110,3 +110,37 @@ recipe, `{ in:{heart:1}, from:'vital' }`, spends hearts for an ordinary lift
 charge once timber runs out) — the existing mechanic already goes by "blood
 winch" in `docs/DESIGN.md`'s prose, and a future teleport-on-blood idea would
 need a different name to avoid the two getting conflated.
+
+---
+
+## Machine output as a held queue, offloaded by a grabber
+
+**Idea.** A machine recipe's output (`rules/machines.js#produce`) stays inside
+the machine as an internal FIFO buffer instead of ejecting as a physical,
+gravity-affected item the instant it is made. A not-yet-built "grabber" machine
+would then pull from the oldest queued item and move it onward — a Factorio-
+style inserter, rather than the current catch-box chaining where one machine's
+ejected output literally falls into the mouth of whatever sits below it.
+
+**Why it's good.** It decouples "a machine finished a recipe" from "the output
+is now a physical object subject to gravity and collision," which is exactly
+what a grabber needs to reach into: a queue it can query and drain on its own
+schedule, not a stream of falling items it has to catch mid-air.
+
+**Why it's parked.** No grabber machine exists yet, and today's multi-machine
+automation (belts, stacked machines) depends on `produce()`'s output actually
+falling as a physical item so the catch-box under it can collect it for free
+(the same idiom mining output uses, `ARCHITECTURE.md` invariant 5). Switching
+machine output to an internal buffer before a grabber exists would strand that
+output with no way to leave the machine. Needs the grabber designed first, not
+this queue on its own.
+
+**Sketch.** A machine record gains an `outQueue` array (or bounded ring buffer)
+that `produce()` pushes onto instead of calling `write.spawn`. A grabber
+machine, placed adjacent, dequeues the oldest entry on its own tick and either
+credits it to the player's inventory (if the player is the target) or ejects it
+as a physical item toward its own output side. Raised while fixing the
+hand-craft direct-inventory bug (`src/rules/crafting.js`), 2026-09-03 — the
+user's stated preference is hand-craft output goes straight to the player's
+inventory, but machine output should stay machine-side until something
+(this grabber) moves it, rather than becoming a player pickup.

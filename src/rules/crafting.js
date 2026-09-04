@@ -69,16 +69,12 @@ export function step(dt, cmd) {
   for (const sel in r.in) rw.spend(took[sel].sub, took[sel].form, r.in[sel]);
   rw.craft(0, null);
 
-  /* ARCHITECTURE invariant 5, the same idiom `rules/trinkets.js#grant` uses
-     for a drafted trinket: the output falls at the player's feet as a
-     physical item, never a direct `write.collect`. A small upward toss so it
-     reads as "made", not "dropped through the floor". */
   const c = playerCentre();
   let firstSub, firstForm, made = 0;
   for (const clause of r.out || []) {
     /* `clause.sub` is a bare content ID ('timber'), exactly like `clause.form`
        just below -- both need translating through their id table (`S`/`F`)
-       into an ordinal before `model/items.js#write.spawn` can use them.
+       into an ordinal before `model/run.js#write.collect` can use them.
        `subFrom` needs no such translation: `took[...].sub` already came from
        `model/items.js#parseKey`, which returns ordinals. PRE-EXISTING BUG,
        not introduced this phase: this line only ever read `clause.sub`
@@ -95,10 +91,15 @@ export function step(dt, cmd) {
     if (sub === undefined || sub === null) continue;
     const form = F[clause.form];
     if (firstSub === undefined) { firstSub = sub; firstForm = form; }
-    for (let k = 0; k < clause.n; k++) {
-      iw.spawn(player.band, c.x, c.y, sub, form, 0, -50);
-      made++;
+    /* Hand-crafted output is a direct write.collect, not a physical item --
+       ARCHITECTURE invariant 5 covers MINED material only. A full main
+       inventory falls back to the same ground-drop `write.spawn` the
+       INVENTORY FULL refusal path (rules/items.js) already uses, so
+       finished work is never silently lost. */
+    if (!rw.collect(sub, form, clause.n)) {
+      for (let k = 0; k < clause.n; k++) iw.spawn(player.band, c.x, c.y, sub, form, 0, -50);
     }
+    made += clause.n;
   }
   if (made) push('produce', { x: c.x, y: c.y }, { sub: firstSub, form: firstForm, made });
 }

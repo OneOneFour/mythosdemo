@@ -12,12 +12,14 @@
    byte. See the note there: a buffer is read by a human debugging a stuck
    factory, and the byte form answers the wrong question. */
 
-import { rect } from '../core/math.js';
+import { overlaps, rect } from '../core/math.js';
 import { MACH } from '../data/machines.js';
 import { expand, matches } from '../data/forms.js';
 import { recipesOf } from '../data/recipes.js';
+import { aim } from './aim.js';
 import { bump } from './epoch.js';
 import { keyOf, parseKey } from './items.js';
+import { playerBox } from './player.js';
 import { worldX, worldY } from './world.js';
 
 export const machines = [];
@@ -210,6 +212,47 @@ export function feedCheck(m, sub, form) {
   const have = count(m, sel), cap = capOf(def, sel);
   if (have >= cap) return { ok: false, why: 'IT IS FULL', have, cap };
   return { ok: true, why: '', have, cap };
+}
+
+/* ---- THE FEED TARGET (Phase 16a, docs/SPEC.md section 23.2) ----
+   The machine LMB rule 2 would hand `armed` to, or null. Two questions, in
+   the cheap-to-expensive order, each asked by whoever owns it:
+
+     is there a machine under the reticle, and can it be hand-fed at all?
+       -- geometry and a frozen data key, both already at hand in this file.
+     is the player standing close enough to reach it?
+       -- HERE too: reach is a fact about where the player's body is right
+       now, which `feedCheck` above deliberately refuses to ask (its other
+       reader is `view`'s build ghost, previewing a machine nobody has
+       walked to yet). `def.handFeed.reach` is the number, so no new tunable
+       exists; `overlaps` with a slack is the same expression
+       `rules/machines.js#handFeed` and `rules/drive.js`'s crank reach
+       already use.
+
+   DELIBERATELY NOT "would it take this pair?" -- that is `feedCheck`'s
+   question, not this one. Folding `feedCheck(...).ok` in here would make
+   both of its refusal strings unreachable from LMB: the moment the armed
+   pair was wrong or the machine was full, this would return null and the
+   press would fall through to rule 3 (place), which is how a ladder rung
+   once ended up placed inside a furnace's own footprint instead of refusing
+   to feed it. `docs/SPEC.md` section 23.4 locks the fix: a reachable,
+   hand-feedable machine under the reticle is ALWAYS the target, full stop.
+   Whether THIS pair is welcome is answered once, downstream, by
+   `rules/machines.js#handOne` calling `feedCheck` -- which is where a
+   refusal turns into the journal row the player actually sees.
+
+   Exported (moved here from `shell/input.js` in the same phase that added
+   `view/hud.js`'s player-side feed prompt) so both readers -- the LMB
+   dispatch that fires the press and the HUD reminder that a press is live --
+   share one answer instead of two copies of the reach check drifting apart. */
+export function feedTarget(armed) {
+  if (!armed || !aim.valid || !aim.band) return null;
+  const m = machineAt(aim.band, aim.tx, aim.ty);
+  if (!m) return null;
+  const def = defOf(m);
+  if (!def.handFeed) return null;
+  if (!overlaps(playerBox(), m.box, def.handFeed.reach)) return null;
+  return m;
 }
 
 /* Which port/hand-feed/recipe selector, if any, is this definition's fuel

@@ -50,8 +50,8 @@ import { S } from '../data/substances.js';
 import { aim } from '../model/aim.js';
 import { boons } from '../model/boons.js';
 import { eff, mods } from '../model/mods.js';
-import { player } from '../model/player.js';
-import { defOf, feedCheck, machineAt } from '../model/machines.js';
+import { PH, player } from '../model/player.js';
+import { defOf, feedCheck, feedTarget, machineAt } from '../model/machines.js';
 import {
   burdenFrac, burdenOf, cycleRow, hasPick, machineIdFor, placementCheck, run,
   tributeHave
@@ -595,15 +595,23 @@ function drawFootprintGhost(g, f, band, tx, ty, tw, th, ok, why) {
    presentation decision and there is no version of this project where two
    ghosts should disagree about it.
 
+   `below` (Phase 16c-cont, `feedPrompt`'s own third callsite) puts the line
+   one row UNDER `y` instead -- `feedGhost`'s machine-anchored label and
+   `feedPrompt`'s player-anchored one both fire in the same frame, and
+   `handFeed.reach` is small enough (a tile or two) that the two subjects sit
+   almost on top of each other on screen; stacking both labels above would
+   print one over the other.
+
    CLAMPED TO THE VIEWPORT, per D8 and for the reason `cableGhost` below
    already states: a refusal drawn off an edge at a narrow base buffer is a
    refusal nobody reads. Inert for a ghost near the camera centre, which is
    where both callers' subjects almost always are -- the clamp is here for
    the machine at the screen edge, not for the common case. */
-function ghostLabel(g, f, x, y, text, col) {
+function ghostLabel(g, f, x, y, text, col, below = false) {
   const w = textWidth(text);
+  const ly = below ? y + 2 : y - 8;
   drawText(g, text, Math.max(2, Math.min(x, f.W - w - 2)),
-           Math.max(2, Math.min(y - 8, f.H - 10)), col, 1, 1, UI.shade);
+           Math.max(2, Math.min(ly, f.H - 10)), col, 1, 1, UI.shade);
 }
 
 /* ---------- the feed preview ----------
@@ -655,6 +663,25 @@ function feedGhost(g, f, m, armed) {
   g.globalAlpha = 1;
 
   ghostLabel(g, f, x, y, check.ok ? check.have + '/' + check.cap : check.why, col);
+}
+
+/* THE FEED PROMPT: a reminder, at the PLAYER rather than the machine, that
+   LMB is live right now. `feedGhost` above already answers "would this
+   machine take it" from anywhere the reticle reaches, deliberately without
+   checking reach (its header explains why); this answers the complementary
+   question -- "is a press physically live this instant" -- which needs
+   `model/machines.js#feedTarget`'s reach check, the same one `shell/input.js`
+   asks before setting `cmd.feed`. Feeding is LMB, not a bound key (there is
+   no keyboard key to name), so the label spells the button the way
+   `view/ui/quickbar.js`'s legend already does ("LMB ACT").
+
+   BELOW THE PLAYER'S FEET, not above their head -- `feedGhost`'s own label
+   already occupies the row above the MACHINE, and at `handFeed.reach`'s
+   small distance the player and the machine are close enough on screen that
+   "one row above" would be the same row for both. */
+function feedPrompt(g, f) {
+  const x = (player.x - f.cam.x) | 0, y = (player.y + PH - f.cam.y) | 0;
+  ghostLabel(g, f, x, y, 'LMB FEED', UI.good, true);
 }
 
 /* ---------- the miracle ghost ----------
@@ -826,14 +853,20 @@ function buildGhost(g, f) {
   if (armed.form === F.phial) { miracleGhost(g, f); return; }
 
   /* `def.handFeed` IS PART OF THE TEST, not an afterthought -- the same first
-     half of `shell/input.js#feedTargetAt`'s own two questions. A gear, an
+     half of `model/machines.js#feedTarget`'s own two questions. A gear, an
      axle or a hub is a machine with no hand-feed clause at all, so rule 2
      cannot fire on it and the press falls through to rule 3; previewing a
      feed there would preview a rule that does not exist for that machine.
-     The SECOND half of `feedTargetAt` -- reach -- is deliberately absent, for
-     the reason `feedGhost` and `model/machines.js#feedCheck` both state. */
+     `feedGhost` deliberately answers without the SECOND half of
+     `feedTarget` -- reach -- for the reason it and `feedCheck` both state;
+     `feedTarget(armed)` is called again just below, reach and all, purely to
+     decide whether `feedPrompt` (the player-side reminder) is warranted. */
   const target = machineAt(aim.band, aim.tx, aim.ty);
-  if (target && defOf(target).handFeed) { feedGhost(g, f, target, armed); return; }
+  if (target && defOf(target).handFeed) {
+    feedGhost(g, f, target, armed);
+    if (feedTarget(armed)) feedPrompt(g, f);
+    return;
+  }
 
   if (armed.form === F.rig) {
     const id = machineIdFor(armed.sub);

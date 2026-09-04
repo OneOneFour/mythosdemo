@@ -20,11 +20,9 @@
    ours to fake. */
 
 import { VIEW, stage } from '../core/canvas.js';
-import { overlaps } from '../core/math.js';
 import { AIR, F } from '../data/forms.js';
 import { aim, write as aw } from '../model/aim.js';
-import { defOf, machineAt } from '../model/machines.js';
-import { playerBox } from '../model/player.js';
+import { feedTarget, machineAt } from '../model/machines.js';
 import { invCount, run } from '../model/run.js';
 import { tileAt } from '../model/tiles.js';
 import { drawn as uiDrawn } from '../view/ui/state.js';
@@ -287,52 +285,6 @@ function mapKey(k, shift) {
     case 'f': toggleMapFollow(); return true;
     default: return mapDigit(k);
   }
-}
-
-/* ---- THE FEED TARGET (Phase 16a, docs/SPEC.md section 23.2) ----
-   The machine LMB rule 2 would hand `armed` to, or null. Two questions, in
-   the cheap-to-expensive order, and each is asked by whoever owns it:
-
-     is there a machine under the reticle, and can it be hand-fed at all?
-       -- `model/machines.js`, geometry and a frozen data key.
-     is the player standing close enough to reach it?
-       -- HERE, and ONLY here. Reach is a fact about where the player's body
-       is at the instant of the press, which is exactly what this handler
-       knows and what `model/machines.js#feedCheck` deliberately refuses to
-       ask (its other reader is `view`'s build ghost, which must be able to
-       preview a machine nobody has walked to). `def.handFeed.reach` is the
-       number, so no new tunable exists; `overlaps` with a slack is the same
-       expression `rules/machines.js#handFeed` and `rules/drive.js`'s crank
-       reach already use.
-
-   DELIBERATELY NOT "would it take this pair?" A first draft of this function
-   also required `feedCheck(...).ok`, on the plan's own literal wording --
-   and that made both of `feedCheck`'s refusal strings unreachable from LMB:
-   the moment the armed pair was wrong or the machine was full, rule 2 would
-   not fire AT ALL and the press fell through to rule 3 (place), which is how
-   a ladder rung ended up placed inside a furnace's own footprint instead of
-   refusing to feed it. `docs/SPEC.md` section 23.4 locks the fix: a
-   reachable, hand-feedable machine under the reticle is ALWAYS the target,
-   full stop -- "a machine under the reticle means the machine", the same
-   argument that already puts RMB deconstruct ahead of RMB place. Whether
-   THIS pair is welcome is `feedCheck`'s question, asked once, downstream, by
-   `rules/machines.js#handOne` -- which is exactly where its answer needs to
-   turn into the `'refused'` row the player actually sees.
-
-   Returning the MACHINE rather than a boolean so nothing has to find it
-   twice: `shell/main.js` re-resolves it from the same `aim` one tick later
-   for the same reason the RMB deconstruct branch does. `armed` is still a
-   parameter for symmetry with that re-resolution, but it plays no role in
-   the answer any more -- ANY armed pair aimed at a reachable, hand-feedable
-   machine targets it, and `feedCheck` sorts out the rest. */
-function feedTargetAt(armed) {
-  if (!armed || !aim.valid || !aim.band) return null;
-  const m = machineAt(aim.band, aim.tx, aim.ty);
-  if (!m) return null;
-  const def = defOf(m);
-  if (!def.handFeed) return null;
-  if (!overlaps(playerBox(), m.box, def.handFeed.reach)) return null;
-  return m;
 }
 
 export function installInput() {
@@ -654,7 +606,7 @@ export function installInput() {
       if (armed && armed.form === F.phial && aim.valid && aim.band) {
         aw.mode('place');                 // rule 1 -- a miracle armed always wins
         cmd.place = true;
-      } else if (feedTargetAt(armed)) {
+      } else if (feedTarget(armed)) {
         aw.mode('place');                 // rule 2 -- a reachable machine that wants it
         cmd.feed = true;
       } else if (armed && aim.valid && aim.band && tileAt(aim.band, aim.tx, aim.ty) === AIR) {
