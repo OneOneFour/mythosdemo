@@ -57,13 +57,8 @@ const api = {
     return pair;
   },
 
-  /* `hearts()`/`takeHearts()` USED TO BE HERE, for `data/sources.js#vital` and
-     the retired winch stage's heart-fuelled recipe. Both went in Phase 8f
-     (docs/PLAN-gears-and-winches.md A5: the crank is manual only), and this
-     list's own rule above -- "every entry has a caller today" -- is why they
-     did not stay behind as a convenience. `model/run.js#write.spendHearts` is
-     still there, holding the "a machine may not kill you" rule for whatever
-     spends hearts next. */
+  /* Hearts-spending still lives in `model/run.js#write.spendHearts`, holding
+     the "a machine may not kill you" rule for whatever spends hearts next. */
 };
 
 /* Largest single matching pair in a `{ 'sub/form': units }` ledger -- `m.buf`
@@ -314,12 +309,6 @@ function emit(m, def, dt) {
            e.rate * dt);
   }
 }
-
-/* `acceptedBy` -- which `in` port selector, if any, accepts this pair -- USED
-   TO BE DEFINED HERE. It moved to `model/machines.js` in Phase 16a, unchanged,
-   so that it and `feedCheck` (the hand-feed half of the same question) cannot
-   drift into two different answers to "does this machine take this pair". It
-   is still the only thing `catchFalling` above asks. */
 
 /* ---------- mine ----------
    A PLACED miner. GATES on top of `rules/mining.js`'s hardness, not a second

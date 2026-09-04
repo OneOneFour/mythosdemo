@@ -174,13 +174,11 @@ const BEATS = [
 
   /* ============================================================================
      BEATS 7-10 ARE CYCLE 2 (Phase 13d, docs/SPEC.md section 20.4), and they
-     are past the end of section 5's own two-minute sheet on purpose. The sheet
-     stopped here, and the comment that used to sit at the bottom of this file
-     said there was "nothing left to teach" -- which was written before cycle
-     2's requirements existed. Cycle 2 asks for four things a player has never
-     done ONCE: refine ore into plate, build the Cloud Dock, get a segment
-     chain up to it, and beat a clock. That is four first-time asks arriving in
-     the same instant all guidance stopped.
+     are past the end of section 5's own two-minute sheet on purpose. Cycle 2
+     asks for four things a player has never done ONCE: refine ore into plate,
+     build the Cloud Dock, get a segment chain up to it, and beat a clock.
+     That is four first-time asks arriving in the same instant all guidance
+     stopped.
 
      THEY ARE STILL PURE OBSERVATIONS OF STATE ANOTHER STEP WROTE, exactly like
      beats 1-6, and not one of them adds a counter, flag or hook anywhere else

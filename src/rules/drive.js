@@ -412,9 +412,9 @@ function boxSolid(b, x, y, exempt) {
 }
 
 /* ---------- the refusal gap ----------
-   `rules/machines.js:304`'s idiom: a `WeakMap` rather than one scalar, because
-   more than one segment can be stalled under a load at once, and keyed by the
-   record so a cut segment needs no explicit cleanup. */
+   `rules/machines.js#tierRefusalDue`'s idiom: a `WeakMap` rather than one
+   scalar, because more than one segment can be stalled under a load at once,
+   and keyed by the record so a cut segment needs no explicit cleanup. */
 const REFUSAL_GAP = 1.0;
 const refusedAt = new WeakMap();
 function refusalDue(seg) {
@@ -443,11 +443,12 @@ function adjacent(a, b) {
       || (overY && (ax1 === b.tx || bx1 === a.tx));
 }
 
-/* THE CACHE, exactly `rules/light.js:114-135`'s shape: a module-local
-   `WeakMap` keyed by the BAND OBJECT and invalidated by a SIGNATURE recomputed
-   every frame. Keyed by the object and not by `b.ord` deliberately -- `newRun()`
-   always hands out fresh band records, so a stale entry can never be read back
-   into a live run and there is no reset call to wire up or forget.
+/* THE CACHE, exactly `rules/light.js`'s own `bandState`/`isDirty` idiom: a
+   module-local `WeakMap` keyed by the BAND OBJECT and invalidated by a
+   SIGNATURE recomputed every frame. Keyed by the object and not by `b.ord`
+   deliberately -- `newRun()` always hands out fresh band records, so a stale
+   entry can never be read back into a live run and there is no reset call to
+   wire up or forget.
 
    WHAT IS CACHED IS THE TOPOLOGY ONLY: the component partition and, per crank,
    the path of nodes between it and its nearest hub. Every NUMBER on that path

@@ -279,10 +279,8 @@ const KINDS = {
      Trees are the only timber above ground, so this loop is still the ladder
      supply — but at one remove since Phase 14a: a felled `log` is feedstock
      only (CLAUDE.md D12), and `data/recipes.js#peg_rungs` turns 2 of them into
-     4 `timber/rung`, which is the tile-capable form that actually places. The
-     claim this comment used to make — that `log` was "the only tile-capable
-     form in the game" — was already false when `rung`, `stair` and `gravel`
-     existed. See `data/forms.js`. */
+     4 `timber/rung`, which is the tile-capable form that actually places. See
+     `data/forms.js`. */
   trees(b, row) {
     const sub = S[row.sub];
     const top = Math.max(0, row.fromTy);
@@ -639,7 +637,7 @@ const nearSpawn = (b, tx, ty) => {
 /* ---------- coverage, asserted at import ----------
    `data/world.js` exports `STRATA_KINDS` for exactly this. A content row naming
    a kind nothing implements used to be skipped in silence; now it cannot be
-   committed. This is the cheap half of `tools/resolve.mjs`, paid at import. */
+   committed. This is the cheap half of `tools/content.mjs`, paid at import. */
 for (const kind of STRATA_KINDS)
   if (typeof KINDS[kind] !== 'function')
     throw new Error(`generate: no handler for strata kind "${kind}"`);
