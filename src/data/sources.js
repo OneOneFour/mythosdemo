@@ -24,7 +24,7 @@
    PRICE, stated plainly: this file is not serialisable or diffable as content.
    Every other table in `data/` could be JSON, shipped to a modder, or diffed
    between two runs to explain a balance change. This one cannot, and a dangling
-   reference inside one of these closures is invisible to `tools/resolve.mjs`,
+   reference inside one of these closures is invisible to `tools/content.mjs`,
    which reads names and not bodies. TWO rows is worth it (it was three until
    Phase 8f deleted `vital` -- see the note where it used to be). Thirty would
    mean the architecture chose wrong. */
@@ -61,7 +61,7 @@ export const SOURCES = Object.freeze({
      or heart-powered fallback of any kind, and this row had no consumer left.
 
      DELETED RATHER THAN PARKED, because that is what this file's own price
-     note demands: a source is a closure `tools/resolve.mjs` cannot see inside,
+     note demands: a source is a closure `tools/content.mjs` cannot see inside,
      and keeping one alive for a mechanism that no longer exists is the exact
      cost the note says three rows was worth paying for. The MECHANISM is
      untouched and is what a future non-item input would use again --

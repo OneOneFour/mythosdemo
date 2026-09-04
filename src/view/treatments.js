@@ -10,8 +10,7 @@
    key here, and any colour name a `look` block gets wrong, fails
    `npm run check:content` (`tools/content.mjs` assertion 15) rather than drawing
    nothing at depth 300 — which is what actually used to happen, `treat()`'s
-   `if (fn)` swallowing an unknown name in silence. The `tools/resolve.mjs` this
-   header used to cite has never existed.
+   `if (fn)` swallowing an unknown name in silence.
    See docs/DEVELOPER_GUIDE.md#colour-and-appearance
 
    CONTRACT. Every function takes `(g, cell, p)` where `cell` is

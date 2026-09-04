@@ -28,7 +28,7 @@
      fields    the named scalar fields this band allocates. A band with no
                `heat` row simply has no heat, and a machine emitting into a
                field the band does not have is a BUILD error, not a silent
-               no-op -- `tools/resolve.mjs` checks it.
+               no-op -- `tools/content.mjs` checks it.
      strata    worldgen instructions, by `kind`. Adding a kind costs engine
                code once; adding a layer or a vein costs one row here.
      look      band-scale appearance. `view/` is the only reader. */

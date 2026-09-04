@@ -20,7 +20,7 @@
                    without either knowing the other exists.
 
    A trinket mod key that is not a row here -- or whose scope does not resolve to
-   a real substance or machine id -- fails `tools/resolve.mjs`. */
+   a real substance or machine id -- fails `tools/content.mjs`. */
 
 export const TUNABLES = [
 

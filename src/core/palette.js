@@ -3,7 +3,7 @@
 
    Hex lives here because mixing two colours is arithmetic. The NAMES that
    content rows are allowed to use live in `data/palette.js`, which re-exports
-   this table and is what `tools/resolve.mjs` checks a `look` key against.
+   this table and is what `tools/content.mjs` checks a `look` key against.
 
    See docs/DEVELOPER_GUIDE.md#colour-and-appearance. */
 
