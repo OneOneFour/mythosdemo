@@ -232,8 +232,10 @@ export function step(dt, cmd) {
 
   /* ---- THE LAST TILE OF A TRUNK DROPS A SEED (Phase 15,
      docs/PLAN-phase15-trees.md D15-A, docs/SPEC.md section 22). `log` is the
-     only fuel in the game (`data/world.js`'s own `trees` row says so), so a
-     felled forest is a run that has quietly ended; this is the way back.
+     only fuel the game can MINE (`brand` is fuel too, but only ever made
+     from a log, `data/recipes.js#kindle`) -- `data/world.js`'s own `trees`
+     row says so -- so a felled forest is a run that has quietly ended; this
+     is the way back.
 
      WHY THIS IS CODE AND NOT A `data/drops.js` ROW. That table is the
      existing "mining X also drops Y" hook and it was considered first: a row

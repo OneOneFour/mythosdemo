@@ -109,7 +109,7 @@ function heightAt(b, tx, ty) {
 }
 
 /* A SEED BECOMES A TREE IN ONE WRITE PER TILE AND NOTHING ELSE.
-   `tw.set(..., NATIVE)` is the identical call `rules/generate.js:293` makes
+   `tw.set(..., NATIVE)` is the identical call `rules/generate.js#trees` makes
    for a wild trunk, so a grown tree is not merely similar to a generated one
    -- it is the same bytes, and every downstream reader (the canopy, the
    drop table, `dropAt`'s `tile.drops`, the seed drop in `rules/mining.js`
