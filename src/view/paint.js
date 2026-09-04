@@ -748,19 +748,13 @@ function paintCables(g, m, px, py, l) {
       /* A BUCKET HANGS OFF THE SHADED STRAND on a one-pixel link, clear of
          the cable so the two strands stay readable through the chain.
 
-         IT IS TAPERED, and that is the difference between a bucket chain and
-         a ladder. Two earlier attempts (3x2, then a flat 4x3 with a lit top
-         row) both read as RUNGS: evenly spaced rectangles beside a vertical
-         line is a ladder, whatever colour it is. A lit rim over a body that
-         is a pixel narrower at the foot reads as a vessel with a mouth, which
-         is what the reference image's chain is made of. */
-      /* TALLER THAN IT IS WIDE, with a dark mouth under a lit rim. That is
-         the third shape tried here and the first that is not a rung: 3x2 and
-         then 5x4-with-a-bright-top-row both read as ladder rungs, because a
-         horizontal bar beside a vertical line IS a rung no matter what colour
-         it is. A vessel is 4 wide, 5 tall, open at the top, and hangs off a
-         one-pixel link -- the link being one pixel matters too, since a 3 px
-         link is itself a little horizontal bar. */
+         TALLER THAN IT IS WIDE, with a dark mouth under a lit rim -- the
+         difference between a bucket chain and a ladder. Two earlier shapes,
+         3x2 and then 5x4-with-a-bright-top-row, both read as RUNGS: a
+         horizontal bar beside a vertical line IS a rung no matter what
+         colour it is. A vessel is 4 wide, 5 tall, open at the top, and hangs
+         off a one-pixel link -- the link being one pixel matters too, since
+         a 3 px link is itself a little horizontal bar. */
       const lx = bx + nx * 3, ly = by + ny * 3;
       R(g, bx + nx, by + ny, 1, 1, bucketC);                     // the link
       R(g, bx + nx * 2, by + ny * 2, 1, 1, bucketC);

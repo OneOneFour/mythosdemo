@@ -50,7 +50,8 @@ import { S } from '../data/substances.js';
 import { aim } from '../model/aim.js';
 import { boons } from '../model/boons.js';
 import { eff, mods } from '../model/mods.js';
-import { PH, player } from '../model/player.js';
+import { items } from '../model/items.js';
+import { PH, player, playerCentre } from '../model/player.js';
 import { defOf, feedCheck, feedTarget, machineAt } from '../model/machines.js';
 import {
   burdenFrac, burdenOf, cycleRow, hasPick, machineIdFor, placementCheck, run,
@@ -141,6 +142,7 @@ export function drawHUD(g, f) {
   const favourBottom = favour(g, W, boonBottom + 3);
   reticle(g, f);
   buildGhost(g, f);
+  collectPrompt(g, f);
   drawQuickbar(g, f);
   /* THE BAND RULER, RIGHT EDGE, COMPACT (docs/BUILD_PLAN.md Phase 9 section 3).
      One widget, two contexts: `view/overview.js` mounts the same function full
@@ -636,7 +638,7 @@ function ghostLabel(g, f, x, y, text, col, below = false) {
 
    REACH IS NOT CHECKED HERE, DELIBERATELY, and `feedCheck`'s own header is
    the argument: reach is a fact about where the player's body is at the
-   instant of a press, `shell/input.js#feedTargetAt` asks it exactly once,
+   instant of a press, `model/machines.js#feedTarget` asks it exactly once,
    there, and a query that folded it in would be unusable for a ghost -- whose
    whole job is to answer for a machine the player has not walked to. So this
    states a property of the MACHINE AND THE PAIR ("it wants this, and it is 3
@@ -682,6 +684,37 @@ function feedGhost(g, f, m, armed) {
 function feedPrompt(g, f) {
   const x = (player.x - f.cam.x) | 0, y = (player.y + PH - f.cam.y) | 0;
   ghostLabel(g, f, x, y, 'LMB FEED', UI.good, true);
+}
+
+/* THE COLLECT PROMPT: the pickup-verb analogue of `feedPrompt` above, and the
+   reason it exists is the same tutorial line `rules/tutorial.js`'s beat 2
+   comment already spells out -- pickup has been opt-in since Phase 12b
+   (docs/PLAN-phase12.md §3 D-E/D-F), so standing over the stock pickaxe (or
+   any resting item) collects nothing on its own, and nothing else in the HUD
+   said a press was live.
+
+   `items`/`eff('pickupR')` mirror `rules/items.js#step`'s own `near()` gate
+   exactly (distance from the player's centre, not the reticle -- collect has
+   no aim), but that check is `rules` and `view` may not import it, so the
+   handful of lines are repeated here rather than exported for one caller on
+   each side of the wall.
+
+   SILENT WHILE AUTO COLLECT IS ON: the reminder is for a press that has to
+   happen, and with autocollect on, one never does.
+
+   ABOVE THE PLAYER'S HEAD, not below -- the opposite of `feedPrompt`, so
+   neither row is a lie if some future scene ever makes both prompts true in
+   the same frame (an item resting beside a machine being fed). */
+function collectPrompt(g, f) {
+  if (f.ui.autoCollect) return;
+  const c = playerCentre(), r = eff('pickupR');
+  const near = items.some(it => {
+    const dx = it.x - c.x, dy = it.y - c.y;
+    return dx * dx + dy * dy < r * r;
+  });
+  if (!near) return;
+  const x = (player.x - f.cam.x) | 0, y = (player.y - f.cam.y) | 0;
+  ghostLabel(g, f, x, y, 'C COLLECT', UI.good);
 }
 
 /* ---------- the miracle ghost ----------
