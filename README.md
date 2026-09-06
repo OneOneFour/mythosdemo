@@ -31,28 +31,32 @@ development, so what you read in `src/` is exactly what the browser runs.
 | **A / D** | walk left and right |
 | **W / S** | climb up and down a ladder |
 | **Space** | hop — one tile, enough for a ledge, not enough to escape a hole |
-| **click** or **X** | dig the aimed tile |
-| **E** | place the first placeable thing in your pockets (logs make ladders) |
-| **F** | place a furnace |
-| **L** | place a winch stage |
-| **T** | equip a trinket (a god's passive boon) |
-| **B** | grant a machine boon |
+| **left click** | dig, place, hand-feed a machine, or use an armed miracle — whichever of those four the aim reticle and your armed pocket slot resolve to; see `docs/SPEC.md` §23.2 |
+| **right click** | deconstruct a placed machine under the reticle, or place |
+| **1–9** | arm the matching quickbar slot for the next left click |
+| **E** | open/close the main panel (build, craft, inventory, character) |
+| **Q** | drop the armed pocket item |
+| **R** (hold) | operate a placed machine you're standing at — e.g. turn a crank |
+| **C** (hold) | collect a nearby item pile |
+| **L** | link (or unlink) two hub machines into a transport segment |
+| **Backspace** | deconstruct the machine under the reticle |
+| **O** | toggle the full-world map overview |
+| **Z** / **Escape** | cancel an armed placement or link; Escape also closes the top panel |
 | **G** | tile grid overlay |
-| **C** | chunk boundaries overlay |
-| **H** | debug panel |
+| **H** | debug panel, and behind it: **T** trinket draft, **B** timed-boon draft, **K** machine-grant draft, **Y** miracle draft, **P** chunk-boundary overlay |
 | **M** | mute |
-| **R** | restart the run |
 
-Mouse aim when you move the mouse; keyboard aim otherwise (facing, or up/down).
+Restart is a clickable button on the death/win screen, not a key. Mouse aim
+when you move the mouse; keyboard aim otherwise (facing, or up/down).
 
 ## What to try, and what should happen
 
 1. **Walk around.** You spawn on the **surface** band. Hop a ledge. Note that
    one hop cannot get you out of a hole — that is deliberate.
-2. **Dig down.** Hold **S** and **X**. Tiles crack, then break, then drop an
-   item that **falls**. Walk over it to collect. Nothing teleports into your
-   inventory: material becomes a physical thing, which is how the game teaches
-   that down is free before any machine exists.
+2. **Dig down.** Hold **S** and left click on the tile below you. Tiles crack,
+   then break, then drop an item that **falls**. Walk over it to collect.
+   Nothing teleports into your inventory: material becomes a physical thing,
+   which is how the game teaches that down is free before any machine exists.
 3. **Keep digging.** Fall damage starts at 5 tiles and a 20-tile drop is lethal,
    at any framerate. You have five discrete hearts.
 4. **Fell a tree, then peg the logs into rungs and place them.** Placing a rung
@@ -62,21 +66,27 @@ Mouse aim when you move the mouse; keyboard aim otherwise (facing, or up/down).
    climbable: worldgen writes a trunk as a *native* tile, and only a *placed*
    form's own `tile` block can say `climb`. That is emergent from the content
    model, not coded.
-5. **Place a furnace with F**, and drop ore into its mouth from above. Material
-   that falls in is free; hand-feeding while standing next to it also works.
+5. **Arm a furnace from the quickbar or build panel and left-click open ground
+   to place it**, then drop ore into its mouth from above. Material that falls
+   in is free; left-clicking it while something is armed hand-feeds it too.
    Putting it *below* a vein is strictly better than putting it on the surface.
-6. **Press T** to equip a trinket, then watch a machine speed up. Press it again
-   to see the effective value restored.
+6. **Open the panel with E** and equip a trinket from the Character tab, then
+   watch a machine speed up. Unequip it to see the effective value restored.
 7. **Look up.** There is an **astral** band above the surface where minor gods
-   live, and a **topsoil** band below. The winch is how you get up. It only
-   ascends with a lit burner, and it is the whole thesis in one machine.
+   live, and a **topsoil** band below. Getting cargo up there is player-driven,
+   gear-linked transport, not a switch: place two hub machines, **L**-link
+   them into a segment, then hold **R** at a crank to turn it. The carrier
+   only rises while something is actively turning it, and slides back down
+   under its own weight the moment you let go — that is the whole thesis in
+   one mechanic.
 
 ### What is deliberately absent
 
-No tutorial beats, no tribute cycles, no monsters, no fluids, no heat
-diffusion, no save file, and only three machines. The *seams* for all of those
-exist and are documented; the content does not. `docs/DESIGN.md` marks what is
-designed versus built, and `FUTURE_IDEAS.md` holds the backlog.
+No monsters, no fluids, no heat diffusion, no save file, and content is thin
+throughout (a handful of substances, machines, cycles). The tutorial beats and
+the god-tribute cycles are built. The *seams* for the rest exist and are
+documented; the content does not. `docs/DESIGN.md` marks what is designed
+versus built, and `FUTURE_IDEAS.md` holds the backlog.
 
 **The art has not been reviewed since the refactor.** Screenshot baselines were
 re-taken mechanically to catch future regressions, not because anyone judged
