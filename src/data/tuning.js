@@ -183,9 +183,10 @@ export const TUNABLES = [
     note:'chance a carved hollow has its walls lined with ore. Read once per hollow, at worldgen.' },
 
   /* ---- tree regrowth (Phase 15, docs/PLAN-phase15-trees.md D15-E,
-     docs/SPEC.md section 22). `log` is the only fuel in the game
-     (`data/world.js`'s own `trees` row says so), so a felled forest is a run
-     that has quietly ended. These two numbers are the whole of the answer.
+     docs/SPEC.md section 22). `log` is the only fuel a player can mine
+     (`brand` exists too, but only ever made from a log; `data/world.js`'s
+     own `trees` row says so), so a felled forest is a run that has quietly
+     ended. These two numbers are the whole of the answer.
 
      `treeGrowSecs` IS 180 AND NOT 90, and 90 is the number it was measured
      against: `brandSecs` above is 90 and is this game's existing unit of "one
