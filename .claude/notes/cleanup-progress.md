@@ -32,8 +32,8 @@ Decisions locked in by the user for this run (do not re-ask):
 | 2 | tidy: drop self-referential comment narration, repo-wide | Track B1, 12 remaining files | done | 938aed5 |
 | 3 | tidy: drop bare Phase-N tags | Track B2, 41 of 48 files touched (7 had zero bare hits) | done | 42127aa |
 | 4 | docs: fix stale tools/resolve.mjs and file:line references | Part 2 §2H + DEVELOPER_GUIDE facts (§2K) | done | c727393 |
-| 5 | docs: retire the spent REVIEW, AUDIT and MIGRATION artifacts | Part 2 §2A, 23 deletions + 2 brain salvages | done | (pending commit) |
-| 6 | docs: extract TRANSPORT.md and adr/0001 from the shipped plans | new user-facing files | pending | |
+| 5 | docs: retire the spent REVIEW, AUDIT and MIGRATION artifacts | Part 2 §2A, 23 deletions + 2 brain salvages | done | 787e05d |
+| 6 | docs: extract TRANSPORT.md and adr/0001 from the shipped plans | new user-facing files (+ PLAN-phase17-drafts.md) | done | (pending commit) |
 | 7 | docs: trim spent scaffolding from the shipped phase plans | Part 2 §2I/§2J | pending | |
 | 8 | docs: trim session narration from FINDINGS, SPEC and BUILD_PLAN | Part 2 §2C/§2D/§2E | pending | |
 
@@ -67,6 +67,14 @@ Decisions locked in by the user for this run (do not re-ask):
   fixed). Citations inside already-executed BUILD_PLAN.md/PLAN-*.md phase
   prompts ("Read docs/AUDIT.md...") were left alone as historical record,
   same treatment as the docs/reference/ citations in commit 4.
+- Commit 6: skipped `docs/PLAYTEST-walkthroughs.md` (the plan itself flagged
+  it "lower confidence... skip if the trim is already large enough" -- and
+  by this point it is). Did the other three: TRANSPORT.md, adr/0001, and
+  PLAN-phase17-drafts.md (this last one must happen before commit 7's
+  PLAN-phase16 trim or its content -- the one piece of unshipped work in any
+  of the five shipped plans -- would be destroyed). Verified the cycle-4
+  bellows bug PLAN-phase17-drafts.md documents is still live today
+  (`data/drops.js#tribute-bellows` still `chance:1`) before extracting it.
 - Did NOT remove `MIGRATION.md` from CLAUDE.md's `docs/` listing, even
   though §2L says to do so in the same commit -- CLAUDE.md is out of scope
   per the user's explicit instruction for this whole task. Flagging so the
