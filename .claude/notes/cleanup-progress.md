@@ -30,8 +30,8 @@ Decisions locked in by the user for this run (do not re-ask):
 | 1.10 | tidy: data-1 (substances, tuning, sfx, callouts, palette) | src/data | done | 626e890 |
 | 1.11 | tidy: data-2 (grants, boons, miracles, trinkets, drops) | src/data | done (no changes needed) | -- |
 | 2 | tidy: drop self-referential comment narration, repo-wide | Track B1, 12 remaining files | done | 938aed5 |
-| 3 | tidy: drop bare Phase-N tags | Track B2, 47 of 48 files touched (1 had zero bare hits after re-check) | done | (pending commit) |
-| 4 | docs: fix stale tools/resolve.mjs and file:line references | Part 2 §2H + DEVELOPER_GUIDE facts (§2K) | pending | |
+| 3 | tidy: drop bare Phase-N tags | Track B2, 41 of 48 files touched (7 had zero bare hits) | done | 42127aa |
+| 4 | docs: fix stale tools/resolve.mjs and file:line references | Part 2 §2H + DEVELOPER_GUIDE facts (§2K) | done | (pending commit) |
 | 5 | docs: retire the spent REVIEW, AUDIT and MIGRATION artifacts | Part 2 §2A, 21 deletions + 3 brain salvages | pending | |
 | 6 | docs: extract TRANSPORT.md and adr/0001 from the shipped plans | new user-facing files | pending | |
 | 7 | docs: trim spent scaffolding from the shipped phase plans | Part 2 §2I/§2J | pending | |
@@ -48,6 +48,47 @@ Decisions locked in by the user for this run (do not re-ask):
   `docs/PLAN-phase10.md:385-388` also need this fix per the plan (in scope there).
 
 ## Notes / deviations from plan (fill in as encountered)
+
+- Commit 4 (§2H): skipped the "dead line-number citations" list inside
+  BUILD_PLAN.md (SPEC §12 line, shell/input.js:181, paint.js:174-180,
+  scene.js/treatments.js citations, hud.js:324/120-121, check.mjs:789-815 +
+  forms.js:225-228). All of these sit inside already-EXECUTED historical
+  phase prompts that commit 7 (§2I/§2J trim) is about to cut down heavily --
+  chasing exact current line numbers for content about to be partially
+  deleted is low value. Not fixed; flagging instead of silently dropping.
+- Commit 4 (§2H): skipped the 14 `docs/reference/` citations in BUILD_PLAN.md
+  -- verified real (grep confirms), but every one sits inside a historical,
+  already-executed phase prompt telling a past agent to save ad-hoc
+  comparison screenshots to a scratch path that was never meant to be
+  permanent (the doc's own text at the point of first use already says so:
+  "docs/reference/ does not exist yet; docs/art/ holds unrelated concept
+  images and is not it"). Not the same shape as a citation to a file that
+  should resolve today; left alone.
+- BUILD_PLAN.md's `.claude/agents/` subagent roster (cartographer/systems/
+  ui/harness/reviewer) is fixed with an added note rather than renamed
+  throughout the file -- only `bug-investigator.md` exists, but the roster
+  names recur across dozens of already-executed phase prompts and renaming
+  them all would misrepresent history for no reader benefit.
+- Commit 4 (§2K DEVELOPER_GUIDE.md): covered every item the plan named --
+  the six rules/lift.js references (rewrote the "when a machine needs its
+  own rules module" section to cover rules/drive.js/segment transport
+  instead of leaving a gap), the vital/SOURCES claim, the blood-winch
+  "needs no code" claim, the 14-vs-24 assertion count (added 15-24),
+  the 12-forms/stride-13/PACKABLE_LIMIT-18 numbers (now 13/14/17),
+  pocketHits (now hoverInfo + a note explaining pocketHits' retirement),
+  feedCheck's real location (model/machines.js not rules/), brandLight (no
+  such tunable; brandLevel/brandSecs), the view/ui/ file list (added
+  mainPanel/quickbar/ruler), the missing check:worldgen row and script
+  aliases, and the two self-referential monologue passages (the schedule.js
+  history narrative's doc-side twin, and the "three comments... four
+  phases" aside). Also fixed 6 drifted file:line citations (copper/tin/
+  stone/granite substances.js lines, crossable()/expand() forms.js lines,
+  brand's massK value and line). NOT done: adding brand-new sections for
+  rules/cycles.js, rules/growth.js and rules/tutorial.js (the plan noted
+  their absence but this is a coverage gap, not a stale fact, and would be
+  substantial new content rather than a correction); a handful of low-value
+  bare Phase-N tags remaining in DEVELOPER_GUIDE.md (10 total, most already
+  cited) were left alone -- markdown files were never in Track B2's scope.
 
 - Batch 1.7 (view-2): `view/ui/grid.js:17`, `panel.js:6`, `state.js:4,12` all
   cite `view/hud.js#pocketHits` as a live idiom. Confirmed stale (D2 finding,

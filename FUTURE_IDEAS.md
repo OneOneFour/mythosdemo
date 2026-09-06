@@ -78,38 +78,29 @@ in full in `docs/DESIGN.md`. Listed here so the backlog is in one place.
 
 ---
 
-## Mechanical power for belts, as an alternative to burner fuel
+## Mechanical power for belts — partially shipped, one idea still open
 
-**Idea.** Belts (`rules/belts.js`) currently run on the same burner/charge
-mechanism as the lift: feed a machine fuel, it banks a charge, the charge gets
-spent moving material. A discussed alternative is MECHANICAL power instead of
-combustion — a waterwheel or drop-weight driven by material already falling
-through the factory (a waterfall, a chute of ore under gravity), possibly
-sharing a gear-train with the lift's own winch drum, so building more belts
-competes with the lift for the same mechanical budget rather than each having
-an independent fuel bill. A manual hand-crank is the degenerate case of the
-same idea — the player's own effort standing in for a mechanism, the way
-`rules/crafting.js` already lets hands stand in for a machine.
-
-**Why it's parked.** All three (falling-object power, a lift/belt gear-split,
-hand-cranking) are a real transport/allocation mechanism — power has to be
-generated somewhere, carried somewhere, and split between competing draws —
-and `model/fields.js` documents diffusion as a deliberately unbuilt seam for
-exactly this reason: a spatial power field needs real infrastructure this
-project does not have yet. The burner/charge model was chosen for this phase
-specifically because it needed none of that: a charge is a number on a machine
-record, banked and spent by the exact same generic recipe path a furnace
-already uses.
+**Shipped, differently than discussed here.** A manual hand-crank and a
+gear-train sharing a mechanical budget between multiple draws was once a
+discussed alternative to burner fuel; it shipped in Phase 8f as player-driven
+segment transport (CLAUDE.md D10, `docs/PLAN-gears-and-winches.md`) --
+`crank`/`gear`/`axle` machines, torque as a divisible component scalar, one
+crank able to feed several segments through gears at a shared, divided speed.
+Belts (`rules/belts.js`) still run on the unrelated burner/charge mechanism
+(feed a machine fuel, it banks a charge, the charge gets spent moving
+material) and are not on the drivetrain.
 
 **Not to be confused with:** a separate, previously-discussed "blood winch"
 idea where a player SACRIFICES HP to instantly TELEPORT resources rather than
-moving them physically — a teleport-for-blood mechanic with no belt or lift
-involved at all. That is distinct from the heart-fuel-for-lift-charge trade
-`data/machines.js`'s `lift` row already implements today (the winch's second
-recipe, `{ in:{heart:1}, from:'vital' }`, spends hearts for an ordinary lift
-charge once timber runs out) — the existing mechanic already goes by "blood
-winch" in `docs/DESIGN.md`'s prose, and a future teleport-on-blood idea would
-need a different name to avoid the two getting conflated.
+moving them physically — a teleport-for-blood mechanic with no belt or
+segment involved at all. This is still unbuilt and still open. It must not be
+confused with the heart-fuel-for-lift-charge trade the staged winch's second
+recipe once offered (`{ in:{heart:1}, from:'vital' }`, spending hearts for an
+ordinary lift charge once timber ran out): that mechanic is gone along with
+the winch it belonged to, the user rejected it outright when segment transport
+replaced the winch (D10 explicitly rules out a passive or heart-powered
+alternative to the manual crank), and `data/sources.js#SOURCES` no longer
+carries a `vital` row at all.
 
 ---
 

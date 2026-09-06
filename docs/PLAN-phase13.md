@@ -80,7 +80,7 @@ uiBack:'#0d0b12'
 ```
 
 `src/data/palette.js` adds no hex — it re-exports `core/palette.js` through a
-throwing resolver (`colour(name)`), which is what `tools/resolve.mjs` checks a
+throwing resolver (`colour(name)`), which is what `tools/content.mjs` checks a
 `look` key against. So a new named tone is **one row in `core/palette.js`**
 and nothing else, per the convention in that file's own header.
 

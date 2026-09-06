@@ -175,6 +175,13 @@ Put these in `.claude/agents/`. The orchestrator writes the specs.
 | `harness` | verification | `tools/`, `tests/`, `package.json` scripts |
 | `reviewer` | checks a phase's diff against its spec | `docs/` only, verdict only |
 
+**Not realized as written.** `.claude/agents/` holds only `bug-investigator.md`
+today; every phase below that names `cartographer`/`systems`/`ui`/`harness`/
+`reviewer` ran some other way in practice (a single agent, or a differently
+named one). The roster and the ownership split it argues for are still the
+right shape for a multi-agent run of a phase this size; the specific names
+are historical.
+
 ---
 
 ## Phase 0 — Targeted hardcode census (1 × `cartographer`, read-only)
@@ -1552,7 +1559,10 @@ C1. Band widths stay as declared: SPEC §1 fixes the world at 128 tiles and the
     touch any tw.
 C2. All randomness through the existing seeded RNG only (CLAUDE.md invariant
     7). Same seed must produce byte-identical material and damage arrays.
-C3. No new substances. Headroom is 2 rows (SPEC §15) and none of them is
+C3. No new substances. Headroom was thought to be 2 rows at the time; SPEC
+    §15's Phase-14a correction supersedes that -- appendable headroom is
+    zero, and a new tile-capable row must be INSERTED below
+    `PACKABLE_LIMIT`, never appended. None of them is
     being spent on scenery. If a pass wants a new material, it reuses an
     existing substance or becomes Phase 8's paint problem instead
     (CLAUDE.md D7).
@@ -1786,8 +1796,9 @@ three greens, ragged silhouette.
   - Canopy stays RENDER-ONLY DECORATION baked into the chunk canvas,
     deterministic from tile coordinates through hash2 (never rand — see
     treatments.js's own header and CLAUDE.md invariant 7). No tile cost, no
-    collision, no tile-byte spend (SPEC §15 has 2 rows left and this is not
-    what they are for).
+    collision, no tile-byte spend (SPEC §15 was thought to have 2 rows left
+    at the time -- superseded, appendable headroom is actually zero -- and
+    this is not what a row would be for regardless).
   - Shape: 3-5 overlapping blobs, radius jittered +-1 px, union'd, then eroded
     at the edge so the silhouette is ragged rather than circular. These are
     OLIVE trees per SPEC §5 — sparse, silver-green, irregular, not the dense

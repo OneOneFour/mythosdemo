@@ -127,7 +127,7 @@ rather than describes:
 - Content kept thin: substances `copper`, `tin`, `timber`, `stone`; forms `ore`,
   `ingot`, `gravel`, `log`. One machine (furnace) plus one variant to prove
   variants are free. One trinket. One boon.
-- `tools/resolve.mjs`: proves every string key in `data/` resolves, at build
+- `tools/content.mjs`: proves every string key in `data/` resolves, at build
   time, so a typo fails before import rather than at 3am.
 
 ## Phase 3 — `model`

@@ -1,10 +1,5 @@
 # Developer guide
 
-**Draft — pending review.** Synthesised from design-rationale prose currently
-living in `src/` comments (see `docs/COMMENT_AUDIT.md`). Once accepted, the
-source blocks marked `3` in that audit get replaced with one-line pointers into
-this file.
-
 Read `ARCHITECTURE.md` first. That file states the rules; this one tells you how
 to get a specific job done inside them. `docs/SPEC.md` holds the locked numbers,
 `docs/DESIGN.md` the game reasoning.
@@ -95,9 +90,9 @@ Canonical examples:
 
 | you want | copy |
 |---|---|
-| an ore | `copper` (`substances.js:64`) — and `tin` (`:81`) is the proof it costs one row |
-| bulk rock | `stone` (`:108`) |
-| a harder rock behind a tool gate | `granite` (`:177`) |
+| an ore | `copper` (`substances.js:113`) — and `tin` (`:127`) is the proof it costs one row |
+| bulk rock | `stone` (`:167`) |
+| a harder rock behind a tool gate | `granite` (`:265`) |
 | a tool | `auger` (`:204`) |
 | a trinket | `bellows` (`:126`) |
 | a miracle | `chasm` (`:241`) |
@@ -141,7 +136,7 @@ substance is unreachable, massless, or breaks tier monotonicity.
 One row in `src/data/forms.js`. A form is a *shape* an element takes.
 
 - `subTags` — **which substance tags may take this form. This is the whole
-  crossing rule** (`crossable()`, `forms.js:230`). `ingot` requires `metal`,
+  crossing rule** (`crossable()`, `forms.js:385`). `ingot` requires `metal`,
   which is why there is no stone ingot and no row anywhere saying so. `relic`
   requires `relic`, `phial` requires `miracle` — that separation is deliberate,
   so a miracle can never satisfy a `#relic` selector by accident.
@@ -170,11 +165,11 @@ Two traps:
    Do not copy `block`'s `tile` block onto a structure form.
 2. **Mass conservation is linted.** `tools/content.mjs` assertion 6 caught
    `brand` at `massK:0.5`, because `kindle` turns one log into three brands and
-   3 × 0.5 exceeds the log's 1.0 (`forms.js:111`).
+   3 × 0.5 exceeds the log's 1.0 (`brand` is `massK:0.3` today, `forms.js:180`).
 
 Adding a form costs one byte of tile-id stride for every substance: at the
-twelve forms shipped today the stride is 13, the highest packable ordinal
-(`adamant`, 8) packs to 117 of 255, and `PACKABLE_LIMIT` is 18. The guard in
+thirteen forms shipped today the stride is 14, the highest packable ordinal
+(`adamant`, 8) packs to 126 of 255, and `PACKABLE_LIMIT` is 17. The guard in
 `data/forms.js` fails the build rather than wrapping silently.
 
 **A form is the cheap thing here; a tile-capable substance is not appendable at
@@ -186,7 +181,7 @@ all.** `SUB.length` is already past `PACKABLE_LIMIT`, so appending a row with a
 
 ## Selectors
 
-One grammar, one implementation (`forms.js:263`), so the machine interpreter,
+One grammar, one implementation (`forms.js:519`), so the machine interpreter,
 the catch box and the resolver cannot disagree about what "any ore" means.
 
 `subPart` `/` `formPart`, where each part is `*`, a bare id, or `#tag`. A
@@ -213,7 +208,7 @@ site.
 One row in `src/data/recipes.js`, or inline on a machine row. Both are the same
 shape; `recipesOf()` resolves either. **Named** rows are for transformations
 more than one machine performs; **inline** rows are for a machine's own private
-behaviour (the lift's fuel row, the belt's, the brazier's).
+behaviour (the belt's, the brazier's).
 
 ```
 in     { selector: units }
@@ -424,17 +419,18 @@ legible where a deep array merge is not.
 A recipe with `out:[]` consumes its inputs and produces nothing liftable. It
 banks a **charge** on the machine record instead (`rules/machines.js:196`).
 
-Three machines use this identically — the lift stage, the belt, the brazier —
-and nothing in the codebase can tell one machine's charge from another's, or a
-charge bought with timber from one bought with a heart. That indirection is why
-the blood winch needs no code of its own: the winch's second recipe pays a heart
-for a charge, and `rules/lift.js` only ever asks whether a charge exists.
+Two machines use this identically — the belt and the brazier — and nothing in
+the codebase can tell one machine's charge from another's. The staged winch
+once used the same charge for a drum turn, including a second recipe that paid
+a heart for one (the "blood winch"); CLAUDE.md D10 replaced the winch with
+player-driven segment transport and explicitly forbids a passive or
+heart-powered alternative to the manual crank, so that trade does not carry
+forward onto anything built since.
 
 Consumers:
 
 | machine | what a charge buys |
 |---|---|
-| lift stage | one turn of the drum, ascending only (`rules/lift.js:62`) |
 | belt | exactly one item delivered off the belt's end (`rules/belts.js`) |
 | brazier | keeps `m.running` true, which is what `light.whileRunning` reads |
 
@@ -452,8 +448,8 @@ Read the price note at the bottom of its header before adding a row.
 A recipe input clause names its source with `from:`, defaulting to `'buffer'`:
 
 ```js
-{ in:{ 'timber/log':1 } }         // from the machine's buffer
-{ in:{ heart:1 }, from:'vital' }  // from the player's body
+{ in:{ 'timber/log':1 } }          // from the machine's buffer
+{ in:{ 'copper/ore':1 }, from:'pocket' }  // from the player's own pockets
 ```
 
 That one word is what makes a non-item fuel *content* instead of engine code.
@@ -475,16 +471,19 @@ Two subtleties:
   what the servo and the HUD pips read — is the sum, and that is
   `model/machines.js#count`. Two different questions, two answers.
 - `units:'named'` tells the interpreter the input keys are bare unit names, not
-  selectors, which is why health is never mirrored into the inventory and the
-  HUD keeps drawing five hearts.
+  selectors -- `SOURCES` has no row that uses it today (the one that did,
+  `vital`, was deleted along with the staged winch: CLAUDE.md D10 explicitly
+  forbids a heart-fuelled alternative to the manual crank), but the mode
+  stays available for whatever the next non-pair fuel turns out to be.
 
-Refusals that are properties of the *resource* live on the source row, not on
-the machine: `vital` refuses to spend the last heart, so any future
-blood-fuelled thing inherits that for free (`sources.js:63`).
+Refusals that are properties of the *resource* belong on the source row, not
+on the machine, for exactly the reason `vital`'s own now-deleted refusal
+argued: a resource-level rule inherited by every future caller for free,
+never reimplemented per machine.
 
 **The price, stated plainly:** this file is not serialisable or diffable, and a
 dangling reference inside one of these closures is invisible to
-`tools/resolve.mjs`, which reads names and not bodies. Three rows is worth it.
+`tools/content.mjs`, which reads names and not bodies. Two rows is worth it.
 Thirty would mean the architecture chose wrong.
 
 ---
@@ -560,16 +559,20 @@ keeps that a proven fact rather than an eyeballed one.
 
 ## When a machine needs its own rules module
 
-The interpreter turns inputs into outputs. Two mechanics do not fit that shape
+The interpreter turns inputs into outputs. Some mechanics do not fit that shape
 and each has its own sibling module instead of a new interpreter key:
 
-- **`rules/lift.js`** — a stage moves a *position* vertically while charged.
-- **`rules/belts.js`** — the same thing turned ninety degrees.
-  `rules/belts.js:1` documents the reasoning: a belt turns a position into a
+- **`rules/belts.js`** — a belt turns a position into a
   later position with the *same* substance and form throughout, which is a shape
-  `out` clauses cannot express and should not be made to.
+  `out` clauses cannot express and should not be made to (`rules/belts.js:1`
+  documents the reasoning).
+- **`rules/drive.js`** — segment transport (CLAUDE.md D10): a placed
+  crank/gear/axle drivetrain supplies torque, `model/segments.js` holds the
+  segment and carrier state, and `rules/drive.js` solves motion each frame.
+  No interpreter key expresses "a carrier rides a cable"; this is physics, not
+  a recipe.
 
-Both still take their **power** through the ordinary interpreter — the honest-fuel
+The belt still takes its **power** through the ordinary interpreter — the honest-fuel
 `out:[]` recipe — so the sibling module only ever spends charges the generic
 `produce()` path banked.
 
@@ -606,7 +609,7 @@ Shared idioms:
 - **A gift arrives as a falling item, never a direct credit** (invariant 5).
   `rules/trinkets.js#grant` and `rules/miracles.js#grant` both toss it at the
   player's feet.
-- **A missing id throws**, because `tools/resolve.mjs` has already proved every
+- **A missing id throws**, because `tools/content.mjs` has already proved every
   id in `data/` resolves. That is a programming error, not a content error.
 
 **Trinkets and miracles are substances.** A trinket refines from nothing — it IS
@@ -731,8 +734,9 @@ its scope; `tools/check.mjs:286` runs the quicker first-dot version.
 
 Where a tunable belongs vs. a row literal: if only one reader exists and the
 thing it describes is not a machine or a substance, a tunable is the right home
-— `brandLight` exists because the brand is a substance × form pair, not a
-machine, so a `machines.js` literal had nowhere to live (`tuning.js:120`).
+— `brandLevel`/`brandSecs` exist because a lit brand is a substance × form
+pair, not a machine, so a `machines.js` literal had nowhere to live
+(`tuning.js#brandLevel`).
 
 `shell/ui.js#scrollOf` reuses the same flat-key trick for a different purpose:
 `panel:grid` as one string key rather than a nested object, so there is one map,
@@ -860,7 +864,7 @@ to read `if (M.id === 'copper')`.
 
 **Two palette files.** `core/palette.js` holds the hex, because mixing two
 colours is arithmetic. `data/palette.js` re-exports it as the checked *name set*
-that a `look` row may use, and `tools/resolve.mjs` fails the build on a name that
+that a `look` row may use, and `tools/content.mjs` fails the build on a name that
 is not in it. Add a named entry — art-direction aliases in `data/`, new hex in
 `core/` — rather than inlining hex at a call site.
 
@@ -991,7 +995,7 @@ The canonical case is `model/run.js#placementCheck` (`:267`):
   with the one-word `why` drawn beside it.
 
 Note the check **order** is part of the contract: footprint, footing, depth,
-then (for a lift stage) shaft reach, then affordability last — so a placement
+then affordability last — so a placement
 that cannot happen for a structural reason never has to answer "and could you
 even pay for it".
 
@@ -1018,7 +1022,6 @@ Current instances:
 
 | fact | copies |
 |---|---|
-| lift shaft-reach arithmetic | `model/run.js:311` and `rules/lift.js#reaches` |
 | `HARD_BREAK` (0.5 s, selects a break sound) | `rules/mining.js:46` and `rules/machines.js:389` |
 | "largest single matching pair" over a ledger | `rules/machines.js#best`, `rules/crafting.js#bestPocketed` (`:33`), `model/run.js#pocketsHave`, `view/ui/mainPanel.js:486` |
 | granting a boon from a miracle | `rules/miracles.js:52` calls `model/boons.js#write.grant` directly rather than `rules/boons.js#grant` |
@@ -1137,8 +1140,11 @@ The project-wide idiom for anything clickable or hoverable: **`view` draws and
 records the rectangles it drew; `shell` hit-tests them and calls `rules`.** Never
 the reverse, and `view` never sees the dispatch.
 
-- `view/hud.js#pocketHits` / `#hoverInfo` — the original instance.
-- `view/ui/state.js#drawn` — the widget layer's version (`panels`, `tabs`,
+- `view/hud.js#hoverInfo` — the always-on HUD's instance (`pocketHits`, the
+  original array this idiom started from, was retired along with the
+  digit-driven BUILD menu it served -- see `docs/FINDINGS.md`).
+- `view/ui/state.js#drawn` — the widget layer's version, and the live
+  idiom for anything new (`panels`, `tabs`,
   `grids`, `tooltip`, plus per-grid recipe-id side tables). Rebuilt every draw,
   never relied on across frames; `resetDrawn()` is called once per HUD frame.
 - `shell/main.js#applyUiIntents` (`:255`) — the dispatcher.
@@ -1171,6 +1177,13 @@ Rules for using it:
 `src/view/ui/` — `panel`, `tabs`, `grid`, `slot`, `bar`, `tooltip`, plus
 `state.js`. Same-layer imports between them are legal.
 
+Two more files live in this directory and build on these primitives rather
+than being one themselves: `mainPanel.js` (the tabbed build/craft/inventory/
+character window) and `quickbar.js` (the permanent bottom bar) are both
+composed from the primitives above; `ruler.js` (the band ruler and its
+masked-id predicate, CLAUDE.md D8) is a primitive in its own right, just a
+later one.
+
 Contracts:
 
 - **Every primitive takes `vw`/`vh` and clamps to it.** Below roughly 240 px of
@@ -1195,7 +1208,7 @@ Contracts:
   width from `cols × cell` and *reduces* the column count when it cannot fit, and
   returns the actual count. Reporting a clamped `w` while still looping the full
   `cols` would draw slots the returned rect claims are not there — exactly the
-  layout/hit-test disagreement the `pocketHits` idiom exists to prevent.
+  layout/hit-test disagreement the "record what you drew" idiom exists to prevent.
 - **"This slot is called out" is one look, decided once.** `slot.js#frameSlot`
   draws **two** concentric 1-px borders, the second inset by one pixel in the
   same colour (docs/PLAN-phase12.md §3 D-I, landed in Phase 16c). It takes no
@@ -1264,7 +1277,7 @@ hand-feedable machine under the reticle is fed one unit** of whatever is
 armed; else an armed placeable over open ground places; else it mines.
 Decided ONCE per press, not every frame of a held one, specifically so a
 continuous hold cannot flip meaning mid-press. Rule 2 does **not** ask
-whether the machine wants the armed pair — `rules/machines.js#feedCheck`
+whether the machine wants the armed pair — `model/machines.js#feedCheck`
 answers that downstream, so its refusal reaches the player instead of the
 press silently falling through to "place" and dropping a tile inside the
 machine's own footprint (which is what the first draft did). RMB still deconstructs a machine under the
@@ -1402,11 +1415,8 @@ visible to whatever consumes it this frame:
 - `fields last` — emissions made now decay from next frame, so a recipe gate sees
   the heat just poured in.
 
-Two notes on the list's history worth preserving: `reveal` **moved** from just
-after `player` when Pass B gained its light gate, and the parenthetical record of
-that move is why it did not simply acquire a second contradictory comment. And
-`belts before crafting` states its accepted cost explicitly — a completed craft's
-output waits one extra frame for its first gravity step.
+One accepted cost worth knowing: `belts before crafting` means a completed
+craft's output waits one extra frame for its first gravity step.
 
 The run clock is ticked first and is not a rule: `run.t` is a number, not a
 decision, and no `rules` module may claim ownership of the frame.
@@ -1458,8 +1468,7 @@ three:
 
 `handFeed:{reach, from}` in `data/machines.js` is the *data* both hand paths
 read: how far "beside it" is, and which selectors are welcome. It is not a
-key and never was; three comments in this repo claimed otherwise for four
-phases (`docs/PLAN-phase16-interaction-model-v2.md` §3.4).
+key (`docs/PLAN-phase16-interaction-model-v2.md` §3.4).
 
 An item is a `{sub, form}` pair plus a mass, and that is all it is. Purity,
 fragility and temperature are deliberately absent: a field nothing reads is a
@@ -1536,12 +1545,21 @@ Not checked by the layer tool but enforced elsewhere or by convention:
 | command | proves | blind to |
 |---|---|---|
 | `npm run check` §0 `tools/layers.mjs` | dependency direction and the tuning-import rule | whether the design makes sense |
-| §1 `tools/resolve.mjs` | every string key in `data/` resolves — substance id, form, recipe tag, tunable, palette name, field name, strata kind | whether the value is right |
-| §1b `tools/content.mjs` | the content tables are self-consistent: 14 assertions (see below) | anything dynamic |
+| §1 `tools/content.mjs` | every string key in `data/` resolves — substance id, form, recipe tag, tunable, palette name, field name, strata kind | whether the value is right |
+| §1b `tools/content.mjs` | the content tables are self-consistent: 24 assertions (see below) | anything dynamic |
 | §2 purity | `render()` performs no model writes and consumes no randomness | anything visual |
 | §3/§4 behaviour | hardness at 8 framerates, the fall table, a 7,200-frame collision fuzz, determinism (twice in-process, once in a fresh process), `newRun()` resetting everything, mass conservation over a 10,000-substep fuzz, hand==machine identity, T2==T3 rate equality, break-even depth ordering, burden affecting only ascent, light behaviour, every band rendering | appearance |
+| `npm run check:worldgen` (`tools/worldgen-check.mjs`) | worldgen properties measured over many seeds: the guaranteed copper vein reachable within budget, ore richness in units not cells, reachability (no ore sealed in by a later stratum) | any single seed in isolation |
 | `npm run test:visual` | appearance *changing*, real-browser boot errors, dev/dist parity | whether the art is any good |
 | `npm run lint` | unused and undefined identifiers | everything else |
+
+`npm run check`, `check:content` and `check:worldgen` are also runnable
+standalone (they are what `tools/check.mjs`, `tools/content.mjs` and
+`tools/worldgen-check.mjs` are, one script each), as is `npm run layers`
+(`tools/layers.mjs`, section 0 of `check` on its own). `npm run test` is
+`check` + `check:worldgen` + `build` + the full visual suite — the closest
+thing to "prove everything" this repo has. `npm run dev` is an alias for
+`npm start`.
 
 `tools/content.mjs`'s assertions, in order: (1) every selector expands and every
 literal output pair is legal; (2) masses finite and positive; (3) machine cost
@@ -1553,7 +1571,18 @@ key any `data/` mods row names resolves, scope included; (9) `tile.tier` is
 monotonic against `hard`; (10) `conflictsWith` ids and modes are real, never
 self-referential, and agree where both directions are declared; (11) every
 miracle is a holdable substance × `phial`; (12) every drop row is valid; (13)
-every trinket is a holdable substance × `relic`; (14) depth gates are monotonic.
+every trinket is a holdable substance × `relic`; (14) depth gates are monotonic;
+(15) every `look` block's colour and treatment names resolve; (16) the tile-byte
+guard's own narrowing (packable substances only) holds; (17) every relic/miracle
+substance has a divine glow and no machine substance does; (18) the silent-
+failure machine keys (`hub`/`crank`/`gear` transport blocks, the `band`
+placement gate) are well formed; (19) every cycle's demand is a holdable,
+non-empty pair and its receiver machine really carries `tribute:{}`; (20) every
+mineable terrain row is classified `bulk`/`deposit`/`organic` (CLAUDE.md D12);
+(21) no `deposit`-tagged substance has an obtainable placeable crossing; (22)
+every `tile.charge` is a whole number >= 1 and only a `deposit` row carries one;
+(23) no `hand:true` recipe's bill is a superset of a later one's (the shadowing
+D12's own README warns about); (24) no `tile.roots` form is also `solid`.
 
 Two things to reuse rather than reinvent when adding a check:
 

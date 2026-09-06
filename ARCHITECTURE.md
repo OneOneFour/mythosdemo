@@ -195,7 +195,7 @@ fails on any illegal edge: upward, sibling-to-sibling between `rules` and
 `view`, `rules` importing `rules`, or anything but `model/mods.js` importing
 `data/tuning.js`. `LAYER_BUDGET` is 0 and may only ever go down.
 
-`tools/resolve.mjs` proves every string key in `data/` resolves to something —
+`tools/content.mjs` proves every string key in `data/` resolves to something —
 a substance id, a form, a recipe tag, a tunable, a palette name — at build time,
 so a typo fails before import rather than at runtime.
 

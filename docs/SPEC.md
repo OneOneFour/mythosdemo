@@ -232,7 +232,7 @@ whileRunning}` interpreter key:
 | `brazier` | 1x1 | 4 `timber/log` + 2 `stone/gravel` | level 12, `whileRunning:true` | honest-fuel recipe (`out:[]`, banks a charge), the same shape the belt uses; lit for as long as the buffer holds fuel |
 | `hearth` | 2x2 | 2 `copper/plate` (**provisional** — design wants this in the essence tier, which does not exist yet; reprice when it lands) | level `'max'` (tracks `eff('lightMax')`) | no fuel, never expires; an `in:{}, secs:Infinity` recipe keeps `m.running` true purely so the existing fire-glow look renders, no interpreter change |
 
-Both are in `STARTING_MACHINES` (`src/data/machines.js`... `src/data/boons.js`)
+Both are in `STARTING_MACHINES` (`src/data/machines.js`... `src/data/grants.js`)
 for testability, same precedent as `press`/`belt_r`/`belt_l` — no director
 exists yet to gate them behind a boon.
 
@@ -365,7 +365,7 @@ machine-item form.
 |---|---|---|---|---|
 | `furnace` | 3x2 | 12 `copper/ore` + 6 `timber/log` | 16.8 T | raw, unrefined material — exactly what the first two minutes (section 5) already teach a player to dig |
 | ~~`lift` (winch stage)~~ | ~~2x3~~ | ~~6 `copper/plate` + 4 `timber/log` + 2 `copper/ingot`~~ | ~~20.8 T~~ | **SUPERSEDED by section 17.** The staged winch was retired in Phase 8f — row, substance, recipe, grant, tunables and rules module all deleted. Its replacement is a pair of `hub` machines at 10.4 T each: exactly the same 20.8 T and the same 20.0 s, spent on two endpoints instead of one stage (§17.3) |
-| `press` | 2x2 | 4 `copper/plate` + 2 `copper/ingot` | 12.8 T | no longer the one free-provisional row `data/boons.js#STARTING_MACHINES`'s own comment named; a player may still hand-press (`data/recipes.js#press`, `hand:true`) toward this bill without owning one |
+| `press` | 2x2 | 4 `copper/plate` + 2 `copper/ingot` | 12.8 T | no longer the one free-provisional row `data/grants.js#STARTING_MACHINES`'s own comment named; a player may still hand-press (`data/recipes.js#press`, `hand:true`) toward this bill without owning one |
 | `belt_r` / `belt_l` | 4x1 | 2 `copper/plate` + 4 `stone/gravel` | unchanged (priced since the belts commit) | — |
 
 Mass is `Σ substance.item.mass x form.massK x n` — the identical arithmetic
@@ -2082,6 +2082,10 @@ Left as it is: reordering the pushes would trade the heart count away for the
 favour count, and a toast *queue* is a bigger change than this phase.
 
 ---
+
+*(Section numbering jumps 20.5 -> 22 here. No §21 was ever written; every
+downstream citation to §22 and later is to the number actually in this file,
+so it is left as a gap rather than renumbered.)*
 
 ## 22. Tree regrowth: the seed, the plant verb and growth (Phase 15)
 
