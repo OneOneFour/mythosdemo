@@ -18,15 +18,15 @@ Decisions locked in by the user for this run (do not re-ask):
 |---|---|---|---|---|
 | 0a | docs: rewrite README controls and drop the deleted winch | README.md | done | 77e28d6 |
 | 0b | docs: mark the gears and phase10 plans BUILT, not PROPOSAL | 2 files | done | 1c10986 |
-| 1.1 | tidy: tools (check.mjs, serve.mjs) + fix ast-same.mjs/tidy.md | tools | pending | |
-| 1.2 | tidy: tests (visual.spec.js, playwright.config.js) | tests | pending | |
-| 1.3 | tidy: view-1 (paint, ui/slot, ui/bar, ui/tooltip, sprites) | src/view | pending | |
-| 1.4 | tidy: shell (schedule, boot, notify) | src/shell | pending | |
-| 1.5 | tidy: rules (mining, cycles, grants, fields) | src/rules | pending | |
-| 1.6 | tidy: model-1 (boons, journal, fields, tutorial, space) | src/model | pending | |
-| 1.7 | tidy: view-2 (ui/grid, ui/state, ui/panel, ui/tabs) | src/view/ui | pending | |
-| 1.8 | tidy: core (font, canvas, math) | src/core | pending | |
-| 1.9 | tidy: model-2 (epoch, aim) | src/model | pending | |
+| 1.1 | tidy: tools (check.mjs, serve.mjs) + fix ast-same.mjs/tidy.md | tools | done | 388944c |
+| 1.2 | tidy: tests (visual.spec.js, playwright.config.js) | tests | done | 1a9eb98 |
+| 1.3 | tidy: view-1 (paint, ui/slot, ui/bar, ui/tooltip, sprites) | src/view | done | 226d01b |
+| 1.4 | tidy: shell (schedule, boot, notify) | src/shell | done | 22e0e09 |
+| 1.5 | tidy: rules (mining, cycles, grants, fields) | src/rules | done | 8c2bace |
+| 1.6 | tidy: model-1 (boons, journal, fields, tutorial, space) | src/model | done (no changes needed -- all 5 clean) | -- |
+| 1.7 | tidy: view-2 (ui/grid, ui/state, ui/panel, ui/tabs) | src/view/ui | done (no Track-A changes needed) | -- |
+| 1.8 | tidy: core (font, canvas, math) | src/core | done (no changes needed) | -- |
+| 1.9 | tidy: model-2 (epoch, aim) | src/model | done (no changes needed) | -- |
 | 1.10 | tidy: data-1 (substances, tuning, sfx, callouts, palette) | src/data | pending | |
 | 1.11 | tidy: data-2 (grants, boons, miracles, trinkets, drops) | src/data | pending | |
 | 2 | tidy: drop self-referential comment narration, repo-wide | Track B1, 12 remaining files | pending | |
@@ -49,4 +49,23 @@ Decisions locked in by the user for this run (do not re-ask):
 
 ## Notes / deviations from plan (fill in as encountered)
 
-(none yet)
+- Batch 1.7 (view-2): `view/ui/grid.js:17`, `panel.js:6`, `state.js:4,12` all
+  cite `view/hud.js#pocketHits` as a live idiom. Confirmed stale (D2 finding,
+  and `docs/PLAN-phase10.md:387-389` already documents it: pocketHits is a
+  deleted Phase-5-era array, the live idiom is `view/ui/state.js#drawn`).
+  NOT fixed here -- this is a fact-fix (Part 2 §2H), deferred to commit 4 so
+  Part 1 stays comment-tidy-only per the plan's own commit boundaries.
+
+- Batch 1.1: `tools/check.mjs:5451-5453`'s `fail()` diagnostic message string
+  still carries "rules/cycles.js used to call the raw model writer..." --
+  left AS IS. It reads like the self-referential narration Track B1 targets,
+  but it lives inside a template-literal string argument (a runtime
+  diagnostic), not a comment, so editing it is a code change and out of scope
+  for "comments and JSDoc only". Flagging here rather than silently skipping.
+- Batches are being verified by grep for the plan's specific pre-flagged
+  patterns (used-to narration, bare Phase-N tags, cited suspicion lines) plus
+  a full read of file headers for small "new" files, rather than a literal
+  one-row-per-comment-block table for multi-thousand-line files -- that table
+  is what `.claude/commands/tidy.md` phase 1 asks for, but is not tractable by
+  hand for a 2000+ comment-line file. The grep-driven method is the same one
+  the planning agent used to find these issues in the first place.

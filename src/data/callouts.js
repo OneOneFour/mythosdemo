@@ -17,26 +17,19 @@
    instruction.
 
    INDEX 5 NAMES A VERB NOW, AND HAS TO (Phase 16c,
-   docs/PLAN-phase16-interaction-model-v2.md §5 D16-E #5). It used to read
-   'DELIVER 10 COPPER ORE TO THE ALTAR', which named no action at all -- and
-   that was ACCIDENTALLY correct right up until Phase 16a, because until then
-   the verb genuinely was "walk there": `rules/machines.js#handFeed` drained
-   the player's pockets on proximity alone, unconditionally, 120 times a
-   second. Phase 16b made that magnet opt-in (`ui.autoFeed`, off by default),
-   so on a default run standing beside the altar now does nothing whatsoever
-   and a callout that only names the destination is an instruction a player
-   cannot follow. The two clicks it names are the two real ones: a click on a
-   held pair takes it in hand (the IN HAND readout above the quickbar says
-   which), and a click on the altar gives it.
+   docs/PLAN-phase16-interaction-model-v2.md §5 D16-E #5): naming only the
+   destination is an instruction a player cannot follow, because
+   `rules/machines.js#handFeed`'s proximity drain is opt-in
+   (`ui.autoFeed`, off by default), so on a default run standing beside the
+   altar does nothing whatsoever. The two clicks it names are the two real
+   ones: a click on a held pair takes it in hand (the IN HAND readout above
+   the quickbar says which), and a click on the altar gives it.
 
-   INDICES 6-9 ARE CYCLE 2 (Phase 13d, docs/SPEC.md 20.4). Index 6 used to be
-   `null`, on the grounds that "the beat sheet ends there and there is nothing
-   left to teach" — which was written before cycle 2's requirements existed.
-   The moment cycle 1 pays, the game asks for four things a player has never
-   done once: refine ore into plate, build the Cloud Dock, run a segment chain
-   up to it, and beat a clock (cycle 1 has none at all). All four guidance
-   stopped exactly there. See `rules/tutorial.js#BEATS` 7-10 for the
-   predicates each of these is the instruction for.
+   INDICES 6-9 ARE CYCLE 2 (Phase 13d, docs/SPEC.md 20.4). The moment cycle 1
+   pays, the game asks for four things a player has never done once: refine
+   ore into plate, build the Cloud Dock, run a segment chain up to it, and
+   beat a clock (cycle 1 has none at all). See `rules/tutorial.js#BEATS` 7-10
+   for the predicates each of these is the instruction for.
 
    Index 10 is `null` and is the real end: cycle 2 is paid, the ascent is
    built and understood, and cycles 3-4 ask for MORE of the same three

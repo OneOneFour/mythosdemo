@@ -136,11 +136,10 @@ export const SUBSTANCES = [
           docs/PLAN-phase15-trees.md owns the regrowth.
 
           Felling a tree yields `log`, which is FEEDSTOCK ONLY -- fuel and a
-          recipe ingredient, never a placed tile (CLAUDE.md D12). This comment
-          used to say the log form was tile-capable and climbable "so felling
-          a tree and building a ladder are the same two nouns in different
-          places"; they are now one noun apart, `data/recipes.js#peg_rungs`,
-          which turns 2 logs into 4 `rung`. See `forms.js#log`. ---- */
+          recipe ingredient, never a placed tile (CLAUDE.md D12). Felling a
+          tree and building a ladder are one noun apart,
+          `data/recipes.js#peg_rungs`, which turns 2 logs into 4 `rung`. See
+          `forms.js#log`. ---- */
   { id:'timber', name:'TIMBER', short:'WOOD', tags:['organic', 'mineable'],
     tile:{ solid:true, hard:0.35, drops:'log' },
     item:{ mass:0.8, hud:{ order:3, always:true } },
