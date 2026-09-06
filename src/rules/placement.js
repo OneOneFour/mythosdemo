@@ -96,7 +96,7 @@ export function deconstruct(band, tx, ty) {
      invariant 5's idiom, the same one `rules/crafting.js`'s output and
      `rules/machines.js#produce`'s ejected units already use. Tossed from the
      machine's own centre with the SAME `tossUp`/`tossSpread` tunables the
-     drop verb reads (Phase 1/2a), not a sixth independently-chosen toss
+     drop verb reads, not a sixth independently-chosen toss
      magnitude. Exactly one unit of the machine's OWN substance x `rig` pair
      -- see `placeMachine`'s own spend, this is its exact inverse. */
   const cx = m.box.x + m.box.w / 2, cy = m.box.y + m.box.h / 2;
@@ -174,11 +174,11 @@ export function unlinkSegment(seg) {
 
 /* ---------- tiles ----------
    Only a form carrying a `tile` block may be placed as terrain -- `rung`,
-   `stair`, `block` and, since Phase 15, `seed`. There is no ladder id, no
+   `stair`, `block` and `seed`. There is no ladder id, no
    ladder recipe, no ladder code -- and no PLANT verb either: planting is
    `cmd.place` on an armed `timber/seed` pair through the same unified
    placement `placeableFromPockets` below already offers, with no special
-   case anywhere. `gravel` and `log` were also on that list until Phase 14a stripped
+   case anywhere. `gravel` and `log` were also on that list until D12 stripped
    their `tile` blocks (CLAUDE.md D12: a form is either feedstock or buildable,
    never both), which is also why NOTHING IN THIS FILE CHANGED for it -- "a
    deposit is never placeable" is a property of `data/forms.js#block`'s

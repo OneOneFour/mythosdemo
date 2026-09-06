@@ -48,7 +48,7 @@
                (CLAUDE.md D12). A form carrying a `tile` block may not also be
                named by any recipe's `in:` selector, any machine's
                `handFeed.from`, or any tribute demand. `gravel` and `log` both
-               violated that and both lost their `tile` block in Phase 14a --
+               violated that and both lost their `tile` block --
                see their own rows below, and docs/SPEC.md section 19.
      look      OPTIONAL, and only meaningful on a form that also has a `tile`
                block. THE FORM DRAWS ITSELF: `view/paint.js#paintTile` skips
@@ -60,12 +60,11 @@
                the same `view/treatments.js#TREAT` table, so `npm run check`
                validates the `fn` and the colour names here exactly as it does
                there. `rung` and `stair` are the two rows that have one; a form
-               with no `look` is painted as terrain, as every form was before
-               Phase 13b.
+               with no `look` is painted as terrain, as every form once was.
      climbK    OPTIONAL. Multiplies `eff('climb')` for this form
                (rules/player.js). Absent means 1; only `stair` sets it
                (~1.8x), which is the point of a tier-2 ladder buying
-               VERTICAL THROUGHPUT rather than a new capability (Phase 2a). */
+               VERTICAL THROUGHPUT rather than a new capability. */
 
 import { S, SUB, byTag } from './substances.js';
 
@@ -187,18 +186,18 @@ export const FORMS = [
      whole mechanism is the `subTags` gate, and folding a miracle into
      `relic` would let it satisfy any trinket selector that reads `#relic`
      by accident. `subTags:['miracle']` means only a miracle-tagged
-     substance (one row per miracle, added in Phase 4) may ever cross into
+     substance (one row per miracle) may ever cross into
      it. No `tile` block: a miracle is a held one-shot, never terrain. */
   { id:'phial', label:'PHIAL',
     size:3, massK:0.2, hudOrder:8,
     tags:['miracle'],
     subTags:['miracle'] },
 
-  /* ---- rung: a cheap, dedicated ladder peg (Phase 2a, CLAUDE.md D4's own
+  /* ---- rung: a cheap, dedicated ladder peg (CLAUDE.md D4's own
      prerequisite -- the encumbrance lockout needs something cheaper than a
      whole log to climb back out on). `timber/log` used to place as a
      climbable tile too, so this was originally the SAME `climb:true` idiom at
-     a fraction of the material; since Phase 14a stripped `log`'s `tile` block
+     a fraction of the material; now that `log`'s `tile` block is stripped
      (D12, see that row above) this is the ONLY climbable timber tile there
      is, and `peg_rungs` is the only way to get one.
      `recipes.js#peg_rungs` turns TWO logs into FOUR rungs (not the plan's
@@ -210,7 +209,7 @@ export const FORMS = [
      1-log draft required -- but 0.3 was kept anyway, matching `brand`'s own
      massK, since a peg is exactly that same "split lighter, with real
      waste" shape `tools/content.mjs`'s mass-conservation check already
-     validated for brand in Phase 1 (4 x 0.3 = 1.2, under 1.6). `hardK:0.20`
+     validated for brand (4 x 0.3 = 1.2, under 1.6). `hardK:0.20`
      was set softer than the placed log's own 0.30: a single peg is the
      flimsiest climbable in the game, on purpose, and it stays 0.20 now that
      the log it was measured against no longer places at all. No tag
@@ -234,7 +233,7 @@ export const FORMS = [
     look:{ treatments:[{ fn:'ladder', body:'woodC', hi:'woodA', lo:'woodD',
                          inset:1, every:3, tread:1 }] } },
 
-  /* ---- stair: the tier-2 ladder, Daedalus's bronze work (Phase 2a).
+  /* ---- stair: the tier-2 ladder, Daedalus's bronze work.
      `subTags:['metal']` is the same restriction `ingot`/`plate` use, so
      `copper/stair` is the real pair and no new substance is needed.
      `climbK` is NEW: a per-form multiplier into `eff('climb')`
@@ -426,9 +425,9 @@ const STRIDE = FORM.length + 1;
    form is a legal crossing for it. Nothing else can be handed to `packTile`:
    the four tile-capable forms are `rung` (`subTags` organic), `stair`
    (metal), `block` (bulk) and `seed` (organic), so no `relic`, `miracle` or
-   `machine` substance crosses into any of them -- and, since Phase 14a, no
+   `machine` substance crosses into any of them -- and no
    `deposit` substance crosses into one either (`block`'s own comment above).
-   Phase 15's `seed` widened nothing: it admits `organic`, whose only member
+   `seed` widened nothing: it admits `organic`, whose only member
    is `timber`, which was already packable as native terrain, so
    `PACKABLE_MAX` did not move off `adamant` at ordinal 8.
 

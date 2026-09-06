@@ -68,9 +68,9 @@ export const TUNABLES = [
      both rather than stop both.
 
      THESE REPLACED `liftUp`/`liftDown`, which carried the same bases (11 and
-     26) and were deleted with the staged winch in Phase 8f. Two live readers
+     26) and were deleted with the staged winch. Two live readers
      of one number is exactly the drift CLAUDE.md warns about, which is why
-     they never coexisted for longer than the two phases it took. ---- */
+     they never coexisted for long. ---- */
   { id:'segUp',     kind:'value', base:11,    unit:'px/s',       note:'carrier ascent at full surplus and full drive. The retired winch deck ascended at this exact number: a carrier is not faster than what it replaces.' },
   { id:'segDown',   kind:'value', base:26,    unit:'px/s',       note:'free descent on a VERTICAL segment, scaled by slope. 2.4x ascent, and free. Also the retired deck\'s own number.' },
   { id:'segBase',   kind:'value', base:1.0,   unit:'drive',      note:'drive needed to raise an EMPTY carrier at full speed. The unit crank.torque is denominated in.' },
@@ -128,7 +128,7 @@ export const TUNABLES = [
      where climb speed begins to fall off; `burdenClimbFloor` is the climb
      multiplier AT the hard cap, the tick before ladder-up/hop are refused
      outright. Walking on level ground and every downward movement are never
-     scaled by any of these three -- enforced in rules/player.js, Phase 2a. */
+     scaled by any of these three -- enforced in rules/player.js. */
   { id:'burden',           kind:'value', base:40,   unit:'talents', note:'hard carry cap; a pickup or a climb over this is refused' },
   { id:'burdenSoft',       kind:'value', base:0.75, unit:'x',       note:'fraction of burden where climb-speed falloff starts' },
   { id:'burdenClimbFloor', kind:'value', base:0.40, unit:'x',       note:'climb-speed multiplier at the hard cap, the tick before lockout' },
@@ -143,7 +143,7 @@ export const TUNABLES = [
   { id:'invSlots',      kind:'value', base:30, unit:'slots', note:'length of the main inventory grid; run.mainSlots at reset' },
   { id:'quickbarSlots', kind:'value', base:10, unit:'slots', note:'length of the quickbar; the tail of run.inv past run.mainSlots' },
 
-  /* ---- light (Phase 2b). `lightMax` is both daylight and the ceiling any
+  /* ---- light. `lightMax` is both daylight and the ceiling any
      emitter can reach (the hearth). The two falloffs are per-tile-of-travel
      losses a BFS in rules/light.js subtracts, rock lossier than air so
      light does not leak through strata the way sight already does not. */
@@ -153,7 +153,7 @@ export const TUNABLES = [
   { id:'brandSecs',        kind:'value', base:90, unit:'s',      note:'one lit timber/brand burns this long, then is consumed' },
   { id:'brandLevel',       kind:'value', base:9,  unit:'levels', note:'light level while a timber/brand is lit' },
 
-  /* ---- tool tiers (Phase 2c). `hard` already scales a substance's
+  /* ---- tool tiers. `hard` already scales a substance's
      seconds-to-break; this is a SEPARATE gate on whether a tool may swing at
      a tile at all, scoped the same way (`toolTier.copper` narrows to one
      substance) so a boon can lend a tier without touching mining speed. */

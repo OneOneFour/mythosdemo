@@ -372,7 +372,7 @@ function ride(s, dx, dy) {
      the translation was always refused. That made
      docs/PLAN-phase10.md 4.4 -- "the player rides up and steps off onto
      astral's floor" -- physically unreachable, which is what makes this
-     Phase 10b's and not a nicety.
+     load-bearing and not a nicety.
 
      WHY IT IS THE SAME NARROW EXEMPTION AND NOT A COLLISION CHANGE. The
      exempt tiles are `model/segments.js#headframe`'s, unchanged and imported
@@ -428,7 +428,7 @@ function refusalDue(seg) {
    NODES are every placed machine whose row carries `crank`, `gear` or `hub`.
    EDGES are ORTHOGONAL FOOTPRINT ADJACENCY in the same band: two footprints
    sharing an edge. DIAGONALS DO NOT CONDUCT (docs/PLAN A3, confirmed) -- a
-   corner needs a gear in it, and Phase 8e's art is what teaches that (two
+   corner needs a gear in it, and the art is what teaches that (two
    diagonal gears visibly do not mesh). No machine name appears anywhere in
    here: `crank`/`gear`/`hub` are interpreter keys, read exactly like
    `belt`/`mine`/`light` already are. */

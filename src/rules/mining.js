@@ -21,7 +21,7 @@
    trinket that softens one material cannot be read around. See
    docs/DEVELOPER_GUIDE.md#the-tunable-pipeline
 
-   TOOL TIER IS A GATE ON TOP OF HARDNESS, NOT A SECOND HARDNESS (Phase 2c).
+   TOOL TIER IS A GATE ON TOP OF HARDNESS, NOT A SECOND HARDNESS.
    `hard` decides how long a legal swing takes; `tile.tier` (absent means 1,
    `data/substances.js`) decides whether a swing is legal AT ALL, checked
    against the held tool's own tier (`model/run.js#bestTool()`, itself read off

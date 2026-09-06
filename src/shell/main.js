@@ -114,8 +114,8 @@ export function step(dt) {
        it every substep and supplies torque for exactly the substeps it is
        down. It has to be on THIS object and not read off `cmd` inside the
        rule, because this narrowed set is the whole of what `rules` may see of
-       the input device (Phase 8f). Renamed from `turn`/`cmd.turn` in Phase
-       12d (docs/PLAN-phase12.md §3 D-J): the brief asked for a GENERIC
+       the input device. Renamed from `turn`/`cmd.turn`
+       (docs/PLAN-phase12.md §3 D-J): the brief asked for a GENERIC
        "hold to operate a placed machine" verb on `r`, not a crank-specific
        one, so the field name moved with the key. */
     action: cmd.action,
@@ -134,7 +134,7 @@ export function step(dt) {
        of the question `rules/machines.js#step` asks before running the
        magnet -- and it is on THIS object rather than read off `ui` inside the
        rule because this narrowed set is the whole of what `rules` may see of
-       the session (Phase 8f), and `rules` may not import `shell` at all. */
+       the session, and `rules` may not import `shell` at all. */
     autoFeed: ui.autoFeed,
     hasMouse: cmd.hasMouse, mx: cmd.mx, my: cmd.my
   };
@@ -166,7 +166,7 @@ export function step(dt) {
    one path, `cmd.place` below, whether the pair placed is a tile or a
    machine.
 
-   EXPORTED as of Phase 16a, and only so `tools/check.mjs` can drive a
+   EXPORTED only so `tools/check.mjs` can drive a
    one-shot intent for real. Every behavioural probe in that file goes through
    `main.step()` (its own `stepReal` helper) precisely so nothing
    re-implements the loop -- but `step()` is the fixed substep and one-shot
@@ -626,7 +626,7 @@ function applyUiIntents() {
     } else if (ui.drag.from === 'equip') {
       /* Dropped anywhere that is not another equip slot (empty canvas, the
          inventory grid, outside the panel entirely) -- the real UNEQUIP
-         path Phase 5b left unwired because `rules/trinkets.js` had no
+         path was left unwired because `rules/trinkets.js` had no
          per-slot verb to call. It has a `model` write that does exactly
          this, so a drag-out now really clears the slot instead of silently
          doing nothing. */
@@ -776,9 +776,9 @@ function installTestHook() {
     newRun, step, draw, resize,
     clock, cam, player, run, aim, items, machines, cmd, flags,
 
-    /* THE LIVE SEGMENT LIST (Phase 8d), exposed exactly as `items` and
+    /* THE LIVE SEGMENT LIST, exposed exactly as `items` and
        `machines` already are -- the array itself, not a copy, so a test reads
-       whatever is true right now. Phases 8e and 8f drive their scenes through
+       whatever is true right now. Segment-transport scenes drive through
        this and through `ui.linkFrom` below, so neither needs a hardcoded click
        coordinate (CLAUDE.md: a click at (400, 300) fails at a different base
        buffer). Records hold live band and machine references, so a Playwright

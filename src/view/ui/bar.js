@@ -11,7 +11,7 @@ import { mix } from '../../core/palette.js';
 import { colour } from '../../data/palette.js';
 import { drawn } from './state.js';
 
-/* `INK2`, not `DIM`, for the value text (Phase 13a): a bar's value is the
+/* `INK2`, not `DIM`, for the value text: a bar's value is the
    single highest-traffic piece of de-emphasised text in the game -- BURDEN,
    every TRIBUTE demand row, the tribute aggregate percentage and every FAVOUR
    row -- and three of those four are drawn against the live world with no

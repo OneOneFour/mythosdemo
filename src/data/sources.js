@@ -26,7 +26,7 @@
    between two runs to explain a balance change. This one cannot, and a dangling
    reference inside one of these closures is invisible to `tools/content.mjs`,
    which reads names and not bodies. TWO rows is worth it (it was three until
-   Phase 8f deleted `vital` -- see the note where it used to be). Thirty would
+   `vital` was deleted -- see the note where it used to be). Thirty would
    mean the architecture chose wrong. */
 
 export const SOURCES = Object.freeze({
@@ -51,8 +51,8 @@ export const SOURCES = Object.freeze({
   /* ---- `vital` (the player's own hearts) WAS THE THIRD ROW, AND IT IS GONE.
      It existed for exactly one consumer: the staged winch's second, hidden
      recipe, which bought a lift charge for a heart once the timber ran out --
-     the "blood winch" trap. Phase 8f retired the staged winch, and
-     docs/PLAN-gears-and-winches.md A5 asked whether the trap should move to
+     the "blood winch" trap. Retiring the staged winch left
+     docs/PLAN-gears-and-winches.md A5 asking whether the trap should move to
      the new hand crank. THE USER REJECTED IT OUTRIGHT, in their own words:
      "no ignore the blood winch stuff for now, that's a different idea. just
      have you turn the crank to turn it. the payment is that YOU THE PLAYER
@@ -75,7 +75,7 @@ export const SOURCES = Object.freeze({
 
 /* Every bare unit name any source offers, for the resolver: an input key that
    is neither a valid selector nor one of these is a content error. EMPTY since
-   Phase 8f deleted `vital` -- see the note above. That is not a broken export:
+   `vital` was deleted -- see the note above. That is not a broken export:
    it means "no recipe may name a bare unit", which is exactly true right now,
    and `tools/check.mjs`'s check reads it generically rather than knowing any
    name. */

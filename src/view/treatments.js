@@ -285,9 +285,9 @@ export const TREAT = {
      (the hub's cable lugs, an axle's end teeth) is drawing over the world,
      on purpose, exactly as the existing hopper lips already do.
 
-     ROTATION IS `c.turn` AND NOTHING ELSE. Phase 8f writes it; until then it
-     is 0 and every wheel below draws at phase 0, which is correct rather than
-     a placeholder. */
+     ROTATION IS `c.turn` AND NOTHING ELSE. `rules/drive.js` writes it; before
+     placement it is 0 and every wheel below draws at phase 0, which is
+     correct rather than a placeholder. */
 
   /* A TOOTHED WHEEL, which is the one shape this whole machine family is
      built out of: the hub's big drive gear, a 1x1 gear, an axle's two end

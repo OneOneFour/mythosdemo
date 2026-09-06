@@ -499,9 +499,8 @@ export function checkContent({ quiet = false } = {}) {
      grepping `check.mjs` for `colour`, `palette`, `treat` or `fn` returns
      nothing. The real behaviour was: a typo'd colour threw from `colour()` the
      first time that tile painted, and a typo'd `fn` drew nothing at all,
-     forever, in silence (`treat()` does `if (fn) fn(...)`). Phase 8 adds
-     several new colour keys and a treatment, so the claim is made true here
-     rather than left as a comment.
+     forever, in silence (`treat()` does `if (fn) fn(...)`). So the claim is
+     made true here rather than left as a comment.
 
      Both halves are generic and structural, not a list of the keys that happen
      to exist today: a colour is any string under a key in `COLOUR_KEYS`
@@ -549,7 +548,7 @@ export function checkContent({ quiet = false } = {}) {
   /* ---- 16. THE TILE BYTE: THE FACT THE NARROWED GUARD RESTS ON.
      `data/forms.js`'s import-time guard used to price every substance row as
      if it were tile-capable and so refused content over a cost nothing was
-     paying (Phase 8c; the arithmetic is in that file's packing block and in
+     paying (the arithmetic is in that file's packing block and in
      docs/SPEC.md section 15). It now measures from the highest PACKABLE
      ordinal instead -- native terrain, or a legal crossing with a form that
      carries a `tile` block. That is derived from the tables, so it cannot be
@@ -590,7 +589,7 @@ export function checkContent({ quiet = false } = {}) {
            `-- move it earlier in data/substances.js or drop a form`);
   }
 
-  /* ---- 17. THE RELIC GLOW IS A RULE, NOT A PER-ROW REMINDER (Phase 8b).
+  /* ---- 17. THE RELIC GLOW IS A RULE, NOT A PER-ROW REMINDER.
      "Any item whose form or substance carries the divine marker draws with a
      halo" only stays true if something enforces it structurally -- otherwise
      a future trinket `data/drops.js` produces reads as ordinary loot forever,
@@ -617,7 +616,7 @@ export function checkContent({ quiet = false } = {}) {
   }
 
   /* ---- 18. THE SILENT-FAILURE MACHINE KEYS ARE WELL FORMED — the transport
-     interpreter blocks (Phase 8g) and, since Phase 13d, the `band` placement
+     interpreter blocks and the `band` placement
      gate, which shares their exact failure mode.
      `hub`, `crank` and `gear` are read by exactly the generic-interpreter
      route every other key here takes, which means a typo in one of them fails
@@ -899,7 +898,7 @@ export function checkContent({ quiet = false } = {}) {
 
      ONE NAMED EXEMPTION, and it is a real design decision rather than a
      known bug. `copper/stair` IS obtainable: `data/recipes.js#daedalan`
-     (2 copper/plate + 4 timber/log -> 2 copper/stair) is Phase 2a's tier-2
+     (2 copper/plate + 4 timber/log -> 2 copper/stair) is the tier-2
      ladder, `data/forms.js#stair` is written around it, and
      `model/tiles.js#baseChargeOf` explicitly handles it ("`stair` crosses
      with `metal`, so `copper/stair` is a real placeable pair, and charging it

@@ -95,8 +95,8 @@ export function render(g, f) {
   R(g, 0, 0, W, H, INK.void);
   stats.chunksDrawn = 0; stats.bandsDrawn = 0;
 
-  /* THE MAP OVERVIEW IS A DIFFERENT RENDER PATH, NOT A CAMERA TRICK, and as of
-     Phase 9 it is a different FILE: `view/overview.js`, which owns its own
+  /* THE MAP OVERVIEW IS A DIFFERENT RENDER PATH, NOT A CAMERA TRICK, and it
+     is a different FILE: `view/overview.js`, which owns its own
      scale, scroll, zoom, band ruler and metadata layers. It used to be
      `drawMap`, thirty-seven lines in this file; the extraction is recorded in
      that file's own header. Nothing past this point (sky, chunks, machines,
@@ -173,8 +173,8 @@ function tileWindow(b, cam, W, H) {
    PALE HAZE where it meets the ground.
 
    The haze is anchored in PIXELS above the horizon rather than as a fraction of
-   the sky, because what it has to sit behind is the terrain silhouette: Phase 7
-   gives the surface band relief of `amp` tiles, so the hilltops stand well above
+   the sky, because what it has to sit behind is the terrain silhouette: the
+   surface band's own relief of `amp` tiles, so the hilltops stand well above
    `floorTy` and the haze has to reach up past them or it only ever shows in the
    valleys. It reaches as far as `HAZE_PX` and no further, so a tall sky is not
    all haze.
@@ -343,7 +343,7 @@ function drawChunks(g, b, cam, W, H) {
 
 /* ---------- the live-tile overlay ----------
    TWO CUES, ONE PASS, AND THAT IS A REQUIREMENT RATHER THAN A TIDY-UP.
-   `drawDepletion` (Phase 14c) and the growth cue (Phase 15) are the same
+   `drawDepletion` and the growth cue are the same
    shape of work: walk the visible tile window of every visible band, ask a
    sparse `model` `Map` a question about one tile, and paint an integer-pixel
    cue over whatever the chunk canvas already baked there. Written as two
@@ -811,7 +811,7 @@ function overlay(g, cam, W, H, pitch, col, alpha) {
 /* A one-line band label, so the seam between two bands is legible while the
    world is still this thin. `drawText` and not `fillText`, always.
 
-   THE WORST CONTRAST CASE IN THE GAME, and the one the Phase 13a acceptance
+   THE WORST CONTRAST CASE IN THE GAME, and the one the acceptance
    test is written about: it is drawn straight onto rendered terrain with NO
    panel, no backing block and nothing else near it to back against, so it
    takes both halves of that phase's fix -- the secondary body tone

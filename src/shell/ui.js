@@ -47,7 +47,7 @@ export const ui = {
      (`run.inv[run.mainSlots ..]`), the same physical storage the Character
      tab's grid draws. There is no `ui.quickbar` left to own here. */
   craftQueue: [],
-  /* One toggleable line of key hints (the QUICKBAR section of Phase 5b),
+  /* One toggleable line of key hints (the QUICKBAR section),
      collapsed by default so the permanent bottom bar stays as dense as the
      rest of this layer. */
   hintsOpen: false,
@@ -84,7 +84,7 @@ export const ui = {
   /* AUTO FEED (Phase 16b, docs/PLAN-phase16-interaction-model-v2.md §5
      D16-C): whether the old always-on PROXIMITY DRAIN is restored. Default
      FALSE -- standing beside a machine no longer empties your pockets into
-     it; the feed verb (Phase 16a: click a slot to arm the pair, aim at a
+     it; the feed verb (click a slot to arm the pair, aim at a
      reachable machine, LMB) hands over ONE unit per press instead.
 
      THE EXACT SHAPE OF `autoCollect` ABOVE, DELIBERATELY, and for the same
@@ -130,7 +130,7 @@ export const ui = {
      exactly like `armedPlace` above -- arming one touches no `model` state at
      all, only which pair `shell/main.js#applyIntents`'s `cmd.link` branch
      passes to `rules/placement.js#linkSegment` on the SECOND press. Handed to
-     `view` through `frameCtx` for the cable ghost (Phase 8e); `view` may not
+     `view` through `frameCtx` for the cable ghost; `view` may not
      import `shell`.
 
      A RECORD, not a `{tx, ty}` pair: `linkCheck` needs the machine itself,
@@ -145,7 +145,7 @@ export const ui = {
      deconstructed out from under it, or Escape (`shell/input.js`). */
   linkFrom: null,
 
-  /* ---- THE OVERVIEW'S SCROLL, ZOOM AND LAYER TOGGLES (Phase 9) ----
+  /* ---- THE OVERVIEW'S SCROLL, ZOOM AND LAYER TOGGLES ----
      Where the map is looking, how far in, whether it is following the player
      and which metadata layers are on. All of it is a fact about the SESSION,
      exactly like every other field in this file: opening the map, scrolling
@@ -269,7 +269,7 @@ export function scrollSet(panel, grid, row, maxRow = Infinity) {
 /* ---------- search field ---------- */
 export function setSearchFocus(v) { ui.searchFocus = v; }
 
-/* ---------- the craft queue (Phase 5b) ----------
+/* ---------- the craft queue ----------
    See the header on `ui.craftQueue` above for why this is UI state and not a
    `rules/crafting.js` change. A hard ceiling (99) keeps ctrl-click's "max
    affordable" from ever building a queue long enough to be its own kind of
@@ -329,7 +329,7 @@ export function setAutoFeed(v) { ui.autoFeed = !!v; }
 export function armPlace(sub, form) { ui.armedPlace = { sub, form }; }
 export function clearArmedPlace() { ui.armedPlace = null; }
 
-/* ---------- the armed link endpoint (Phase 8d) ----------
+/* ---------- the armed link endpoint ----------
    `armLink` takes the machine RECORD, not ordinals, for the reason
    `ui.linkFrom`'s own header above gives. Deliberately NOT filtered for a
    `hub` block here: whether two machines may be joined is
@@ -341,7 +341,7 @@ export function clearArmedPlace() { ui.armedPlace = null; }
 export function armLink(m) { ui.linkFrom = m; }
 export function clearLink() { ui.linkFrom = null; }
 
-/* ---------- the overview: scroll, zoom, layers (Phase 9) ----------
+/* ---------- the overview: scroll, zoom, layers ----------
    Plain mutators over `ui.map`, in the shape every other function in this file
    already has. NOTHING HERE CLAMPS: the clamp is `view/overview.js`'s, once,
    against the band union it is already deriving to draw with -- a second copy

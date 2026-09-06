@@ -195,7 +195,7 @@ const BEATS = [
   () => pairSeen(S.copper, F.plate) >= 1,
 
   /* 8 — THE DOCK, AND WHERE IT GOES. Cycle 2 is paid at `cloud_dock` and
-     nowhere else (`data/cycles.js`'s `at`, enforced since Phase 13d in
+     nowhere else (`data/cycles.js`'s `at`, enforced in
      `rules/cycles.js#drainReceivers`), and the dock may only stand in the band
      its own row names (`data/machines.js#cloud_dock`'s `band` key, gated in
      `model/run.js#placementCheck`). So the predicate asks for a dock placed in
@@ -238,7 +238,7 @@ export function step() {
   push('tutorial', null, { beat: next });
 }
 
-/* FAIL AT IMPORT ON A BEAT WITH NO CALLOUT SLOT (Phase 13d). `CALLOUTS` is
+/* FAIL AT IMPORT ON A BEAT WITH NO CALLOUT SLOT. `CALLOUTS` is
    indexed by beats ALREADY FIRED -- 0 through `BEATS.length - 1` -- so the two
    arrays must be exactly the same length, and a beat appended here without a
    row there would draw `undefined` (silently nothing, per

@@ -41,8 +41,8 @@ export const RUN_SCHEMA = Object.freeze({
   deepest: 0,           // world px, for the depth gauge and for `meta`
 
   /* ---- THE TRIBUTE LEDGER (Phase 10b, docs/SPEC.md section 18.5) ----------
-     Five fields, and the first two are the pair that was scaffolded here in
-     Phase 3 and had zero callers until now.
+     Five fields, and the first two are the pair that was scaffolded here
+     with zero callers until now.
 
      `cycle` is WHICH ROW OF `data/cycles.js` is live, one-based, so
      `CYCLES[run.cycle - 1]` is the current trial and `run.cycle > CYCLES.length`
@@ -53,7 +53,7 @@ export const RUN_SCHEMA = Object.freeze({
      `{ id, have, left }`. `id` is the `data/cycles.js` row's own id, so the
      record survives a table reorder; `have` is keyed by the `sub/form` string
      from `model/items.js#keyOf`, the SAME convention `m.buf` still uses
-     (`run.inv` moved to a slot array in Phase 12c, `have` did not -- a
+     (`run.inv` moved to a slot array; `have` did not -- a
      delivery ledger has no position, only a count per pair), so a receiver's
      buffer can be poured into it without a translation; `left` is seconds
      remaining, or `null` for a cycle with no
@@ -172,7 +172,7 @@ export const RUN_SCHEMA = Object.freeze({
      before it. Advanced by `rules/tutorial.js` (the decision), read through
      `model/tutorial.js#beat` (the query). Beat indices 5 and 6 are RESERVED
      -- the altar and the furnace gift do not exist in code yet, so nothing
-     advances into them until Phase 10's cycle director does. Here rather
+     advances into them until the cycle director does. Here rather
      than in a module of its own for the same reason `craftProgress` and
      `brandLeft` above are: it resets with everything else (invariant 8) for
      free, and a beat sheet surviving a restart is exactly the determinism
@@ -333,7 +333,7 @@ export const write = {
      `RUN_SCHEMA.awarded`. */
   award(machineIds) { run.awarded = machineIds; bump(); },
 
-  /* One trinket slot, Phase 4 STEP 4. `sub` is a substance ordinal or
+  /* One trinket slot. `sub` is a substance ordinal or
      `null` (empties the slot). `rules/trinkets.js#step` is the only caller
      that ever passes a real `sub` -- it is the one place that decides an
      equip is legal (a real slot, a currently-held id) -- and the same
@@ -478,7 +478,7 @@ export function placementCheck(band, machineId, tx, ty) {
      row, so a stage could be placed where its span reached nothing -- a
      machine that silently cannot do its one job -- and this function refused
      it up front by duplicating `reaches()`'s arithmetic across the layer
-     boundary. Phase 8f deleted the winch. A HUB DECLARES NOTHING: whether it
+     boundary. The winch is deleted. A HUB DECLARES NOTHING: whether it
      can serve anything at all is a property of a SEGMENT, which is two hubs
      and the space between them, and `model/segments.js#linkCheck` is where
      that is decided -- reach, clear path and all. A lone machine no longer
@@ -613,7 +613,7 @@ export function isKnown(id) {
   return machineId === null || canPlace(machineId);
 }
 
-/* The highest-tier `item.tool` relic currently held (Phase 2c), or null with
+/* The highest-tier `item.tool` relic currently held, or null with
    none. TOOLS ARE RELIC SUBSTANCES, not a new table: the stock pick and the
    adamant auger are both ordinary rows in `data/substances.js` tagged
    `relic`, and `item.tool:{tier, power}` is the only thing that marks one as

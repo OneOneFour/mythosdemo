@@ -277,7 +277,7 @@ const KINDS = {
      map can produce — see the `trees` row's own comment in `data/world.js`.
 
      Trees are the only timber above ground, so this loop is still the ladder
-     supply — but at one remove since Phase 14a: a felled `log` is feedstock
+     supply — but at one remove: a felled `log` is feedstock
      only (CLAUDE.md D12), and `data/recipes.js#peg_rungs` turns 2 of them into
      4 `timber/rung`, which is the tile-capable form that actually places. See
      `data/forms.js`. */

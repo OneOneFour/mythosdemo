@@ -36,7 +36,7 @@
 export const BANDS = [
 
   /* ---- ASTRAL --------------------------------------------------------------
-     FULL WIDTH, and it was 96 columns inset by 128 px until Phase 10b. The
+     FULL WIDTH -- it was once 96 columns inset by 128 px. The
      inset was meant to read as a platform in the sky rather than a mirror of
      the ground; what it actually produced was two 16-column DEAD STRIPS --
      surface columns 0-15 and 111-127 -- in which nothing above world y 320
@@ -111,10 +111,10 @@ export const BANDS = [
       { kind:'trees', sub:'timber', fromTy:10, toTy:28, chance:0.06, height:[3, 5] },
       /* `count` is DOWN from 26 -- and was up from 14 before that. Both moves
          are the same move: a `count` here buys CELLS, and what docs/SPEC.md
-         section 16.5 holds near constant is total ore UNITS. Phase 7 made a
-         cell smaller (cruciform, ~half the cells of a same-radius disc) so
-         every count rose; Phase 14b made a cell worth `tile.charge` units
-         (copper 4) so every count falls again. Measured over 200 seeds, this
+         section 16.5 holds near constant is total ore UNITS. A cruciform cell
+         (~half the cells of a same-radius disc) made
+         every count rise; a cell worth `tile.charge` units
+         (copper 4) made every count fall again. Measured over 200 seeds, this
          band's copper is 239.6 units against the 233.6 cells it was before
          charge existed (+2.6%) -- see docs/SPEC.md section 19.7 for the whole
          table. The bill this has to cover is unchanged: section 5's first
@@ -183,7 +183,7 @@ export const BANDS = [
          not by the count, so a row still lines its hollows at any `count`. */
       { kind:'blobs', sub:'copper', fromTy:4,  toTy:180, count:34, r:[1.6, 3.8], line:true },
       { kind:'blobs', sub:'tin',    fromTy:60, toTy:320, count:26, r:[1.6, 3.8], line:true },
-      /* Deeper strata for Phase 2c's pick-tier gate: granite uncommon below
+      /* Deeper strata for the pick-tier gate: granite uncommon below
          the copper/tin bands, adamant rarer still and deeper again, so the
          tier gate has somewhere meaningful to bite once a bronze pickaxe
          cannot break either. */

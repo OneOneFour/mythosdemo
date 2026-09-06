@@ -62,7 +62,7 @@ const api = {
 };
 
 /* Largest single matching pair in a `{ 'sub/form': units }` ledger -- `m.buf`
-   is the only ledger left in that shape (Phase 12c moved `run.inv` to a slot
+   is the only ledger left in that shape (`run.inv` is a slot
    array, see `model/run.js#pocketedBest`/`#pocketedPair` for its own
    equivalents), so this now serves `buffered` alone. */
 function best(ledger, sel) {
@@ -89,7 +89,7 @@ const recipes = (def, i) => {
    step reads exactly ONE field of it: `cmd.autoFeed`, which decides whether
    the proximity drain below runs at all (Phase 16b,
    docs/PLAN-phase16-interaction-model-v2.md §5 D16-C). The same shape
-   `rules/items.js` has taken since Phase 12b for `cmd.collect`. */
+   `rules/items.js` takes for `cmd.collect`. */
 export function step(dt, cmd) {
   for (const m of machines) {
     const def = defOf(m);
@@ -162,7 +162,7 @@ function handFeed(m, def) {
 /* ---------- THE FEED VERB (Phase 16a, docs/SPEC.md section 23) ----------
    ONE unit of ONE named pair, handed over deliberately. This is what LMB on a
    machine does; `handFeed` above is the proximity magnet that used to be the
-   only way material ever reached a buffer from a hand. As of Phase 16b it is
+   only way material ever reached a buffer from a hand. It is now
    retired behind `cmd.autoFeed` and off by default, so THIS is how a hand
    fills a buffer unless the player asked for the magnet back.
 
@@ -235,7 +235,7 @@ function produce(m, def, dt) {
      work a belt may later spend, one item delivered off its end
      (`rules/belts.js`). A brazier's own `out:[]` recipe is the same shape and
      is what keeps it lit while fuelled. NOTHING VERTICAL READS A CHARGE ANY
-     MORE: the staged winch spent one per haul and is gone as of Phase 8f, and
+     MORE: the staged winch spent one per haul and is gone, and
      `rules/drive.js` has no charge at all -- its power is a crank the player
      is holding this very frame.
      See docs/DEVELOPER_GUIDE.md#charges-and-honest-fuel */
@@ -252,7 +252,7 @@ function produce(m, def, dt) {
 
    THE `charges > 0` GATE IS GONE. It stopped a winch stage
    holding an unspent haul from burning more fuel, and both the row and the
-   rules module that read the charge went in Phase 8f. A belt is now the only
+   rules module that read the charge are gone with it. A belt is now the only
    charge consumer, and it deliberately does NOT want that gate -- it banks
    several and spends one per item delivered. */
 function choose(m, def) {

@@ -20,20 +20,18 @@
 
    ============================================================================
    THE MASKED-ID PREDICATE LIVES HERE, AND THIS IS THE ONE PLACE IT LIVES.
-   Nothing in `src/` masked anything before Phase 9 -- there was no FAVOUR
-   panel, no TRIBUTE state and no `????????` rule anywhere. CLAUDE.md D8 says
-   whichever phase lands the band ruler writes that predicate and the FAVOUR
-   panel reuses it, not the other way round. So:
+   Before the band ruler, nothing in `src/` masked anything -- there was no
+   FAVOUR panel, no TRIBUTE state and no `????????` rule anywhere. CLAUDE.md
+   D8 says whichever phase lands the band ruler writes that predicate and the
+   FAVOUR panel reuses it, not the other way round. So:
 
      `masked(label, known)`  the mask itself: the label, or `????????`
      `bandKnown(b)`          has the player ever ENTERED this band, OR has a
-                             cycle reward CHARTED it for them (Phase 10b,
-                             docs/PLAN-phase10.md 3.4/D-D)
+                             cycle reward CHARTED it for them
+                             (docs/PLAN-phase10.md 3.4/D-D)
 
-   A future cycle-director phase's FAVOUR panel should import `masked` from
+   The FAVOUR panel should import `masked` from
    this file (same-layer imports are legal) rather than write a second one.
-   The cycle director landed in Phase 10b; the FAVOUR panel itself is
-   Phase 10c and should still reuse this `masked`, not write a second one.
    ============================================================================
 
    THE DEPTH DATUM DOES NOT MOVE (CLAUDE.md D9). Depth is measured from the

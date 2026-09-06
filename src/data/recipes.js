@@ -62,11 +62,11 @@ export const RECIPES = Object.freeze({
                              daedalan/auger), so `hearth` is declared AFTER
                              EVERY PLATE-CONSUMING ROW, or it would starve
                              every one of them the moment enough plate for
-                             both existed. Only `pack` (Phase 14a) is declared
+                             both existed. Only `pack` is declared
                              after it, and the two share no material at all --
                              see that row's own derivation.
 
-     Phase 8d's four segment-transport rows were checked the same way, against
+     The four segment-transport rows were checked the same way, against
      every row in this file, and only these containments exist:
        crank             -- nothing contains it and it contains nothing except
                              `gear` (below). {3 log, 3 gravel} is deliberately
@@ -92,8 +92,8 @@ export const RECIPES = Object.freeze({
                              axle does not, and the axle needs two ingots to
                              the hub's one.
      (Both of these were originally placed after the retired WINCH STAGE row,
-     whose {6 plate, 4 log, 2 ingot} bill contained them both. That row is gone
-     as of Phase 8f; the positions are unchanged, since removing a superset can
+     whose {6 plate, 4 log, 2 ingot} bill contained them both. That row is gone;
+     the positions are unchanged, since removing a superset can
      only ever relax an ordering constraint.) ---- */
 
   furnace: Object.freeze({
@@ -143,12 +143,12 @@ export const RECIPES = Object.freeze({
 
   /* ---- SEGMENT TRANSPORT, part 2 of 2: the two refined rows. Declared HERE,
      where the retired WINCH STAGE row used to sit, because both bills
-     were strict subsets of its own and had to follow it. That row is gone as of
-     Phase 8f, so the containment it forced no longer exists -- but the position
+     were strict subsets of its own and had to follow it. That row is gone,
+     so the containment it forced no longer exists -- but the position
      is kept, since `hearth`'s {2 plate} is a strict subset of `hub`'s bill and
      `hearth` being declared LAST OF ALL is what covers that. ---- */
 
-  /* ---- cloud_dock: Phase 10b's receiver in astral, and DECLARED BEFORE
+  /* ---- cloud_dock: the tribute receiver in astral, and DECLARED BEFORE
      `hub` BECAUSE ITS BILL STRICTLY CONTAINS THE HUB'S. {5 plate, 1 ingot,
      2 log} against the hub's {3 plate, 1 ingot, 2 log}: any pockets that
      satisfy this one also satisfy the hub, so with `hub` first
@@ -264,17 +264,17 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* ---- peg_rungs: timber/log -> timber/rung, the cheap dedicated ladder
-     (Phase 2a). NOT the plan's literal "1 timber/log -> 4 timber/rung", and
+  /* ---- peg_rungs: timber/log -> timber/rung, the cheap dedicated ladder.
+     NOT the plan's literal "1 timber/log -> 4 timber/rung", and
      the reason is `rules/crafting.js#choose`'s own documented limitation:
      "first match wins, a real menu would let you choose" (the menu is
-     Phase 5). `kindle`, directly below, ALSO fires off nothing but
+     unbuilt). `kindle`, directly below, ALSO fires off nothing but
      `'timber/log':1` -- two hand-recipes with an IDENTICAL trigger set is a
      tie `choose()` cannot see, and whichever is declared first always wins,
      every time, forever. Shipping `peg_rungs` at the plan's literal 1-log
      cost, in EITHER declaration order, makes one of the two permanently
      unreachable by hand: kindle first starves peg_rungs outright; peg_rungs
-     first starves kindle, which Phase 2b needs hand-reachable to restock the
+     first starves kindle, which needs to stay hand-reachable to restock the
      one carried light source. Requiring 2 logs and declaring peg_rungs
      BEFORE kindle breaks the tie without touching either recipe's own
      table-order neighbour's numbers: holding exactly 1 log fails peg_rungs's
@@ -298,7 +298,7 @@ export const RECIPES = Object.freeze({
      FORM IS NOT A COMPRESSION TIER -- smelt and press both compress toward
      density; kindling does the opposite, one log splitting into three
      lighter, burnable brands. hand:true because no machine performs it;
-     Phase 2b plants the player's first brand near spawn regardless, and this
+     the player's first brand is planted near spawn regardless, and this
      recipe is how they restock once it burns out. Declared AFTER
      `peg_rungs` now -- see that row's comment for why the order is
      load-bearing, not cosmetic. */
@@ -311,7 +311,7 @@ export const RECIPES = Object.freeze({
   }),
 
   /* ---- daedalan: 2 copper/plate + 4 timber/log -> 2 copper/stair, the
-     tier-2 ladder (Phase 2a). Vertical throughput as an upgradeable axis:
+     tier-2 ladder. Vertical throughput as an upgradeable axis:
      see `forms.js#stair`'s `climbK`. hand:true for the same reason
      `peg_rungs` is -- no machine builds a ladder, ever. */
   daedalan: Object.freeze({
@@ -322,7 +322,7 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* ---- auger: the T2 hand tool (Phase 2c). hand:true with no machine ever
+  /* ---- auger: the T2 hand tool. hand:true with no machine ever
      naming it -- same shape as `peg_rungs`/`daedalan` above, nothing builds a
      tool but a pair of hands.
 

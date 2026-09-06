@@ -100,7 +100,7 @@ const KEYS = {
 let hopHeld = false, dropHeld = false, deconHeld = false, linkHeld = false;
 
 /* THE LIVE BINDING SET, per docs/PLAN-phase12.md §4.1's final keymap --
-   correct as of Phase 12d, and the one place this file states it in prose
+   the one place this file states it in prose
    rather than leaving it to be reconstructed from every `if (key === ...)`
    clause below: wasd/arrows (move), space (hop), e (open/close the main
    panel), q (drop), backspace (deconstruct), r (hold to act on a placed
@@ -111,10 +111,10 @@ let hopHeld = false, dropHeld = false, deconHeld = false, linkHeld = false;
    `flags.showDebug` (debug drafts, and the chunk overlay). Mining, placing,
    feeding a machine by hand and using a held miracle have no dedicated key at
    all -- they are all LMB, resolved once at `pointerdown` (D-A, widened to
-   four rules by Phase 16a) -- and restart is a clickable button
+   four rules -- docs/SPEC.md section 23.2) -- and restart is a clickable button
    on the death screen (D-C), not a key. `x`/`j` (dig), `v` (use miracle),
-   `i` (open panel) and `f` (crank) are RETIRED; `p` (equip) was retired in
-   Phase 12b and its letter reused for the chunk toggle; `u` (hand-craft) is
+   `i` (open panel) and `f` (crank) are RETIRED; `p` (equip) was retired
+   and its letter reused for the chunk toggle; `u` (hand-craft) is
    RETIRED too -- the recipe-click queue already covers it with no key held
    at all, so its own hold was fully redundant (D-B). */
 function set(k, down) {
@@ -131,8 +131,8 @@ function set(k, down) {
      "a held key must not repeat-fire" warning does not apply. There is nothing
      to fire; there is only a key that is either down or not, and
      `rules/drive.js` supplies torque for exactly the frames it is down.
-     `r` was restart until this phase relocated that onto a real death-screen
-     button (D-C), shared with the win screen since Phase 13d -- see
+     `r` was restart until this relocated that onto a real death-screen
+     button (D-C), shared with the win screen -- see
      `pointerdown`'s own end-restart branch below.
      Released on blur with the other holds below; NOT listed in
      `clearEdges()`, which would turn a hold into an edge. */
@@ -155,8 +155,8 @@ function set(k, down) {
      couple of frames, the same "must stand there holding it" idiom `r`'s
      own comment above already states for the crank. */
   if (key === 'c')                  cmd.collect = down;
-  /* 'l' to LINK two hubs into a segment (Phase 8d,
-     docs/PLAN-gears-and-winches.md section 4.5) -- EDGE-TRIGGERED, the same
+  /* 'l' to LINK two hubs into a segment
+     (docs/PLAN-gears-and-winches.md section 4.5) -- EDGE-TRIGGERED, the same
      `*Held` latch every other real verb on this list uses, and for the same
      reason this file's header already records: a held key that laid and cut
      the same cable sixty times a second would be the identical bug as a held
@@ -207,7 +207,7 @@ const mapWorld = px => (mapView.active && mapView.scale > 0 ? px / mapView.scale
      the clamped position the last frame actually drew, makes the handoff
      seamless.
 
-     NO OVERSCROLL (Phase 9 section 2 says so in as many words). The stored
+     NO OVERSCROLL. The stored
      offset is deliberately unclamped -- `view` owns the clamp -- so holding the
      pan key at the bottom of the world parked it thousands of pixels past the
      edge, and it then took as many presses the other way before anything moved.
@@ -287,7 +287,7 @@ export function installInput() {
   addEventListener('keydown', e => {
     unlockAudio();
 
-    /* THE CRAFTING TAB'S SEARCH FIELD (Phase 5b), captured HERE rather than
+    /* THE CRAFTING TAB'S SEARCH FIELD, captured HERE rather than
        inside `set()` below, because it must pre-empt EVERY other binding in
        this file -- 'wasd' are movement, 'e' places, 'p' equips, and a typed
        search string must not also walk the player into a wall or place a
@@ -370,7 +370,7 @@ export function installInput() {
     if (k === 'm') audio.muted = !audio.muted;
     /* Restart used to be `r`, live at any time -- `r` is now the crank/action
        hold (D-J), so restart moved to a real clickable button on the death
-       screen, and the win screen shares it (Phase 13d): see
+       screen, and the win screen shares it: see
        `pointerdown`'s own end-restart branch below. */
 
     /* Every "spawn a tier from nothing" path lives behind `flags.showDebug`
@@ -486,7 +486,7 @@ export function installInput() {
      into `drawn.panels`, the identical idiom `onAlwaysOnUi` above already
      uses for the hints toggle.
 
-     TWO IDS, ONE HIT-TEST (Phase 13d): the death screen records
+     TWO IDS, ONE HIT-TEST: the death screen records
      `'death-restart'` and the win screen `'win-restart'`, and the gate below
      is `run.dead || run.won` -- so the id existing at all (from a stale
      previous frame) can never fire outside a frame in which one of the two

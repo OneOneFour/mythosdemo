@@ -45,7 +45,7 @@ import { SPRITE } from './sprites.js';
    Measured on this machine, cold-baking the 23 chunks a 640x400 viewport holds
    (a frame with nothing stale is 0.2 ms either way):
 
-     before Phase 8 (commit 0da2a06)   23.5 ms, 1.02 ms per chunk
+     before (commit 0da2a06)   23.5 ms, 1.02 ms per chunk
      after                             35.3 ms, 1.53 ms per chunk
 
    So the worst case is 8 x 1.53 = 12.2 ms, in the one frame a tile breaks,
@@ -323,7 +323,7 @@ function paintTile(g, b, tx, ty, dx, dy, dark) {
        differs, the boundary between them gets a 1 px line in the lower
        material's own contact tone, wobbling within the top three pixels on the
        tile's own hash -- so a seam reads as geology rather than as the edge of
-       a fill rectangle. Phase 7's `kind:'contact'` interdigitates the TILES;
+       a fill rectangle. The `kind:'contact'` worldgen pass interdigitates the TILES;
        this draws the line those tiles imply, and it costs one `subAt` on the
        tile above, only for tiles that are actually buried. */
     for (let x = 0; x < t; x++)
@@ -335,7 +335,7 @@ function paintTile(g, b, tx, ty, dx, dy, dark) {
      says "these are blocks", where a face two or three pixels deep with a
      hash-jittered width down its length says "this is a bank of rock that broke
      here". Same jitter idiom as the top face, and the wider face is what makes
-     Phase 7's relief read as landform rather than as staircase. */
+     the relief read as landform rather than as staircase. */
   if (!solidAt(b, tx - 1, ty))
     cliffFace(g, dx, dy, tx, ty, t, LIGHT.fromX < 0 ? L.faceSun : L.faceShade, false);
   if (!solidAt(b, tx + 1, ty))
@@ -350,7 +350,7 @@ function paintTile(g, b, tx, ty, dx, dy, dark) {
 
 /* A CRACK MEANS "THIS SWING", NOT "THIS VEIN" (Phase 14c, D14-G). It read
    `progressAt` while every tile broke on its first unit, which was the same
-   number; since Phase 14b a deposit tile takes `charge` swings, and a crack
+   number; a deposit tile now takes `charge` swings, and a crack
    pattern that crept on across all four of them would say nothing about the
    hit actually landing. `unitProgressAt` resets per unit, so each swing
    cracks the rock from scratch and the moment a unit falls out is visible in
@@ -776,7 +776,7 @@ function paintCables(g, m, px, py, l) {
 
 const lerpPx = (a, b, f) => a + (b - a) * f;
 
-/* THE CARRIER. It has to read as STANDABLE, because in Phase 8f the player
+/* THE CARRIER. It has to read as STANDABLE, because the player
    stands on it: so a bright lit deck plank a pixel wider than the body, a
    dark body under it, and two hangers up to the cable. The deck line is the
    thing the eye reads as a surface, and it is the top of

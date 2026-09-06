@@ -101,7 +101,7 @@ const UI = {
   /* BURDEN's warning colour, past the soft cap (D3/D4) -- see below. */
   amber:  '#e0a030',
   debug:  colour('watB'),
-  /* THE DIVINE ACCENT: a relic's frame, and -- since Phase 16c -- the armed
+  /* THE DIVINE ACCENT: a relic's frame, and the armed
      miracle's ghost (`miracleGhost` below). `ichor` is already the
      divine-gold `data/palette.js` name a trinket's own `look.item` uses (see
      `bellows` in `data/substances.js`), so a trinket's border, a trinket's
@@ -133,8 +133,8 @@ export function drawHUD(g, f) {
   const burdenBottom = burden(g, 6, 14, W);
   tribute(g, 6, burdenBottom, W);
   depth(g, W, 6);
-  /* The timed-boon stack (Phase 4 STEP 5): BELOW the depth gauge just drawn
-     (y 6). FAVOUR (Phase 10c) is inserted directly under it, in the SAME
+  /* The timed-boon stack: BELOW the depth gauge just drawn
+     (y 6). FAVOUR is inserted directly under it, in the SAME
      anchor chain: `favourBottom`, not `boonBottom`, is what now reaches
      `hudRuler` and `debug`, or FAVOUR would draw through whichever of them
      ran next. */
@@ -200,7 +200,7 @@ function hearts(g, x, y) {
    is never a silent wall the player has to reverse-engineer. Returns the y
    just past whatever it drew -- `drawHUD` used to discard this (a bare
    statement, no assignment), which is exactly why nothing anchored under it
-   until now: TRIBUTE (Phase 10c, below) is what actually reads it. */
+   until now: TRIBUTE (below) is what actually reads it. */
 function burden(g, x, y, W) {
   const cap = eff('burden'), soft = eff('burdenSoft'), frac = burdenFrac();
   const locked = frac >= 1;
@@ -312,7 +312,7 @@ function tribute(g, x, y, W) {
    lookup, entirely from the pointer and the model; this just lays out
    whatever it returns and remembers it in `hoverInfo` for the test hook. */
 function tooltip(g, f) {
-  /* The Phase 5b panel may already have drawn its own tooltip this frame
+  /* A panel may already have drawn its own tooltip this frame
      (`view/ui/tooltip.js`'s `drawn.tooltip` is a SINGLE slot, per that
      file's own header: only one tooltip can be under the cursor at once).
      When it has, this world-hover tooltip must yield rather than overwrite
@@ -364,7 +364,7 @@ function depth(g, W, y) {
   drawText(g, s, W - w - 2, y, d > 0 ? UI.ink : UI.dim, 1, 1);
 }
 
-/* ---------- the band ruler's HUD mount (Phase 9 section 3) ----------
+/* ---------- the band ruler's HUD mount ----------
    ANCHORED, NEVER HARDCODED (CLAUDE.md D8, whose own example of the failure is
    the mockup's FAVOUR panel overrunning its frame). Both ends of this ruler are
    measured rather than chosen:
@@ -396,7 +396,7 @@ function hudRuler(g, f, W, H, boonBottom) {
   drawRuler(g, { id: 'hud-ruler', x: W - rulerWidth() - 2, y, h: bottom - y, vw: W, vh: H });
 }
 
-/* ---------- the timed-boon stack, Phase 4 STEP 5 ----------
+/* ---------- the timed-boon stack ----------
    Top-right, newest at top -- `boons.active` is append-order (grant order,
    never reordered on refresh, `model/boons.js`'s own header), so walking it
    backwards puts the most recently granted boon on top. Capped at 5 visible
@@ -457,7 +457,7 @@ function boonStack(g, f, W, startY) {
   return y;
 }
 
-/* ---------- FAVOUR, Phase 10c / D8, D-F, D1(decision I) ----------
+/* ---------- FAVOUR, D8, D-F, D1(decision I) ----------
    Right column, inserted into the boon stack's own anchor chain: `drawHUD`
    hands this `boonBottom + 3`, and THIS function's return (`favourBottom`)
    is what now reaches `hudRuler` and `debug` instead of `boonBottom` --
@@ -590,14 +590,14 @@ function drawFootprintGhost(g, f, band, tx, ty, tw, th, ok, why) {
   }
 }
 
-/* THE ONE PLACE A GHOST PUTS A WORD BESIDE ITSELF. Extracted in Phase 16c
+/* THE ONE PLACE A GHOST PUTS A WORD BESIDE ITSELF. Extracted
    when the feed preview below became a second caller: "the reason, in the
    ghost's own colour, one line above the top-left of what it is talking
    about, with a shadow so it survives being drawn over lit rock" is a single
    presentation decision and there is no version of this project where two
    ghosts should disagree about it.
 
-   `below` (Phase 16c-cont, `feedPrompt`'s own third callsite) puts the line
+   `below` (`feedPrompt`'s own third callsite) puts the line
    one row UNDER `y` instead -- `feedGhost`'s machine-anchored label and
    `feedPrompt`'s player-anchored one both fire in the same frame, and
    `handFeed.reach` is small enough (a tile or two) that the two subjects sit
@@ -620,14 +620,14 @@ function ghostLabel(g, f, x, y, text, col, below = false) {
    THE FOURTH BRANCH OF `buildGhost` (docs/PLAN-phase16-interaction-model-v2.md
    §5 D16-E #3). With something armed and a machine under the reticle, LMB
    FEEDS rather than places (`shell/input.js`'s rule 2, above rule 3), so this
-   is what the next press would actually do -- and until Phase 16c the only
+   is what the next press would actually do -- and before this the only
    feedback for it was four particles and a click AFTER the fact
    (`shell/notify.js`'s `'accept'` chips; there is still no `TEXT` row).
 
    ONE DECISION, TWO READERS, exactly as the footprint and cable ghosts
    already are: `model/machines.js#feedCheck` is the query
    `rules/machines.js#handOne` ENFORCES and this previews. `view` may not
-   import `rules`, and `feedCheck` was written in `model` in Phase 16a
+   import `rules`, and `feedCheck` lives in `model`
    specifically so this preview would be legal rather than a second copy of
    the accept rule.
 
@@ -918,7 +918,7 @@ function buildGhost(g, f) {
    `shell/notify.js`) always wins -- it is a fact that just happened and it
    is more urgent than standing guidance. With none showing, this falls back
    to whichever SPEC §5 beat the player has not finished yet
-   (`model/tutorial.js#beat`, Phase 8a's read-only query, and
+   (`model/tutorial.js#beat`, a read-only query, and
    `data/callouts.js#CALLOUTS`, indexed by it). Two indices are `null` and
    simply show nothing: 4 (beat 5 fires a frame later with no action in
    between) and 10 (cycle 2 paid -- the sheet is genuinely over there, see
@@ -982,7 +982,7 @@ function debug(g, f, W, top = 22) {
    never a second copy of this layout math. */
 const RESTART_LABEL = 'BEGIN THE NEXT TORMENT';
 
-/* THERE ARE TWO END-OF-RUN SCREENS AND ONE IMPLEMENTATION OF ONE (Phase 13d).
+/* THERE ARE TWO END-OF-RUN SCREENS AND ONE IMPLEMENTATION OF ONE.
    `deathScreen` and `winScreen` below differ only in their wash, their lines
    and the id their button records -- everything about the layout, the
    measured button and the `drawn.panels` registration is HERE, once, because
@@ -1044,8 +1044,8 @@ function deathScreen(g, W, H) {
 
    NOT A SECOND UI MECHANISM: it is `endScreen` above with a different wash,
    different lines and the id `'win-restart'`, and `shell/input.js` hit-tests
-   it through the same `drawn.panels` lookup the death button has used since
-   Phase 12d. The two totals it prints are read straight off `run` (`favour`
+   it through the same `drawn.panels` lookup the death button uses.
+   The two totals it prints are read straight off `run` (`favour`
    summed across gods, `misses`), which is also the first time either number
    has been shown anywhere outside the FAVOUR panel -- FINDINGS' "the player
    never learns their miss count" is narrowed, not closed, by that. */

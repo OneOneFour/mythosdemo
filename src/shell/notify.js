@@ -35,7 +35,7 @@ const CHIPS = {
   accept:     { n: 4, spread: 40 },
   produce:    { n: 5, spread: 60 },
   hurt:       { n: 10, spread: 130 },
-  /* Phase 13d, the cycle loop. `tribute` is deliberately the smallest burst
+  /* The cycle loop. `tribute` is deliberately the smallest burst
      in this table and `cycle` the largest: one credited unit is a small,
      repeated fact (see `data/sfx.js#MIN_GAP.tithe` -- there can be one per
      substep), and a paid trial happens at most four times a run. `win` gets
@@ -81,8 +81,8 @@ const TEXT = {
     : '',
   death:   row => row.data?.cause || '',
 
-  /* ---- Phase 13d: the three kinds `rules/cycles.js` has pushed since Phase
-     10b with nothing on this side of the journal to read them, plus the win.
+  /* ---- The three kinds `rules/cycles.js` pushes with nothing on this side
+     of the journal to read them, plus the win.
 
      `tribute` names the pair and not a running total on purpose: the running
      total is the TRIBUTE panel's job (`view/hud.js#tribute` draws
@@ -115,7 +115,7 @@ const TEXT = {
 };
 
 /* ---- THE ONE KIND THAT GETS A BANNER INSTEAD OF A TOAST -------------------
-   Phase 13d. `view/fx.js#toast` keeps exactly ONE line and the newest fact
+   `view/fx.js#toast` keeps exactly ONE line and the newest fact
    wins, and a completion is a frame with several facts in it: the last
    `tribute` credit, the `cycle` row itself, and (cycle 1) two `grant` rows
    from `rules/grants.js#step` immediately after. Wired as a toast, the god's

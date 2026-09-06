@@ -100,7 +100,7 @@ export function unitsCrossed(before, after, hardSecs, charge) {
 }
 
 /* How many tiles carry accumulated work. A debug read, and NO LONGER a proof
-   that the Map stays small: since Phase 14b an entry persists for every
+   that the Map stays small: an entry persists for every
    deposit tile ever partially worked, for the whole run, because that IS the
    depletion ledger (see the header). The honest bound is therefore the number
    of mineable cells the player ever touches -- docs/SPEC.md section 16.5

@@ -124,8 +124,8 @@ function geometryOf(a, b) {
     len,
     /* 0 for a horizontal span, 1 for a vertical one. The shallower a segment
        runs the less gravity gives back AND the less weight costs -- one
-       number, both halves, which is why Phase 8f's motion expression needs no
-       horizontal special case. */
+       number, both halves, which is why `rules/drive.js`'s motion expression
+       needs no horizontal special case. */
     slope: len > 0 ? Math.abs(dy) / len : 0,
     hi,
     t: 0, dir: 0, load: 0,
@@ -181,7 +181,7 @@ export function reachOf(m) {
 
 /* ---------- linkCheck: ONE DECISION, TWO READERS ----------
    `rules/placement.js#linkSegment` calls this and turns a `false` into a
-   journal row plus the mutation; `view/hud.js`'s cable ghost (Phase 8e) calls
+   journal row plus the mutation; `view/hud.js`'s cable ghost calls
    the identical query and turns the same `false` into a tinted cable with
    `why` beside it. `view` may not import `rules`, so the decision lives in
    `model` -- exactly the move `model/run.js#placementCheck` already made for
@@ -227,7 +227,7 @@ export function linkCheck(a, b) {
    footing hubs samples its whole length exactly astride a grid line, and
    `Math.floor()` inside `tileX`/`tileY` has to pick one of the two tiles that
    share it -- consistently, which means the OTHER one is never sampled at
-   all. Confirmed live (Phase 8g's cross-band harness): a solid tile placed in
+   all. Confirmed live (the cross-band harness): a solid tile placed in
    the column the floor happened not to pick was invisible to every sample
    the whole sweep took. Both tiles sharing an exact boundary are equally
    "on" the line a player would see the cable drawn along, so both must be
@@ -287,8 +287,8 @@ function solidNear(band, wx, wy, exempt) {
    anchor's own row down to the footprint's bottom plus one.
 
    ONE DECISION, TWO READERS (docs/DEVELOPER_GUIDE.md, and the same argument
-   `linkCheck`/`placementCheck` above already stand on). Phase 10a exempted the
-   CABLE and left the RIDER refused -- `rules/drive.js#ride` would not translate
+   `linkCheck`/`placementCheck` above already stand on). One footing sweep
+   exempted the CABLE and left the RIDER refused -- `rules/drive.js#ride` would not translate
    a player whose 6 px box straddles the anchor's own column boundary across the
    very tile the cable now crosses, so a rider arrived 34 px short of the deck
    and the carrier left without them (docs/FINDINGS.md #17). Phase 10b fixes
@@ -380,7 +380,7 @@ export function chains() {
 }
 
 /* WHERE A CHAIN STOPS: every hub that anchors exactly ONE segment. A gap in a
-   chain is the space between two of these, which is what Phase 9's
+   chain is the space between two of these, which is what the
    overview draws (docs/PLAN-gears-and-winches.md section 7.1) -- and WHICH
    pair of open ends constitutes a gap worth highlighting is that phase's
    DECISION, not this file's number. `model` owns the question; this is the

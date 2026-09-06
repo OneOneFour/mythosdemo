@@ -33,7 +33,7 @@
                        `hard`: `hard` decides how long a legal swing against
                        this substance takes; `tier` decides whether a swing is
                        legal at all, checked against the held tool's tier in
-                       rules/mining.js (Phase 2c). Monotonic against `hard` by
+                       rules/mining.js. Monotonic against `hard` by
                        convention and by tools/content.mjs's check: nothing at
                        a higher tier may be softer than something at a lower
                        one.
@@ -56,7 +56,7 @@
             hud    -> `{ order }` position in the pocket strip. `view/hud.js`
                       reads only this, so the HUD is data-driven.
             tool   -> OPTIONAL. `{ tier, power }`. TOOLS ARE RELIC SUBSTANCES,
-                      not a new table (Phase 2c): the stock pickaxe and the
+                      not a new table: the stock pickaxe and the
                       adamant auger are both ordinary `relic`-tagged rows, and
                       this is the only new thing on either of them. `tier` is
                       compared against a tile's `tile.tier` (above) in
@@ -211,7 +211,7 @@ export const SUBSTANCES = [
        assertion 17 enforces that every `relic`/`miracle`-tagged substance has
        one and no `machine`-tagged substance does -- so a future trinket
        `data/drops.js` produces fails the build the moment someone forgets it,
-       rather than silently reading as ordinary loot forever (Phase 8b).
+       rather than silently reading as ordinary loot forever.
 
        `sprite:'pick'` (`view/sprites.js`) replaces the generic two-colour
        square with an angled haft-and-head shape and its own slow bob, ported
@@ -251,13 +251,13 @@ export const SUBSTANCES = [
               recovers -- a full band of `grassA` over a lower edge of `grassB`
               with a `noiseFill` speckle of `grassC` across both. `drape` is
               the part that is new rather than recovered: turf spilling a few
-              pixels down an exposed vertical face, so Phase 7's relief reads
+              pixels down an exposed vertical face, so the relief reads
               as banks of earth instead of a stack of cut cubes. */
            grassCap:{ col:'grassA', low:'grassB', dark:'grassC',
                       lowH:3, drape:4, grain:0.16 } } },
 
   /* ---- granite: the first ROCK harder than stone, for the deep strata pick
-          tiers Phase 2c gates against. `tile.tier:2` is the new optional key
+          tiers gate against. `tile.tier:2` is the new optional key
           documented above -- absent means tier 1, so every existing
           substance (copper, tin, timber, stone, soil) is unaffected. Mines
           to `gravel`, same as stone and soil, so no new rubble form is
@@ -276,7 +276,7 @@ export const SUBSTANCES = [
           and `metal` (`crossable()` will let a future ore/ingot/plate form
           cross into it once a smelt path is designed for that; nothing in
           this phase adds that recipe, and mining it still only ever yields
-          gravel). `tile.tier:3` gates it behind Phase 2c's auger/Talos-head
+          gravel). `tile.tier:3` gates it behind the auger/Talos-head
           tools -- a bronze pickaxe cannot scratch it. ---- */
   { id:'adamant', name:'ADAMANT', short:'ADMT', tags:['rock', 'metal', 'mineable', 'deposit'],
     tile:{ solid:true, hard:5.0, drops:'gravel', tier:3, charge:2 },
@@ -331,7 +331,7 @@ export const SUBSTANCES = [
     look:{ item:['irC', 'irB'] } },
 
   /* `hud.order` 13 IS DELIBERATELY VACANT. It belonged to the retired WINCH
-     STAGE machine substance (20.8 T), deleted in Phase 8f with the rest of the
+     STAGE machine substance (20.8 T), deleted with the rest of the
      staged winch -- see the `hub` row below, whose 10.4 T is half of it on
      purpose. The gap is left rather than closed because `byHudOrder` only ever
      SORTS by this number: renumbering nine rows to close a hole would be a
@@ -406,7 +406,7 @@ export const SUBSTANCES = [
      `tools/content.mjs` assertion 16. ---- */
 
   /* 3 copper/plate + 1 copper/ingot + 2 timber/log:
-     3x2.4 + 1x1.6 + 2x0.8 = 10.4 T. REFINED, not raw -- the class Phase 3
+     3x2.4 + 1x1.6 + 2x0.8 = 10.4 T. REFINED, not raw -- the same class that
      priced the winch stage in, because a hub is the investment. */
   { id:'hub', name:'WINCH HUB', tags:['machine'],
     item:{ mass:10.4, hud:{ order:20 } },

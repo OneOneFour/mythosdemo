@@ -1,4 +1,4 @@
-/* LAYER data — TUTORIAL CALLOUT STRINGS (Phase 8b). Imports nothing.
+/* LAYER data — TUTORIAL CALLOUT STRINGS. Imports nothing.
 
    Content, not literals in `view/` — a future locale or a rewrite of the
    callout widget should never require touching the renderer. Indexed by
@@ -12,7 +12,7 @@
    Index 4 stays `null`: beat 5 fires the frame after beat 4 with no player
    action in between (`rules/cycles.js` places the altar unconditionally from
    frame 0, so the only thing beat 4 was ever waiting on was the player), so a
-   callout there would flash for at most one frame. Index 5 is Phase 10b's:
+   callout there would flash for at most one frame. Index 5:
    the altar exists and cycle 1's own demand (docs/SPEC.md 18.4) is the
    instruction.
 

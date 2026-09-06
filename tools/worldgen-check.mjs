@@ -234,7 +234,7 @@ function checkSeed(seed) {
   }
 
   /* ---- 3. the guaranteed copper vein: present, within a 5-tile dig, and
-     RICH ENOUGH -- measured in UNITS, not in cells (Phase 14d).
+     RICH ENOUGH -- measured in UNITS, not in cells.
      "Reaching" a tile means standing next to it, ready to strike it -- the
      beat sheet's own words are "dig down 5 tiles ... mine 6 copper", so the
      fifth break delivers the player TO the vein and the sixth is the first
@@ -245,7 +245,7 @@ function checkSeed(seed) {
      so that first version was measuring the wrong thing (CLAUDE.md's own
      recorded mistake), not finding a real bug.
 
-     WHY UNITS AND NOT CELLS. Since Phase 14b a deposit tile yields
+     WHY UNITS AND NOT CELLS. A deposit tile yields
      `tile.charge` units (copper 4), so "is there a copper CELL down there"
      no longer answers the question docs/SPEC.md section 5 beat 3 and
      section 13 actually ask, which is for a QUANTITY: 10 raw copper for the

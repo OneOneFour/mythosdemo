@@ -28,7 +28,7 @@
                  press (`rules/machines.js#handOne`). The AUTOMATIC drain of
                  the same block -- one unit per selector per substep for
                  merely standing there -- is `rules/machines.js#handFeed`,
-                 and as of Phase 16b it runs only while the Character tab's
+                 and it runs only while the Character tab's
                  AUTO FEED row is on, which defaults to off every run.
 
      emit        [{ field, at, rate, whileRunning }] pours into a scalar field.
@@ -76,7 +76,7 @@
                  substance name appears anywhere in `view/`.
 
      glyph       ONE CHARACTER: this machine's mark on the overview map
-                 (`view/overview.js`'s MACHINES layer, Phase 9). Appearance
+                 (`view/overview.js`'s MACHINES layer). Appearance
                  only, like `look`, and deliberately NOT inside it: a
                  `variantOf` row is a SHALLOW merge, so a variant that restates
                  `look` to change its colours -- which is what nearly every
@@ -86,7 +86,7 @@
                  (`belt_l`'s direction, `axle` against `gear`). This is how
                  `view` draws a machine's kind without naming one (SPEC 12).
 
-     light       { level, whileRunning }. Phase 2b's one new interpreter key:
+     light       { level, whileRunning }. One interpreter key:
                  `rules/light.js` reads it exactly like every other key here,
                  no machine name involved. `level` is a number, or the literal
                  string `'max'`, a sentinel meaning "read `eff('lightMax')` at
@@ -100,7 +100,7 @@
                  fuel-charge recipe (`out:[]`) stays true for as long as the
                  buffer holds at least one charge's worth -- "while fuelled".
 
-     mine        { facing, tier, tiles, secs }. Phase 2c's PLACED miner --
+     mine        { facing, tier, tiles, secs }. The PLACED miner --
                  a GATE on hardness, not a second one: `rules/machines.js`
                  chews the tile(s) it faces with the exact same seconds-to-
                  break arithmetic `rules/mining.js` uses by hand, so the two
@@ -134,7 +134,7 @@
                  the message reads as a place rather than as a key. Only
                  `cloud_dock` carries it today -- see its own row.
 
-     tribute     `{}` -- Phase 10b's marker key, and the only one on this list
+     tribute     `{}` -- a marker key, and the only one on this list
                  with no fields. It says A CYCLE MAY BE PAID HERE, and it is
                  what `rules/cycles.js` scans `machines` for: every machine
                  whose row carries it has its buffer drained into the live
@@ -155,7 +155,7 @@
                  `out`.
 
    Rows are APPEND-ONLY: the index is the id a save would store. ONE row has
-   ever been deleted -- the WINCH STAGE row, retired in Phase 8f and replaced
+   ever been deleted -- the WINCH STAGE row, retired and replaced
    by the `hub`/`crank`/`gear`/`axle` rows at the foot of this table
    (docs/PLAN-gears-and-winches.md, CLAUDE.md D10). It was safe only because
    nothing persists an index yet: there is no save format, `localStorage` is
@@ -379,7 +379,7 @@ export const MACHINES = [
 
      `tier:2` is deliberately IDENTICAL to the adamant auger's own
      `item.tool.tier` -- this machine can bite exactly what a T2 hand can,
-     no more. `secs:12.0` (Phase 2c's own number, not named by the plan) is
+     no more. `secs:12.0` (not named by the plan) is
      how many seconds of active chewing one buffered fuel unit lasts; four
      buffered units is roughly a minute unattended before it needs feeding
      again, which is the entire point of placing one in a shaft you have
@@ -453,11 +453,11 @@ export const MACHINES = [
      APPENDED, not inserted: this table is append-only, per this file's own
      header note.
 
-     THESE FOUR ROWS REPLACED THE WINCH STAGE ROW, which is gone as of Phase 8f
+     THESE FOUR ROWS REPLACED THE WINCH STAGE ROW, which is gone
      along with its rules module, its two speed tunables and the
-     `'NO SHAFT TO SERVE'` placement branch. Phase 8d placed them and linked
-     them with nothing moving, 8e drew them, and 8f gave them torque and
-     motion: `rules/drive.js` is the only module that ticks any of it.
+     `'NO SHAFT TO SERVE'` placement branch. Placement and linking landed
+     with nothing moving, art followed, and torque and
+     motion came last: `rules/drive.js` is the only module that ticks any of it.
 
      WHY THE CABLE IS NOT PLACED TILE BY TILE (D10's reconciliation): power is
      physical -- a crank, a gear, an axle and the hub they feed all conduct
@@ -468,7 +468,7 @@ export const MACHINES = [
      drivetrains, never cable.
 
      THESE FOUR ARE THE FIRST ROWS IN THE TABLE THAT ARE NOT CATCH BOXES, and
-     their `look` blocks say so with a `parts:[...]` list (Phase 8e). Every
+     their `look` blocks say so with a `parts:[...]` list. Every
      other row gets `view/paint.js#paintMachine`'s generic body-trim-mouth-
      base-with-hopper-lips box, which is the right picture for a furnace and a
      lie on a gear; a row carrying `parts` draws itself out of named shapes
@@ -491,7 +491,7 @@ export const MACHINES = [
   /* WINCH HUB: the endpoint, and the investment. 2x2, the same footprint as
      the press and the hearth.
 
-     `footing:1`, AND THAT ONE IS LOAD-BEARING (changed from 2 in Phase 8f,
+     `footing:1`, AND THAT ONE IS LOAD-BEARING (changed from 2,
      docs/SPEC.md section 17.2). A HEADFRAME STRADDLES THE SHAFT MOUTH: one
      column on solid ground, one over the void. At `footing:2` both columns
      had to stand on rock, and then the cable -- which leaves from the
@@ -500,8 +500,8 @@ export const MACHINES = [
      with 'THE PATH IS BLOCKED'. The arithmetic is unforgiving: with both
      columns supported, no span steeper than 45 degrees can leave an upper hub
      at all, so "a hub at the surface and a hub at the shaft floor" -- the
-     whole mechanic -- was unbuildable through `rules/placement.js`. Phase 8e's
-     baselines never caught it because a screenshot scene places machines
+     whole mechanic -- was unbuildable through `rules/placement.js`. Baselines
+     never caught it because a screenshot scene places machines
      directly through `model/machines.js#write.place`, which asks nothing about
      footing. Found by physically performing this phase's own acceptance
      walkthrough; recorded in docs/FINDINGS.md.
@@ -515,7 +515,7 @@ export const MACHINES = [
      `rules/machines.js#choose` returns null (so `produce` zeroes progress and
      `m.running` stays false), `catchFalling`/`handFeed`/`emit`/`mine` are all
      gated on their own key being present. A hub receives cargo by having a
-     carrier arrive at it, which is `rules/drive.js`'s job in Phase 8f, not a
+     carrier arrive at it, which is `rules/drive.js`'s job, not a
      buffer's. */
   { id:'hub', name:'WINCH HUB', glyph:'O',
     tw:2, th:2, footing:1,
@@ -617,7 +617,7 @@ export const MACHINES = [
      drivetrain sprawling for free.
 
      DIAGONALS DO NOT CONDUCT (docs/PLAN A3, confirmed): a corner needs a gear
-     IN it. That is a legibility choice, and Phase 8e's art is what teaches
+     IN it. That is a legibility choice, and the art is what teaches
      it -- an accidentally diagonal pair must visibly not mesh. */
   { id:'gear', name:'GEAR', glyph:'X',
     tw:1, th:1, footing:1,
@@ -675,12 +675,12 @@ export const MACHINES = [
      between "a carrier arrives here" and "you walk up and hand it over".
      One drain path in `rules/cycles.js` serves both.
 
-     THERE IS NO "FEED KEY". The real verb, as of Phase 16a: CLICK the pair
+     THERE IS NO "FEED KEY". The real verb: CLICK the pair
      in your pockets to arm it, AIM at a machine within `handFeed.reach`,
      and LMB. One press, one unit
      (docs/SPEC.md section 23). `handFeed:{}` below is the automatic
-     proximity drain that stood in for it -- opt-in and off by default as of
-     Phase 16b -- and what the block now declares is the REACH and the
+     proximity drain that stood in for it -- opt-in and off by default
+     -- and what the block now declares is the REACH and the
      MATERIAL CLASSES the real verb reads, for both paths.
 
      WHAT THEY ACCEPT, AND WHY IT IS NOT A STAR. Any element in an ore-tagged

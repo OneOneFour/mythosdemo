@@ -61,8 +61,8 @@
    THE INVARIANT: THIS MAY NEVER DRAW AN UNSEEN TILE. It is a map assembled
    from memory, not an X-ray. `drawMap` honoured it by OMISSION rather than
    with an opaque rect -- an unrevealed tile draws nothing and the void fill
-   shows through -- and every layer added in Phase 9 filters the same way.
-   Phase 7 spent real effort making hollows discoveries; an overview that
+   shows through -- and every layer added since filters the same way.
+   Worldgen spends real effort making hollows discoveries; an overview that
    showed them all would be a cheat menu.
    ============================================================================ */
 
@@ -231,8 +231,8 @@ const syOf = (v, wy) => (v.vy + (wy - v.wy) * v.scale) | 0;
    `shell/input.js` needs it because `ui.map.x/y` is stored UNCLAMPED: a player
    who holds the pan key at the bottom of the world parks the stored offset
    thousands of pixels past the edge, and then has to press the other way just as
-   many times before the view moves at all. That is overscroll, which Phase 9
-   section 2 rules out. So a pan seeds from the clamped position first and adds
+   many times before the view moves at all. That is overscroll, which is
+   ruled out. So a pan seeds from the clamped position first and adds
    its delta to that -- the same "absolute, not incremental" shape `mapDragTo`
    already has. Before the first draw there is no transform to clamp against and
    the offset is returned unchanged; the next draw clamps it anyway. */
@@ -485,7 +485,7 @@ function drawPiles(g, v) {
     /* The count, when there is room for it beside the marker -- a number drawn
        over a 3 px block is a smudge.
 
-       ON ITS OWN BACKING RECT (Phase 13a, §2.4's second clause): the count
+       ON ITS OWN BACKING RECT (§2.4's second clause): the count
        sits BESIDE the marker, not inside it, so the block two lines up backs
        the marker and not the digits, and mottled rock behind a 5x7 numeral is
        the exact unreadable case this function's own neighbour `drawMachines`

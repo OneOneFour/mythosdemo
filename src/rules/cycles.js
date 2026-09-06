@@ -6,7 +6,7 @@
    receiver into it, tick its deadline, then resolve -- complete or miss,
    never both, never twice in the same frame. `model/run.js#tributeMet()` is
    the completion predicate and is a QUERY, not a decision here, precisely so
-   the TRIBUTE panel (Phase 10c) can draw the same yes/no without importing
+   the TRIBUTE panel can draw the same yes/no without importing
    this file (`view` may not import `rules`).
 
    `run.tribute` IS REPLACED WHOLE, NEVER PATCHED IN PLACE. `write.tribute(t)`
@@ -108,7 +108,7 @@ function ensureLiveCycle() {
    ITS REASON CHANGED (Phase 16b, docs/PLAN-phase16-interaction-model-v2.md
    §5 D16-C).
 
-   ORIGINALLY (Phase 10b): `handFeed` was real and unconditional from the
+   ORIGINALLY: `handFeed` was real and unconditional from the
    frame this placed it (reach 10 px, no key), so flush-against-spawn meant a
    player who had taken zero steps, doing nothing, was already standing in
    its reach with whatever they were handed at run start. Found the hard way:

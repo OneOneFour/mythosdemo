@@ -157,8 +157,8 @@
                            ore `mining` just dropped and `items` just moved
                            (beat 3), the `run.deepest` `player` just updated
                            (beat 4), and now the altar `cycles` just placed and
-                           the cycle `cycles` just advanced (beats 5 and 6,
-                           Phase 10b). Judging a beat mid-frame would mean a
+                           the cycle `cycles` just advanced (beats 5 and 6).
+                           Judging a beat mid-frame would mean a
                            callout could name something the player has not
                            finished doing yet.
      tutorial before growth  ONLY so `fields last` below stays literally true
@@ -249,10 +249,10 @@ export const STEPS = [
   { id: 'crafting', step: (dt, cmd) => crafting.step(dt, cmd) },
   { id: 'trinkets', step: () => trinkets.step() },
   { id: 'boons',    step: (dt) => boons.step(dt) },
-  /* `machines` takes `cmd` as of Phase 16b, for exactly one field --
+  /* `machines` takes `cmd` for exactly one field --
      `cmd.autoFeed`, the preference that decides whether the proximity drain
      runs at all (docs/PLAN-phase16-interaction-model-v2.md §5 D16-C). The
-     second sibling brought in line with `items`, which Phase 12b gave `cmd`
+     second sibling brought in line with `items`, which takes `cmd`
      for the identical reason (`cmd.collect`, the pickup magnet's own
      preference). Nothing about the ORDER changes: a preference is not a
      dependency on another step. */
@@ -284,6 +284,6 @@ export function stepAll(dt, cmd) {
    would be a lie about when they happen (docs/DEVELOPER_GUIDE.md#the-rules-order).
    `boons` is exported for its `grant`/`draftable` pair even though it ALSO has
    a per-frame `step` in `STEPS` above, the same dual role `trinkets` has --
-   and as of Phase 13d so does `grants`, whose `step` drains the reward-grant
+   and so does `grants`, whose `step` drains the reward-grant
    bridge while its `grant`/`draftable` pair still serves the draft. */
 export { boons, grants, miracles, trinkets };

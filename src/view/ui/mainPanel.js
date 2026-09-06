@@ -45,7 +45,7 @@ import { drawTooltip } from './tooltip.js';
 
 /* `DIM` IS THE STATE TONE IN THIS FILE, NOT A BODY TONE (Phase 13a,
    docs/PLAN-phase13.md §2.3). Four of the ten load-bearing greys live here and
-   all four keep it: AUTO COLLECT's and (Phase 16b) AUTO FEED's off reading,
+   all four keep it: AUTO COLLECT's and AUTO FEED's off reading,
    the search box's empty
    placeholder, an undiscovered recipe's frame and notice, and `STATE_COLOUR`'s
    UNFUELLED/IDLE rungs (which `view/overview.js#drawMachines` also reads, so
@@ -64,7 +64,7 @@ const MAIN_TABS = [
 ];
 
 /* `f.ui.tab.main` is a plain string handed through by `shell/main.js`'s frame
-   context, per Phase 5a's own precedent (`f.flags`) -- `view` may not import
+   context, the same precedent `f.flags` sets -- `view` may not import
    `shell/ui.js`, so its `activeTab()` fallback (first tab if the stored one
    is stale or absent) is re-stated here in one line rather than called. */
 const activeOf = (stored, list) => list.some(t => t.id === stored) ? stored : list[0].id;
@@ -91,13 +91,12 @@ function glyphOf(sub) {
 /* A unique held THING: a trinket or a miracle, the two tags `data/forms.js`
    reserves the `relic`/`phial` forms for. `view/hud.js#pockets` already
    frames a relic in this same `ichor` divine-gold; extended to `miracle`
-   here rather than a second "this is special" colour, per Phase 5b's own
-   instruction. */
+   here rather than a second "this is special" colour. */
 const isUnique = sub => !!sub.tags?.some(t => t === 'relic' || t === 'miracle');
 
 /* `grid.js#drawSlot` draws no per-item border of its own (its contract is
    `{sub,form,n,mass,colour,glyph}` -- see that file's own header). Rather
-   than teach the Phase 5a primitive a new field, this overlays the frame
+   than teach the grid primitive a new field, this overlays the frame
    directly on the ABSOLUTE rectangles `drawGrid` already returned for each
    slot, the same "read back what was actually drawn" discipline every hit
    test in this project already uses. */
@@ -552,7 +551,7 @@ function drawCraftingTooltip(g, f, grid, recipes) {
    STALLED (present but not moving -- a full output port, a cold `needs`
    gate, a servo throttle: this file cannot tell those apart without
    importing `rules`); an entirely empty buffer reads as BLOCKED. */
-/* EXPORTED FOR THE OVERVIEW'S MACHINES LAYER (Phase 9 section 4), which was
+/* EXPORTED FOR THE OVERVIEW'S MACHINES LAYER, which was
    told in as many words to read the same query as this tab rather than write a
    second one. Same-layer import, and the heuristic above is stated once, here,
    where the tab that made it lives. */
@@ -563,7 +562,7 @@ export function machineState(m) {
      below cannot say anything true about one. A hub, a crank, a gear and an
      axle have no `ports` and no `recipes` at all, so they fell through to
      "empty buffer, therefore BLOCKED" -- which read as a red alarm on a hub
-     doing exactly what a hub does. The Phase 9 map is what made it visible
+     doing exactly what a hub does. The overview map is what made it visible
      (every hub in a working chain drawn in the colour of a fault); the tab
      has been saying it since the drivetrain landed. `m.torque > 0` above
      already catches one that is actively turning, so what is left here is

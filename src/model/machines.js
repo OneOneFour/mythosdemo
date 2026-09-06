@@ -78,7 +78,7 @@ export const write = {
   fire(m, v)        { m.fire = v; bump(); },
   running(m, v)     { m.running = v; bump(); },
 
-  /* Drivetrain, Phase 8f's writers, declared here in Phase 8d so the two
+  /* Drivetrain writers, declared together so the two
      numbers `view` reads live in one place from the start. `turn` ACCUMULATES
      from `dt` alone and never from `rand()` (invariant 7), so a gear sprite is
      reproducible from the seed and the frame count. */
@@ -173,7 +173,7 @@ const firstSel = (sels, sub, form) => {
 
 /* Which `in` port selector, if any, accepts this pair. Lives in `model`
    rather than beside its caller in `rules/machines.js#catchFalling` (where it
-   was until Phase 16a) so that it and `feedCheck` below cannot drift into two
+   used to live) so that it and `feedCheck` below cannot drift into two
    different answers to "does this machine take this". */
 export function acceptedBy(def, sub, form) {
   for (const p of def.ports || []) {

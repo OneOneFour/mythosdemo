@@ -143,5 +143,5 @@ export const CYCLE = Object.freeze(Object.fromEntries(
 
 /* Every god this table lets ask for anything, derived rather than listed, so a
    fifth cycle by a fourth god needs no edit anywhere. Read by the FAVOUR panel
-   (Phase 10c) for which rows to draw at all, and by `tools/content.mjs`. */
+   for which rows to draw at all, and by `tools/content.mjs`. */
 export const ASKERS = Object.freeze([...new Set(CYCLES.map(c => c.god))]);

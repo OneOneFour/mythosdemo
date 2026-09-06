@@ -135,7 +135,7 @@ const aimModel = await import('../src/model/aim.js');
    string in the assertion. */
 const R_place = await import('../src/rules/placement.js');
 /* THE ONE `view` MODULE IMPORTED DIRECTLY, for the identical reason as
-   `R_place` immediately above: the CHUNK SEAM probe (Phase 11 TIER 2) needs
+   `R_place` immediately above: the CHUNK SEAM probe needs
    `chunkCanvas`'s own return value, one chunk at a time, which `main.draw()`
    never exposes -- it composites many chunks into the visible viewport and
    throws each cached canvas away behind that. */
@@ -174,7 +174,7 @@ console.log('\n   imported every layer without error');
 /* `action` is on this list for the same reason `craft` is: it is a HOLD, so
    `clearEdges()` will not put it back down, and `cmd` is a module singleton
    shared by every probe in this file -- a section that leaves a crank held
-   would silently power the next section's drivetrain. `feed` (Phase 16a) is
+   would silently power the next section's drivetrain. `feed` is
    an EDGE and `clearEdges()` does drop it, but it is listed anyway so that
    `want` is the whole truth about the input state of a probe's frame rather
    than "the whole truth about twelve of the thirteen fields". */
@@ -191,7 +191,7 @@ function stepReal(dt, want = {}) {
 /* THE OTHER HALF OF THE REAL FRAME, for the ONE-SHOT INTENTS.
    `stepReal` above drives the fixed substep, which is where every `rules`
    module runs -- but placement, deconstruction, linking, the drop verb and
-   (Phase 16a) the feed verb are EVENTS, not steps: `shell/main.js#frame`
+   the feed verb are EVENTS, not steps: `shell/main.js#frame`
    dispatches them through `applyIntents()` once per animation frame, outside
    `step()`. A probe for one of those has to run both halves, in that order,
    and this is the only difference between the two helpers. Used by section 8i
@@ -206,7 +206,7 @@ function runReal(n, dt, want = {}) {
   for (let i = 0; i < n; i++) stepReal(dt, want);
 }
 
-/* HAND `n` UNITS OVER FOR REAL (Phase 16b).
+/* HAND `n` UNITS OVER FOR REAL.
    Every probe in this file that used to fill a machine by standing beside it
    and waiting was measuring `rules/machines.js#handFeed`, the proximity
    drain -- which is OFF BY DEFAULT as of Phase 16b
@@ -289,7 +289,7 @@ function snapshotModel() {
        it is -- so a count would fingerprint identically for a fresh seed and
        for one 179 seconds in. Sorted by key so `Map` insertion order (which
        depends on the order the player planted, not on the state) cannot make
-       two identical worlds compare unequal. Phase 15, invariant 8. */
+       two identical worlds compare unequal. Invariant 8. */
     growth: [...growth.planted().entries()]
       .map(([k, e]) => ({ k, ord: e.ord, tx: e.tx, ty: e.ty, secs: +e.secs.toFixed(6) }))
       .sort((a, b2) => a.k - b2.k),
@@ -746,8 +746,8 @@ console.log('\n3. behaviour');
     if (mods.eff(key, scope) !== base)
       fail(`trinket ${t.id}: eff("${key}") changed BEFORE equipping -- holding alone must not be enough`);
 
-    /* Equip it into the first slot directly -- Phase 12b retires
-       `rules/trinkets.js#equipFirst` (the 'p' key's own primitive, superseded
+    /* Equip it into the first slot directly -- `rules/trinkets.js#equipFirst`
+       is retired (the 'p' key's own primitive, superseded
        by drag-to-equip); `model/run.js#write.equip` is the same model write
        that real path already calls. Then `trinkets.step()` syncs
        `model/mods.js` from the intersection `run.equipped ∩ run.inv`. */
@@ -827,7 +827,7 @@ console.log('\n4. Phase 6 probes');
     fail(`DETERMINISM: the fresh-process probe failed to run: ${e.message}`);
   }
 
-  /* AND THE SCRIPT ACTUALLY DROVE A DRIVETRAIN (Phase 8g). Two identical
+  /* AND THE SCRIPT ACTUALLY DROVE A DRIVETRAIN. Two identical
      fingerprints over a script that never turned a crank would be a green
      result about nothing, which is CLAUDE.md's "a test can silently test
      nothing" with the drivetrain in the blank. So: the crank delivered torque
@@ -903,8 +903,8 @@ console.log('\n4. Phase 6 probes');
   run.write.equip(0, D_sub.S.pick);
   run.write.craft(2.5, 'smelt');
   run.write.brand(42);
-  /* THE TRIBUTE LEDGER, all six fields, one write each (Phase 10b). This line
-     was `run.write.tribute({ n: 1 })` -- a placeholder shape from Phase 3, when
+  /* THE TRIBUTE LEDGER, all six fields, one write each. This line
+     was `run.write.tribute({ n: 1 })` -- a placeholder shape, when
      the field had zero callers -- and it is now the real record
      `rules/cycles.js` writes, `{ id, have, left }`, so a reset that forgot the
      ledger fails here on its own contents rather than on a stand-in.
@@ -920,7 +920,7 @@ console.log('\n4. Phase 6 probes');
   run.write.miss();
   run.write.cycle(3);
   run.write.offer('grant');
-  /* Phase 13d's two new `run` fields, dirtied the same way: `won` is the win
+  /* Two `run` fields, dirtied the same way: `won` is the win
      state (a run that ended in victory must not hand the next run a win
      screen) and `awarded` is the reward-grant bridge `rules/grants.js#step`
      drains (a queue surviving a reset would grant the next run a machine it
@@ -1118,7 +1118,7 @@ console.log('\n4. Phase 6 probes');
   for (let i = 0; i < 10000 && driftAt < 0; i++) {
     /* `collect` IS HELD ON HALF THE SUBSTEPS, AND THERE IS SOMETHING TO
        COLLECT (Phase 13c, docs/PLAN-phase13.md §4.4). `collect` was absent,
-       and pickup has been opt-in since Phase 12b, so the wrapped
+       and pickup has been opt-in, so the wrapped
        `run.write.collect` above was never invoked through the real path at
        all: this fuzz's coverage had silently shrunk to `items.spawn`/`remove`
        plus the machine `take`/`consume` pair, and the one bucket transfer a
@@ -1402,10 +1402,10 @@ const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate
        nothing and removes the question. */
     const tx = world.tileX(band, player.player.x) + 15, ty = world.tileY(band, player.player.y);
     for (let dy = -1; dy <= 4; dy++) tiles.write.clear(band, tx, ty + dy);
-    /* `F.rung`, not `F.log`: Phase 14a stripped `log`'s `tile` block (CLAUDE.md
+    /* `F.rung`, not `F.log`: `log`'s `tile` block is stripped (CLAUDE.md
        D12 -- a form is either feedstock or buildable), so a placed log is no
        longer a climbable tile at all. `timber/rung` is what `peg_rungs` makes
-       and what a ladder has been built from since Phase 2a; the scene is the
+       and what a ladder has been built from; the scene is the
        same, the tile is the one the game can actually produce. */
     tiles.write.set(band, tx, ty + 4, D_sub.S.timber, D_form.F.rung);   // a ladder tile to climb
     player.write.move(world.worldX(band, tx), world.worldY(band, ty + 3));
@@ -1513,7 +1513,7 @@ const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate
   else ok(`LIGHT: only ${recomputes} recompute(s) over 600 idle substeps (bound ${bound}) -- not per frame`);
 }
 
-/* --- RENDER PURITY, extended over the view/ui/ tree (Phase 5a/5b): opening
+/* --- RENDER PURITY, extended over the view/ui/ tree: opening
    the main panel, giving it real content to draw (an inventory, a crafting
    grid, an equipped trinket) and hovering a slot must not move the epoch
    counter or consume randomness any more than the plain-HUD case already
@@ -1547,10 +1547,10 @@ const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate
 }
 
 /* ============================================================
-   5. PHASE 8G — SEGMENT TRANSPORT: THE DRIVETRAIN, THE CARRIER, THE RIDE
+   5. SEGMENT TRANSPORT: THE DRIVETRAIN, THE CARRIER, THE RIDE
    ------------------------------------------------------------
-   Everything Phase 8f landed (`rules/drive.js`, `model/segments.js`, the ride
-   branch in `rules/player.js`), asserted as PROPERTIES rather than as one
+   `rules/drive.js`, `model/segments.js`, the ride
+   branch in `rules/player.js`, asserted as PROPERTIES rather than as one
    worked example. docs/SPEC.md section 17 is the contract; where the shipped
    formula deviates from docs/PLAN-gears-and-winches.md section 4.3 -- the
    `* drive` factor on the ascent case -- these tests are written against
@@ -1580,11 +1580,11 @@ const RIG = { band: 'topsoil', tx0: 18, w: 12 };
 
 /* ---------- EVERY HUB IN THIS SECTION STANDS ON A REAL FOOTING TILE ----------
    `machs.write.place` asks nothing about footing -- `data/machines.js:465-467`
-   records that exact blind spot -- so until Phase 10a every hub in every scene
+   records that exact blind spot -- so before this fix every hub in every scene
    below floated over air, which is a machine `rules/placement.js` could never
    have built (`model/run.js#placementCheck` demands `def.footing` solid tiles
-   directly under the footprint). That is how the headframe defect survived
-   Phase 8g: no vertical span in the harness ever met the footing tile every
+   directly under the footprint). That is how the headframe defect survived:
+   no vertical span in the harness ever met the footing tile every
    real span must pass through. So: lay the tiles, in the hub's own band, and
    lay them AFTER any clearing the scene does.
 
@@ -1610,8 +1610,8 @@ function headframeOf(m) {
            ty0: m.ty + Math.floor(def.th / 2), ty1: m.ty + def.th };
 }
 
-/* A RIDER MAY NOW START AT THE VERY TOP OF A SPAN (`t = 1`), and until Phase
-   10b they could not. Phase 10a's exemption let the CABLE cross the upper hub's
+/* A RIDER MAY NOW START AT THE VERY TOP OF A SPAN (`t = 1`), and once they
+   could not. The footing exemption let the CABLE cross the upper hub's
    own footing tile; `rules/drive.js#ride` still refused to translate a player
    across it, because a 6 px box centred on the anchor straddles the anchor's
    column boundary and the footing tile is inside that box whichever of the two
@@ -1619,7 +1619,7 @@ function headframeOf(m) {
    stopped while the carrier left without them, so every ride probe in this file
    had to park its carrier 40 px down (`belowHeadframe`, now deleted) to keep
    measuring what it claimed to measure. docs/FINDINGS.md #17 recorded it and
-   Phase 10b fixed it in `rules/drive.js#boxSolid`, which now reads
+   the fix landed in `rules/drive.js#boxSolid`, which now reads
    `model/segments.js#headframe` -- the same two rows per endpoint, not one
    more. So `carriers: [[0, 1]]` below is load-bearing in both directions: it is
    the honest scene, and it fails if the rider exemption regresses. */
@@ -2209,7 +2209,7 @@ function predictV(supply, mass, slope, demand = null) {
    THE DIAGONAL IS THE OTHER HALF AND IT IS A ZERO, not a small number: a crank
    whose footprint only touches a hub's CORNER is in a component with no hub in
    it, contributes nothing, and the carrier sinks at the full `segDown`. Put a
-   gear in the corner and the same crank drives it. Phase 8e's art is what
+   gear in the corner and the same crank drives it. The art is what
    teaches this to a player; this is what stops it drifting. --- */
 {
   const LOSS = D_mach.MACH[D_mach.M.gear].gear.loss;
@@ -2676,7 +2676,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
 
   /* CASE 2 -- commit b48203d's repro, the astral/surface seam. */
   {
-    /* astral column 61, not 45: Phase 10b moved astral's origin from x:128 to
+    /* astral column 61, not 45: astral's origin moved from x:128 to
        x:0, so the band-local column that sits over surface column 61 is 61
        and no longer 45. The WORLD anchors this case is about (496, 304) and
        (496, 344) are unchanged, which is what the guard below is for. */
@@ -2702,7 +2702,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
   }
 
   /* CASE 3 -- OUTSIDE THE WORLD, AND THE DEAD ZONE THAT USED TO PRODUCE IT.
-     Until Phase 10b astral was `tw:96` at `origin.x:128`, so world x < 128 and
+     Astral was once `tw:96` at `origin.x:128`, so world x < 128 and
      x >= 896 above y 320 were no band at all, and a surface hub at column 11
      linking up to astral's leftmost column left the world for a few pixels on
      the way. That case is GONE, deliberately: the widening closed two
@@ -2774,7 +2774,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
    through `model/machines.js#write.place`, which asks nothing about footing
    (`data/machines.js:465-467` records the blind spot) -- so "a hub with the
    solid tile under it that `placementCheck` demands", which is the only kind
-   the game will ever build, went untested until Phase 10a and took a defect
+   the game will ever build, went untested and took a defect
    with it.
 
    THE DEFECT, measured before the fix, topsoil, two hubs 12 tiles apart on
@@ -3084,8 +3084,8 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
 /* --- RENDER PURITY OVER THE DRIVETRAIN'S OWN DRAW PATHS (invariants 9 and 7).
    Section 2 proves the plain HUD and the terrain are pure and section 4 proves
    the `view/ui/` tree is; neither draws a cable, a carrier, a bucket chain, a
-   turning gear or the cable ghost, all of which Phase 8e added and Phase 8f
-   made move.
+   turning gear or the cable ghost -- segment transport's own art, made to move
+   by the drivetrain.
 
    FIVE STATES, and every one is DRAWN TWICE with the epoch counter compared
    across the pair -- the same instrument section 2 uses, because `model` bumps
@@ -3336,7 +3336,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
        `tiles are all air, ${aboard.length} item(s) ride on air, and not one byte of any band's mat changed`);
 }
 
-/* --- A SEGMENT EMITS NO LIGHT UNLESS A ROW SAYS SO. Phase 8b owns the
+/* --- A SEGMENT EMITS NO LIGHT UNLESS A ROW SAYS SO. `rules/light.js` owns the
    glow/light separation and this does not duplicate it; what it adds is the
    transport-specific half: a cable, a carrier and a bucket chain are drawn
    objects, and `rules/light.js` builds its emitter list from machine rows
@@ -3433,8 +3433,8 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
   /* A 46-ROW SPAN RIDDEN FROM THE VERY TOP. Forty is the number claim A is
      about (docs/SPEC.md section 3 makes 20 tiles a lethal fall) and 46 rows
      leaves room for it; the span grew rather than the claim shrinking. The
-     start at `t = 1` is only possible since Phase 10b -- see the rider
-     exemption note above `driveRig`. */
+     start at `t = 1` is only possible because of the footing exemption --
+     see the rider exemption note above `driveRig`. */
   const TALL = {
     seed: 8980, reachMul: 5,
     room: { ty0: 60, h: 58 },
@@ -3772,7 +3772,7 @@ console.log('\n6. the tribute loop (Phase 10b)');
     }
   }
 
-  /* CLAIM 2 -- HAND-FED, THROUGH THE REAL VERB (rewritten in Phase 16b).
+  /* CLAIM 2 -- HAND-FED, THROUGH THE REAL VERB.
      This used to stand the player beside the altar and wait 240 substeps for
      `rules/machines.js#handFeed` to empty their pockets into it. That drain
      is opt-in and off by default now (D16-C), and THE FLAG WAS DELIBERATELY
@@ -3858,7 +3858,7 @@ console.log('\n7. tutorial beats 5 and 6 (Phase 10b, D-E/E1)');
        director already placed, and watch the SAME completion that pays the
        trial also advance the beat -- one state, two readers.
 
-       FED THROUGH THE REAL VERB as of Phase 16b (`feedByHand`, ten presses),
+       FED THROUGH THE REAL VERB (`feedByHand`, ten presses),
        not by standing still and waiting: the proximity drain is off by
        default now (D16-C). The flag was not used here either, for the same
        reason as THE ALTAR probe above -- beat 6's predicate is `run.cycle`,
@@ -4605,7 +4605,7 @@ console.log('\n8c. HEAVENS LEDGER: cycle completion unlocks exactly one band');
    the one existing caller of that, in the reset-fingerprint probe elsewhere
    in this file, never drives it through gameplay at all). Cycle 1 is
    completed first, for real (the same `feedByHand` idiom as above -- ten
-   presses, the Phase 16b verb, not the retired proximity drain), so cycle 2
+   presses, the real verb, not the retired proximity drain), so cycle 2
    is actually the LIVE one with a real clock counting down. */
 console.log('\n8d. HEAVENS LEDGER: two misses ends the run');
 {
@@ -4669,7 +4669,7 @@ console.log('\n8d. HEAVENS LEDGER: two misses ends the run');
    8e. DEPLETION (Phase 14e, docs/PLAN-phase14-mining-and-drops.md D14-D/E/F)
    ------------------------------------------------------------
    A deposit tile yields `tile.charge` units before it is gone, each unit
-   costing a full `hard` of accumulated work. Phase 14b measured that once, by
+   costing a full `hard` of accumulated work. Measured once, by
    hand; this section is the permanent regression check, and it drives the REAL
    `rules/mining.js` and `rules/machines.js#mine` through `stepReal` rather
    than re-implementing their arithmetic -- which is the whole point, because
@@ -4888,7 +4888,7 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
 
 /* --- HAND AND A FUELLED PLACED MINER EXHAUST AN IDENTICAL TILE IN AN
    IDENTICAL TIME. docs/SPEC.md section 12 stakes a measured "0.0000 s
-   difference" on this, and Phase 14b re-measured it by hand once depletion
+   difference" on this, re-measured by hand once depletion
    made a tile take four bites instead of one. This is that measurement, kept.
 
    The T2=T3 probe in section 3 proves the two accumulate the same WORK
@@ -5069,7 +5069,7 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
 /* --- INVARIANT 8, AGAINST A PARTIALLY DEPLETED WORLD. Section 4's reset
    probe already fingerprints every exported model object across two fresh
    `newRun()` calls, and `snapshotModel()` includes `mining.activeCount()` --
-   but a count is not the ledger. Since Phase 14b that Map IS the depletion
+   but a count is not the ledger. That Map IS the depletion
    ledger, so a run that half-worked thirty veins and restarted must forget
    every one of them: the count AND the seconds. Fingerprinted as both here,
    so a future partial clear that kept the keys and zeroed the values, or kept
@@ -6483,7 +6483,7 @@ console.log('\n8i. THE FEED VERB (Phase 16a, docs/SPEC.md section 23)');
   /* ONE PRESS, ONE UNIT -- and the measurement is a DIFFERENCE, which is the
      single most important thing to understand about this probe.
 
-     WHEN IT WAS WRITTEN (Phase 16a), `rules/machines.js#handFeed` -- the
+     BEFORE THE FEED VERB EXISTED, `rules/machines.js#handFeed` -- the
      automatic proximity drain -- was still live and still unconditional. A
      player standing 6 px from an altar with copper ore in their pockets lost
      ONE unit per substep to the magnet whether or not they pressed anything,

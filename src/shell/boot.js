@@ -73,7 +73,7 @@ export function newRun(seed = (Math.random() * 1e9) | 0) {
   /* --- tear down, before anything reads a stale array --- */
   worldw.clear();
   machw.clear();
-  segw.clear();        // Phase 8d: a segment holds two MACHINE RECORDS, so it
+  segw.clear();        // a segment holds two MACHINE RECORDS, so it
                        // must go with the machines it points at -- and a
                        // segment surviving a restart is exactly the
                        // determinism bug invariant 8 exists to name
@@ -156,7 +156,7 @@ export function newRun(seed = (Math.random() * 1e9) | 0) {
          shelf (`SHELF` in `rules/generate.js`) so it never lands on a ragged
          lip or a tree. An ordinary item, not a special case: it falls the last
          tile like anything else and then LIES THERE until the player picks it
-         up -- pickup has been opt-in since Phase 12b, so walking over it is no
+         up -- pickup has been opt-in, so walking over it is no
          longer enough: hold `c` (`cmd.collect`) inside `eff('pickupR')`, or
          turn AUTO COLLECT on in the Character tab. `model/run.js#hasPick()`
          reads the result either way. --- */

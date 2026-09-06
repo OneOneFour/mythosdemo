@@ -27,10 +27,10 @@ Decisions locked in by the user for this run (do not re-ask):
 | 1.7 | tidy: view-2 (ui/grid, ui/state, ui/panel, ui/tabs) | src/view/ui | done (no Track-A changes needed) | -- |
 | 1.8 | tidy: core (font, canvas, math) | src/core | done (no changes needed) | -- |
 | 1.9 | tidy: model-2 (epoch, aim) | src/model | done (no changes needed) | -- |
-| 1.10 | tidy: data-1 (substances, tuning, sfx, callouts, palette) | src/data | pending | |
-| 1.11 | tidy: data-2 (grants, boons, miracles, trinkets, drops) | src/data | pending | |
-| 2 | tidy: drop self-referential comment narration, repo-wide | Track B1, 12 remaining files | pending | |
-| 3 | tidy: drop bare Phase-N tags | Track B2, 48 files | pending | |
+| 1.10 | tidy: data-1 (substances, tuning, sfx, callouts, palette) | src/data | done | 626e890 |
+| 1.11 | tidy: data-2 (grants, boons, miracles, trinkets, drops) | src/data | done (no changes needed) | -- |
+| 2 | tidy: drop self-referential comment narration, repo-wide | Track B1, 12 remaining files | done | 938aed5 |
+| 3 | tidy: drop bare Phase-N tags | Track B2, 47 of 48 files touched (1 had zero bare hits after re-check) | done | (pending commit) |
 | 4 | docs: fix stale tools/resolve.mjs and file:line references | Part 2 §2H + DEVELOPER_GUIDE facts (§2K) | pending | |
 | 5 | docs: retire the spent REVIEW, AUDIT and MIGRATION artifacts | Part 2 §2A, 21 deletions + 3 brain salvages | pending | |
 | 6 | docs: extract TRANSPORT.md and adr/0001 from the shipped plans | new user-facing files | pending | |

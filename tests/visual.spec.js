@@ -386,20 +386,20 @@ test('a placed furnace', async ({ page }) => {
      arms it and 'e' places it. */
   await page.evaluate(async () => {
     const { write } = await import('/src/model/run.js');
-    /* Phase 10b (D-H): the furnace is cycle 1's reward and no longer a
+    /* The furnace is cycle 1's reward and no longer a
        starting grant -- this test's own point is the furnace's LOOK, not
        whether a trial has been paid, so grant it directly. */
     write.grant('furnace');
   });
   await putInQuickbar(page, 0, 'furnace', 'rig');
   await page.keyboard.press('1');
-  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+  /* 'e' no longer places -- placement moved to LMB only
      (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
      tests' point, not this one's, so poke the same edge flag a real click
      ultimately sets. */
   await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(240));
-  /* Phase 10b's altar is placed at boot (`rules/cycles.js#ensureAltarPlaced`)
+  /* The altar is placed at boot (`rules/cycles.js#ensureAltarPlaced`)
      -- exclude it so this still asserts "exactly the one machine THIS test
      placed, nothing stray", not a total that silently includes boot content. */
   expect(await page.evaluate(async () => {
@@ -441,7 +441,7 @@ test('REAL DRAG: dragging a held item from the inventory grid onto an empty quic
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { open, setTab } = await import('/src/shell/ui.js');
-    write.grant('furnace');   // Phase 10b (D-H): no longer a starting grant
+    write.grant('furnace');   // no longer a starting grant
     write.collect(S.furnace, F.rig, 1);
     open('main');
     setTab('main', 'char');
@@ -477,7 +477,7 @@ test('REAL DRAG: dragging a held item from the inventory grid onto an empty quic
   expect(await page.evaluate(() => __mf.ui.armedPlace)).toEqual({ sub: S.furnace, form: F.rig });
 
   await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(1); });
-  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+  /* 'e' no longer places -- placement moved to LMB only
      (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
      tests' point, not this one's, so poke the same edge flag a real click
      ultimately sets. */
@@ -539,7 +539,7 @@ test('a digit key arms the matching quickbar slot, not just any held item', asyn
   expect(armed.armedPlace).toEqual({ sub: armed.press, form: armed.rig });
   expect(armed.armedPlace.sub).not.toBe(armed.furnace);
 
-  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+  /* 'e' no longer places -- placement moved to LMB only
      (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
      tests' point, not this one's, so poke the same edge flag a real click
      ultimately sets. */
@@ -1091,8 +1091,8 @@ test('the map overview shows explored terrain and leaves unexplored terrain undr
     pw.move(worldX(surface, 0), worldY(surface, 0));   // clear of the probed tile
     revealStep();
 
-    /* PARKED, NOT FOLLOWING. The overview follows the player by default
-       (Phase 9), and the player has just been moved to the top-left corner --
+    /* PARKED, NOT FOLLOWING. The overview follows the player by default,
+       and the player has just been moved to the top-left corner --
        so without this the probed surface tile would be scrolled off screen and
        the "revealed stone paints its own colour" sample would read void, which
        is a test failing for the wrong reason. `mapMoveTo` also turns FOLLOW
@@ -1373,11 +1373,11 @@ test('the Character tab', async ({ page }) => {
     grant('bellows');
     /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now, not automatic
        -- turn the magnet ON for the wait below, the same way `digging
-       straight down...` above does. A SETTER, not a toggle (Phase 13c). */
+       straight down...` above does. A SETTER, not a toggle. */
     setAutoCollect(true);
     __mf.frames(200);          // let the drafted relic fall and land in the pockets
-    /* Equip into the first slot directly -- Phase 12b retires
-       `rules/trinkets.js#equipFirst` (the 'p' key's own primitive,
+    /* Equip into the first slot directly -- `rules/trinkets.js#equipFirst`
+       is retired (the 'p' key's own primitive,
        superseded by drag-to-equip); `model/run.js#write.equip` is the same
        model write that real path already calls. */
     rw.equip(0, S.bellows);
@@ -1403,7 +1403,7 @@ test('the Character tab', async ({ page }) => {
    quickbar fully populated with `eff('quickbarSlots')` distinct pairs,
    proving there is no ordinal past the last real cell and nothing scrolls or
    truncates. Each at the desktop viewport and the 200 px phone floor, per
-   this file's own Phase 10c precedent (`phoneFloor`, defined below at its
+   this file's own precedent (`phoneFloor`, defined below at its
    original point of use but hoisted, so it is callable here too). */
 
 test('the Character tab on a fresh run: eff(invSlots) mostly-empty cells, not a packed list', async ({ page }) => {
@@ -1507,7 +1507,7 @@ test('the quickbar shows exactly eff(quickbarSlots) cells, fully populated, with
    a locked id with, so this screenshots the tab AS IT ACTUALLY RENDERS today
    rather than fabricating a locked recipe that cannot currently occur.
 
-   A MACHINE'S OWN BUILD ROW IS A DIFFERENT LOCK, and Phase 10b (D-H) makes it
+   A MACHINE'S OWN BUILD ROW IS A DIFFERENT LOCK, and D-H makes it
    a real one for the first time: `furnace` is cycle 1's reward and is no
    longer in `data/grants.js#STARTING_MACHINES`, so its PLACE-tab icon now
    genuinely renders as "not yet granted" at a fresh boot -- this baseline
@@ -1566,8 +1566,8 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
     /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now, not automatic
        -- this flow's own point is craft -> place -> feed -> smelt, not the
        collect gate, so turn the magnet ON for the whole scene rather than
-       holding 'c' through two separate waits below. A SETTER, not a toggle
-       (Phase 13c). */
+       holding 'c' through two separate waits below. A SETTER, not a toggle.
+       */
     setAutoCollect(true);
     /* AND THE MACHINE-SIDE MAGNET, for the same shape of reason (Phase 16b,
        docs/SPEC.md §23.6). The `feed` link in this test's own chain is now a
@@ -1604,14 +1604,14 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
      smelt chain, not a second proof of drag-and-drop. */
   await page.evaluate(async () => {
     const { write } = await import('/src/model/run.js');
-    /* Phase 10b (D-H): the furnace is cycle 1's reward, not a starting
+    /* The furnace is cycle 1's reward, not a starting
        grant -- this flow's point is the smelt chain, so grant it directly
        rather than routing through the cycle director. */
     write.grant('furnace');
   });
   await moveHeldToQuickbar(page, 0, 'furnace', 'rig');
   await page.keyboard.press('1');        // arms slot 0's furnace (`view/ui/quickbar.js#slotForDigit`)
-  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+  /* 'e' no longer places -- placement moved to LMB only
      (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
      tests' point, not this one's, so poke the same edge flag a real click
      ultimately sets. */
@@ -1741,10 +1741,10 @@ test('overloaded past 40 T, a climb intent is refused; dropping the heaviest pai
     const band = bandOf('topsoil');
     const tx = 10, ty = 40;
     for (let dy = -1; dy <= 4; dy++) tw.clear(band, tx, ty + dy);
-    /* `F.rung`, not `F.log`: Phase 14a stripped `log`'s `tile` block
+    /* `F.rung`, not `F.log`: `log`'s `tile` block is stripped
        (CLAUDE.md D12), so a placed log is no longer a climbable tile at all.
        `timber/rung` is what `peg_rungs` makes and what a ladder has been
-       built from since Phase 2a. Scene setup only -- the behaviour under
+       built from. Scene setup only -- the behaviour under
        test here is the burden climb lockout, not the tile. */
     tw.set(band, tx, ty + 4, S.timber, F.rung);       // a ladder tile
     pw.band(band);
@@ -1805,8 +1805,8 @@ test('opening the GUI, shift-clicking a recipe queues 5, and ticking drains them
 
     /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now, not automatic
        -- this flow's own point is the craft queue draining, not the collect
-       gate, so turn the magnet ON for the wait below. A SETTER, not a toggle
-       (Phase 13c). */
+       gate, so turn the magnet ON for the wait below. A SETTER, not a toggle.
+       */
     setAutoCollect(true);
     __mf.give(S.timber, F.log, 20);      // 5 runs of peg_rungs (2 logs each)
     open('main');
@@ -2288,7 +2288,7 @@ test('opening the panel then placing closes it, and the placement still succeeds
     return invCount(S.timber, F.rung);
   });
 
-  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+  /* 'e' no longer places -- placement moved to LMB only
      (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
      tests' point, not this one's, so poke the same edge flag a real click
      ultimately sets. */
@@ -2334,7 +2334,7 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
   });
   const before = await countExAltar();
   expect(before).toBe(0);
-  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+  /* 'e' no longer places -- placement moved to LMB only
      (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
      tests' point, not this one's, so poke the same edge flag a real click
      ultimately sets. */
@@ -2352,7 +2352,7 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { invCount, write } = await import('/src/model/run.js');
-    /* Phase 10b (D-H): the furnace is cycle 1's reward, not a starting
+    /* The furnace is cycle 1's reward, not a starting
        grant -- crafting the rig doesn't need it, but placing it below does. */
     write.grant('furnace');
     __mf.give(S.copper, F.ore, 12);
@@ -2394,7 +2394,7 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
      the spawn shelf is open air with the floor directly beneath it. */
   await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(1); });
 
-  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+  /* 'e' no longer places -- placement moved to LMB only
      (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
      tests' point, not this one's, so poke the same edge flag a real click
      ultimately sets. */
@@ -2512,9 +2512,9 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
     __mf.frames(1);
   });
 
-  /* RUBBLE IS STILL NOT PLACEABLE -- but as of Phase 16a the ARM GATE is no
+  /* RUBBLE IS STILL NOT PLACEABLE -- but the ARM GATE is no
      longer where that is felt, and this is the one assertion in this file the
-     phase deliberately changed. Any occupied slot now arms (docs/SPEC.md
+     change deliberately touched. Any occupied slot now arms (docs/SPEC.md
      section 23.1), because an arm has two possible consequences rather than
      one: gravel is a cycle-4 tribute demand and the feed verb is what hands
      it over. So clicking the gravel slot ARMS it, and the refusal moved one
@@ -2624,7 +2624,7 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
     return invCount(S.soil, F.block);
   });
 
-  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+  /* 'e' no longer places -- placement moved to LMB only
      (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
      tests' point, not this one's, so poke the same edge flag a real click
      ultimately sets. */
@@ -2717,7 +2717,7 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
     __mf.frames(300);
   }, FEED);
 
-  /* ---- half one: a click on an ORE slot arms it. Before Phase 16a this was
+  /* ---- half one: a click on an ORE slot arms it. This used to be
      a confirmed, silent, complete no-op -- the click-to-arm gate required a
      tile-capable form, a `rig` or a `phial`, and `ore` is none of the
      three. ---- */
@@ -2777,7 +2777,7 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
       for (let x = slot.x; x < slot.x + slot.w; x++)
         if (moved((y * c.width + x) * 4)) inside++;
 
-    /* THE SECOND REGION ARMING NOW OWNS (Phase 16c): the IN HAND row above the
+    /* THE SECOND REGION ARMING NOW OWNS: the IN HAND row above the
        quickbar. This probe used to assert `total === inside` -- "the arm moved
        pixels on that slot and NOWHERE else" -- which was true right up until
        arming also had to say what it armed. The claim is unchanged in spirit
@@ -2878,10 +2878,9 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
   await page.mouse.up();
 
   /* THE MAGNET IS OFF, asserted rather than assumed (Phase 16b,
-     docs/SPEC.md §23.6). These two lines read `1` from Phase 16a until 16b:
+     docs/SPEC.md §23.6). These two lines used to read `1`, back when
      the drain was live and unconditional and cost exactly one unit a
-     substep, and "this phase removes nothing" was half of what 16a claimed.
-     16b put it behind AUTO FEED, default off, and the control frame is
+     substep. 16b put it behind AUTO FEED, default off, and the control frame is
      therefore free -- so the two assertions BELOW, which are the ones about
      the verb, did not have to change at all. That is what measuring a
      difference bought, and it is the same trade `tools/check.mjs` section 8i
@@ -2903,7 +2902,7 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
      which made both of `feedCheck`'s refusal strings unreachable from a real
      click: the press fell through to rule 3 (place) instead, and a rung
      armed here would land INSIDE the furnace's own footprint rather than
-     refuse to feed it -- found by hand-verification during Phase 16a and
+     refuse to feed it -- found by hand-verification and
      fixed by dropping that clause (docs/SPEC.md section 23.2 / 23.4: "a
      machine under the reticle means the machine", full stop; whether THIS
      pair is welcome is `handOne`'s question, downstream, and its answer is
@@ -3228,7 +3227,7 @@ async function handScene(page, spec) {
 
     /* THE FURNACE'S ORE CLAUSE, PRE-LOADED, AND *AFTER* THE SUBSTEPS -- the
        same "set the state the spec DECLARES last" rule `winchScene`'s own
-       carrier block learned in Phase 8f. `feedCheck` reports the matched
+       carrier block learned. `feedCheck` reports the matched
        SELECTOR's fill, not the machine's, so this is fed through the real
        `write.take` and read back through the real `count`/`capOf` -- the same
        two the ghost prints -- rather than asserted from a remembered number.
@@ -3483,7 +3482,7 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
        -- turn the magnet ON for the whole scene, both for the walk-over just
        below and for the deconstruct refund at the very end of this test,
        rather than holding 'c' through two separate windows. A SETTER, not a
-       toggle (Phase 13c). */
+       toggle. */
     /* AND AUTO FEED, for stages 4 and 5 (Phase 16b, docs/SPEC.md §23.6):
        the proximity drain is opt-in and off by default now, and those two
        stages give the furnace its fuel and its ore by putting them in the
@@ -3493,7 +3492,7 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
        the material got into the buffer is not what any of its six
        screenshots or ten assertions are about. The real verb has its own
        end-to-end test ("REAL CLICK: clicking an ore slot arms it...").
-       A SETTER, not a toggle (Phase 13c). */
+       A SETTER, not a toggle. */
     const { setAutoCollect, setAutoFeed } = await import('/src/shell/ui.js');
     setAutoCollect(true);
     setAutoFeed(true);
@@ -3517,7 +3516,7 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
        needs and gives the identical reason for. */
     banner.fade = 0;
   });
-  await page.keyboard.press('e');       // opens the main panel -- 'i' retired, Phase 12d
+  await page.keyboard.press('e');       // opens the main panel -- 'i' retired
   await page.evaluate(() => __mf.frames(1));
 
   let ui = await page.evaluate(() => __mf.ui);
@@ -3537,7 +3536,7 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
     const { F } = await import('/src/data/forms.js');
     const { write } = await import('/src/model/run.js');
     const { setTab } = await import('/src/shell/ui.js');
-    /* Phase 10b (D-H): the furnace is cycle 1's reward, not a starting
+    /* The furnace is cycle 1's reward, not a starting
        grant -- this stage's own comment already said "grant a furnace/rig",
        it just didn't have to say it in code until now. */
     write.grant('furnace');
@@ -3568,7 +3567,7 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
      the arm) so the ghost is not drawn underneath the panel -- 'e' toggles
      the panel open/closed and touches nothing else (`shell/input.js`'s own
      handler is a bare `toggle('main')`), the same reason 'i' was originally
-     chosen over Escape here, before 'i' was retired in Phase 12d. */
+     chosen over Escape here, before 'i' was retired. */
   await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(1); });
   await page.keyboard.press('e');
   await page.evaluate(() => __mf.frames(1));
@@ -3581,7 +3580,7 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
   await shot(page, 'furnace-lifecycle-2-ghost.png');
 
   /* ---- stage 3: confirm the placement -- placed, no fuel ---- */
-  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+  /* 'e' no longer places -- placement moved to LMB only
      (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
      tests' point, not this one's, so poke the same edge flag a real click
      ultimately sets. */
@@ -3779,8 +3778,8 @@ test('parity: the built artifact renders identically to dev', async ({ page }) =
    count, and the two ghost-refusal scenes assert the `why` they are named
    after.
 
-   NOTHING MOVES YET. Phase 8f writes `m.turn` and the carrier's `t`; this
-   phase reads them. `winch-turned.png` sets a nonzero phase through the model
+   NOTHING MOVES YET. `rules/drive.js` writes `m.turn` and the carrier's `t`;
+   this scene reads them. `winch-turned.png` sets a nonzero phase through the model
    on purpose, so the day motion lands there is a baseline that already knows
    what a turned gear looks like.
    ============================================================ */
@@ -3941,8 +3940,8 @@ test('winch: a loaded carrier', async ({ page }) => {
 });
 
 /* THREE ANGLES AND A HORIZONTAL, and the angle is asserted rather than
-   trusted: `slope` is the number `rules/drive.js` will divide gravity by in
-   Phase 8f, so a shot named "45 degrees" whose slope had drifted would be a
+   trusted: `slope` is the number `rules/drive.js` divides gravity by,
+   so a shot named "45 degrees" whose slope had drifted would be a
    baseline of the wrong mechanic. */
 const ANGLES = [
   ['30', ['hub', 52, 37], 0.51],
@@ -3976,7 +3975,7 @@ test('winch: a crank alone', async ({ page }) => {
 });
 
 /* A CRANK, TWO GEARS AND A HUB, all orthogonally adjacent -- the drivetrain
-   Phase 8f will actually solve, drawn so it reads as one continuous run of
+   `rules/drive.js` actually solves, drawn so it reads as one continuous run of
    meshed teeth. Every footprint here shares a full edge with the next. */
 test('winch: a crank, a two-gear train and a hub', async ({ page }) => {
   await boot(page);
@@ -4012,8 +4011,8 @@ test('winch: a diagonal gear pair does not mesh, and a cornered one does', async
 /* A THREE-SEGMENT CHAIN, AND THE SAME CHAIN WITH THE MIDDLE ONE MISSING.
    `model/segments.js#chains()` is derived and never stored, so what a human
    has to be able to see here is that a complete chain reads as continuous and
-   a broken one reads as broken -- which is the whole of what Phase 9's
-   overview will draw from the same query. */
+   a broken one reads as broken -- which is the whole of what the
+   overview draws from the same query. */
 const CHAIN = {
   room: SHAFT,
   machines: [['hub', 42, 44], ['hub', 44, 38], ['hub', 42, 32], ['hub', 44, 26]],
@@ -4044,7 +4043,7 @@ test('winch: the same chain with the middle segment missing', async ({ page }) =
 });
 
 /* A NONZERO ROTATION PHASE, written through `model/machines.js#write.turn`.
-   Nothing in the game writes it until Phase 8f; this is the baseline that
+   Nothing else in the game writes it; this is the baseline that
    says what a turning train is supposed to look like when it does, and it is
    also the proof that the phase comes from a MODEL number rather than from a
    frame counter -- the same spec drawn twice at the same phase is the same
@@ -4200,7 +4199,7 @@ test('winch: drawing the whole family writes nothing to the model', async ({ pag
 /* ============================================================
    PHASE 8g — THE MOTION MATRIX
 
-   Phase 8e's matrix above is STATIC by construction: it writes `t`, `load` and
+   The matrix above is STATIC by construction: it writes `t`, `load` and
    `turn` after the substeps precisely so the simulation cannot move them
    (`docs/FINDINGS.md` #9). These six are the states that only exist while
    something is moving, and every number in them is the simulation's own:
@@ -4222,9 +4221,9 @@ test('winch: drawing the whole family writes nothing to the model', async ({ pag
    box. The reason is specific to this matrix rather than a general ruling: six
    baselines whose whole subject is a moving drivetrain should not be coupled
    to unrelated tutorial content, and a future tutorial rewrite must not move
-   six drivetrain pictures. Phase 8e's existing shots are NOT touched -- they
+   six drivetrain pictures. The existing shots are NOT touched -- they
    are already baselined with the callout, and re-taking them would be churning
-   another phase's reviewed output.
+   reviewed output that already exists.
 
    A CRANK LADDER IS NOT A HACK, it is the only build that can photograph an
    ASCENDING RIDER. A crank has a 12 px reach and a rider aboard leaves it in
@@ -4525,7 +4524,7 @@ test('drive: a carrier at a band seam', async ({ page }) => {
    lands exactly on the floor: `VIEW.scale` clamps to 2 at this size, so
    `VIEW.w = max(200, ceil(200/2)) = 200` and `VIEW.h = max(180, ...) = 180`.
 
-   THE "PAST EVERY CALLOUT" NUMBER IS NOT ONE NUMBER, and Phase 13d is why:
+   THE "PAST EVERY CALLOUT" NUMBER IS NOT ONE NUMBER, and here is why:
    `CALLOUTS[4]` is `null` (beat 5 fires a frame later with no player action
    in between), so `< 4` still means "no callout" and every scene using it is
    unaffected; the end of the sheet, however, moved from 6 to 10 when beats
@@ -4561,8 +4560,8 @@ test('tribute: cycle 1 armed, no clock', async ({ page }) => {
 /* ---- 2. mid-cycle-3, a running deadline, two of three gods known, AND a
    boon active ----
    Written directly rather than played to: reaching cycle 3 for real means
-   building the astral chain Phase 10b's own walkthrough covers, which this
-   phase does not own. `rw.tribute`/`rw.cycle`/`rw.favour` are the SAME
+   building the astral chain the cycle director's own walkthrough covers,
+   which this scene does not own. `rw.tribute`/`rw.cycle`/`rw.favour` are the SAME
    writers `rules/cycles.js` itself calls, so this is the identical state a
    real run would reach, just arrived at directly. POSEIDON is left
    untouched on purpose, so the FAVOUR panel's mask has something to mask.
@@ -4582,7 +4581,7 @@ test('tribute and favour: mid-cycle-3, two of three gods known, a boon active', 
     const { write: rw, run } = await import('/src/model/run.js');
     const { grant } = await import('/src/rules/boons.js');
     const { BOONS } = await import('/src/data/boons.js');
-    /* 10, NOT 6 (Phase 13d). This scene's own rule -- stated in the block
+    /* 10, NOT 6. This scene's own rule -- stated in the block
        comment above it -- is "past the point any `data/callouts.js` row has a
        string", so that a panel-crowding shot is not dominated by a callout
        that has nothing to do with it. Beat 6 WAS that point; the sheet now
@@ -4840,7 +4839,7 @@ test('a tree crossing a chunk seam', async ({ page }) => {
   await shot(page, 'tree-chunk-seam.png');
 });
 
-/* ---------- a natural hollow (Phase 7's own generator), three ways ----------
+/* ---------- a natural hollow (worldgen's own generator), three ways ----------
    Found by flood-filling seed 1337's topsoil tile grid for a sealed air
    pocket clear of the spawn column -- `docs/BUILD_PLAN.md` Phase 11's own
    preference for a GENERATED room over a hand-carved shaft, where one is
@@ -5118,7 +5117,7 @@ test('the Cloud Dock', async ({ page }) => {
   });
   await moveHeldToQuickbar(page, 0, 'cloud_dock', 'rig');
   await page.keyboard.press('1');
-  /* 'e' no longer places -- Phase 12d moved placement to LMB only
+  /* 'e' no longer places -- placement moved to LMB only
      (docs/PLAN-phase12.md §4.1); the LMB dispatch itself is Phase 12a's own
      tests' point, not this one's, so poke the same edge flag a real click
      ultimately sets. */
@@ -5159,7 +5158,7 @@ test('the Cloud Dock', async ({ page }) => {
    PHASE 14c: THE DEPLETION CUE
    (docs/PLAN-phase14-mining-and-drops.md D14-G)
 
-   Since Phase 14b a `deposit` tile yields `tile.charge` units before it is
+   A `deposit` tile yields `tile.charge` units before it is
    gone, so a copper wall you have already half worked looks exactly like a
    fresh one and the only way to find out what is left in a tile is to swing
    at it. `view/scene.js#drawDepletion` is the answer, and it is a LIVE
@@ -5472,7 +5471,7 @@ test('the same ladder column lit by a brazier', async ({ page }) => {
    PHASE 15: A PLANTED SEED, AND THE TREE IT BECOMES
    (docs/PLAN-phase15-trees.md D15-F, docs/SPEC.md section 22)
 
-   Two baselines and one pixel-diff, on exactly the structure the Phase 14c
+   Two baselines and one pixel-diff, on exactly the structure the
    depletion trio above already uses and for exactly the same reasons.
 
    `seedling.png` is a mid-growth seedling: a LIVE OVERLAY, drawn every frame

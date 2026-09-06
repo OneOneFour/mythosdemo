@@ -26,7 +26,7 @@ export const GRANT = Object.freeze(Object.fromEntries(
    `hub`/`crank`/`gear`/`axle` (docs/PLAN-gears-and-winches.md) are ungated for
    the reason the retired winch stage was: transport is the game's bottleneck,
    not a reward, and gating the ONLY way up behind a draft would make a run's
-   viability a dice roll. The winch stage itself left this list in Phase 8f,
+   viability a dice roll. The winch stage itself left this list
    along with its machine row.
 
    `furnace` IS NOT HERE, and that is Phase 10b (D-H/H1): docs/SPEC.md

@@ -64,7 +64,7 @@ function applyEffect(m, band, tx, ty) {
   }
 }
 
-/* ---------- debug spawn path (Phase 4 Step 6) ----------
+/* ---------- debug spawn path ----------
    Same idiom `rules/trinkets.js#grant` uses for a drafted trinket: the
    miracle falls at the player's feet as a physical item, never a direct
    inventory credit. */
