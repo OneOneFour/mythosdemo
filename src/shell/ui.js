@@ -75,12 +75,10 @@ export const ui = {
      burden, which changes climb speed and carrier load. Left sticky, a
      restart on the same seed would replay differently depending on what the
      player had clicked before dying -- precisely the determinism bug
-     invariant 8 names. An earlier draft of this comment argued the opposite
-     ("would silently forget the player's choice on every restart"); that
-     read the invariant as being about tidiness rather than about replay, and
-     the cost of losing one click in a panel the player opens anyway is the
-     smaller of the two. There is no `localStorage` (CLAUDE.md forbids it),
-     so nothing survives a page reload either way. */
+     invariant 8 names, and the cost of losing one click in a panel the
+     player opens anyway is worth paying to avoid it. There is no
+     `localStorage` (CLAUDE.md forbids it), so nothing survives a page
+     reload either way. */
   autoCollect: false,
 
   /* AUTO FEED (Phase 16b, docs/PLAN-phase16-interaction-model-v2.md §5
