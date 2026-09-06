@@ -1,6 +1,8 @@
 # Plan — gears, cranks and segment transport
 
-**Status: PROPOSAL. Nothing here is built. No `src/` file has been touched.**
+**Status: BUILT.** Segment transport shipped in Phase 8f. Kept below as the
+design record; the "PROPOSAL" framing that follows describes the plan before
+it was executed.
 This is the document a human reads before any code is written, in the shape
 `docs/BUILD_PLAN.md` Phase 10's own plan-mode step would produce. It replaces
 the staged winch (`src/rules/lift.js`, `data/machines.js`'s `lift` row) with

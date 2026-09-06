@@ -1,6 +1,8 @@
 # Plan — the Heavens, and closing the loop
 
-**Status: PROPOSAL. Nothing here is built. No `src/` file has been touched.**
+**Status: BUILT.** Phase 10's astral-band and tribute-loop work landed. Kept
+below as the design record; the "PROPOSAL" framing that follows describes the
+plan before it was executed.
 This is the document `docs/BUILD_PLAN.md` Phase 10's own plan-mode step asks
 for. It gives the astral band something to arrive at, makes cargo able to get
 there, and turns "the gods ask" into a real event with a real ledger.
