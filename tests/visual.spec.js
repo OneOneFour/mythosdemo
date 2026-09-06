@@ -142,6 +142,11 @@ test('digging straight down: no drift, monotonic depth, correct drops', async ({
        `newRun()` resets the flag (D13-A). */
     const { setAutoCollect } = await import('/src/shell/ui.js');
     setAutoCollect(true);
+    /* This test's whole point is drift/depth/drop-identity through a KNOWN
+       shaft, not the D-Q yield-quality roll -- force soil's `dropChance`
+       back to 1 so every break yields, the same way it did before D-Q. */
+    const { write: modsw } = await import('/src/model/mods.js');
+    modsw.add('test-full-yield', [{ key: 'dropChance.soil', mul: 20 }]);   // 0.05 x 20 = 1.0
 
     const band = bandOf('topsoil');
     const tx = 40, ty = 100, DEPTH = 8;
@@ -2459,6 +2464,13 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
        fog/belt tests already state for not trusting worldgen. */
     tw.set(band, holeTx, ty - 1, S.stone);
 
+    /* This test's whole point is the pack recipe and place-it-back-in-the-
+       hole flow, not the D-Q yield-quality roll -- force soil's
+       `dropChance` back to 1 so the one tile mined below is guaranteed to
+       drop, the same way it did before D-Q. */
+    const { write: modsw } = await import('/src/model/mods.js');
+    modsw.add('test-full-yield', [{ key: 'dropChance.soil', mul: 20 }]);   // 0.05 x 20 = 1.0
+
     rw.collect(S.pick, F.relic, 1);           // the stock pickaxe, granted directly
 
     pw.band(band);
@@ -2471,7 +2483,22 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
      held alongside `dig` covers the wait below too. */
   await page.evaluate(() => __mf.hold({ dig: 1, collect: 1 }, 400));   // soil hard=0.50s, comfortably past it
   await page.evaluate(() => { __mf.cmd.dig = false; });    // `dig` is held, not edge-triggered -- release it
-  await page.evaluate(() => __mf.frames(150));             // let the dropped gravel fall and clear the pickup-magnet delay
+  /* D-Q's dropChance roll draws one extra `rand()` before the toss, which
+     shifts this seed's toss velocity enough that the dropped gravel can
+     settle just past `pickupR` of a player standing still at `tx` -- so
+     stand ON the hole for the wait, then return to `tx` before the refusal
+     check below, which relies on keyboard aim (facing right, from `tx`)
+     resolving back to `holeTx`. */
+  await page.evaluate(async ({ tx, ty, holeTx }) => {
+    const { write: pw } = await import('/src/model/player.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const band = bandOf('topsoil');
+    pw.move(worldX(band, holeTx), worldY(band, ty) - 4);
+    __mf.cmd.hasMouse = false;
+    __mf.hold({ collect: 1 }, 150);          // let the dropped gravel fall, settle and get pocketed
+    pw.move(worldX(band, tx), worldY(band, ty) - 4);
+    __mf.frames(1);
+  }, { tx, ty, holeTx });
 
   const afterDig = await page.evaluate(async ({ holeTx, ty }) => {
     const { S } = await import('/src/data/substances.js');

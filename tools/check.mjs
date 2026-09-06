@@ -4719,9 +4719,14 @@ console.log('\n8e. DEPLETION (Phase 14e)');
 
    The tile is read for its drop pair BEFORE the first swing, for the same
    reason both break sites do it: once it is AIR there is nothing to ask. */
-function handMineTile(subId, fps, { seed = 1461, tool = null } = {}) {
+function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } = {}) {
   const dt = 1 / fps;
   boot.newRun(seed);
+  /* Applied AFTER `newRun()`, which clears `mods.rows` -- a caller that added
+     an override before this call would have it silently wiped. Removed by
+     source at the end of this function so two calls in the same process
+     cannot leak an override into each other via a forgotten cleanup. */
+  if (modRows) mods.write.add('handMineTile-hook', modRows);
   const band = world.bandOf('topsoil');
   const tx = 10, ty = 60;
   for (let dy = -4; dy <= 10; dy++)
@@ -4765,6 +4770,7 @@ function handMineTile(subId, fps, { seed = 1461, tool = null } = {}) {
     frames++;
   }
   items.write.spawn = orig;
+  if (modRows) mods.write.removeBySource('handMineTile-hook');
 
   const power = mods.eff('pickPower') * (run.bestTool()?.power ?? 1);
   return {
@@ -4845,6 +4851,61 @@ function handMineTile(subId, fps, { seed = 1461, tool = null } = {}) {
     ok(`DEPLETION: units yielded per tile equals tile.charge, and the tile survives until exactly ` +
        `hard x charge, at 8 framerates for copper/tin/granite (worst overshoot ${worst.toFixed(4)}s, ${worstAt})`);
   }
+}
+
+/* --- YIELD QUALITY (D-Q): `soil`/`stone` are POOR -- docs/SPEC.md section
+   19.1's own "bulk" pair, filler you tunnel through rather than a vein of
+   anything -- `copper`/`tin`/`granite`/`adamant` (ore and named deposits)
+   stay at the default. Read straight off the tunable rather than
+   re-declaring the numbers here, so this fails the moment `data/tuning.js`'s
+   own values move without a matching edit here.
+
+   THE MECHANISM ITSELF IS PROVED DETERMINISTICALLY, not statistically:
+   `stone`'s own dropChance is forced to 1 (every unit lands, same as the
+   CASES loop above proves for copper/tin/granite at their real value) and
+   then to 0 (no unit ever lands, and the tile still breaks on schedule --
+   `dropChance` touches yield only, never hardness or charge). A real run's
+   0.10 sits between those two proven ends; sampling it here would only add
+   flakiness, not confidence. */
+{
+  const REAL = {
+    copper: mods.eff('dropChance', 'copper'), tin: mods.eff('dropChance', 'tin'),
+    granite: mods.eff('dropChance', 'granite'),
+    soil: mods.eff('dropChance', 'soil'), stone: mods.eff('dropChance', 'stone')
+  };
+  let bad = 0;
+  if (REAL.copper !== 1 || REAL.tin !== 1 || REAL.granite !== 1)
+    { fail(`YIELD QUALITY: ore/deposit dropChance drifted -- copper ${REAL.copper}, tin ${REAL.tin}, ` +
+           `granite ${REAL.granite}, want 1 for all three`); bad++; }
+  if (REAL.soil !== 0.05)
+    { fail(`YIELD QUALITY: soil dropChance is ${REAL.soil}, want 0.05`); bad++; }
+  if (REAL.stone !== 0.10)
+    { fail(`YIELD QUALITY: stone dropChance is ${REAL.stone}, want 0.10`); bad++; }
+
+  const stoneCharge = D_sub.SUB[D_sub.S.stone].tile.charge ?? 1;
+  const onRow = [{ key: 'dropChance.stone', mul: 10 }];                        // 0.10 x 10 = 1.0
+  const forcedOn = handMineTile('stone', 60, { modRows: onRow });
+  if (forcedOn.drops !== stoneCharge) {
+    fail(`YIELD QUALITY: stone with dropChance forced to 1.0 yielded ${forcedOn.drops}, ` +
+         `not its tile.charge of ${stoneCharge} -- the roll broke the underlying charge count`);
+    bad++;
+  }
+
+  const offRow = [{ key: 'dropChance.stone', mul: 0 }];                        // 0.10 x 0 = 0
+  const forcedOff = handMineTile('stone', 60, { modRows: offRow });
+  if (forcedOff.drops !== 0) {
+    fail(`YIELD QUALITY: stone with dropChance forced to 0 still yielded ${forcedOff.drops} unit(s)`);
+    bad++;
+  }
+  if (!forcedOff.gone) {
+    fail(`YIELD QUALITY: stone with dropChance forced to 0 never broke -- dropChance must not touch hardness`);
+    bad++;
+  }
+
+  if (!bad)
+    ok(`YIELD QUALITY: dropChance is 1 for copper/tin/granite, 0.05 for soil and 0.10 for stone; forced ` +
+       `to 1 a stone tile still yields its full charge (${forcedOn.drops}), and forced to 0 it yields ` +
+       `none but still breaks on schedule`);
 }
 
 /* --- HAND AND A FUELLED PLACED MINER EXHAUST AN IDENTICAL TILE IN AN

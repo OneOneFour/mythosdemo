@@ -209,6 +209,13 @@ export function step(dt, cmd) {
   if (crossed > 0) {
     const unit = dropAt(b, aim.tx, aim.ty);
     if (unit) for (let i = 0; i < crossed; i++) {
+      /* YIELD QUALITY (`eff('dropChance', ...)`, `data/tuning.js`). Rolled
+         unconditionally, ore included, so this draw's position in the
+         seed's `rand()` stream never depends on which substance is being
+         mined -- only NATIVE forms are gated at all, so pulling a placed
+         rung back out is never subject to the roll. */
+      const roll = rand();
+      if (formOf(byte) === NATIVE && sub >= 0 && roll >= eff('dropChance', SUB[sub].id)) continue;
       const dropped = iw.spawn(b, at.x + b.tile / 2, at.y + b.tile / 2,
                                unit.sub, unit.form, (rand() - 0.5) * 24, -30 - rand() * 20);
       if (dropped) push('drop', at, { sub: unit.sub, form: unit.form });
@@ -218,14 +225,22 @@ export function step(dt, cmd) {
 
   /* ---- broken. Read the drop BEFORE clearing the tile. ---- */
   const drop = dropAt(b, aim.tx, aim.ty);
+  const dropRoll = rand();
   digw.clear(b, aim.tx, aim.ty);
   tw.clear(b, aim.tx, aim.ty);
   push(hard > HARD_BREAK ? 'breakHard' : 'breakSoft', at, { sub });
 
   /* ARCHITECTURE invariant 5: mined material becomes a FALLING ITEM, never a
      direct inventory credit. This one line is the whole thesis of the game —
-     dig a shaft and your ore collects at the bottom of it for free. */
+     dig a shaft and your ore collects at the bottom of it for free.
+
+     YIELD QUALITY applies here too -- `dropRoll` above, drawn before the
+     tile is cleared so it always consumes exactly one `rand()` regardless
+     of outcome, is what makes soil and bare stone poor: most swings at
+     them come up empty. A real ore's `dropChance` is 1.0, so the roll
+     always passes and nothing changes for it. */
   if (!drop) return;
+  if (formOf(byte) === NATIVE && sub >= 0 && dropRoll >= eff('dropChance', SUB[sub].id)) return;
   const it = iw.spawn(b, at.x + b.tile / 2, at.y + b.tile / 2,
                       drop.sub, drop.form, (rand() - 0.5) * 24, -30 - rand() * 20);
   if (it) push('drop', at, { sub: drop.sub, form: drop.form });

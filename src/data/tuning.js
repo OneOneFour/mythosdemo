@@ -171,6 +171,20 @@ export const TUNABLES = [
   { id:'richness', kind:'scale', base:1.0, scope:'substance',
     note:'multiplies a deposit substance tile.charge. A boon could enrich a vein.' },
 
+  /* ---- yield quality: not every unit a tile WOULD give actually drops.
+     Base 1.0 -- a real ore (copper, tin) is unaffected, every unit lands.
+     `soil`/`stone` are overridden low, the same "bulk" pair docs/SPEC.md
+     section 19.1 already groups together as filler you tunnel through
+     rather than a vein of anything -- most swings at them come up empty.
+     `granite`/`adamant` are `deposit`-tagged named bodies, not this pair,
+     and are left at the default. Rolled once per unit in `rules/mining.js`,
+     ORE included (a roll against 1.0 always passes), so the position of
+     every downstream `rand()` draw does not depend on which substance is
+     being mined. */
+  { id:'dropChance', kind:'scale', base:1.0, scope:'substance',
+    scoped:{ soil:0.05, stone:0.10 },
+    note:'chance a mined unit actually drops. `dropChance.soil` scopes it.' },
+
   /* ---- worldgen (Phase 7, docs/SPEC.md section 16). Only ONE number from
      that phase lives here, and the test is the one this file's header states:
      `hollowOre` is what a hollow is WORTH, so a god who wants to make the dark

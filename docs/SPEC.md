@@ -1871,6 +1871,32 @@ branches were confirmed live rather than assumed — `r:1.0` (5 cells, 20 units)
 trips the furnace-bill branch on every seed, and `dy:20` trips the
 no-copper-in-reach branch on every seed.
 
+### 19.8 Yield quality — not every unit drops (D-Q)
+
+**A unit a tile WOULD yield does not always land.** One tunable, no new model
+state, no change to hardness or charge:
+
+```
+dropChance   kind 'scale', base 1.0, scope 'substance'.
+             scoped: { soil: 0.05, stone: 0.10 }.
+             Rolled once per unit (`rand()`) in rules/mining.js, at both drop
+             sites (a unit chipped loose mid-tile, and the final break's own
+             drop) -- ORE INCLUDED, so the roll's position in the seed's
+             rand() stream never depends on which substance is being mined.
+```
+
+| substance | `dropChance` | why |
+|---|---|---|
+| `copper`, `tin` | 1.0 (default) | real ore; the economy's base unit |
+| `granite`, `adamant` | 1.0 (default) | named `deposit` bodies, not the `bulk` pair below |
+| `soil`, `stone` | **0.05**, **0.10** | §19.1's own "bulk" pair — filler you tunnel through, not a vein of anything |
+
+`dropChance` gates yield only. `tile.charge`/`hard` are untouched, so a soil
+or stone tile still takes exactly as long to break as it always did — most
+swings at it simply come up empty rather than the tile surviving longer.
+Gated on the tile being `NATIVE`: recovering a placed `rung`/`stair`/`block`
+is never subject to the roll, at either drop site.
+
 ## 20. Closing the tribute loop (Phase 13d)
 
 Locked with `docs/PLAN-phase13.md` §5.3 and `CLAUDE.md` D5 (cargo ascends,
