@@ -68,10 +68,8 @@ export function drawSlot(g, opts) {
    geometry `drawGrid` already settled.
 
    TWO CONCENTRIC 1-PX BORDERS, THE SECOND INSET BY ONE PIXEL IN THE SAME
-   COLOUR (docs/PLAN-phase12.md §3 D-I, landed in Phase 16c -- D-I's own
-   status line claimed 12c had done it and `git log -- src/view/ui/slot.js`
-   proved otherwise). A single 1-px line was too quiet once selection became
-   the primary interaction surface for placing, mining-vs-placing
+   COLOUR (docs/PLAN-phase12.md §3 D-I). A single 1-px line was too quiet once
+   selection became the primary interaction surface for placing, mining-vs-placing
    disambiguation, feeding and miracle-use all at once
    (docs/PLAN-phase12.md §3 D-A): at ~1/3 window resolution one pixel of
    `uiGood` against a `SUB[sub].look.item` swatch reads as an edge, not as a

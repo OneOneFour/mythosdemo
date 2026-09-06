@@ -33,9 +33,8 @@ export const SPRITE = {
     }
   },
 
-  /* A wood-capped handle board tapering to a leather bellows body and an
-     iron nozzle -- the recognisable hand-bellows silhouette, `pick`'s
-     freehand-port idiom applied to the game's second relic. */
+  /* A hand-bellows silhouette: wood-capped handle board, tapered leather
+     body, iron nozzle -- the game's second relic sprite. */
   bellows: {
     size: 10,
     draw(g, px, py, t) {
@@ -48,12 +47,9 @@ export const SPRITE = {
     }
   },
 
-  /* A held stick, angled like the pick's haft, with a CHARRED tip rather
-     than a live flame: this shape is what a not-yet-lit brand actually is
-     -- ordinary fuel until something ignites it, never lit on the ground.
-     One dim ember-red pixel at the very end, not a `glow()`, is the whole
-     of the hint that it burns once it is not just lying there -- honest
-     about which side of "lit" this object is on. */
+  /* A charred tip, not a live flame or a `glow()` -- honest about which side
+     of "lit" a dropped brand is on: ordinary fuel until something ignites
+     it, never lit on the ground. */
   brand: {
     size: 9,
     draw(g, px, py, t) {
