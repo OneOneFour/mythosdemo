@@ -40,6 +40,9 @@ PHASE 3 — verify. For each touched .js/.mjs file:
   git show HEAD:<path> > /tmp/old.js
   node tools/ast-same.mjs /tmp/old.js <path>
 
-Report git diff --stat and the per-file AST result. If any file reports CODE
-CHANGED, show that file's diff and stop. Nothing else — no praise, no summary
-of what the code does.
+`tools/ast-same.mjs` is not a parser — it strips `//` and `/* */` comments
+(tracking string/template/regex literals so a marker inside one isn't
+mistaken for a real comment) from both files and diffs the stripped text
+byte-for-byte. Report git diff --stat and the per-file result. If any file
+reports CODE CHANGED, show that file's diff and stop. Nothing else — no
+praise, no summary of what the code does.

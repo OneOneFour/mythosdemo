@@ -1391,23 +1391,15 @@ const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate
   {
     boot.newRun(1234);
     const band = player.player.band;
-    /* THE `+15` STAYS, AND ITS REASON CHANGED (Phase 16b, D16-C).
-       Phase 10b: `rules/cycles.js` places the surface altar two tiles left of
-       `spawnTx` from the run's first frame, and its `handFeed` (reach 10 px)
-       USED TO BE unconditional -- a shaft dug AT `spawnTx` itself (this
-       test's own column, before Phase 10b) sat close enough that the altar
-       quietly ate ore out of the very pockets this test had just loaded,
-       which is not what the assertion below means to measure. Dug well clear
-       of it.
-
-       That hazard is now OPT-IN: the drain runs only when `cmd.autoFeed` is
-       set, and it is off by default and reset on every `newRun`. The offset
-       is kept anyway, unchanged, and not because it is harmless: AUTO FEED is
-       one click away from being on, and a probe that only measures what it
-       claims while a preference happens to be off is a probe that will
-       silently start measuring something else the first time somebody flips
-       it in a scene above this one. The distance costs nothing and removes
-       the question. */
+    /* THE `+15` OFFSET: `rules/cycles.js` places the surface altar two tiles
+       left of `spawnTx` from the run's first frame, and its `handFeed` (reach
+       10 px) drains ore only when `cmd.autoFeed` is set -- off by default and
+       reset on every `newRun`, so a shaft dug at `spawnTx` itself is safe
+       today. AUTO FEED is one click away from being on, though, and a probe
+       that only measures what it claims while a preference happens to be off
+       is a probe that will silently start measuring something else the first
+       time somebody flips it in a scene above this one. The distance costs
+       nothing and removes the question. */
     const tx = world.tileX(band, player.player.x) + 15, ty = world.tileY(band, player.player.y);
     for (let dy = -1; dy <= 4; dy++) tiles.write.clear(band, tx, ty + dy);
     /* `F.rung`, not `F.log`: Phase 14a stripped `log`'s `tile` block (CLAUDE.md
@@ -2448,11 +2440,9 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
   const REACH = D_mach.MACH[D_mach.M.hub].hub.reach;
 
   /* Each family returns two [bandId, tx, ty] placements. The astral/surface
-     pair shares a WORLD column with NO offset since Phase 10b: astral is now
-     `tw:128` at `origin.x:0` like every other band (`data/world.js`), so band
-     column N is world column N in all three. It used to need `- 16`, and the
-     16 was astral's old 128 px inset -- see the OUTSIDE THE WORLD case below
-     for what that inset cost. */
+     pair shares a WORLD column with NO offset: astral is `tw:128` at
+     `origin.x:0` like every other band (`data/world.js`), so band column N
+     is world column N in all three. */
   const FAMILIES = [
     { id: 'topsoil only', pick: r => [
       ['topsoil', 16 + (r() * 24 | 0), 100 + (r() * 12 | 0)],
@@ -3665,14 +3655,11 @@ console.log('\n6. the tribute loop (Phase 10b)');
      power their own segment -- docs/SPEC.md 17.6). */
   {
     boot.newRun(9102);
-    /* CYCLE 2 IS MADE LIVE BEFORE THE DELIVERY (Phase 13d). It used not to
-       matter which cycle was armed -- `drainReceivers` credited any
-       `tribute:{}` machine's buffer regardless of which one `cyc.at` named,
-       and this probe's own comment below used to say so. Now only the live
-       cycle's own receiver pays it, and cycle 1's receiver is the ALTAR, so
-       an ore cranked to the dock under cycle 1 correctly credits nothing.
-       Cycle 2 is the first row whose `at` is `cloud_dock` (`data/cycles.js`),
-       which is exactly the state this claim is about. */
+    /* CYCLE 2 IS MADE LIVE BEFORE THE DELIVERY: `drainReceivers` only pays the
+       live cycle's own receiver, and cycle 1's receiver is the ALTAR, so an
+       ore cranked to the dock under cycle 1 correctly credits nothing. Cycle 2
+       is the first row whose `at` is `cloud_dock` (`data/cycles.js`), which is
+       exactly the state this claim is about. */
     run.write.cycle(2);
     run.write.tribute(null);
     const band = world.bandOf('topsoil');
@@ -4564,24 +4551,15 @@ console.log('\n8c. HEAVENS LEDGER: cycle completion unlocks exactly one band');
   } else {
     console.log('  ..  cycle charts: cycle 1 completion charted exactly [\'astral\']');
 
-    /* CYCLE 2: `cloud_dock`, 3 copper/plate, fed the same way -- and still
-       FIVE TILES FURTHER ALONG, deliberately unchanged (Phase 13d). The dock
-       used to sit directly above the altar with the player between them,
-       which worked only because `drainReceivers` credited either receiver:
-       `rules/machines.js#handFeed` fed EVERY machine whose box the player
-       overlapped within its own reach, and at tx 21 the altar (tx 22-23,
-       ty 117-118) is 8 px away -- inside its `handFeed.reach:10` -- so it
-       actually took two of the three plates and the dock took one. tx 26
-       puts the player 16 px clear of the altar and 2 px from the dock.
-
-       PHASE 16b WOULD MAKE THAT DISTANCE UNNECESSARY -- the feed verb names
-       ONE machine, so nothing spills sideways into the wrong receiver even
-       standing between them -- BUT THE GEOMETRY STAYS, for the same reason
-       `SPAWN_GAP` does: `handFeed` is one AUTO FEED click away from being
-       live again, and a scene that only works with a preference off is a
-       scene one click from lying. The 13d gate itself is proven properly, at
-       point-blank range and through the real verb, in section 8f's TRIBUTE
-       GATE below. */
+    /* CYCLE 2: `cloud_dock`, 3 copper/plate, fed the same way, five tiles
+       clear of the altar rather than directly above it. The feed verb names
+       one machine, so standing between altar and dock would not spill into
+       the wrong receiver either way -- but `handFeed`'s proximity auto-drain
+       is one AUTO FEED click away from being live, and a scene that only
+       works with that preference off is a scene one click from lying, so the
+       geometry stays clear regardless. The 13d live-cycle gate is proven
+       properly, at point-blank range and through the real verb, in section
+       8f's TRIBUTE GATE below. */
     const chartDock = footUnder(machs.write.place(topsoil, D_mach.M.cloud_dock, 27, 115));
     player.write.move(world.worldX(topsoil, 26), world.worldY(topsoil, 115));
     run.write.collect(D_sub.S.copper, D_form.F.plate, 3);
@@ -6655,15 +6633,12 @@ console.log('\n8i. THE FEED VERB (Phase 16a, docs/SPEC.md section 23)');
     console.log('  ..  a rung at a full furnace says the material, not the room -- the locked order');
   }
 
-  /* THE PROXIMITY DRAIN IS OFF, asserted rather than assumed (Phase 16b,
-     D16-C). This line used to require `drained === 1` and its comment said
-     "if a later phase turns the magnet off without touching this file, THIS
-     is the line that says so" -- 16b is that phase, and this is that line,
-     inverted rather than deleted. The difference assertion above did not
-     move: one press was worth exactly one unit MORE than doing nothing when
-     doing nothing cost one, and it still is now that doing nothing costs
-     zero. Which is what "measure a difference" bought.
-     The 240-substep version of this claim is section 8j below. */
+  /* THE PROXIMITY DRAIN IS OFF, asserted rather than assumed: standing near
+     an altar with no press must drain 0 units, not the auto-feed magnet's
+     old 1. The difference assertion above still holds regardless -- one
+     press is worth exactly one unit more than doing nothing, whether doing
+     nothing costs one or costs zero. The 240-substep version of this claim
+     is section 8j below. */
   if (drained !== 0) {
     fail(`FEED VERB (baseline): a player standing ${gap(base.m)} px from an altar with 3 copper/ore and ` +
          `NO press lost ${drained} unit(s) in one substep, not 0 -- rules/machines.js#handFeed must run ` +
