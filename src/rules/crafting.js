@@ -76,17 +76,7 @@ export function step(dt, cmd) {
        just below -- both need translating through their id table (`S`/`F`)
        into an ordinal before `model/run.js#write.collect` can use them.
        `subFrom` needs no such translation: `took[...].sub` already came from
-       `model/items.js#parseKey`, which returns ordinals. PRE-EXISTING BUG,
-       not introduced this phase: this line only ever read `clause.sub`
-       untranslated, which silently made `holdable()` false (SUB[sub] on a
-       string key is undefined) and `write.spawn` a no-op for EVERY literal-
-       sub output -- invisible until a hand-craft recipe with a literal `sub`
-       existed to exercise it. `kindle` (Phase 1, "the first recipe whose
-       output form is not a compression tier") was the first such recipe and
-       has been producing nothing since it shipped; caught here because
-       Phase 2a's own manual-verification step ("hand-craft peg rungs") hits
-       the identical code path. Fixed in the same commit that would otherwise
-       ship a second broken recipe on top of it. See docs/FINDINGS.md. */
+       `model/items.js#parseKey`, which returns ordinals. */
     const sub = clause.sub !== undefined ? S[clause.sub] : took[clause.subFrom]?.sub;
     if (sub === undefined || sub === null) continue;
     const form = F[clause.form];

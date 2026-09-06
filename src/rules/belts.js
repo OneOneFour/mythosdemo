@@ -18,8 +18,7 @@
    `haul()` grabs a resting item off a carrier at. Where `haul` does
    `it.x += dx; it.y += dy` along a cable, this does `it.x += dx` alone while a
    belt is charged: same shape, same idiom, flattened. (Both descend from the
-   retired staged winch's `carry()`, which is where the idiom was written and
-   which this comment used to name.)
+   retired staged winch's `carry()`, where the idiom was first written.)
 
    POWER IS A BANKED CHARGE, AND THIS IS NOW THE ONLY MOVER THAT USES ONE
    (docs/DEVELOPER_GUIDE.md#charges-and-honest-fuel). This file only ever
