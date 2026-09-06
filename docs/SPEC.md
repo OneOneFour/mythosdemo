@@ -236,12 +236,15 @@ Both are in `STARTING_MACHINES` (`src/data/machines.js`... `src/data/boons.js`)
 for testability, same precedent as `press`/`belt_r`/`belt_l` — no director
 exists yet to gate them behind a boon.
 
-The starting kit (`src/shell/boot.js`) plants one `timber/brand` beside the
+The starting kit (`src/shell/boot.js`) planted one `timber/brand` beside the
 stock pickaxe, on the opposite side of spawn, inside the same flat shelf.
-`run.brandLeft` (new `RUN_SCHEMA` field, `src/model/run.js` — see
-`docs/FINDINGS.md` for why this phase touched that file) auto-relights from
+**Removed later** (this session): it landed on the same side of spawn as the
+altar and, before it had a sprite of its own, read as an unidentified object
+appearing at the altar rather than a second gift. `run.brandLeft` (new
+`RUN_SCHEMA` field, `src/model/run.js` — see `docs/FINDINGS.md` for why this
+phase touched that file) is otherwise unchanged and still auto-relights from
 the pockets the instant it reaches zero, with no separate "light your torch"
-verb.
+verb, for any `timber/brand` acquired through play (`data/recipes.js#kindle`).
 
 **Schedule reorder.** The live step order was `player -> reveal -> mining ->
 ...` (not `player -> mining -> reveal -> ...` as `docs/BUILD_PLAN.md`
