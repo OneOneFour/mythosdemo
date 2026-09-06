@@ -139,21 +139,20 @@ function ensureAltarPlaced() {
 }
 
 /* ONLY THE LIVE CYCLE'S OWN RECEIVER PAYS IT (Phase 13d, docs/SPEC.md
-   section 18.3 as amended). This comment used to argue the opposite -- that
-   every machine tagged `tribute:{}` drains into the live ledger "regardless of
-   which one `cyc.at` names", because nothing about a `sub/form` key says
-   which building it arrived at -- and that reasoning was true about the KEY
-   and wrong about the GAME: with the altar standing four tiles from spawn
-   for the whole run and accepting the same three material classes the dock
-   does, cycles 2, 3 and 4 were all payable by hand-feeding it. No ascent, no
-   dock, no drivetrain, no climb. The one thing the second half of this game
-   is about was optional, and the only thing standing between a player and
-   skipping it was not knowing they could.
+   section 18.3 as amended). Draining every machine tagged `tribute:{}` into
+   the live ledger regardless of which one `cyc.at` names is tempting --
+   nothing about a `sub/form` key says which building it arrived at -- and is
+   wrong about the GAME even though it is fine about the key: with the altar
+   standing four tiles from spawn for the whole run and accepting the same
+   three material classes the dock does, that version made cycles 2, 3 and 4
+   all payable by hand-feeding the altar. No ascent, no dock, no drivetrain,
+   no climb. The one thing the second half of this game is about was
+   optional, and the only thing standing between a player and skipping it
+   was not knowing they could.
 
-   So `cyc.at` is now the gate it always read as being. One drain path still
-   serves both receivers -- the loop below is unchanged in shape and there is
-   still no machine name in this file -- it simply runs for the ONE machine
-   the live row names.
+   So `cyc.at` is the gate. One drain path still serves both receivers -- the
+   loop below is unchanged in shape and there is still no machine name in
+   this file -- it simply runs for the ONE machine the live row names.
 
    MATERIAL FED TO THE WRONG RECEIVER STAYS IN THAT MACHINE'S BUFFER,
    uncredited, rather than being refused at its port. Refusing it would mean
@@ -222,11 +221,11 @@ function complete(cyc) {
   const pos = m ? { x: m.box.x + m.box.w / 2, y: m.box.y } : null;
   const reward = cyc.reward;
   if (reward.favour) rw.favour(cyc.god, reward.favour);
-  /* THE GRANT BRIDGE, NOT `rw.grant` (Phase 13d, docs/SPEC.md section 20.3).
-     This line used to call the raw model writer directly, which appended the
-     machine id to `run.granted` and pushed NOTHING -- so cycle 1's reward,
-     the furnace and the dock, the single most important gift in the game,
-     arrived with no toast, no sound and no line anywhere. `rules/grants.js`
+  /* THE GRANT BRIDGE, NOT `rw.grant` (Phase 13d, docs/SPEC.md section 20.3):
+     the raw model writer appends a machine id to `run.granted` and pushes
+     NOTHING, so calling it directly would give cycle 1's reward -- the
+     furnace and the dock, the single most important gift in the game -- no
+     toast, no sound and no line anywhere. `rules/grants.js`
      is the only module that pushes a `'grant'` row, and it is a `rules`
      SIBLING this file may not import (`tools/layers.mjs`), so the ids go
      onto `run.awarded` and `rules/grants.js#step` -- scheduled immediately
