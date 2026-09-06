@@ -409,20 +409,15 @@ test('a placed furnace', async ({ page }) => {
   await shot(page, 'furnace.png');
 });
 
-/* Retires `the build menu places the machine at the pressed number...`'s own
-   test that used to sit here (`docs/FINDINGS.md`: the old digit-driven BUILD
-   menu -- `model/run.js#buildableMachines()`, gone -- is superseded outright
-   by click-to-arm placement, mouse or keyboard, against the quickbar). Its
-   point survives in the new mechanism's own terms: a digit key must arm
-   EXACTLY the quickbar slot it names (`view/ui/quickbar.js#slotForDigit`),
-   not merely "whatever placeable happens to be held" -- proved here by
-   putting two DIFFERENT machines in two different slots and checking the
-   digit for ONE of them arms exactly that one's pair (not the other's), then
-   places exactly that one machine -- the failure mode a looser assertion
-   (`machines.length === 1`) would hide, per CLAUDE.md's own warning about a
-   test that measures the wrong thing. Also covers the "empty slot" and
-   "pressed digit but the panel was never opened" cases along the way, since
-   this mechanism (unlike the old menu) works with no panel gate at all. */
+/* A digit key must arm EXACTLY the quickbar slot it names
+   (`view/ui/quickbar.js#slotForDigit`), not merely "whatever placeable
+   happens to be held" -- proved here by putting two DIFFERENT machines in two
+   different slots and checking the digit for ONE of them arms exactly that
+   one's pair (not the other's), then places exactly that one machine -- the
+   failure mode a looser assertion (`machines.length === 1`) would hide, per
+   CLAUDE.md's own warning about a test that measures the wrong thing. Also
+   covers the "empty slot" and "pressed digit but the panel was never opened"
+   cases along the way, since placement works with no panel gate at all. */
 /* Every other quickbar test fills a slot through `putInQuickbar` (this
    file's own `write.collect` + `write.moveSlot` helper) directly, "because
    the drag gesture itself is exercised elsewhere" -- there was no
@@ -1110,9 +1105,8 @@ test('the map overview shows explored terrain and leaves unexplored terrain undr
     /* THE TRANSFORM IS READ BACK, NOT RE-DERIVED. `view/overview.js#mapView`
        is that file's own record of what the last draw actually used -- the
        `view/paint.js#stats` idiom -- so this test cannot drift from the
-       renderer's scale, zoom, scroll offset or reserved-edge arithmetic the
-       way a hand-copied formula did. (It did: this block used to re-implement
-       `drawMap`'s `min(1/minTile, W/worldW, H/worldH)` by hand.) */
+       renderer's scale, zoom, scroll offset or reserved-edge arithmetic that
+       a hand-copied formula would. */
     const { mapView } = await import('/src/view/overview.js');
     const c = document.getElementById('stage');
     const mapPx = (wx, wy) => ({
@@ -3835,19 +3829,16 @@ async function winchScene(page, spec) {
     __mf.cmd.hasMouse = false;
     __mf.frames(spec.frames ?? 4);
 
-    /* CARRIER POSITION, LOAD AND ROTATION PHASE ARE SET *AFTER* THE SUBSTEPS,
-       AND THAT MOVED IN PHASE 8F. It used to be safe to set them first,
-       because nothing wrote them: this whole matrix was baselined against a
-       world where a carrier parked at `t = 0` for ever. `rules/drive.js` now
-       owns all three -- it slides an unpowered carrier down the cable every
-       substep, recomputes `load` from what is actually aboard, and advances
-       `turn` for every drivetrain node -- so a value written before
-       `frames()` is a value the simulation immediately overwrites. Set here,
-       the shot photographs the state the spec DECLARES, which is what an
-       appearance baseline is for, and the assertions each test makes about
-       its own `t`/`load` stay true. The MOVING states are Phase 8g's own
-       matrix (docs/PLAN-gears-and-winches.md section 6.5); this one is still
-       deliberately static. */
+    /* CARRIER POSITION, LOAD AND ROTATION PHASE ARE SET *AFTER* THE SUBSTEPS.
+       `rules/drive.js` owns all three -- it slides an unpowered carrier down
+       the cable every substep, recomputes `load` from what is actually
+       aboard, and advances `turn` for every drivetrain node -- so a value
+       written before `frames()` is a value the simulation immediately
+       overwrites. Set here, the shot photographs the state the spec
+       DECLARES, which is what an appearance baseline is for, and the
+       assertions each test makes about its own `t`/`load` stay true. The
+       MOVING states are a separate matrix (docs/PLAN-gears-and-winches.md
+       section 6.5); this one is deliberately static. */
     for (const [i, t, load] of spec.carriers || []) {
       segw.carrier(segments[i], t, 0);
       segw.load(segments[i], load || 0);
