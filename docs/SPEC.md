@@ -414,7 +414,7 @@ to hold nothing: `m.buf` has no keys and `m.charges` is 0. A machine still
 holding buffered material or a banked fuel charge refuses, with a reason, so
 the bill can never quietly outlive the ore that was sitting inside it.
 
-**`F`/`L`.** Removed as unconditional spawns; `docs/AUDIT.md` section 3 had
+**`F`/`L`.** Removed as unconditional spawns; a debug-keymap census had
 already confirmed neither was the SOLE way to place its machine (the build
 menu's digit `1`/`2` already reached the identical `buildableMachines()`
 list, itself since retired along with the whole digit-driven BUILD menu and

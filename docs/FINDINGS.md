@@ -145,8 +145,8 @@ tree and git-level operations can't cross-contaminate.
   actually being created here, only split lighter. 0.3 keeps 3 brands (0.9)
   at or under one log (1.0). `docs/PLAN-phase1.md`'s row was written before
   this was checked and undersells the point of shipping the lint in the same
-  commit as the content it lints — left as historical record there, corrected
-  here and in the shipped `src/data/forms.js`.
+  commit as the content it lints — that plan document is now deleted (spent),
+  and the corrected number lives here and in the shipped `src/data/forms.js`.
 
 - **Adding `granite`/`adamant` to `topsoil`'s strata (as directed, FILE
   OWNERSHIP explicitly named `src/data/world.js` strata for this) moved two
@@ -1502,15 +1502,14 @@ and it climbs again" requires stepping aside first, which is not obvious. Not
 this phase's to change.
 
 **7. Docs outside this phase's ownership still name `rules/lift.js`.**
-`grep -rn "rules/lift" src/ tests/ tools/` is empty, but these remain, all of
-them deliberately left alone: `docs/DEVELOPER_GUIDE.md` (the live developer doc
-— its `#charges-and-honest-fuel` and `#the-rules-order` sections describe the
-staged winch as current, and **should be updated by whoever owns that file
-next**); `docs/BUILD_PLAN.md` Phases 2a/9/10 (the patches
+`grep -rn "rules/lift" src/ tests/ tools/` is empty. `docs/DEVELOPER_GUIDE.md`'s
+`#charges-and-honest-fuel` and `#the-rules-order` sections, which described the
+staged winch as current, have since been updated to cover segment transport
+instead. `docs/BUILD_PLAN.md` Phases 2a/9/10 still carry the patches
 `docs/PLAN-gears-and-winches.md` §7 already specifies, explicitly "not applied
-by this document"); and `docs/AUDIT.md`, `docs/AUDIT-2.md`,
-`docs/COMMENT_AUDIT.md`, `docs/rfc/*` (dated records of a past state, correct as
-history).
+by this document" -- left alone, historical. `docs/AUDIT.md`, `docs/AUDIT-2.md`
+and `docs/COMMENT_AUDIT.md`, dated records of a past state that this cleanup
+pass superseded, are deleted; `docs/rfc/*` remains, correct as history.
 
 **8. `model/run.js#write.spendHearts` has no caller.** Its only consumer was
 `data/sources.js#vital`, deleted with the blood winch. Kept deliberately, with a

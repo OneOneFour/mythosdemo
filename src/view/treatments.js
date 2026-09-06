@@ -49,8 +49,8 @@ import { hash2 } from '../core/rng.js';
    A treatment that draws OUTSIDE its own cell is clipped by the chunk canvas it
    is drawing into, and the neighbouring chunk does not independently redraw the
    missing part -- those pixels are permanently lost, silently, with no error and
-   nothing visual to notice it by. That is not a hypothesis; docs/AUDIT-2.md
-   section 5 read it straight off two adjacent chunk canvases (seed 1, tile
+   nothing visual to notice it by. That is not a hypothesis; it was read
+   straight off two adjacent chunk canvases (seed 1, tile
    (7,17): the canopy's top row was out of bounds in its owning chunk and fully
    transparent in the chunk above).
 

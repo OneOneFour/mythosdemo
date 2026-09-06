@@ -13,8 +13,8 @@
    `drawMap` derived `scale = min(1/minTile, W/worldW, H/worldH)` over the union
    of every band. The world is 1024 px wide and 3328 px tall, so `H/worldH`
    won at every realistic window size and the WHOLE WORLD collapsed to fit the
-   viewport HEIGHT -- about 111 px of map inside a 640 px canvas, which is the
-   small vertical strip in a black field docs/AUDIT-2.md section 6 measured by
+   viewport HEIGHT -- about 111 px of map inside a 640 px canvas, a
+   small vertical strip in a black field, measured by
    arithmetic rather than by eyeballing a screenshot.
 
    The fix is the other axis: THE DEFAULT SCALE FITS THE WORLD'S WIDTH, and the
@@ -39,11 +39,10 @@
 
      1. THE CHUNK BAKE IS FOG-BLIND. `view/paint.js#paintChunk` paints a tile's
         true material regardless of `seenAt`, because fog is deliberately a
-        separate live overlay pass and not baked into the bitmap
-        (docs/AUDIT-2.md section 7 flags exactly this hazard for "a later phase
-        that adds a new consumer of chunk canvases -- e.g. a minimap
-        thumbnail -- that might forget to gate on `seenAt` itself"). Downscaling
-        a baked chunk would draw every unseen tile in it. That is THE
+        separate live overlay pass and not baked into the bitmap -- a
+        deliberate hazard for a later consumer of chunk canvases (e.g. a
+        minimap thumbnail) to remember to gate on `seenAt` itself.
+        Downscaling a baked chunk would draw every unseen tile in it. That is THE
         INVARIANT this whole mode exists under, so the trade is not available.
      2. `chunkCanvas` PAINTS ON ANY CALL. Asking it for a chunk the player has
         never visited does not return null, it BAKES it -- so an overview that

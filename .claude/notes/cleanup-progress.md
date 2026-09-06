@@ -31,8 +31,8 @@ Decisions locked in by the user for this run (do not re-ask):
 | 1.11 | tidy: data-2 (grants, boons, miracles, trinkets, drops) | src/data | done (no changes needed) | -- |
 | 2 | tidy: drop self-referential comment narration, repo-wide | Track B1, 12 remaining files | done | 938aed5 |
 | 3 | tidy: drop bare Phase-N tags | Track B2, 41 of 48 files touched (7 had zero bare hits) | done | 42127aa |
-| 4 | docs: fix stale tools/resolve.mjs and file:line references | Part 2 §2H + DEVELOPER_GUIDE facts (§2K) | done | (pending commit) |
-| 5 | docs: retire the spent REVIEW, AUDIT and MIGRATION artifacts | Part 2 §2A, 21 deletions + 3 brain salvages | pending | |
+| 4 | docs: fix stale tools/resolve.mjs and file:line references | Part 2 §2H + DEVELOPER_GUIDE facts (§2K) | done | c727393 |
+| 5 | docs: retire the spent REVIEW, AUDIT and MIGRATION artifacts | Part 2 §2A, 23 deletions + 2 brain salvages | done | (pending commit) |
 | 6 | docs: extract TRANSPORT.md and adr/0001 from the shipped plans | new user-facing files | pending | |
 | 7 | docs: trim spent scaffolding from the shipped phase plans | Part 2 §2I/§2J | pending | |
 | 8 | docs: trim session narration from FINDINGS, SPEC and BUILD_PLAN | Part 2 §2C/§2D/§2E | pending | |
@@ -48,6 +48,29 @@ Decisions locked in by the user for this run (do not re-ask):
   `docs/PLAN-phase10.md:385-388` also need this fix per the plan (in scope there).
 
 ## Notes / deviations from plan (fill in as encountered)
+
+- Commit 5 (§2A): actual file count was 23, not the plan's "21 deleted, 3
+  collapsed" (arithmetic didn't quite match the plan's own listing --
+  REVIEW-phase-* was 11 real files, not 12, and PLAN-phase1.md + MIGRATION.md
+  both turned out to be genuine deletes rather than pure brain-collapses,
+  giving 2 brain salvages not 3). Verified every file against `ls docs/`
+  before deleting rather than trusting the plan's count.
+- Commit 5: per CLAUDE.md D2's own rule ("a comment naming a deleted file is
+  a lie the layer checker cannot catch"), grepped the whole repo for
+  citations to every file being deleted before deleting it. Found and fixed
+  live citations in src/view/paint.js (3), src/view/overview.js (2),
+  src/view/treatments.js (1) citing docs/AUDIT-2.md, plus docs/SPEC.md and
+  docs/FINDINGS.md citing docs/AUDIT.md/AUDIT-2.md/COMMENT_AUDIT.md directly
+  (FINDINGS.md:1511's passage was itself doubly stale -- it said these three
+  files "remain... correct as history" and separately asked "whoever owns"
+  DEVELOPER_GUIDE.md to update the lift-stage sections commit 4 already
+  fixed). Citations inside already-executed BUILD_PLAN.md/PLAN-*.md phase
+  prompts ("Read docs/AUDIT.md...") were left alone as historical record,
+  same treatment as the docs/reference/ citations in commit 4.
+- Did NOT remove `MIGRATION.md` from CLAUDE.md's `docs/` listing, even
+  though §2L says to do so in the same commit -- CLAUDE.md is out of scope
+  per the user's explicit instruction for this whole task. Flagging so the
+  user can do it themselves if they want it.
 
 - Commit 4 (§2H): skipped the "dead line-number citations" list inside
   BUILD_PLAN.md (SPEC §12 line, shell/input.js:181, paint.js:174-180,

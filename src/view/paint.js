@@ -101,8 +101,8 @@ export function beginFrame() {
 
    The cost is stated at `REPAINT_BUDGET` above: one tile write now invalidates
    up to nine chunks rather than one. That is the price of a decoration wider
-   than a tile, and the alternative — leaving it — is the silent permanent
-   pixel loss docs/AUDIT-2.md section 5 measured. The margin SCAN itself is
+   than a tile, and the alternative — leaving it — is silent permanent
+   pixel loss at every chunk seam. The margin SCAN itself is
    nearly free by comparison: forcing `DECO_MARGIN` to 0 takes a cold bake of
    the visible viewport from 35.3 ms to 33.1 ms, about 0.1 ms of the 1.5 ms a
    chunk costs. It is the extra invalidation, not the extra reading, that has to
@@ -176,7 +176,7 @@ function paintChunk(b, cx, cy, g) {
      Range: a tile up to `DECO_MARGIN` outside this chunk can paint INTO it, so
      this loop visits those tiles too and lets the canvas clip what falls
      outside. Without it a canopy or a turf drape is cut off at every chunk
-     seam — see `stackVer` above and docs/AUDIT-2.md section 5.
+     seam — see `stackVer` above.
 
      Separate pass: a decoration drawn from inside the tile loop would be
      overpainted by whichever tiles happen to be painted after it, so the same
@@ -412,8 +412,8 @@ function cliffFace(g, dx, dy, tx, ty, t, col, right) {
 
    Drawn with `core/pixels.js#noiseFill`, which was ported from the mockup with
    the rest of `core/` and then called by nothing at all for the whole life of
-   the layered rewrite (docs/AUDIT-2.md section 4 grepped it: zero call sites).
-   Its seed is positional, never `rand()` — a repaint may not advance anything
+   the layered rewrite until this call. Its seed is positional, never `rand()`
+   — a repaint may not advance anything
    (ARCHITECTURE invariant 7) and, just as importantly, the same tile has to
    speckle identically when a neighbouring chunk redraws it.
 
