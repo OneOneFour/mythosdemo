@@ -301,8 +301,11 @@ export function step(dt, cmd) {
     if (tileTier < d.minTier) continue;
     const giveSub = S[d.give];
     if (giveSub === undefined || invCount(giveSub, F.relic) > 0) continue;
-    if (rand() < d.chance)
-      iw.spawn(b, at.x + b.tile / 2, at.y + b.tile / 2, giveSub, F.relic,
+    if (rand() < d.chance) {
+      const dropAt = { x: at.x + b.tile / 2, y: at.y + b.tile / 2 };
+      iw.spawn(b, dropAt.x, dropAt.y, giveSub, F.relic,
                (rand() - 0.5) * 24, -30 - rand() * 20);
+      push('relic', dropAt, { sub: giveSub, form: F.relic });
+    }
   }
 }

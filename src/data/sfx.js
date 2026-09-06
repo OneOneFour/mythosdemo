@@ -28,6 +28,7 @@ export const KIND_SFX = Object.freeze({
   hurt:      'hurt',        // hearts lost
   death:     'death',       // the run ended
   grant:     'trial',       // a machine tier was granted or drafted
+  relic:     'trial',       // a rare relic (trinket) drop landed in the world
 
   /* ---- Phase 13d: the cycle loop was entirely silent until here. The three
      kinds `rules/cycles.js` has pushed since Phase 10b (`tribute`, `cycle`,

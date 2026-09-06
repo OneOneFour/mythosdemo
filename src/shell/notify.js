@@ -43,7 +43,12 @@ const CHIPS = {
      world position anyway -- the screen is the event. */
   tribute:    { n: 2, spread: 26 },
   cycle:      { n: 14, spread: 150 },
-  debt:       { n: 8, spread: 120 }
+  debt:       { n: 8, spread: 120 },
+  /* A rare trinket drop (`rules/cycles.js#rollTributeDrop`,
+     `rules/mining.js`'s rare-drop loop). Sized between `accept` and
+     `hurt`: bigger than an ordinary machine event, smaller than taking
+     damage. */
+  relic:      { n: 7, spread: 45 }
 };
 
 /* Text for the kinds that deserve a line. Everything else is silent text-wise:
@@ -66,6 +71,11 @@ const TEXT = {
       ? (MACH.find(m => m.id === row.data.machine)?.name ?? '') + ' IS GRANTED'
       : ''),
   lost:    () => 'THE GIFT IS WITHDRAWN',
+  /* Names the substance rather than the pair (`SUB[sub].name`, not
+     `labelOf`): every relic drop is `F.relic`, so appending the form's own
+     label would just repeat "RELIC" after a name that already says what
+     it is (e.g. "BELLOWS OF THE FORGE"). */
+  relic:   row => row.data?.sub !== undefined ? `${SUB[row.data.sub].name} APPEARS` : '',
   winch:   row => row.data?.units
     ? `${row.data.units} DELIVERED TO ${String(row.data.to).toUpperCase()}`
     : '',

@@ -292,8 +292,10 @@ function rollTributeDrop(m) {
     if (d.trigger !== 'tribute') continue;
     const giveSub = S[d.give];
     if (giveSub === undefined || invCount(giveSub, F.relic) > 0) continue;
-    if (rand() < d.chance)
-      iw.spawn(m.band, m.box.x + m.box.w / 2, m.box.y,
-               giveSub, F.relic, (rand() - 0.5) * 24, -30 - rand() * 20);
+    if (rand() < d.chance) {
+      const at = { x: m.box.x + m.box.w / 2, y: m.box.y };
+      iw.spawn(m.band, at.x, at.y, giveSub, F.relic, (rand() - 0.5) * 24, -30 - rand() * 20);
+      push('relic', at, { sub: giveSub, form: F.relic });
+    }
   }
 }

@@ -176,7 +176,11 @@ export const SUBSTANCES = [
           `tools/content.mjs` assertion 17. ---- */
   { id:'bellows', name:'BELLOWS OF THE FORGE', short:'BELLOWS', tags:['relic'],
     item:{ mass:0.4, hud:{ order:5 } },
-    look:{ item:['ichor', 'vioHi'],
+    /* `sprite:'bellows'` (`view/sprites.js`), the same treatment `pick`
+       above already gets: a dedicated shape instead of the generic
+       two-colour square, so a rare drop reads as an object rather than
+       an unidentified glowing tile. */
+    look:{ item:['ichor', 'vioHi'], sprite:'bellows',
            treatments:[ { fn:'halo', col:'ichor', r:7, a:0.22 } ] } },
 
   /* ---- pick: the first gift, same shape as any other relic. `model/run.js`'s

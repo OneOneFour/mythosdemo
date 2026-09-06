@@ -31,5 +31,20 @@ export const SPRITE = {
       R(g, px - 2, cy - 5, 6, 2, colour('irA'));
       R(g, px - 2, cy - 3, 6, 1, colour('irC'));
     }
+  },
+
+  /* A wood-capped handle board tapering to a leather bellows body and an
+     iron nozzle -- the recognisable hand-bellows silhouette, `pick`'s
+     freehand-port idiom applied to the game's second relic. */
+  bellows: {
+    size: 10,
+    draw(g, px, py, t) {
+      const bob = Math.sin(t * 2.4) * 1;
+      const cy = py + bob;
+      R(g, px - 6, cy - 4, 2, 8, colour('woodC'));
+      lineTo(g, (px - 4) | 0, (cy - 4) | 0, (px + 3) | 0, (cy - 1) | 0, colour('ochreB'));
+      lineTo(g, (px - 4) | 0, (cy + 4) | 0, (px + 3) | 0, (cy + 1) | 0, colour('ochreC'));
+      R(g, px + 3, cy - 1, 3, 2, colour('irB'));
+    }
   }
 };
