@@ -106,9 +106,9 @@ const UI = {
      divine-gold `data/palette.js` name a trinket's own `look.item` uses (see
      `bellows` in `data/substances.js`), so a trinket's border, a trinket's
      swatch and a miracle's ghost all read as the same material rather than
-     the HUD inventing a second and third "this is special" colour. That was
-     the point of the note this comment replaces; a miracle is a divine
-     one-shot, so it is the same fact, not an exception to it. */
+     the HUD inventing a second and third "this is special" colour -- a
+     miracle is a divine one-shot, so it is the same fact, not an exception
+     to it. */
   relic:  colour('ichor')
 };
 
