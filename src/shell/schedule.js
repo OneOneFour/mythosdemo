@@ -24,13 +24,7 @@
                            corridor becoming visible would be one frame apart
                            for no reason a player could ever see, the same
                            freshness argument `items before machines`, further
-                           down, already makes for a catch box. (`reveal` used
-                           to sit immediately after `player`, on the grounds
-                           that it read nothing mining touched and wrote
-                           nothing anything else read -- true before this
-                           phase, and exactly the invariant gating Pass B on
-                           light breaks, which is why it moved instead of
-                           gaining a second, contradictory adjacency comment.)
+                           down, already makes for a catch box.
      mining before items    a tile broken this frame drops before anything falls,
                            so the drop gets a full step of gravity immediately.
      items before belts     a belt drags what just landed, not what was resting
@@ -47,14 +41,12 @@
                            PLAYER's pockets, and neither reads the other. Placed
                            here rather than after `trinkets` so the two steps
                            that move physical things in the world — what just
-                           fell, what just got dragged — stay adjacent, and so
-                           the ORIGINAL "items before crafting" promise this
-                           pair used to state directly still holds transitively:
-                           an ingredient `items` just caught with the pickup
+                           fell, what just got dragged — stay adjacent: an
+                           ingredient `items` just caught with the pickup
                            radius is already in `run.inv` by the time `crafting`
                            runs, whether or not a belt sits between them, since
-                           nothing in `belts` touches `run.inv`. (The rest of
-                           that promise, for the record: holding the craft key
+                           nothing in `belts` touches `run.inv`. (For the
+                           record: holding the craft key
                            through the exact frame an ingredient lands still
                            counts that frame toward the bar, not the next one.
                            The cost of that is a COMPLETED craft's own output
@@ -87,10 +79,9 @@
                            `items` is what rebuilt the spatial index.
      boons before machines  a rate modifier a boon just turned on (or a
                            conflict just suppressed) should apply to this
-                           same frame's recipe tick, not the next — the
-                           IDENTICAL promise `trinkets before machines`
-                           already made below, now made twice because there
-                           are two modifier tiers instead of one.
+                           same frame's recipe tick, not the next — the same
+                           promise `trinkets before machines` below makes for
+                           the other modifier tier.
      trinkets before machines  a rate modifier a relic just turned on should
                            apply to this same frame's recipe tick, not the next.
 
@@ -103,16 +94,12 @@
                            `machines` is where that catch box is checked.
      machines before drive  a hub's own buffered state settles before the
                            drivetrain is solved, so feeding a machine and
-                           turning a crank are one beat. (This pair used to
-                           read "a charge banked this frame turns the drum
-                           now": the staged winch spent a BANKED FUEL CHARGE
-                           to move, and `rules/machines.js` is what banked it.
-                           `rules/drive.js` has no charge and no fuel at all --
-                           the only power source is a crank the player is
-                           holding this very frame -- so the freshness this
-                           pair buys is now about a machine's buffer, not
-                           about the drivetrain's supply. The ORDER is
-                           unchanged; only the reason is.)
+                           turning a crank are one beat: `rules/drive.js` has
+                           no charge or fuel of its own -- the only power
+                           source is a crank the player is holding this very
+                           frame -- so the freshness this pair buys is about
+                           a machine's buffer settling before the drivetrain
+                           reads it.
 
                            IT IS ALSO WHY `player` IS FAR EARLIER IN THIS
                            LIST, and that pair matters more than this one:
@@ -156,11 +143,9 @@
                            inserting the bridge anywhere else would have put
                            it between `cycles` and `tutorial` and broken
                            that argument's own adjacency instead.
-     cycles before tutorial  THIS REPLACES, VERBATIM IN ITS REASONING, THE OLD
-                           `drive before tutorial` PAIR (Phase 8-and-earlier):
-                           (Still true, transitively, with `grants` between
-                           them: `grants` writes `run.granted` and a journal
-                           row, and no beat predicate reads either.)
+     cycles before tutorial  transitively true with `grants` between them
+                           (`grants` writes `run.granted` and a journal row,
+                           and no beat predicate reads either).
                            `rules/tutorial.js` is a pure OBSERVER: every one of
                            docs/SPEC.md section 5's beat conditions is a READ of
                            state another step wrote, and the only things it
@@ -176,12 +161,9 @@
                            Phase 10b). Judging a beat mid-frame would mean a
                            callout could name something the player has not
                            finished doing yet.
-     tutorial before growth  THIS REPLACES, AND DOES NOT WEAKEN, THE OLD
-                           `tutorial before fields` PAIR (Phase 14-and-earlier),
-                           whose entire argument was "ONLY so `fields last`
-                           below stays literally true" — see `growth before
-                           fields` immediately below, which is where that
-                           argument now lives, unchanged.
+     tutorial before growth  ONLY so `fields last` below stays literally true
+                           — see `growth before fields` immediately below,
+                           which is where that argument lives.
 
                            NO FRESHNESS ARGUMENT, and stated rather than
                            implied, exactly as `grants before tutorial` above

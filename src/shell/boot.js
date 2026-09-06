@@ -102,9 +102,8 @@ export function newRun(seed = (Math.random() * 1e9) | 0) {
                           // restart would make two runs from the same seed
                           // diverge on what the player clicked before dying,
                           // which is exactly invariant 8's determinism bug.
-                          // Was the ONLY `shell` state on this teardown list;
-                          // as of Phase 16b there are two, and both are here
-                          // for that reason and not for tidiness.
+                          // Both this and `setAutoFeed` below are `shell`
+                          // state, cleared here for that reason.
   setAutoFeed(false);     // D16-C's answer is D13-A's, unchanged
                           // (docs/PLAN-phase16-interaction-model-v2.md §5
                           // D16-C says so in as many words: "the same kind of

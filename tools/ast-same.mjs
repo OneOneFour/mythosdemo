@@ -74,13 +74,21 @@ function stripComments(src) {
   return out;
 }
 
+/* A line that was ENTIRELY a comment strips to pure whitespace, so deleting
+   or adding a whole such line shifts every later line number without
+   changing any code -- normalize by dropping blank/whitespace-only lines and
+   trailing whitespace before the byte compare, or a comment-only edit that
+   happens to remove or insert a whole comment line would falsely report
+   CODE CHANGED. */
+const normalize = s => s.split('\n').map(l => l.trimEnd()).filter(l => l !== '').join('\n');
+
 const [a, b] = process.argv.slice(2);
 if (!a || !b) {
   console.error('usage: node tools/ast-same.mjs <old.js> <new.js>');
   process.exit(2);
 }
-const sa = stripComments(readFileSync(a, 'utf8'));
-const sb = stripComments(readFileSync(b, 'utf8'));
+const sa = normalize(stripComments(readFileSync(a, 'utf8')));
+const sb = normalize(stripComments(readFileSync(b, 'utf8')));
 if (sa === sb) {
   console.log('COMMENTS ONLY:', a, b);
   process.exit(0);
