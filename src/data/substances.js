@@ -353,7 +353,7 @@ export const SUBSTANCES = [
 
   /* 2 copper/plate: 2x2.4 = 4.8 T -- `hearth`'s own former bill was
      deliberately the smallest in the game (docs/FINDINGS.md), and stays so
-     here: this is the lightest machine substance in the table. */
+     here. */
   { id:'hearth', name:'HEARTH', tags:['machine'],
     item:{ mass:4.8, hud:{ order:17 } },
     look:{ item:['basB', 'basA'] } },

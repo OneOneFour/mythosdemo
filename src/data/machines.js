@@ -260,8 +260,8 @@ export const MACHINES = [
      cannot express and should not be made to. `rules/belts.js` is the sibling
      module that reads `belt.dir` off this row and drags a resting item along
      the footprint -- `rules/drive.js#haul()` turned ninety degrees and
-     stripped of its second axis, per that file's own header. (This used to name
-     the retired staged winch's own `carry()`; the idiom outlived the module.)
+     stripped of its second axis, per that file's own header. (The idiom was
+     first written for the retired staged winch's own `carry()`.)
 
      THE FUEL RECIPE IS AN HONEST-FUEL ROW: `out:[]` banks a charge, and a
      belt spends exactly one per item it delivers off its end. The retired
@@ -675,12 +675,9 @@ export const MACHINES = [
      between "a carrier arrives here" and "you walk up and hand it over".
      One drain path in `rules/cycles.js` serves both.
 
-     THERE IS NO "FEED KEY", AND THERE NEVER WAS -- this comment said there
-     was for four phases, and so did the altar row below and docs/SPEC.md
-     18.3, all three describing a verb nobody had written (the audit that
-     found it: docs/PLAN-phase16-interaction-model-v2.md 3.4). The real verb,
-     as of Phase 16a: CLICK the pair in your pockets to arm it, AIM at a
-     machine within `handFeed.reach`, and LMB. One press, one unit
+     THERE IS NO "FEED KEY". The real verb, as of Phase 16a: CLICK the pair
+     in your pockets to arm it, AIM at a machine within `handFeed.reach`,
+     and LMB. One press, one unit
      (docs/SPEC.md section 23). `handFeed:{}` below is the automatic
      proximity drain that stood in for it -- opt-in and off by default as of
      Phase 16b -- and what the block now declares is the REACH and the
@@ -786,8 +783,7 @@ export const MACHINES = [
      NO `hub`: cycle 1 is unmoved at the surface (docs/SPEC.md 4 and 5), and
      the player walks up carrying ore and hands it over a unit at a time --
      arm the ore in the pockets with a click, aim at the altar, LMB
-     (docs/SPEC.md section 23; there is no feed KEY, and the note at the top
-     of this block records how long that was claimed). `catchBox` too,
+     (docs/SPEC.md section 23; there is no feed KEY). `catchBox` too,
      at the furnace's own `slack:2`, because ore that falls in is free and an
      altar is a catch box like anything else -- CLAUDE.md invariant 5's whole
      point. Nothing releases a haul inside THIS footprint, so it does not need

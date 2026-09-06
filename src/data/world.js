@@ -106,7 +106,8 @@ export const BANDS = [
          carved, hence 10..28 rather than 16..22. `chance` raised alongside the
          original fix, once trees could exist at all, so 12ish logs is not a
          fistfight between the first ladder and the first smelt (`log` is the
-         only fuel). */
+         only fuel a player can mine this early -- `brand` exists too, but
+         only ever made from a log). */
       { kind:'trees', sub:'timber', fromTy:10, toTy:28, chance:0.06, height:[3, 5] },
       /* `count` is DOWN from 26 -- and was up from 14 before that. Both moves
          are the same move: a `count` here buys CELLS, and what docs/SPEC.md

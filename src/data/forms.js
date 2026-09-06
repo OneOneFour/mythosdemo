@@ -126,14 +126,11 @@ export const FORMS = [
      unchanged, and is now the only route to a placeable timber ladder: 2 logs
      -> 4 `rung`.
 
-     THE TWO CLAIMS THIS COMMENT USED TO MAKE WERE BOTH FALSE ALREADY, before
-     the tile block went. "The only tile-capable form" ignored `rung`, `stair`
-     and `gravel`. "It is also why a standing tree can be climbed" was never
-     true at all: `rules/generate.js#trees` writes trunks as `NATIVE`, and a
-     NATIVE byte reads the SUBSTANCE's own `tile` block, which carries no
-     `climb` key -- `model/tiles.js#tileBlockOf`'s form-wins-over-substance
-     rule and `rules/player.js#boxClimbK`'s own comment both say so. Only a
-     PLACED form has ever climbed. */
+     Only a PLACED form has ever climbed: `rules/generate.js#trees` writes
+     trunks as `NATIVE`, and a NATIVE byte reads the SUBSTANCE's own `tile`
+     block, which carries no `climb` key -- `model/tiles.js#tileBlockOf`'s
+     form-wins-over-substance rule and `rules/player.js#boxClimbK`'s own
+     comment both say so. */
   { id:'log', label:'LOG',
     size:4, massK:1.0, hudOrder:4,
     tags:['fuel'],
