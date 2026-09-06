@@ -46,5 +46,22 @@ export const SPRITE = {
       lineTo(g, (px - 4) | 0, (cy + 4) | 0, (px + 3) | 0, (cy + 1) | 0, colour('ochreC'));
       R(g, px + 3, cy - 1, 3, 2, colour('irB'));
     }
+  },
+
+  /* A held stick, angled like the pick's haft, with a CHARRED tip rather
+     than a live flame: this shape is what a not-yet-lit brand actually is
+     -- ordinary fuel until something ignites it, never lit on the ground.
+     One dim ember-red pixel at the very end, not a `glow()`, is the whole
+     of the hint that it burns once it is not just lying there -- honest
+     about which side of "lit" this object is on. */
+  brand: {
+    size: 9,
+    draw(g, px, py, t) {
+      const bob = Math.sin(t * 2.4) * 1;
+      const cy = py + bob;
+      lineTo(g, (px - 4) | 0, (cy + 4) | 0, (px + 2) | 0, (cy - 3) | 0, colour('woodB'));
+      R(g, px + 1, cy - 4, 2, 2, colour('lavaD'));
+      R(g, px + 2, cy - 4, 1, 1, colour('lavaB'));
+    }
   }
 };

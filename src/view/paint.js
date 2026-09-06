@@ -20,7 +20,7 @@ import { drawText } from '../core/font.js';
 import { blend, mix } from '../core/palette.js';
 import { LIGHT, R, lineTo, noiseFill } from '../core/pixels.js';
 import { hash2 } from '../core/rng.js';
-import { AIR, NATIVE } from '../data/forms.js';
+import { AIR, FORM, NATIVE } from '../data/forms.js';
 import { MACH } from '../data/machines.js';
 import { colour } from '../data/palette.js';
 import { SUB } from '../data/substances.js';
@@ -542,11 +542,19 @@ function cavityColour(b) {
    are screen pixels at the item's CENTRE, and `treat()` still runs after: a
    sprite item can carry a `halo` treatment exactly like a generic square can
    (see the relic glow below), because the two are additions to the same
-   `look`, not alternatives to each other. */
+   `look`, not alternatives to each other.
+
+   `sprite` IS A STRING FOR A SINGLE-FORM SUBSTANCE (`pick`, `bellows` --
+   `relic` is the only form either ever takes) AND AN OBJECT, KEYED BY FORM
+   ID, FOR ONE THAT SPANS SEVERAL (`timber`'s `brand` gets a shape; its
+   `log`/`rung`/`stair`/`seed` do not and fall through to the generic
+   square). A bare string is read as-is so the single-form case never has to
+   spell out the form it already only ever has. */
 export function paintItem(g, it, px, py, t) {
   const l = SUB[it.sub].look;
   if (!l?.item) return;
-  const sprite = l.sprite && SPRITE[l.sprite];
+  const spriteName = typeof l.sprite === 'string' ? l.sprite : l.sprite?.[FORM[it.form].id];
+  const sprite = spriteName && SPRITE[spriteName];
   const s = sprite ? sprite.size : sizeOf(it), h = s >> 1;
   if (sprite) {
     sprite.draw(g, px, py, t);

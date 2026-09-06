@@ -146,6 +146,12 @@ export const SUBSTANCES = [
     item:{ mass:0.8, hud:{ order:3, always:true } },
     look:{ base:'woodB', hi:'woodA', lo:'woodD', speckle:0.34,
            item:['woodA', 'woodC'],
+           /* `sprite:{brand:'brand'}` (`view/paint.js#paintItem`'s
+              form-keyed shape, `view/sprites.js#SPRITE.brand`) reaches only
+              the `brand` form -- a felled log, a placed rung or stair, and
+              a growing seed all keep the generic two-colour square this
+              `item` pair already draws. */
+           sprite:{ brand:'brand' },
            /* `view/paint.js` grows this on a timber column's TOP tile only --
               a felled trunk's new top grows one the next time that tile
               repaints, with no code change, because the geometry test is
