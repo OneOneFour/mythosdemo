@@ -1,9 +1,8 @@
 # Plan — phase 16: the interaction model, part 2. What a click on a slot means, and the missing feed verb
 
-**Status: PROPOSAL. Nothing here is committed.** This is the plan-mode step
-`docs/BUILD_PLAN.md`'s own convention requires before a phase this size
-touches code — the same convention `docs/PLAN-phase10.md`,
-`docs/PLAN-phase12.md` and `docs/PLAN-phase13.md` followed.
+**Status: BUILT.** Phases 16a-16c all landed. Kept below as the design
+record; the "PROPOSAL" framing that follows describes the plan before it
+was executed.
 
 Everything below was read directly out of the repo at commit `818236e`
 (Phase 12d gap-fix, the tip at time of writing); every `file:line` is real
@@ -18,42 +17,6 @@ hit-tests and dispatches, `view` never calls `rules` and never mutates
 D-E, D-F, D-G, D-H and §4.4 — **this document extends Phase 12's
 interaction model and contradicts none of it.** Then `docs/PLAN-phase13.md`
 §5 (the loop punch list), which §7 below cross-links against.
-
----
-
-## 1. Sizing, honestly, before anything else
-
-This is **one missing verb and three workarounds for its absence**, not a
-redesign. The audit in §3 found that:
-
-- `rules/machines.js#handFeed` (`:130-140`) is **proximity-only,
-  unconditional, and runs every one of the 120 substeps a second** for every
-  machine with a `handFeed` block. There is no key, no click, and no gate.
-- **Three separate places in the repo work around that**, and all three say
-  so in their own comments: `src/rules/cycles.js:84-93` (`SPAWN_GAP = 4`,
-  "found the hard way… both fed the player ore near spawn and had it
-  silently vanish into the altar"), `tools/check.mjs:1154-1159` ("the altar
-  quietly ate ore out of the very pockets this test just loaded… Dug well
-  clear of it"), and `tools/check.mjs:3552-3556`.
-- **Three separate places claim a feed key exists.** It does not:
-  `src/data/machines.js:655` ("you walk up and hold the feed key"),
-  `src/data/machines.js:745` ("the player walks up carrying ore and holds
-  the feed key"), and `docs/SPEC.md` §18.3's own table row ("the player
-  walks up and holds the feed key"). The codebase's own authors expected the
-  verb this plan adds.
-
-So the user's instinct is right, and the honest framing is not "the click
-model is wrong" but "**one of the two halves of the click model was never
-built, and the half that exists is invisible.**"
-
-| phase | agent | rough size | risk |
-|---|---|---|---|
-| 16a | 1 × `systems` | 2 `shell/` files, ~20 new lines in `rules/machines.js`, additive only | **low** — nothing existing is removed |
-| 16b | 1 × `systems` + `harness` in one commit | 1 line of gate, 1 signature, 1 UI row, **~4 test probes and every proximity-feed scene** | **medium** — the whole risk of this document lives here |
-| 16c | 1 × `ui` | 4 `view/` files, 2–3 new baselines | low, but owns `src/view/` |
-
-16b is the only phase that changes what the game does when you do nothing.
-It runs alone and it runs after 16a has proven the replacement path works.
 
 ---
 
@@ -197,8 +160,6 @@ exists. `rules/tutorial.js`'s beat sheet stops at index 6.
 
 ### 3.5 The three workarounds — the real evidence
 
-Not one of these is a comment I wrote; all three are in the repo today.
-
 1. **`src/rules/cycles.js:84-93`.** `SPAWN_GAP = 4` exists *only* because of
    this: *"`handFeed` is real and unconditional from the frame this places it
    (reach 10 px, no key)… flush-against-spawn would mean a player who has
@@ -248,9 +209,7 @@ mechanic. It is a missing verb with a proximity fallback.
 
 ## 4. Part B — Factorio, and which of it actually transfers
 
-Every claim below names the post and URL it came from. Where I could not
-verify a specific dev statement I say so rather than dressing a wiki page up
-as a design blog.
+Every claim below names the post and URL it came from.
 
 ### 4.1 The cursor is the whole model, and the click *target* disambiguates
 
@@ -387,10 +346,9 @@ buildable you do not have:
 FFF #278 confirms it shipped and that it is **off by default**: "To avoid
 confusion for new players, this feature is off by default and can be turned
 on in the interface settings menu." The pipette (Q) is the same idea from the
-other direction — pick the entity under the cursor into your hand.
-(Caveat: the pipette's *design rationale* is documented on the wiki and in
-forum threads, not in a Friday Facts post I could find. I looked; I am not
-going to invent a citation for it.)
+other direction — pick the entity under the cursor into your hand. (The
+pipette's *design rationale* is documented on the wiki and in forum threads,
+not in a Friday Facts post.)
 
 **Compared with `view/hud.js:649-680`:** mythos-factory's ghost is already
 the good version of this pattern. `drawFootprintGhost` (`:534-552`) draws
@@ -483,38 +441,15 @@ or "hand this gravel to the dock", and both are things the content table
 asks for. A rule that classifies the *target* has no such problem, needs no
 exception list, and is the one Factorio arrived at after eleven years.
 
-**Revision, post-Phase-14: both counterexamples above are gone, and the
-choice is no longer about correctness.** `docs/PLAN-phase14-mining-and-drops.md`'s
-D14-A/B/H land a general content rule — **`CLAUDE.md` D12: a form is either
-feedstock or buildable, never both** — and apply it to exactly the two rows
-this paragraph named: `gravel` loses its `tile` block (D14-A) and `log`
-loses its `tile` block (D14-H). Once both land, **there is no pair left in
-the game for which "what am I holding" and "what am I pointing at" disagree
-about whether the action is feed or place** — every tile-capable form
-(`rung`, `stair`, `block`) is placement-only and accepted by no recipe,
-`handFeed` selector, or tribute demand; every feedstock form is the reverse.
-D16-A's rule-2-above-rule-3 ordering and a pure type branch (`FORM[form]?.tile
-? place : feed`) now produce **identical behaviour for every legal armed
-pair** — there is no longer a real disagreement to arbitrate, only a
-question of which implementation is more robust and which is easier to
-teach.
-
-**The recommendation stands, revised for the right reason.** Keep D16-A's
-target-priority ordering, not because model 1 is wrong today, but because it
-is the more defensive of two now-equivalent choices: it degrades safely if a
-future content row is ever added carelessly (`tools/content.mjs` assertion
-20/21 from Phase 14 catch a *deposit* placement mistake, not a *feedstock/
-buildable* one — nothing lints D12 itself), whereas a pure type branch would
-need its own tie-break the day that happens, silently, mid-playtest. It also
-costs nothing extra to build; 16a/16b/16c below are unchanged by this
-revision. **What does change is 16c's legibility framing (D16-E)**: since
-the two models are now behaviourally identical, describe the mechanic to the
-player the *simpler* way regardless of which way it is implemented — "what
-you're holding decides what LMB does" is the honest, teachable version of a
-rule that technically checks the target, because after D12 the target
-constrains only *whether* the action is legal, never *which* action it is.
-That is the frame the user's own brief asked for, and D12 is what makes it
-true rather than merely convenient to say.
+**Superseded by `CLAUDE.md` D12** (a form is either feedstock or buildable,
+never both, landed by `docs/PLAN-phase14-mining-and-drops.md`'s D14-A/H):
+`gravel` and `log` — the two counterexamples model 1 (type dispatch) could
+not handle — both lost their `tile` block, so D16-A's target-priority
+ordering and a pure type branch now produce identical behaviour for every
+legal armed pair. D16-A's ordering is kept anyway, as the more defensive of
+two now-equivalent choices, and 16c's legibility framing (D16-E) describes
+the mechanic the simpler way regardless — "what you're holding decides what
+LMB does."
 
 **Why this and not model 2 in full (a cursor-following icon, slot-to-slot
 swaps via the cursor).** Two reasons, both about cost against benefit:
@@ -671,318 +606,14 @@ Three, **serial**. 16a is additive and provably cannot regress anything
 (nothing is removed). 16b is the only phase that changes default behaviour
 and it lands only once 16a's replacement path is proven by hand. 16c owns
 `src/view/` and therefore must not run beside `docs/PLAN-phase13.md`'s 13a
-or 13b — the same rule that kept Phases 8, 8b, 8e and 9 serial.
+or 13b (`.claude/brain/phase-plan-conventions.md`, rule 1).
 
-### 6.1 FILE OWNERSHIP — Phase 16a (the feed verb, additive)
-
-```
-src/shell/input.js        pointerdown's LMB dispatch gains rule 2 (D16-A);
-                          new `cmd.feed` EDGE declared and cleared in
-                          clearEdges(); the click-to-arm/digit-arm gate at
-                          :411-412 widened to any occupied slot
-src/shell/main.js         applyIntents() gains the cmd.feed branch, calling
-                          into rules/machines.js; the click-to-arm gate at
-                          :514-517 widened identically; the "live binding
-                          set" narrowing left alone (no new narrowed field
-                          in this phase -- feed is a one-shot intent, not a
-                          step gate)
-src/model/machines.js     NEW query: `feedCheck(m, sub, form)` -> {ok, why,
-                          have, cap} -- the one decision rules/machines.js
-                          enforces and view/hud.js previews (D16-E #3).
-                          Reads only `data/machines.js` + this file's own
-                          `count`.
-src/rules/machines.js     NEW export `handOne(m, sub, form)`: calls
-                          feedCheck, and on ok does the exact five lines
-                          handFeed already does (spend, take, fire, push
-                          'accept'), pushing a 'refused' row with
-                          feedCheck's own `why` otherwise. `handFeed`
-                          itself is UNCHANGED in this phase.
-src/shell/ui.js           ui.armedPlace's header comment: it is now four
-                          consequences, not three. Do NOT rename the field
-                          (D-A's own reasoning: __mf.ui.armedPlace is a
-                          public test-hook key).
-tools/check.mjs           one new probe: arm ore, aim at an altar 6 px away,
-                          fire cmd.feed once, assert exactly ONE unit moved
-docs/SPEC.md              a new subsection locking the feed verb, its
-                          refusal strings and their ORDER -- SPEC first,
-                          then code (CLAUDE.md's Conventions)
-```
-
-**Explicitly not touched in 16a:** `rules/machines.js#step`'s signature,
-`shell/schedule.js`, `view/` (any file), `data/machines.js`,
-`data/tuning.js` (no new tunable — `handFeed.reach` is already the number).
-
-### 6.2 Paste-ready prompt — Phase 16a
-
-> You are implementing Phase 16a of `docs/PLAN-phase16-interaction-model-v2.md`
-> in the mythos-factory repo. Read `CLAUDE.md` in full (especially D2 and
-> invariants 5 and 9), then `docs/PLAN-phase12.md` §3 D-A and §4.4, then
-> `docs/PLAN-phase16-interaction-model-v2.md` §3, §5 D16-A and D16-B in full.
->
-> **This phase adds a verb and removes nothing.** The automatic proximity
-> feed (`rules/machines.js#handFeed`) must still work exactly as it does
-> today when you are done — it is retired in 16b, not here. This phase must
-> be provably impossible to regress.
->
-> 1. `src/model/machines.js`: add `feedCheck(m, sub, form)` returning
->    `{ ok, why, have, cap }`. `ok` requires: the machine has a `handFeed`
->    block; `acceptedBy`-equivalent logic finds a selector in
->    `def.handFeed.from` matching the pair; and `count(m, sel) < capOf(def,
->    sel)`. Refusal strings, in this order: `'IT DOES NOT WANT THAT'`, then
->    `'IT IS FULL'`. **Reach is NOT checked here** — reach is a fact about
->    where the player is standing, which is `rules`/`shell`'s question, and
->    `view`'s ghost must be able to preview a machine you have not walked to
->    yet. Say in your report where you put the reach test and why.
->    `capOf`/`acceptedBy` currently live in `rules/machines.js`; if moving
->    the pair down into `model` is the cleanest way to avoid a second copy,
->    do that and say so — but do NOT leave two implementations of "does this
->    machine accept this pair".
-> 2. `src/rules/machines.js`: add `export function handOne(m, sub, form)`.
->    Call `feedCheck`; on failure push a `'refused'` journal row carrying
->    `why` (the kind and the verbatim-`why` display are already wired —
->    `shell/notify.js:46`, `refused: row => row.data?.why || ''`); on
->    success do exactly what `handFeed`'s body already does for one unit
->    (`rw.spend`, `mw.take`, `mw.fire`, `push('accept', ...)`), and return a
->    boolean. **Do not touch `handFeed` or `step`.**
-> 3. `src/shell/input.js`: add `cmd.feed` as a new EDGE, declared and
->    cleared in `clearEdges()` in the exact shape `cmd.place` already is.
->    In `pointerdown`'s LMB `else` branch (`:562-583`), insert rule 2 from
->    §5 D16-A **between** the existing rule 1 (phial) and rule 2 (place):
->    if something is armed, `aim.valid && aim.band`, a `machineAt(aim.band,
->    aim.tx, aim.ty)` exists, it is within its own `handFeed.reach` of
->    `playerBox()`, and `feedCheck(...).ok`, then `aw.mode('place')` and
->    `cmd.feed = true`. Renumber the comments so the four rules read in
->    order. **Decide it once at pointerdown** — that is D-A's whole design
->    and a held press must not flip meaning.
-> 4. `src/shell/main.js`: add the `cmd.feed` branch to `applyIntents()`,
->    beside the existing `cmd.place`/`cmd.deconstruct`/`cmd.link` branches
->    and following their exact shape (gate on `aim.valid && aim.band`,
->    self-clear the flag). It resolves the armed pair the same way the
->    `cmd.place` branch does at `:197-198` (re-check `invCount > 0`; a
->    stale arm must never feed the wrong thing) and calls `handOne`. **The
->    arm is NOT cleared on a successful feed** — you feed ten ore in a row;
->    the existing staleness sweep at `:162` clears it when the last unit is
->    gone.
-> 5. Widen both arm gates to any occupied slot: `shell/main.js:514-517` and
->    `shell/input.js:411-412`. Drop the `FORM[...]?.tile || F.rig ||
->    F.phial` clause from each; keep `sub != null`. Both must stay
->    identical to each other — that is the "press 3 and the slot showing 3
->    cannot disagree" property `view/ui/quickbar.js:30-45` states.
-> 6. `docs/SPEC.md`: add a subsection locking the four-rule LMB order, the
->    feed refusal strings and their order, and the one-unit-per-press rule.
->    Write it BEFORE you read it back in code, per `CLAUDE.md`'s "tuning
->    numbers belong in `docs/SPEC.md` first".
-> 7. `tools/check.mjs`: one new probe. Place an altar, stand the player 6 px
->    from it, `run.write.collect` 3 copper ore, fire `cmd.feed` for exactly
->    ONE frame with the pair armed, and assert **exactly one** unit left the
->    pockets. Then **prove the probe has teeth**: make `handOne` a no-op,
->    confirm the probe FAILS, and report that seen-to-fail run. A probe you
->    did not see fail is a probe you have not written.
-> 8. Verify by hand, and report exactly what you observed for each: click a
->    copper-ore slot and confirm the slot border lights up (it did nothing
->    before); aim at a furnace within reach and LMB — one ore goes in, and
->    the count in its buffer rises by one, not eight; aim at the same
->    furnace with a ladder rung armed and confirm you get `'IT DOES NOT
->    WANT THAT'` rather than a ladder placed inside the machine; aim at a
->    full furnace and confirm `'IT IS FULL'`; walk out of reach and confirm
->    LMB mines instead; press `z` and confirm the hand clears.
->
-> Run `npm run check`, `npm run lint`, `npm run test:visual`. Report exactly
-> what each says. **No baseline should move** — this phase touches no
-> `view/` file, so any screenshot diff is a bug, not an intended change.
-
-**Acceptance (a physical action):** start a run, take the pickaxe, dig some
-copper, hold `c` to collect it, open the Character tab, **click the copper
-ore** — the slot lights up, which it has never done. Close the panel, walk
-to the altar, point at it, and click ten times, counting. Cycle 1 pays. Then
-point at the rock behind the altar with the ore still in hand and confirm you
-feed the altar, not the rock — and that `z` releases it so you can mine.
-
-### 6.3 FILE OWNERSHIP — Phase 16b (the drain becomes opt-in)
-
-```
-src/shell/ui.js           `autoFeed: false` beside `autoCollect` (:68) with a
-                          header in the same shape; `toggleAutoFeed()` and
-                          `setAutoFeed(bool)` beside :265. If 13c has landed
-                          its setter, match its naming exactly.
-src/shell/main.js         step()'s narrowed object `c` gains `autoFeed:
-                          ui.autoFeed`; `__mf.ui` projection exposes it
-                          (13c §4.5's own complaint, applied here so the new
-                          flag is observable from a test on day one)
-src/shell/schedule.js     the `machines` row's step gains `cmd` -- the second
-                          sibling brought in line, exactly as 12b did for
-                          `items`
-src/rules/machines.js     `step(dt, cmd)`; `if (def.handFeed && cmd.autoFeed)
-                          handFeed(m, def)`. handFeed's BODY is unchanged.
-                          Its header gains the "this is the opt-in magnet;
-                          the real verb is handOne" note.
-src/shell/boot.js         reset ui.autoFeed in newRun's teardown, matching
-                          whatever 13c decided for autoCollect (D16-C)
-src/view/ui/mainPanel.js  an AUTO FEED row beside AUTO COLLECT (:162-174),
-                          same drawPanel id idiom, same colours
-src/data/machines.js      the two stale "feed key" comments (:655, :745)
-src/rules/cycles.js       SPAWN_GAP's header: the bug it guards against is
-                          now off by default. KEEP THE GAP -- an altar flush
-                          against spawn is still bad framing; only the
-                          reasoning changes.
-tools/check.mjs           the ALTAR HAND FEED probe (:3537-3573, whose own
-                          success line says "with no key held") and the
-                          burden probe's +15 offset (:1154-1160); grep for
-                          every other proximity-feed assumption
-tests/visual.spec.js      every scene that feeds a machine by walking to it
-docs/SPEC.md              §18.3's table row and the surrounding prose
-docs/DEVELOPER_GUIDE.md   the buffers-and-pockets / input-intents sections
-```
-
-### 6.4 Paste-ready prompt — Phase 16b
-
-> You are implementing Phase 16b of `docs/PLAN-phase16-interaction-model-v2.md`.
-> **Phase 16a must already be landed and its acceptance walkthrough
-> confirmed** — this phase turns off the path 16a replaced, and it is only
-> safe because 16a proved the replacement works. Read `CLAUDE.md`
-> (invariants 5 and 8), `docs/PLAN-phase12.md` §3 D-F (the `ui.autoCollect`
-> precedent this phase copies line for line), `docs/PLAN-phase13.md` §4
-> (13c — **check whether it has landed and match its decision on resetting
-> the preference at `newRun()`; do not invent a second policy**), and
-> `docs/PLAN-phase16-interaction-model-v2.md` §3.4, §3.5 and §5 D16-C.
->
-> **Before changing anything, re-verify §3.4 and report what you found:**
-> that `rules/machines.js#step` still takes no `cmd`, that `handFeed` is
-> called unconditionally at `:98`, and that seven `data/machines.js` rows
-> carry a `handFeed` block. If any of that is false, STOP and report — the
-> phase rests on it.
->
-> 1. Add `ui.autoFeed` (default `false`), `toggleAutoFeed()` and
->    `setAutoFeed(bool)`, mirroring `autoCollect` exactly. Expose it on
->    `__mf.ui`.
-> 2. Thread it: `shell/main.js#step`'s narrowed `c` gains `autoFeed`;
->    `shell/schedule.js`'s `machines` row gains `cmd`;
->    `rules/machines.js#step(dt, cmd)` gates the `handFeed` call. **Do not
->    change `handFeed`'s body.**
-> 3. `shell/boot.js`: reset it in `newRun`'s teardown, matching 13c.
-> 4. `view/ui/mainPanel.js`: an AUTO FEED row beside AUTO COLLECT, its own
->    `drawPanel` id, dispatched from `shell/main.js#applyUiIntents` beside
->    the `onAutoCollect` branch (`:430-435`).
-> 5. **The test blast radius is the whole phase.** Grep `tools/check.mjs`
->    and `tests/visual.spec.js` for every scene that gets material into a
->    machine by standing next to it — start from `handFeed`, `altar`,
->    `furnace`, `tribute`, `M.altar`, `M.furnace` — and for each one either
->    set `autoFeed` true or drive the real 16a feed intent. **State in your
->    report which you chose for each and why.** Prefer the real intent for
->    anything asserting the loop; prefer the flag for anything whose subject
->    is something else entirely (the burden fuzz, a lighting scene).
-> 6. Two probes exist ONLY because of the bug you are fixing. **Do not
->    delete them; retarget them.** `tools/check.mjs:1154-1160` (the burden
->    probe's `+15` offset) and `rules/cycles.js:84-93`'s `SPAWN_GAP` may now
->    have their reasoning corrected — **keep the gap and keep the offset**,
->    and rewrite both comments to say the hazard is now opt-in rather than
->    unconditional. Removing the geometry would be a second, unrelated change.
-> 7. Add a probe asserting that with `autoFeed` false, a player standing 4 px
->    from a fed-capable altar for 240 substeps with 10 ore in the pockets
->    loses **nothing**. Prove it has teeth by flipping the gate and confirming
->    it FAILS. Report the seen-to-fail run.
-> 8. Fix the stale prose: `data/machines.js:655` and `:745`, `docs/SPEC.md`
->    §18.3's `hub` table row, and `docs/DEVELOPER_GUIDE.md`. All three
->    currently assert a feed key that 16a made real — make them describe the
->    verb that now exists.
-> 9. Verify by hand: fresh run, walk right up to the altar with ore in your
->    pockets and stand there — **nothing happens.** Point and click, and it
->    goes in one at a time. Turn AUTO FEED on in the Character tab and
->    confirm today's magnet behaviour returns exactly. Restart and confirm
->    the toggle is back off (matching 13c).
->
-> Run `npm run check`, `npm run lint`, `npm run test:visual`. Report exactly
-> what each says, and for every baseline that moved, say why. The AUTO FEED
-> row is a real, expected diff in the Character tab; anything else moving is
-> a regression.
-
-**Acceptance (a physical action):** start a run, fill your pockets with ore,
-and **walk a full lap around the altar without losing a single unit.** Then
-click it ten times and pay cycle 1. Then turn AUTO FEED on and walk past it
-and watch it eat everything — deliberately, because you asked.
-
-### 6.5 FILE OWNERSHIP — Phase 16c (legibility)
-
-```
-src/view/ui/slot.js       frameSlot draws a second, inset border (D-I, never
-                          landed -- git-proven, §3.6 #1). Both callers get it
-                          free; do not add a parameter.
-src/view/ui/quickbar.js   the IN HAND readout above the quickbar, drawn only
-                          when ui.armedPlace is set. ANCHORED over measured
-                          text (D8), never a hardcoded origin. LEGEND gains
-                          the feed verb.
-src/view/hud.js           buildGhost gains TWO branches: the feed indicator
-                          (reading model/machines.js#feedCheck, written in
-                          16a) and the missing F.phial ghost (§3.6 #2)
-src/data/callouts.js      beat 5 gains a verb
-tests/visual.spec.js      2-3 new baselines: an armed slot's double frame;
-                          the IN HAND line; the feed indicator over a furnace
-docs/DEVELOPER_GUIDE.md   the widget-primitives section, if it describes
-                          frameSlot's single border
-```
-
-**Explicitly not in 16c:** the Crafting tab (§4.5 — it already implements
-Factorio's own conclusions and needs nothing); any layout change beyond the
-one new anchored line (`docs/FINDINGS.md` #13 stays parked, per
-`docs/PLAN-phase13.md` §2.5); a mouse-following cursor icon (§5 D16-A's
-rejected alternative); any tooltip change.
-
-### 6.6 Paste-ready prompt — Phase 16c
-
-> You are implementing Phase 16c of `docs/PLAN-phase16-interaction-model-v2.md`.
-> 16a and 16b must both be landed. Read `CLAUDE.md` (invariants 9 and 11 —
-> integer pixels, no `fillText`, `view` never mutates `model`; and D2 and
-> D8), `docs/PLAN-phase12.md` §3 D-I, and
-> `docs/PLAN-phase16-interaction-model-v2.md` §3.6, §4.4 and §5 D16-E.
->
-> **This is the only phase in this wave that touches `src/view/`. Nothing
-> else may run concurrently** — check `docs/PLAN-phase13.md`'s 13a and 13b
-> are not in flight.
->
-> 1. First, confirm and report: `git log -- src/view/ui/slot.js` shows no
->    Phase 12 commit, and `frameSlot` (`:70-75`) still draws a single 1-px
->    border. `docs/PLAN-phase12.md` D-I claims otherwise. Then land it: a
->    second border inset by one pixel in the same colour, four more `R()`
->    calls, no new parameter and no new primitive.
-> 2. `view/ui/quickbar.js`: an `IN HAND <label>` line immediately above the
->    quickbar, drawn ONLY when `f.ui.armedPlace` is set. Compose the label
->    the way `view/ui/mainPanel.js#pairTooltip` (`:295`) already does
->    (`SUB[sub].name + ' ' + FORM[form].label`) — do not invent a second
->    label composer. **Position it by measuring the text and anchoring off
->    the quickbar's own geometry** (D8); a hardcoded origin will be rejected.
-> 3. `view/hud.js#buildGhost`: two new branches, after the existing
->    `linkFrom` early-return. (a) If a machine is under the reticle and
->    `model/machines.js#feedCheck(m, armed.sub, armed.form)` is ok, outline
->    its footprint in `UI.good` and print `have/cap` beside it; if not ok,
->    outline in `UI.heart` and print `check.why`, reusing
->    `drawFootprintGhost`'s own refusal-text idiom (`:547-551`) rather than
->    a second one. (b) An `armed.form === F.phial` branch — today a miracle
->    is the ONE arming state with no world feedback at all, and it is the
->    branch that overrides mining entirely. **You may not import `rules`.**
->    `feedCheck` is a `model` query written in 16a precisely so this is legal
->    — if it is not there, STOP and report.
-> 4. `data/callouts.js:25`: beat 5 gains the verb. Content, not a literal in
->    `view/`.
-> 5. Add 2-3 baselines at the desktop viewport: an armed slot showing the
->    double frame; the IN HAND line with something armed; the feed indicator
->    over a furnace, both accepting and refusing. **Drive every one through
->    the keyboard or the model, never through hardcoded click coordinates** —
->    `CLAUDE.md`'s own "mistakes already made" names that exact failure.
->    **And prove each test is not vacuous**: confirm the pixels differ with
->    the feature off, per the "a test can silently test nothing" entry.
->
-> Run `npm run check`, `npm run lint`, `npm run test:visual`. Report exactly
-> what each says. Baselines WILL move (the double frame touches every scene
-> with an armed slot). Re-accept with `npm run test:visual:update`, and in
-> the commit message say why the pixels moved and name any baseline that
-> moved for a reason you did not expect. `maxDiffPixels` stays 0.
-
-**Acceptance (a physical action):** arm a ladder rung with the panel closed
-and read what is in your hand off the screen without opening anything. Point
-at a furnace with ore armed and see, before you click, that it will take it
-and how full it is. Point at it with a rung armed and see, before you click,
-that it will not. Arm a miracle and see a ghost where there has never been
-one.
+All three landed: 16a's `cmd.feed` edge and `rules/machines.js#handOne`
+(D16-A rule 2, D16-B), 16b's opt-in AUTO FEED gate replacing the always-on
+proximity drain (D16-C), and 16c's legibility pass — the armed-slot double
+frame, the IN HAND line, the feed preview and the miracle ghost (D16-E). The
+executed prompts are git history; the refusal strings and their order are
+locked in `docs/SPEC.md` section 23.
 
 ---
 
@@ -1000,60 +631,16 @@ items that overlap this document:
   `data/sfx.js#KIND_SFX`. (`'accept'` — the feed event — *is* in `CHIPS` and
   `KIND_SFX` but not `TEXT`. §3.4.)
 
-### 7.1 The user's two loop asks map onto plans that already exist
-
-| the ask | where it lives | status |
-|---|---|---|
-| "offering stuff to the gods on a timer" actually working | `docs/PLAN-phase13.md` §5.3, **Phase 13d** items 1, 2, 3, 8, 10 | proposal, needs a greenlight |
-| "randomly procedurally generated bonus or divine recipes" | `docs/PLAN-phase13.md` §5.2 items **4** (draft is 1-of-1) and **5** (three of four tiers have exactly one content row) | audited, deliberately out of 13d's scope, **no plan yet** |
-
-**I am not re-planning either.** 13d is written, sized and ready for a
-greenlight. Items 4 and 5 are not, and §7.3 says where they should go.
-
-### 7.2 Sequencing call: **this document lands after 13d, not before**
-
-Three reasons, in order of weight:
-
-1. **16's own acceptance criteria want a loop that says something.** 16a's
-   walkthrough is "click the altar ten times and cycle 1 pays" and 16b's is
-   "pay cycle 1 deliberately" — and 13d item #8 is the phase that makes
-   completion audible and visible at all. Testing a new delivery verb against
-   a loop that completes in silence is testing half of it.
-2. **13d's acceptance criterion is worded against the automatic feed.**
-   `docs/PLAN-phase13.md` §5.3's own line: *"try to pay cycle 2 by
-   hand-feeding three plates to the same altar — and fail."* If 16b lands
-   first, that sentence needs rewriting before 13d's agent can follow it. If
-   13d lands first, it is true as written and 16b simply inherits the fixed
-   `cyc.at` gate. **Cheaper in that order.**
-3. **`src/view/` contention.** 13a (contrast) and 13b (ladder sprite) both
-   own `src/view/` broadly, and 16c owns `view/hud.js` + two `view/ui/`
-   files. Wave 4's own rule (`docs/BUILD_PLAN.md`, and
-   `docs/PLAN-phase13.md` §6) is that those do not run concurrently. Putting
-   16 after the whole of 13 is the only ordering that needs no new
-   coordination.
-4. **D16-A's revision (§5) adds a fourth, harder dependency: 16 must also
-   land after `docs/PLAN-phase14-mining-and-drops.md`'s 14a.** D16-A's
-   original argument for "target decides over type decides" rested on
-   `log` and `gravel` both being double-duty; 14a's D14-A/H removes both
-   counterexamples. Landing 16 before 14a means building D16-A's
-   type-vs-target distinction while it is still a real correctness question
-   with two live counterexamples, and having a phase agent re-verify it
-   once 14a lands anyway. Landing it after means citing 14a's own commit as
-   proof the two models already agree, which is strictly less work. **Net
-   ordering: 14a, then 13 (a→b→c→d), then 15, then 16** — 15 sits between
-   13 and 16 only because of its own budget dependency on 14a (§2.4 of that
-   document), not because of any dependency on 13 or 16.
-
-**No file conflicts either way**, which is worth saying so the ordering reads
-as a judgement rather than a constraint: 13d owns `rules/cycles.js`,
-`data/machines.js`'s `cloud_dock` row, `shell/notify.js`, `data/sfx.js`,
-`data/callouts.js`, `rules/tutorial.js`, `view/hud.js`'s win screen. 16 owns
-`rules/machines.js`, `model/machines.js`, `shell/input.js`,
-`shell/main.js`, `shell/ui.js`, `shell/schedule.js`, `view/ui/slot.js`,
-`view/ui/quickbar.js`. **Two overlaps, both small and both in 16's later
-phases:** `data/callouts.js` (13d extends past index 6; 16c edits index 5)
-and `view/hud.js` (13d adds a win screen; 16c adds two `buildGhost`
-branches). Serial ordering makes both non-events.
+The user's two loop asks: "offering stuff to the gods on a timer" actually
+working is `docs/PLAN-phase13.md` §5.3's Phase 13d; "randomly procedurally
+generated bonus or divine recipes" is that document's §5.2 items 4 and 5,
+audited and deliberately out of 13d's scope — §7.3 below is where that work
+went. The eventual landing order was 14a, then 13 (a→b→c→d), then 15, then
+16, for the reasons this section used to spell out: 16's acceptance criteria
+want an audible/visible loop (13d item #8), 13d's own acceptance wording is
+against the automatic feed 16b replaces, and D16-A's target-vs-type
+argument wanted 14a's counterexamples resolved first. All now moot — every
+phase in that order has landed.
 
 ### 7.3 The draft UI belongs in neither document. Call it Phase 17.
 
@@ -1117,13 +704,12 @@ honestly: the content half is probably larger than the UI half.
 
 ## 9. Risk register
 
-| risk | why it is likely | mitigation in this plan |
-|---|---|---|
-| **A machine under the reticle now steals a mining click whenever something is armed.** D16-A rule 2 outranks placement and mining. | This is the direct, stated cost of overloading one button for a fourth verb. A player who mines beside their own furnace will hit it. | `z` clears the hand in one press (shipped, Phase 12d). Rule 2 additionally requires the machine to *accept* the armed pair, so an armed ladder rung never blocks mining beside a furnace. Named in D16-A rather than discovered, and 16a's step 8 exercises it by hand. |
-| **16b turns off a mechanic that ~4 harness probes and an unknown number of Playwright scenes depend on, and a proximity-feed test does not fail loudly — it just stops moving material and asserts zero.** | `tools/check.mjs:3537-3573`'s ALTAR HAND FEED probe asserts `held === 0 && left === 0` — and with the drain off, `held` is still 0. **The probe passes while proving nothing**, exactly the hollowing-out `docs/PLAN-phase13.md` §4.4 documents for the burden fuzz. | 16b's prompt step 5 requires a grep-then-classify pass over both files with a per-scene justification, and step 7 requires a new probe **seen to fail**. This is the single biggest risk in the document and the reason 16b runs alone. |
-| **Widening the arm gate to any occupied slot arms things that cannot do anything**, e.g. a relic or a plate with no machine in sight. | Six of eleven form kinds become armable with no consequence attached. | This is intentional and it is Factorio's own model (§4.1): the hand does not classify. 16c's IN HAND readout is what makes it legible, and rule 4 (mine) is a perfectly sensible fallthrough. Named so a reviewer does not read it as an oversight. |
-| **`feedCheck` becomes a second implementation of "does this machine accept this pair"** beside `rules/machines.js#acceptedBy`/`capOf`. | Two functions answering one question is exactly the drift `CLAUDE.md`'s one-decision-two-readers rule exists to forbid, and the pressure to copy rather than move is real when the layer boundary is in the way. | 16a's prompt step 1 names this explicitly and requires the agent to either move the pair down into `model` or state why not — and forbids leaving two. `placementCheck` and `linkCheck` are the two shipped precedents for a decision living in `model` so both `rules` and `view` can read it. |
-| **The IN HAND line collides with the quickbar or the hints toggle at a narrow viewport.** | `view/ui/quickbar.js:64-66` positions the quickbar off `W`/`H` and the hints toggle sits at `H - 11`; a new line between them is exactly the overflow D8 was written about. | D8 is quoted in 16c's own prompt as a rejection condition: anchored over measured text or the phase is not done. `view/ui/bar.js:45-54`'s measured-value clamp is the shipped precedent. |
-| **D16-D's sticky-slot map becomes a second source of truth for what the player carries.** | Any auxiliary structure beside `run.inv` is one forgotten reset away from disagreeing with it. | It is advisory only: an occupied or out-of-range remembered index falls straight through to today's behaviour, so `run.inv` remains the sole authority and every aggregate query is untouched. Reset by `write.reset()` with everything else (invariant 8). And it is a **separately declinable** decision — drop D16-D and nothing else in this plan changes. |
-| **16c's double frame moves every baseline that has an armed slot in it, on top of whatever 13a's recolour already moved.** | Two legitimate view changes landing in the same wave. | Strict serial ordering (§7.2: all of 13, then 16), and 16c's prompt requires every moved baseline to be reviewed as an image with its cause stated — the same discipline `docs/PLAN-phase10.md` §10c and 12c2 both used. |
-| **`docs/SPEC.md` §18.3 and `data/machines.js`'s two comments become *newly* true in 16a and are then edited again in 16b.** | Prose that describes a verb that half-exists is worse than prose that describes one that does not. | 16a locks the verb in a new SPEC subsection; 16b corrects §18.3's table row and the two code comments in the same commit that makes the automatic path opt-in. Named in both ownership blocks so neither agent thinks the other did it. |
+All landed clean. The two risks worth remembering the shape of: 16b turning
+off a mechanic that several harness probes depended on without any of them
+failing loudly (a proximity-feed probe that asserts `held === 0` still
+passes with the drain simply turned off) required a grep-then-classify pass
+over every dependent scene plus a new probe seen to fail before the change,
+not after; and widening the arm gate to any occupied slot deliberately makes
+six of eleven form kinds armable with no consequence, which is correct
+(Factorio's model, §4.1) but needed 16c's IN HAND readout to stay legible
+rather than read as an oversight.
