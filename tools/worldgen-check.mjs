@@ -66,9 +66,8 @@ const FURNACE_COPPER = 12;
 
 /* Copper units within a 5-break dig, per seed -- the FLOOR is asserted per
    seed in property 3; this collects the distribution so the sweep can print
-   the CEILING too (docs/PLAN-phase14-mining-and-drops.md's risk register asks
-   for it: an absurdly rich guaranteed vein ends cycle 1 in fifteen seconds,
-   and only a max can show that). */
+   the CEILING too (docs/SPEC.md §19.7: an absurdly rich guaranteed vein ends
+   cycle 1 in fifteen seconds, and only a max can show that). */
 const veinUnits = [];
 
 /* ============================================================

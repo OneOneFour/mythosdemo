@@ -1,8 +1,10 @@
 # Plan — wave 4, part 2: mined material becomes a prerequisite, and a deposit depletes
 
-**Status: PROPOSAL. Nothing here is committed.** Part of wave 4; see
-`docs/PLAN-phase13.md` §1 for the wave map and `docs/PLAN-phase15-trees.md`
-for the phase that shares this one's form budget.
+**Status: BUILT.** Phases 14a-14e all landed. Kept below as the design
+record; the "PROPOSAL" framing that follows describes the plan before it
+was executed. Part of wave 4; see `docs/PLAN-phase13.md` §1 for the wave map
+and `docs/PLAN-phase15-trees.md` for the phase that shares this one's form
+budget.
 
 This is the largest item in the wave and the one most likely to break
 something silently, so it is its own document — the same treatment
@@ -617,35 +619,13 @@ fewer, smaller and richer.** That is what makes them read as deposits rather
 than as speckle, and it is the same "a hollow is one room" legibility
 argument SPEC §16.4 already makes.
 
-Every one of these numbers goes into `docs/SPEC.md` **first** (§19 -- see
-the correction note in §5),
-per that file's own header rule.
-
-**CORRECTION, made while 14d was implemented. Every `blobs` count in the table
-above is wrong, and the reason is one this document did not see.** The table
-says "÷ charge", and for the counts that is not the arithmetic. Hollow-wall
-lining (SPEC §16.4) is opted into by `line:true`, not by `count` -- and
-`rules/generate.js#blobs` scatters `count` clusters and *then* lines every
-hollow it claimed, so a row with `count:0` still lines. The lining term is
-therefore a **fixed floor that the retune does not touch**, and dividing only
-the count leaves it whole. Measured over 200 seeds, this table lands
-**+43.2% / +34.5% / +36.5% / +35.7% / +31.7%** against the pre-14b cell totals
--- outside the ±10% band 6.4 sets, on all five rows.
-
-The shipped counts, solved against the measurement instead, are
-**5 / 34 / 26 / 19 / 15** (surface copper, topsoil copper/tin/granite/adamant)
-and land **+2.6% / −1.4% / −1.3% / −0.6% / −2.9%**. Two iterations: one linear
-fit per row against two measured points, then one verification pass. The real
-numbers, the measurement method and the lining breakdown are
-**`docs/SPEC.md` §19.7**, which is the source of truth; the table above is
-kept as written so the mistake is legible rather than erased.
-
-**The `vein` row is the one this document got right first time.** `r:2.4, n:1`
-measures 6.0 cells and 24.0 units over 200 seeds, exactly as predicted, and
-its "~30 cells" for the old `r:3.6, n:3` was 23.9. Two smaller slips in the
-same row: the furnace bill is SPEC **§13**, not §15 (§15 is the machine-item
-reversal), and 12 `copper/ore` is a *build* bill, so the assertion 14d added
-treats 22 units as the floor and 10 as the beat-3 floor separately.
+Every one of these numbers goes into `docs/SPEC.md` **first** (§19), per that
+file's own header rule. The table above divides `count` by `charge`; the
+shipped counts are not that arithmetic — solving against measurement instead
+(the divide-by-charge table missed hollow-wall lining's fixed floor and
+overshot by roughly a third) — and are locked in `docs/SPEC.md` §16.5/§19.7,
+which is the source of truth. The retune method that produced them is
+**`.claude/brain/worldgen-retune-method.md`**.
 
 ### D14-G — the depletion cue is a live overlay, not a chunk bake
 
@@ -690,11 +670,7 @@ block" — it is "no form may be both **consumed** (by a recipe, `handFeed`,
 or a tribute demand) and **placed**." That is now a real, load-bearing rule
 in this codebase and it deserves a name so the next content author does not
 have to re-derive it from four other decisions: **`docs/CLAUDE.md` decision
-D12 — a form is either feedstock or buildable, never both.** (D11 is already
-spoken for, by `docs/PLAN-horizontal-chunks-SCOPE.md` §5.5.) Drafted here for
-review and deliberately unapplied to `CLAUDE.md` until this phase and its
-timber counterpart below both land — the same convention D10 and D11 both
-followed.
+D12 — a form is either feedstock or buildable, never both.**
 
 **And the rule has a second, pre-existing violator this document's own
 classification table set aside rather than fixed: `timber/log`.**
@@ -768,13 +744,6 @@ consumption-only. §16's recommendation is revised in that document directly
 
 ## 5. Numbers this document locks, and where
 
-**CORRECTION, made while 14a was implemented.** This document was drafted
-saying "a new section 21". `docs/SPEC.md`'s last section is **§18**; §19 and
-§20 did not exist, and `docs/PLAN-phase13.md` §794 reserves §20 for its own
-band gate. Numbering this 21 would have left two holes in a spec nothing
-indexes sequentially, so 14a took the next free number, **§19**, and every
-reference in this document was updated to match. 14b/14c/14d should read §19.
-
 A new **`docs/SPEC.md` §19 — Deposits, rubble and the packed block**, written
 before any code reads it, holding: the three-bucket classification and its
 two tags; `gravel` losing its `tile` block (and §15's "Placeable rubble"
@@ -802,279 +771,12 @@ APPEND-ONLY", which needs the same qualification.
 
 ## 6. The phases
 
-**Five, mostly serial.** 14a is content and must land alone, because it is
-the commit that changes what a held thing *is*; 14b is the mechanic; 14c
-(view) and 14d (worldgen numbers) are parallel-safe against each other; 14e
-is the harness.
-
-### 6.1 Phase 14a — the classification, the block, and the recipe (1 × `systems`, serial)
-
-> You are implementing Phase 14a of `docs/PLAN-phase14-mining-and-drops.md`.
-> Read `CLAUDE.md` in full (especially invariant 5, the substance × form
-> rule, and D7), `ARCHITECTURE.md` §2 and §3, `docs/SPEC.md` §8 §15,
-> and this plan's §2, §3 and §4 (D14-A, D14-B, D14-C, **D14-H**) in full.
->
-> **This phase is content only. It touches no `rules/` file and adds no
-> mechanic.** Depletion is 14b.
->
-> 0. **Verify the byte budget yourself before writing anything**, by
->    executing the real modules (not by reading this document): print
->    `SUB.length`, `FORM.length`, `PACKABLE_MAX`, `PACKABLE_LIMIT`, and what
->    `1 + SUB.length * STRIDE + FORM.length` would be. Confirm §2.1's claim
->    that appending a packable substance throws today. Report the numbers. If
->    they differ from §2.1, STOP and report.
-> 1. `data/substances.js`: add the tag `bulk` to `soil` and `stone`, and
->    `deposit` to `copper`, `tin`, `granite`, `adamant`. Add **no rows**.
->    Update the file's own "ROWS ARE APPEND-ONLY" header per §5.
-> 2. `data/forms.js`: add the `block` row exactly as D14-B gives it, and
->    **delete `gravel`'s `tile` block** together with the comment arguing for
->    its `hardK:0.5`. **Per D14-H, also delete `log`'s `tile` block
->    (`:65-69`)** — `rung` and `stair` remain the only placeable wood/metal
->    ladder forms, and `peg_rungs` (`data/recipes.js:286-292`) is already
->    the recipe that makes one from two logs, unchanged. Fix the two stale
->    comments at `:63-64` (`log` is not the only tile-capable form; a
->    standing tree is not climbable — doubly wrong once `log` cannot be
->    placed at all) — and if Phase 13b has already landed, reconcile rather
->    than duplicate.
-> 3. `data/recipes.js`: add `pack` exactly as D14-B gives it. **Derive its
->    declaration position by pairwise containment against every other
->    `hand:true` bill in the file, and write that derivation as a comment in
->    the file's own established style.** Note that `#bulk/gravel` cannot be
->    satisfied by `granite/gravel`, so `cyclops_maw`'s 6-granite bill is not
->    a containment; the rows to check against are `brazier` (2 gravel),
->    `crank` (3), `gear` (1) and `belt_r` (4). State your conclusion
->    explicitly.
-> 4. `docs/SPEC.md`: write §19 per §5, and correct §15's headroom table in
->    the same commit.
-> 5. `CLAUDE.md`: add **D12** to the "Resolved decisions" section, worded
->    generally per §4's D14-H — *a form is either feedstock or buildable,
->    never both* — with `gravel`/`block` and `log`/`rung`+`stair` given as
->    its two worked examples. This is applied directly, not drafted-and-left,
->    because by the time this commit lands both examples are real (unlike
->    D11 in `docs/PLAN-horizontal-chunks-SCOPE.md`, which stays unapplied
->    because nothing built there yet).
-> 6. `tools/content.mjs`: add assertion 20 — every substance carrying a
->    `tile` block and the `mineable` tag must carry exactly one of `bulk`,
->    `deposit` or `organic`, so a future terrain row cannot forget to
->    classify itself. **See it fail**: add a fourth tag to one row, confirm
->    the lint fails, revert.
-> 7. Verify by hand: mine soil, confirm you get SOIL GRAVEL and that arming
->    it and pressing LMB on open ground now refuses legibly (say which
->    refusal string fires — `'THAT DOES NOT BUILD'` from
->    `rules/placement.js:195` is the expected one, and if a different one
->    fires, say which and why). Hand-craft 5 into one SOIL BLOCK, place it,
->    mine it back, and confirm you get 1 gravel back and not 5. **Then**
->    confirm raw TIMBER LOG refuses the same way, hand-craft 2 logs into 4
->    rungs via `peg_rungs`, and place/climb/mine one.
->
-> Run `npm run check`, `npm run lint`, `npm run test:visual`. Baselines WILL
-> move: the CRAFTING tab's RAW grid gains a slot (`pack`'s output), which is
-> the exact churn `docs/FINDINGS.md` (8d, #6) already documented for four new
-> recipes, and every test that placed `gravel` or `log` as a tile now fails.
-> **Grep `tests/visual.spec.js` and `tools/check.mjs` for `F.gravel` and
-> `F.log` before you start** and report every test that places either, with
-> what you changed each to. Two are known and named in D14-H
-> (`tests/visual.spec.js:1723`, `tools/check.mjs:1163`, both `F.log` →
-> `F.rung`) — treat that as a floor for the search, not the whole answer,
-> since `gravel`'s own placement sites were not enumerated by this document
-> either.
-
-**Acceptance:** dig a 5-tile hole in the surface soil, collect the rubble,
-and fill the hole back in — and discover it costs you five tiles' worth of
-rubble per tile of hole, and that you cannot shovel loose rubble straight
-back. Then confirm you cannot place granite or copper anywhere, in any form,
-by any route. Then confirm you cannot place a raw log either — only a
-crafted rung or stair — and that a rung built this way still climbs exactly
-as before.
-
-### 6.2 Phase 14b — depletion (1 × `systems`, serial after 14a)
-
-> You are implementing Phase 14b of `docs/PLAN-phase14-mining-and-drops.md`.
-> Phase 14a must be landed. Read `CLAUDE.md`'s "Mistakes already made here"
-> in full — **especially the note that mining progress used to live in the
-> tile grid as a truncated byte** — then this plan's §2.5, §2.6, §2.7 and §4
-> (D14-D, D14-E, D14-F's charge values only).
->
-> **This phase touches no `view/` file and no `data/world.js` count.** The
-> worldgen rebalance is 14d and the cue is 14c.
->
-> 0. Re-read `src/rules/mining.js:137-207` and
->    `src/rules/machines.js:340-393` directly from the files, and confirm
->    §2.5's account of the break branch and §2.6's account of `dig.work`
->    persistence. Report what you found. **If `write.clear` turns out to have
->    a third caller, STOP** — D14-D rests on it having exactly two.
-> 1. `data/substances.js`: add `tile.charge` to the four deposit rows per
->    D14-F. `data/tuning.js`: add the `richness` row.
-> 2. `model/mining.js`: rewrite the file header — it currently claims
->    progress is abandoned when the player looks elsewhere, which the code
->    does not do (§2.6), and it must now state that this map is also the
->    depletion ledger and why that is not the historical byte bug. Rewrite
->    `activeCount`'s comment with the honest new bound (§4, D14-D's costs).
->    Change `progressAt` to take the charge, and add `unitProgressAt`, per
->    D14-G.
-> 3. `model/tiles.js#write.setByte`: clear the tile's accumulated work when
->    the byte changes (D14-E). Confirm by grep that this does not create an
->    import cycle and that `npm run check` section 0 stays at **0**
->    violations.
-> 4. `rules/mining.js` and `rules/machines.js#mine`: implement D14-D's
->    per-unit drop in BOTH, in the same commit, with the same arithmetic.
->    The two are `rules` siblings and may not import each other — if you find
->    yourself copying more than a few lines, put the shared arithmetic in
->    `model/` (a `chargeOf(sub)` / `unitsCrossed(before, after, hard)` pair)
->    rather than in two places. **Do not add or remove any `rand()` call
->    inside the existing break branch** (§2.5); the per-unit spawns go in a
->    new branch before the break test.
-> 5. Verify with the test hook, and report measured numbers: hold LMB on a
->    copper vein tile and confirm it yields **4** ore over **3.80 s** at the
->    fixed 1/120 s step and only then disappears; that a Talos Head fed fuel
->    depletes an identical tile in the identical time (SPEC §12's equality —
->    report the difference to four decimal places); that a granite tile at
->    charge 3 with a tier-1 pick still refuses with `'TOO HARD FOR THIS
->    PICK'` and yields nothing; and that a `soil/block` placed on a
->    coordinate where a copper tile was previously half-depleted takes its
->    **full** 0.50 s to break (this is D14-E; without it, it breaks
->    instantly).
-> 6. Confirm `npm run check`'s hardness-at-8-framerates table still passes at
->    every framerate, and say what it reports for a charge-4 tile.
->
-> Run `npm run check`, `npm run lint`, `npm run test:visual`. Report exactly
-> what each says. **No visual baseline should move** — this phase changes no
-> `view/` file — so any screenshot diff is a bug (most likely a scene whose
-> ore count changed), not an intended change.
-
-**Acceptance:** stand on one copper vein tile, hold LMB, and watch four
-separate ore units fall out of it before it vanishes. Then place a Talos Head
-against the same vein, fuel it, walk away, come back and find the vein has
-retreated tile by tile rather than instantly.
-
-### 6.3 Phase 14c — the depletion cue (1 × `ui`, after 14b)
-
-> You are implementing Phase 14c of `docs/PLAN-phase14-mining-and-drops.md`.
-> Phase 14b must be landed. Read `CLAUDE.md` invariants 3, 7, 9 and 11,
-> `model/world.js:36-67` (the comment explaining why `seen` and `light` are
-> live overlays rather than baked), and this plan's §2.7 and §4 (D14-G).
->
-> 1. Add a viewport-culled depletion overlay to `view/scene.js`, beside the
->    darkness pass, per D14-G. It reads `model/mining.js` and
->    `model/tiles.js` only. It must consume **no** `rand()` and write **no**
->    model state.
-> 2. Move `view/paint.js:313`'s crack read onto `unitProgressAt`, so a crack
->    still means "this swing" once a tile takes four swings.
-> 3. Add TWO new baselines at both viewports: a fresh copper vein, and the
->    same vein with one tile at 3-of-4 spent and its neighbour at 1-of-4.
->    Drive the depletion through the test hook, never through hardcoded click
->    coordinates.
-> 4. **Prove the overlay is actually visible**: take the same shot with the
->    overlay suppressed and confirm the pixels differ. `CLAUDE.md` records a
->    case of two tests baselining a scene with the overlays off and passing —
->    do not repeat it.
-> 5. In your report, state whether §2.7(a) (cracks are baked and stale during
->    a dig) reproduces in a real browser. **Do not fix it** — park it in
->    `docs/FINDINGS.md` with the repro, per this plan's §8.
->
-> Run `npm run check`, `npm run lint`, `npm run test:visual`. Report exactly
-> what each says and why every moved baseline moved.
-
-**Acceptance:** look at a vein you have half worked and see which tiles are
-spent without swinging at them.
-
-### 6.4 Phase 14d — the worldgen rebalance (1 × `systems`, parallel with 14c)
-
-> You are implementing Phase 14d of `docs/PLAN-phase14-mining-and-drops.md`.
-> Phase 14b must be landed. Read `docs/SPEC.md` §5, §16.4, §16.5 and the new
-> §19, and this plan's D14-F.
->
-> This phase moves numbers in `data/world.js` so that total available ore is
-> held near where it was, now that a tile yields more than one unit. It is
-> the mirror of the retune SPEC §16.5 records for cruciform bodies, and it
-> uses the same method.
->
-> 1. **Measure first, over at least 40 seeds, and report a table**: total ore
->    UNITS per band per substance today (cells × 1) versus after 14b (cells ×
->    charge), before you change a single count. Include the hollow-lining
->    contribution (`HOLLOW_VEIN`, `eff('hollowOre')`), which multiplies too.
-> 2. Retune the five `blobs` counts and the guaranteed `vein` per D14-F's
->    indicative table, then **re-measure** and report the after figures.
->    D14-F's numbers are a starting point, not a target — the target is
->    "total units within ~10% of today's total cells, per substance per
->    band".
-> 3. **The one hard constraint**: SPEC §5's beat 3 promises 10 raw copper
->    within a 5-tile dig directly below spawn, and §15's furnace bill wants
->    12 more. Assert it, over the same seed sweep, in
->    `tools/worldgen-check.mjs` — units now, not cells.
-> 4. Update `docs/SPEC.md` §16.5 and §19 with the measured figures. If any
->    number in D14-F turns out wrong, SPEC gets the real one and this plan
->    document gets a correction note.
->
-> Run `npm run check` (including the worldgen property harness),
-> `npm run lint`, `npm run test:visual`. Baselines will move — worldgen
-> changed. Re-accept with a stated reason.
-
-**Acceptance:** start a fresh run, dig the tutorial shaft, and reach 10
-copper in about the time it takes today — from fewer, richer tiles.
-
-### 6.5 Phase 14e — harness (1 × `harness`, after 14b, may run with 14c/14d)
-
-> You are implementing Phase 14e of `docs/PLAN-phase14-mining-and-drops.md`.
-> Read this plan in full plus `CLAUDE.md`'s verification table.
->
-> Extend `tools/content.mjs` and `tools/check.mjs`. **Every assertion must be
-> SEEN TO FAIL; report each seen-to-fail run.**
->
-> Content lint (continuing from assertion 20, which 14a added):
->  - **21. NO DEPOSIT IS OBTAINABLY PLACEABLE.** For every substance tagged
->    `deposit` and every tile-capable form, either the crossing is illegal
->    (`crossable` false) or **no recipe output and no `tile.drops` produces
->    that pair**. This is the assertion that makes D14-C's "by construction"
->    claim checkable, and it is written against obtainability rather than
->    crossability so `adamant/stair` stays legal (§4, D14-B).
->  - **22. EVERY `tile.charge` IS A WHOLE NUMBER >= 1**, and only a
->    `deposit`-tagged substance carries one.
->  - **23. HAND-RECIPE SHADOWING.** For every ordered pair `i < j` in
->    `HAND_RECIPES`, row `i`'s bill must not be satisfiable by every pockets
->    state that satisfies row `j` — otherwise `j` is permanently unreachable
->    by hand. **This assertion FAILS on today's content**: `docs/FINDINGS.md`
->    (8d, #5) records three real shadowings (`peg_rungs`/`kindle` ⊆
->    `daedalan`, `kindle` ⊆ `auger`). Ship it with those three as a named,
->    commented allowlist and a `docs/FINDINGS.md` entry, **or** report that
->    reordering `daedalan`/`auger` above `peg_rungs`/`kindle` fixes them and
->    say what it would change about play. Do not ship it silently disabled,
->    and do not "fix" the content inside a harness phase.
->
-> `tools/check.mjs`:
->  - a DEPLETION section: units yielded per tile equals `tile.charge` at
->    every one of the 8 framerates the hardness table already sweeps;
->    hand-mining and a fuelled Talos Head exhaust an identical tile in an
->    identical time; the tile survives until `hard × charge`.
->  - the D14-E probe: work is cleared when a tile byte changes, driven
->    through the real `chasm` miracle and through `placeTile`.
->  - `newRun()` still fingerprints identically across two fresh calls with a
->    partially depleted world in between (invariant 8).
->  - a mass-conservation probe over the `pack` recipe specifically.
->
-> Run `npm run check`, `npm run lint`, `npm run test`. Report exactly what
-> each says.
-
-**Acceptance:** every new assertion has been observed failing against a
-deliberately broken build, and `npm run check` is green against the real one.
-
----
-
-## 7. Sequencing
-
-| phase | agent | parallel? | gate to proceed |
-|---|---|---|---|
-| 14a content | 1 × `systems` | no | rubble no longer places; 5 → 1 block does; assertion 20 seen to fail; SPEC §15 corrected |
-| 14b depletion | 1 × `systems` | after 14a | 4 units from one copper tile, measured at the fixed step; miner parity to 4 dp; the D14-E probe passes |
-| 14c the cue | 1 × `ui` | after 14b | a spent tile is visibly spent; the overlay proven to change pixels |
-| 14d rebalance | 1 × `systems` | with 14c (disjoint) | measured before/after unit totals within ~10%; beat 3 asserted in units |
-| 14e harness | 1 × `harness` | with/after 14c–14d | every assertion seen to fail |
-
-14c is the only phase in this group touching `src/view/` — and
-`docs/PLAN-phase13.md`'s 13a and 13b also live there. **Do not run 14c
-concurrently with either.**
-
----
+All five landed — 14a (classification, the `block` form, the `pack` recipe,
+CLAUDE.md D12), 14b (depletion), 14c (the depletion overlay), 14d (the
+worldgen retune, `.claude/brain/worldgen-retune-method.md`) and 14e (the
+harness: content assertions 20-23, the DEPLETION section in
+`tools/check.mjs`). The executed prompts are git history; the numbers they
+locked live in `docs/SPEC.md` §16.5/§19 and `CLAUDE.md` D12.
 
 ## 8. Explicitly not designed here
 
@@ -1120,17 +822,6 @@ concurrently with either.**
 | risk | why it is likely | mitigation in this plan |
 |---|---|---|
 | **Appending a new packable substance throws at import, and SPEC §15 reads as if there is room.** | §2.1: twelve "free" ordinals are all occupied, `SUB.length` is 23, and the next appended packable row packs to 288 of 255. `data/substances.js:61` says rows are append-only, which is now false for the only kind of row this document is about. | The design adds **no substance rows at all** (§4), 14a's step 0 makes the agent execute the arithmetic and STOP if it disagrees, and 14a corrects both SPEC §15 and `substances.js`'s header in the same commit. |
-| **A depletion counter in the tile grid would be the exact historical bug back again.** | The material array is where a per-tile number "obviously" goes, it has no spare bits, and the truncated-byte version of this mistake made granite unmineable above 106 fps. | D14-D puts nothing in the grid: the counter is a float in seconds in the existing sparse map, and the numbers are content on a `data/` row read through `eff()`. 14b's prompt requires the agent to read `CLAUDE.md`'s account of the original bug first. |
-| **Reusing `model/mining.js`'s work map conflates "this swing" with "this vein", and the next reader will not know which.** | The file's header currently describes only the first meaning, and describes it *wrongly* (it claims progress is abandoned on look-away; §2.6 shows it is not). | 14b step 2 rewrites the header to own both facts and correct the false one, and splits the read into `progressAt` (vein) and `unitProgressAt` (swing) so the two meanings have two names. If depletion ever needs to move for a non-mining reason, D14-D names the dense-array alternative and the exact trigger for switching. |
 | **The Map grows monotonically and `activeCount`'s "cheap proof it stays small" becomes a lie.** | An entry now persists for every ore tile ever partially worked, not just the two or three being hit. | Bounded and stated: ~3,000 ore cells per topsoil seed (SPEC §16.5's own measurement) at tens of bytes each, a few hundred KB worst case against 53 KB for the dense alternative. 14b rewrites the comment with the real bound rather than leaving the old claim standing. |
 | **Stale accumulated work makes a newly placed block break instantly.** | §2.7(b): `chasm` and `placeTile` change the tile byte without touching `dig.work`, and depletion makes the stale value large enough to matter. | D14-E clears it in `model/tiles.js#write.setByte` — one place, not three callers — and 14b step 5 tests exactly this case through the real miracle and the real placement path. |
-| **The two break sites drift apart.** | `rules/mining.js` and `rules/machines.js#mine` are siblings that may not import each other, both implement the same break sequence today by hand, and SPEC §12 stakes a measured "0.0000 s difference" equality on them agreeing. | 14b lands both in one commit, requires the shared arithmetic to move to `model/` if it exceeds a few lines, and requires the miner-parity time to be reported to four decimal places. 14e asserts it. |
-| **Perturbing the `rand()` stream inside the break branch silently changes every existing seed.** | The rare-trinket roll sits immediately after the drop spawn, on purpose, and the natural place to write per-unit drop logic is right there. | §2.5 states the constraint, D14-D puts the per-unit branch *before* the break test, and 14b's prompt forbids adding or removing a `rand()` call inside the break branch in so many words. |
-| **Removing `gravel.tile` breaks tests that place gravel, and the failures look like the phase is broken.** | Placeable rubble has shipped since the machine-items reversal and `F.gravel` is used in both `tests/visual.spec.js` and `tools/check.mjs`. | 14a's prompt requires grepping for `F.gravel` **before starting** and reporting every affected test with what changed. The CRAFTING-tab baseline churn is pre-diagnosed (`docs/FINDINGS.md` 8d #6) so it cannot read as a surprise. |
-| **Removing `log.tile` (D14-H) is treated as a smaller, safer edit than `gravel`'s and gets less scrutiny — but it is the one that reaches a second document.** | It is genuinely smaller in code (one form, two call sites, both already named), which is exactly what makes it easy to under-review. `docs/PLAN-phase15-trees.md`'s D15-A and D15-C were written assuming `log` stays placeable. | D14-H names both call sites explicitly rather than leaving them to the grep, and states in so many words that Phase 15 must land after this one and must re-read D15-A/D15-C against `log`'s new row before writing anything — not merely re-run its own tests against a changed dependency. |
-| **`pack` is declared in the wrong place and permanently starves an existing recipe — or is itself unreachable.** | First-match-wins over declaration order, nineteen `hand:true` rows, and three shadowings already exist unnoticed (§2.9). | 14a requires the containment derivation to be written as a comment in the file's own style, and names the four gravel-consuming rows to check against. 14e's assertion 23 makes the whole class checkable — shipped with the three known violations as a commented allowlist rather than silently disabled. |
-| **Total ore in the world quietly multiplies by 4 and the economy inflates.** | Charge multiplies units per cell, and nothing in `data/world.js` knows about charge. | D14-F states the compensation as a requirement, 14d measures before and after over ≥ 40 seeds rather than pasting numbers, and SPEC §5 beat 3's "10 copper within a 5-tile dig" is turned into an asserted property in units. |
-| **The guaranteed spawn vein becomes absurdly rich and cycle 1 is over in fifteen seconds.** | `vein` is `r:3.6, n:3` — three overlapping stars, ~30 cells — and at charge 4 that is 120 copper against a demand of 10. | 14d retunes it explicitly (D14-F's last row) and the property assertion is a *floor* on units, so the phase must also report the ceiling. |
 | **`'drop'` now fires four times per tile and the ore sound stutters.** | Each unit is a real spawned item and pushes its own `'drop'` row. | Checked: `shell/notify.js:33` gives `drop` zero chips and `data/sfx.js:20,58` gaps the `ore` voice at 0.05 s, so four gapped sounds over 3.8 s is correct feedback rather than mush. Named here so it is a verified non-issue rather than an unexamined one; if it reads badly, the lever is the voice gap, not the mechanic. |
-| **The depletion cue is drawn into the chunk bake and is stale, exactly as the cracks are.** | It is the obvious place, `paintTile` already does the analogous thing, and §2.7(a) means the existing precedent in that file is itself broken. | D14-G puts it in a live `view/scene.js` overlay on `model/world.js`'s own stated rule, and 14c requires the agent to report whether the crack staleness reproduces — and to park it rather than fix it. |
-| **A future tile-capable form re-opens deposit placement by accident.** | `subTags` is a tag test, and a new form tagged `rock` or `metal` would silently admit granite or adamant. The `stair`/`adamant` crossing shows how easily it happens. | Assertion 21 (14e) checks obtainability for every deposit × every tile-capable form, so the form that reopens it fails the build rather than shipping. |

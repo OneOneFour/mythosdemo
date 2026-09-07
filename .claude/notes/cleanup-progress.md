@@ -37,7 +37,10 @@ Decisions locked in by the user for this run (do not re-ask):
 | 7a | docs: trim PLAN-gears-and-winches.md's spent scaffolding | §1 brief salvaged to .claude/brain/transport-brief.md; §2.1-2.5, §3, §6.0-6.5, §7 trimmed to pointers; §5/§9 tables cut to the rows with lasting content; 1442 -> 554 lines | done | c661d8d + 1 more (citation fixes in FINDINGS.md/SPEC.md) |
 | 7b | docs: trim PLAN-phase10.md spent scaffolding | §1 trimmed, §2.5/§2.10 deleted, §6.1-6.3 and §7.1-7.3 bodies trimmed (§7.3/AUDIT-2.md moot since that file's already deleted), §9 cut to rows 1-3; 1433 -> 1114 lines | done | (pending commit) |
 | 7c | docs: trim PLAN-phase12.md spent scaffolding | §1 salvaged to .claude/brain/interaction-model-brief.md; §2.7 (dead dict-shape recon) deleted; §4.2 factual error fixed (no quickbar wheel-scroll); §4.4 annotated superseded-by-4-rules; §6/§7 executed prompts trimmed; §9 cut to rows 1/2/8/9; 1794 -> 1286 lines | done | (pending commit) |
-| 7d | docs: trim PLAN-phase14/15/16 spent scaffolding | | pending | |
+| 7d | docs: trim PLAN-phase14-mining-and-drops.md spent scaffolding | Status banner fixed; §5's numbering-diary paragraph trimmed; D14-F's retune-method narrative salvaged to .claude/brain/worldgen-retune-method.md and its self-scoring paragraph deleted; D14-H's coordination note deleted; §6.1-6.5 (five executed prompts) and §7 (sequencing table) deleted; §9 cut to rows 1/3/4/12. §8 kept verbatim (cited by three tools/src files). tools/worldgen-check.mjs:69's citation repointed to SPEC §19.7 in the same commit. 1136 -> 827 lines | done | (pending commit) |
+| 7d2 | docs: trim PLAN-phase15-trees.md spent scaffolding | | pending | |
+| 7d3 | docs: trim PLAN-phase16-interaction-model-v2.md spent scaffolding | | pending | |
+| 7d4 | docs: fix PLAN-horizontal-chunks-SCOPE.md's §7 phase-letter collision | | pending | |
 | 7e | docs: trim PLAN-phase13.md spent scaffolding | | pending | |
 | 8 | docs: trim session narration from FINDINGS, SPEC and BUILD_PLAN | Part 2 §2C/§2D/§2E | pending | |
 
