@@ -349,10 +349,10 @@ function drawChunks(g, b, cam, W, H) {
    cue over whatever the chunk canvas already baked there. Written as two
    functions they would walk that window twice per frame for one answer each,
    and the second one added would silently double the cost of the first for
-   no pixels — docs/PLAN-phase15-trees.md step 8 names two passes as a
-   failure of that phase even if the resulting pixels are correct. So this is
-   one loop with two guarded cases, and a third live per-tile cue joins it
-   here rather than beside it.
+   no pixels — .claude/brain/phase-plan-conventions.md rule 1 names two
+   overlay passes as a failure even if the resulting pixels are correct. So
+   this is one loop with two guarded cases, and a third live per-tile cue
+   joins it here rather than beside it.
 
    THE TWO CASES ARE MUTUALLY EXCLUSIVE BY CONSTRUCTION and the loop relies
    on it: depletion only ever fires on a NATIVE `deposit` tile (`charge > 1`),

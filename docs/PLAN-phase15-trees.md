@@ -1,6 +1,7 @@
 # Plan — wave 4, part 3: a felled tree drops a seed, and a planted seed grows
 
-**Status: PROPOSAL. Nothing here is committed.** Part of wave 4; see
+**Status: BUILT.** Kept below as the design record; the "PROPOSAL" framing
+that follows describes the plan before it was executed. Part of wave 4; see
 `docs/PLAN-phase13.md` §1 for the wave map.
 
 **This phase shares a budget with, and now also a design dependency on,
@@ -103,21 +104,8 @@ real behaviour change to two other forms. See D15-C.
 
 ### 2.4 The form budget
 
-From `docs/PLAN-phase14-mining-and-drops.md` §2.1, executed against the real
-modules. `PACKABLE_MAX` is 8 (`adamant`) and does not move, because this
-phase adds no substance:
-
-| state | `FORM.length` | `STRIDE` | `PACKABLE_LIMIT` | guard LHS |
-|---|---|---|---|---|
-| today | 11 | 12 | 20 | 108 of 255 |
-| after 14a (`block`) | 12 | 13 | 18 | 117 |
-| **after this phase (`seed`)** | **13** | **14** | **17** | **126** |
-
-Safe. **But note what `PACKABLE_LIMIT` 17 means**: ordinals 9–17 are all
-occupied by non-packable rows, so appendable headroom for a *tile-capable
-substance* is still **zero**, and a future terrain substance must be inserted
-below ordinal 17. That correction belongs to 14a (SPEC §15); this phase
-inherits it and must not re-derive it.
+This phase's `seed` form is the second of the two forms `docs/PLAN-phase14-mining-and-drops.md`
+§2.1 costs against `PACKABLE_LIMIT`. The live numbers are `docs/SPEC.md` §15/§19.
 
 ### 2.5 Four existing shapes for "state that changes over time"
 
@@ -178,17 +166,12 @@ the player fells top-down, bottom-up, or from the middle outward.
 
 `formOf(byte) === NATIVE` (`model/tiles.js:33`) is what keeps a *placed*
 timber ladder from dropping seeds — the same free predicate `decorate`
-already uses to keep a crown off one. **This got simpler partway through
-this document's own life:** `docs/PLAN-phase14-mining-and-drops.md`'s D14-H
-deletes `log`'s `tile` block, so a placed ladder can no longer be
-`timber/log` at all — only `timber/rung` or `timber/stair`, neither of
-which is `timber` in `formOf`'s sense used here (the substance test is
-`subOf(byte) === S.timber`, not the form). Concretely: a `rung` ladder is
-`{sub: S.timber, form: F.rung}`, so `subOf` still reads `timber` — the
-`formOf(byte) === NATIVE` half of the test is therefore still load-bearing
-and still correct, doing exactly what it always did (excluding any placed
-form), just against one fewer placeable form than it excluded before. Keep
-the check as written; the reasoning above is the update, not the code.
+already uses to keep a crown off one. A placed ladder is `timber/rung` or
+`timber/stair` (`docs/PLAN-phase14-mining-and-drops.md`'s D14-H deletes
+`log`'s `tile` block, so `timber/log` can no longer be placed at all), and
+`subOf` still reads `timber` for either — so the `formOf(byte) === NATIVE`
+half of the test is what excludes any placed form, unchanged by which forms
+are placeable.
 
 **One seed per tree, always** — not a `chance`. A regrowth mechanic that
 sometimes gives you nothing is a mechanic that sometimes silently ends the
@@ -270,9 +253,7 @@ One interpreter key, one branch, `rung`/`stair`/`block` behaviour
 bit-identical (**`log` drops out of this list under
 `docs/PLAN-phase14-mining-and-drops.md`'s D14-H** — it loses its `tile`
 block entirely and can no longer reach `placeTile` at all, so it is not a
-fourth thing this predicate needs to stay identical for; if 14 has not yet
-landed when this phase is implemented, treat `log` as a fourth identical
-case in the interim and drop it from the list once 14a merges). That last
+fourth thing this predicate needs to stay identical for). That last
 property is the whole reason for the flag: adding solid-below to the shared
 predicate unconditionally would let a rung be placed standing on a floor
 with nothing beside it, which is a real gameplay change to the ladder — and
@@ -418,24 +399,6 @@ it; if it has, this phase adds a case to it. **They must not be two passes.**
 
 ## 4. FILE OWNERSHIP — Phase 15
 
-```
-src/data/forms.js            the `seed` row (one row; §2.4's budget)
-src/data/tuning.js           treeGrowSecs, seedYield
-src/model/growth.js          NEW -- the sparse growth map (D15-B)
-src/rules/growth.js          NEW -- the step (D15-D)
-src/rules/mining.js          the seed drop in the break branch (D15-A)
-src/rules/placement.js       the one `tile.roots` clause (D15-C)
-src/shell/schedule.js        one insertion + TWO adjacency comments (D15-D)
-src/shell/boot.js            growthw.clearAll() in the teardown (invariant 8)
-src/view/scene.js            the growth cue, in 14c's overlay pass (D15-F)
-docs/SPEC.md                 a new §22 locking treeGrowSecs, the seed form's
-                             numbers, the drop condition and tile.roots
-docs/DESIGN.md               the implemented-vs-design table gains a row
-tools/content.mjs            assertion 24 (see below)
-tools/check.mjs              the growth section
-tests/visual.spec.js         2 new baselines
-```
-
 **Not touched:** `rules/generate.js` (worldgen's `trees` handler is unchanged
 — a planted tree is not a generated one and this phase adds no strata kind);
 `view/paint.js#decorate` and `view/treatments.js#EXTENT` (§2.7 — touching
@@ -446,69 +409,13 @@ express this condition and must not be bent to try).
 
 ## 5. Paste-ready prompt — Phase 15
 
-> You are implementing Phase 15 of `docs/PLAN-phase15-trees.md` in the
-> mythos-factory repo. `docs/PLAN-phase14-mining-and-drops.md` Phase 14a
-> must already be landed — you both edit `data/forms.js` and the form budget
-> is computed once, in that document's §2.1. Read `CLAUDE.md` in full
-> (especially invariants 1, 5, 7, 8 and 10, and D7), `ARCHITECTURE.md` §2,
-> `src/shell/schedule.js`'s header in full, and this document in full.
->
-> 1. **Verify the form budget yourself** by executing the real modules:
->    print `FORM.length`, `STRIDE`, `PACKABLE_MAX` and `PACKABLE_LIMIT`
->    before and after adding the row, and confirm the guard's left-hand side
->    is 126 of 255. Report the numbers. If they disagree with §2.4, STOP.
-> 2. `data/forms.js`: add the `seed` row exactly as D15-E gives it.
->    `data/tuning.js`: add `treeGrowSecs` and `seedYield`.
-> 3. `model/growth.js` (new): the sparse map in D15-B, copying
->    `model/mining.js`'s key idiom and `bump()` discipline verbatim. Its
->    header must state why it is a `Map` and not a `model/fields.js` field —
->    D15-B's rejected alternative, in your own words, at the code.
-> 4. `shell/boot.js`: `growthw.clearAll()` in the teardown block beside
->    `digw.clearAll()`. Invariant 8.
-> 5. `rules/mining.js`: the seed drop in D15-A. It goes **after** the
->    existing material `iw.spawn`/`push('drop')` pair and **before** the
->    `DROPS` loop, so the rare-trinket roll keeps its position relative to
->    the material drop. Say in your commit message that this changes what
->    existing seeds produce downstream of the first tree felled, and that
->    `newRun(s)` twice still matches.
-> 6. `rules/placement.js`: the single `tile.roots` clause in D15-C.
->    **Confirm by test that `rung`, `stair` and `block` placement is
->    bit-identical afterwards** (per D14-H, `log` no longer reaches this
->    function at all — if Phase 14 has not landed yet, include `log` in this
->    check too and re-run it once 14a merges) — a rung must still refuse when
->    its only support is the floor.
-> 7. `rules/growth.js` (new) + `shell/schedule.js`: the step in D15-D,
->    inserted immediately before `fields`, with **both** adjacency comments
->    written in that file's own style and at its own density. Height from
->    `hash2`, never `rand()`. `dt` accumulation, never `Date.now()`.
-> 8. `view/scene.js`: the cue in D15-F. If Phase 14c has landed, add a case
->    to its overlay pass; if not, write the pass and note that 14c joins it.
->    **Two passes is a failure of this phase even if the pixels are right.**
-> 9. `tools/content.mjs` assertion 24: any form whose `tile` block carries
->    `roots` must be non-solid (a solid tile that only needs a floor is a
->    free-standing wall, which is a different mechanic). **See it fail.**
-> 10. `tools/check.mjs`: a GROWTH section asserting a seed becomes a tree
->     after exactly `eff('treeGrowSecs')` of accumulated simulation time at
->     **every one of the 8 framerates** the hardness table already sweeps
->     (invariant 10 — this is a timed transition and is exactly the class of
->     thing that breaks framerate-independence); that the resolved trunk
->     height is identical for the same tile across two runs of the same seed
->     regardless of *when* the seed was planted (this is what `hash2` buys
->     and a `rand()` draw would not); that mining a growing seed returns the
->     seed and drops the growth entry; and that `newRun()` fingerprints
->     identically with a growing seed in between.
-> 11. Two new baselines at both viewports: a planted seed at ~1/3 grown, and
->     the tree it becomes. **Prove the cue is visible** by shooting the same
->     scene with the overlay suppressed and confirming the pixels differ —
->     `CLAUDE.md` records two tests that baselined a scene with the overlays
->     off and passed.
-> 12. `docs/SPEC.md` §22 and `docs/DESIGN.md`'s implemented table, in this
->     commit.
->
-> Run `npm run check`, `npm run lint`, `npm run test:visual`. Report exactly
-> what each says. `tree-chunk-seam.png` **must not move** — if it does, you
-> have touched `decorate` or `EXTENT.canopy`, which are outside this phase's
-> ownership.
+Landed in one pass: `data/forms.js`'s `seed` row, `data/tuning.js`'s
+`treeGrowSecs`/`seedYield`, the new `model/growth.js` and `rules/growth.js`,
+the seed drop in `rules/mining.js` (D15-A), the `tile.roots` clause in
+`rules/placement.js` (D15-C), the depletion-overlay case in `view/scene.js`
+(D15-F), assertion 24 in `tools/content.mjs`, the GROWTH section in
+`tools/check.mjs`, two new baselines, and `docs/SPEC.md` §22. The executed
+prompt is git history; the numbers it locked live in `docs/SPEC.md` §22.
 
 **Acceptance (a physical action):** fell an olive tree completely, pick up
 the seed it drops, walk to a flat patch of soil, plant it, and go dig
@@ -549,14 +456,13 @@ where you put it, and fell it for logs.
 
 ## 7. Risk register
 
-| risk | why it is likely | mitigation |
-|---|---|---|
-| **A timed transition is the classic framerate-dependent bug**, and this is the first one in the game that is not a countdown someone already tested. | `treeGrowSecs` accumulates `dt`; a `Date.now()` version or a per-frame decrement would both "work" and both drift. `CLAUDE.md` records that a fixed-`DT` harness cannot see framerate bugs. | The step takes `dt` at the fixed 1/120 s substep, and the prompt's step 10 asserts resolution at all 8 framerates the hardness table already sweeps — the one probe shape known to catch this class. |
-| **Growth height drawn from `rand()` diverges between two runs of the same seed** depending on when the player planted. | It is the obvious thing to write, and `rules/mining.js` right next door already rolls `rand()` for drops. | `hash2(tx, ty)`, and a probe (step 10) that plants the same tile at two different times in the same seed and asserts identical height. |
-| **`model/growth.js`'s `clearAll` is not wired into `shell/boot.js` and a seed survives a restart.** | Exactly what `docs/FINDINGS.md` (8d, #2) records happening to `segments`, whose reset was verified by hand but invisible to the harness. | Step 4 wires it; step 10 asserts the `newRun()` fingerprint with a growing seed live. |
-| **`tile.roots` is added to the shared backing predicate unconditionally and quietly changes ladder placement.** | It is one fewer branch, and the four existing satisfiers already read as a list you would just extend. | D15-C gates it on the form's own key, and step 6 requires a test proving rung/stair/block placement is bit-identical (plus `log`, if Phase 14 has not landed yet) — specifically that a rung with only a floor under it still refuses. |
-| **The seed tile is solid or climbable and becomes a trap or a free ladder.** | `log` and `rung` are the nearest rows to copy and both are `climb:true`. | `solid:false, climb:false` is stated in D15-E with its reason, and assertion 24 catches the solid half structurally. |
-| **`tree-chunk-seam.png` moves** because the growth cue was written into `decorate` or `paintTile` instead of the overlay. | `decorate` is where tree appearance lives today and is the natural place to reach for. | Ownership excludes `view/paint.js` and `view/treatments.js` outright, and the prompt names the baseline that must not move and what it means if it does. |
-| **Two overlay passes** — this phase writes one and 14c writes another. | The two phases are parallel-capable and both want "a live per-tile cue". | Step 8 makes it a stated failure condition, and §7 of `docs/PLAN-phase13.md`'s sequencing table keeps only one `view/`-owning phase running at a time. |
-| **RESOLVED BY `docs/PLAN-phase14-mining-and-drops.md`'s D14-H, not by this phase — named here so its absence is not mistaken for an oversight.** The original risk: a placed log ladder is `sub:timber`, same as a trunk, and a farmer could place-then-mine logs for free seeds. | `log` had a `tile` block and was placeable before D14-H. | D14-H deletes `log`'s `tile` block, so a placed timber ladder can only be `rung` now, and `formOf === NATIVE` still excludes it exactly as this row originally required. **If this phase is implemented before Phase 14 lands**, treat the original risk as live and keep D15-A's own probe (place a log, mine it, assert no seed) until 14a merges, then delete that probe as dead code testing an unreachable state. |
-| **A player fells every tree before ever getting a seed and the timber economy ends** — `log` is the only fuel. | Felling is per-tile and a seed only drops on the last tile of a trunk, so a player who fells three tiles of a 5-tall tree and wanders off gets nothing yet. | Correct and intended: the seed is still there, in the two tiles still standing. But it means "I chopped a lot of trees and got no seeds" is a reachable and confusing state — worth a callout beat if `docs/PLAN-phase13.md` 13d's callout extension lands, and worth naming in the acceptance walkthrough ("fell a tree **completely**"). |
+All landed clean: the timed-transition and `rand()`-divergence risks were
+caught by the framerate sweep and the `hash2` probe named in §5; the
+`clearAll`/restart and `tile.roots`/backing risks were caught by the same
+section's step-4 and step-6 probes; `tree-chunk-seam.png` did not move; and
+the "two overlay passes" risk resolved to one pass in `view/scene.js` with a
+case per phase (see `.claude/brain/phase-plan-conventions.md`, rule 1). The
+one real, still-live gameplay hazard this register found — a player can
+fell tiles off several trees without ever felling one completely, and reads
+the resulting "no seeds" as the timber economy running out — is parked in
+`FUTURE_IDEAS.md`.

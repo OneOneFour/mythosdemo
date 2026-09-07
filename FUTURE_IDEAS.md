@@ -135,3 +135,27 @@ hand-craft direct-inventory bug (`src/rules/crafting.js`), 2026-09-03 — the
 user's stated preference is hand-craft output goes straight to the player's
 inventory, but machine output should stay machine-side until something
 (this grabber) moves it, rather than becoming a player pickup.
+
+---
+
+## A callout for "I chopped a lot of trees and got no seeds"
+
+**Idea.** A tree only drops its one seed on the last trunk tile felled
+(`docs/PLAN-phase15-trees.md` D15-A — the seed is intentionally still there,
+in whatever tiles of the trunk are still standing), so a player who fells a
+few tiles off several trees and wanders away can rack up a real sense of "I
+chopped a lot of trees and got no seeds," even though nothing is actually
+lost. `log` is the only fuel in the game, so a player stuck in this state
+reads it as the timber economy running out, not as their own felling habit.
+
+**Why it's good.** Cheap to fix with a beat, not a mechanic change — the
+seed drop and one-seed-per-tree design (never a `chance`) are both already
+right; this is a legibility gap, not a balance one.
+
+**Why it's parked.** Needs `docs/PLAN-phase13.md` 13d's callout-extension
+plumbing (or its equivalent) to land first, and should be worded to teach
+"fell a tree **completely**" rather than just reacting to zero seeds.
+
+**Sketch.** A callout beat that fires the first time a player fells a tile
+off a trunk without felling the whole tree, along the lines of "fell it all
+the way down for the seed."
