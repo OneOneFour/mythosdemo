@@ -13,14 +13,14 @@ reference. Everything below is checked against what `core/palette.js`,
 requires new rendering infrastructure — most of it is unused capability, not
 missing capability.
 
-## The one finding that matters most
+## What's left
 
-`core/pixels.js` already exports `noiseFill()` and `walk()`, ported from
-`reference/mockup/src/core/canvas.js` almost verbatim. **Nothing in `view/`
-calls either of them.** The mockup's whole layered-strata look — the thing the
-key art also does, and the thing this feedback is asking for — is built
-entirely from primitives already sitting in `src/core/`. This is a wiring gap,
-not a missing-feature gap.
+`core/pixels.js` exports `noiseFill()` and `walk()`, ported from
+`reference/mockup/src/core/canvas.js` almost verbatim. `noiseFill()` is wired
+in now (`view/paint.js`'s two-pass tile grain, `view/treatments.js#grassCap`).
+**`walk()` is still uncalled anywhere in `view/`** — it is the one primitive
+this document names that still has no caller, and it is specifically what a
+branching `vein` treatment (below) would use.
 
 ## Palette: what already fits, what's missing
 
@@ -59,11 +59,10 @@ All follow the existing contract: `(g, cell, p)`, `hash2` only, no `rand`.
   as an alternative or supplement to `glint` for the ore-field strata rows
   specifically (`data/world.js`'s `blobs`/`vein` kinds), so a vein reads as a
   branching thread through rock rather than a speckled blob at close range.
-- **`banded` already exists** and is unused. It's exactly the mockup's
-  "bedding plane" horizontal-course look (`drawLimestone`'s `for (const by of
-  [...])` lines). Give `stone`'s `look` a `{ fn:'banded', col:'irD', every:8 }`
-  row and the topsoil/surface stone bands get sedimentary striation for free —
-  zero new code, one data-row edit.
+- **`banded` shipped** — `stone`, `soil` and `granite` all carry it in
+  `data/substances.js` today, giving the topsoil/surface bands their
+  sedimentary striation exactly as suggested here: zero new code, a data-row
+  edit apiece.
 - **`frieze(g, c, p)`** — the Greek key / meander border the key art puts at
   the limestone-to-soil seam. Port `reference/mockup/src/world/strata.js`'s
   `friezeBand()` 7-row bitmap almost directly, but drive it off `c.ty` (a
@@ -73,18 +72,10 @@ All follow the existing contract: `(g, cell, p)`, `hash2` only, no `rand`.
   This is the single highest-impact, lowest-cost addition for matching the key
   art's "ancient, built" feel at the surface/topsoil seam specifically —
   everywhere else should stay plain rock.
-- **Canopy, not a treatment but adjacent** — `reference/mockup`'s `oliveTree()`
-  scatters 26 individual 2x2 dots in a stochastic disc above the trunk. The key
-  art's trees read as two clean tone-blocks (dark green base, lighter green
-  highlight) in a tighter, rounder canopy — simplify rather than port:
-  a handful of fixed-offset blob rectangles (dark green base circle, 3-4
-  lighter highlight pixels from `hash2(tx,ty)`) sitting on the topmost tile of
-  a `timber` trunk column reads better at this project's smaller viewport than
-  the mockup's looser scatter. This wants to be resolved from `solidAt`
-  finding the top of a trunk (same query `rules/generate.js#trees` already
-  uses to place the trunk) so felling the tree removes the canopy with it —
-  make sure it's driven by tile content, not a separate decoration list, or a
-  chopped-down trunk leaves a floating canopy.
+- **Canopy shipped, close to this shape.** `TREAT.canopy` (`view/treatments.js`)
+  is a handful of fixed-offset, `hash2`-jittered blobs in three leaf tones,
+  sunk over the trunk's top tile, driven by `skyExposedAt` — tile content, not
+  a separate decoration list, so felling the tree removes the canopy with it.
 
 ## Terrain layering: the concrete recipe
 
@@ -93,21 +84,17 @@ pepper" grain) plus edge-lighting and mining cracks — all local to one 8x8
 tile, with no continuity across tiles. The key art's richer look comes from
 effects that operate on a **whole stratum**, not a whole tile:
 
-1. **Depth gradient within a band.** `drawLimestone`/`drawOchre` in the mockup
-   tint every row by `mix(colA, colB, t)` where `t` is depth-within-stratum.
-   The direct analogue here: `paintTile` (or a new per-chunk pass ahead of it)
-   could bias `L.base`/`L.hi`/`L.lo` toward a second colour as `ty` approaches
-   a stratum's `toTy`, using the band's own `strata` row bounds — already
-   available data, not new data.
-2. **Two-pass noise, not one.** The mockup calls `noiseFill` twice per stratum
-   at different densities/block sizes (a coarse pass, then a fine one) to
-   avoid the uniform "TV static" look a single density produces. Since
-   `noiseFill` writes directly to a canvas region, this belongs in the
-   **chunk-paint pass** (`view/paint.js#paintChunk`), painted once per chunk
-   version the same way everything else there is cached — not per-frame,
-   consistent with invariant 3 (a dig repaints its chunk, not the world).
-3. **Bedding planes are the `banded` treatment above** — no separate mechanism
-   needed, just wire it up.
+1. **Still open: depth gradient within a band.** `drawLimestone`/`drawOchre`
+   in the mockup tint every row by `mix(colA, colB, t)` where `t` is
+   depth-within-stratum. The direct analogue here: `paintTile` (or a new
+   per-chunk pass ahead of it) could bias `L.base`/`L.hi`/`L.lo` toward a
+   second colour as `ty` approaches a stratum's `toTy`, using the band's own
+   `strata` row bounds — already available data, not new data.
+2. **Shipped: two-pass noise.** `view/paint.js`'s tile grain calls `noiseFill`
+   twice at different densities (`GRAIN_LO`/`GRAIN_HI`) for exactly the reason
+   the mockup did — a single density reads as uniform "TV static."
+3. **Shipped: bedding planes are the `banded` treatment**, wired up per
+   substance above.
 
 None of this touches `rules/` or the tile grid. It is entirely a `view/`-side
 richening of how an already-decided tile renders, which is exactly the kind of

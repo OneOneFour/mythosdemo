@@ -1,22 +1,9 @@
 # Archaeology — terrain, ore, tree, relic and tutorial rendering
 
 Phase 6.6 (`docs/BUILD_PLAN.md` Wave 2). Read-only history dig, no code changes.
-Every commit below was inspected with `git show`/`git log -p`; nothing here is
-paraphrased from a screenshot or from memory of the code.
+Every commit below was inspected with `git show`/`git log -p`.
 
 ## 0. Method and the commit list that actually matters
-
-```
-git log --all --oneline                              # 86 commits, single branch (main);
-                                                       # no stashes, no other local branches
-git log --all --diff-filter=A --name-only -- '*scene.js'
-git log --all --diff-filter=A --name-only -- '*paint.js' '*treatments.js' '*generate.js'
-git log --all -S'glow' -- src/
-git log --all -S'oliveTree' -- src/ reference/
-git log --all -S'canopy' -- src/
-git log --all -S'TAKE THE' -- .
-git log --all -S'pickaxe' -- src/
-```
 
 There is exactly one branch (`main`) and no stashes or tags, so "history" is
 this one linear log. The terrain/render code went through three distinct eras,
@@ -420,12 +407,11 @@ the stone row explicitly sets `lip:false` — its own code comment says why
 (`layer()`'s ragged-edge carve would otherwise treat row 27 as "another exposed
 surface" and punch random air pockets seven tiles underground). **The practical
 effect: the soil→stone seam at ty=27 is drawn as a dead-flat, perfectly ruled
-horizontal line today**, with zero randomisation — not even the single-row lip
-the mockup-derived flat prototype had at its OWN stone boundary (`s+7`, no
-`hash2` dither at all there either, actually — the flat prototype's dither was
-specifically at the soil/LIMESTONE line, not soil/first-stone; today's single
-`soil`→`stone` transition in `surface` band is a closer analogue of the flat
-prototype's un-dithered `s..s+7` soil band than of its dithered zone).
+horizontal line today**, with zero randomisation. The flat prototype's OWN
+stone boundary at `s+7` had no `hash2` dither either — that prototype's dither
+sat specifically at the soil/LIMESTONE line, not at soil/first-stone — so
+today's single `soil`→`stone` transition in the `surface` band is closer to
+the flat prototype's un-dithered `s..s+7` soil band than to its dithered zone.
 
 Either way, the multi-row `hash2`-dithered transition band that DID exist at
 `8880d6f` was **deleted, unported, at `f87e669`** (`_old_src/world/generate.js`
@@ -437,9 +423,7 @@ description of the goal, not a port of this file's actual randomisation.
 not a deliberate simplification and not a documented judgment call.** No
 commit message or code comment anywhere states a reason for dropping the
 multi-row dither; `6f93f3b`'s commit message ("midway reimplement thxs claude")
-gives no rationale for any specific pixel decision. It reads as the new
-generator having been designed against SPEC's prose rather than against the
-old file's code.
+gives no rationale for any specific pixel decision.
 
 ---
 
@@ -747,14 +731,6 @@ and permanently deleted eleven commits later at `f87e669` with the rest of
 It is a straightforward dropped-during-rewrite feature, same shape as §2's
 strata dither.
 
-### 4.4 `view/treatments.js#halo`, today, in full (for completeness — quoted already above; repeated once as the exact extract requested)
-
-```js
-  halo(g, c, p) {
-    glow(g, c.px + c.tile / 2, c.py + c.tile / 2, p.r || c.tile, colour(p.col), p.a ?? 0.3);
-  },
-```
-
 ---
 
 ## 5. The tutorial callout widget
@@ -857,86 +833,50 @@ at all.
 
 ---
 
-## 6. Loss ledger — classification per feature
+## 6. Loss ledger — classification per feature, and its resolution
 
-| feature | last commit with the richer version | what replaced it / current state | classification |
+All four real casualties this dig found are recovered. This ledger was
+written before any of them landed; it is kept because the classification
+(genuine casualty vs. never-built vs. deliberate simplification) is what
+made the right fix obvious in each case.
+
+| feature | last commit with the richer version | classification | recovered by |
 |---|---|---|---|
-| strata base paint algorithm (speckle, face-lit edges, cracks) | n/a — never lost | `view/paint.js#paintTile`, same algorithm since `8880d6f`, generalised at `6f93f3b` per SPEC §12 | **not a loss.** `look:{base,hi,lo}` is a same-cardinality replacement for `M.b/M.c/M.a`. |
-| multi-row dithered soil→stone contact | `8880d6f` (`src/world/generate.js`'s `s+5..s+9` / `116..124` hash-flip windows) | `rules/generate.js#KINDS.layer`'s single-row 35% `LIP`, and `lip:false` on the live `surface` band's stone row → today the seam is a dead-flat ruled line | **casualty of the flat→layered reimplementation (`6f93f3b`)**, finalized by `f87e669` deleting the unported original. No comment or commit message states a reason. |
-| cruciform ore blobs | never existed | round, ragged-rimmed disc (`blob()`), identical shape mockup → flat prototype → today | **never actually built.** Not in the mockup, not in any `src/` era. Likely a perceptual read of a small ragged circle in the reference screenshot. Phase 8+ must design this fresh if wanted. |
-| tree canopy | `8880d6f` (round leaf-BLOB tile cluster) / mockup (`oliveTree` dot-cloud, pure paint) | `TREAT.canopy`, rectangular Terraria-style leaf blocks, added `50402c4` | **deliberate simplification, stated in-code.** Neither predecessor form is what it replaced 1:1 — the flat prototype's tile-level leaf blob was never explicitly discussed in the comment, only the mockup's paint-only dot-cloud was. |
-| pickaxe relic sprite (haft+head silhouette, bob, glow halo) on the ground | `8880d6f` (`drawPickup`, `sim/tutorial.js#pickup`) | generic `paintItem()` two-colour square, no glow, no bob, no distinct shape | **casualty of the reimplementation**, same shape as the strata loss: archived at `a4e839b`, never ported into `6f93f3b`, deleted at `f87e669`. The machinery to fix it (`look.treatments`, `TREAT.halo`, `glow()`) all still exists and works (proven by machine fire glow) — only the CONTENT ROW (`pick`'s `look`) was never given a `halo`/shape treatment. |
-| player's held-pick sprite | n/a — never lost | `view/scene.js#drawPlayer`, identical `lineTo`+`R` shape since `8880d6f` | **not a loss.** |
-| tutorial callout WIDGET (bordered bottom-centre panel) | n/a — never lost | `view/hud.js#hint`/`#panel`, line-for-line identical placement/paint math since `8880d6f`, only the text source changed | **not a loss.** The rendering code ported perfectly. |
-| tutorial callout CONTENT (the beat sheet itself, SPEC §5) | `8880d6f` (`sim/tutorial.js#BEATS`, `updateTutorial`, altar/trial flow) | nothing — `find src -iname '*tutorial*'` is empty | **casualty of the reimplementation**: archived at `a4e839b`, deleted unported at `f87e669`. Docs (`SPEC.md` §5) still describe it as if current; it is not implemented anywhere in `rules/`/`model/`. |
+| strata base paint algorithm (speckle, face-lit edges, cracks) | n/a — never lost | **not a loss.** `look:{base,hi,lo}` is a same-cardinality replacement for `M.b/M.c/M.a`, generalised at `6f93f3b` per SPEC §12. | n/a |
+| multi-row dithered soil→stone contact | `8880d6f` (`src/world/generate.js`'s `s+5..s+9` hash-flip windows) | **casualty of the flat→layered reimplementation (`6f93f3b`)**, finalized by `f87e669` deleting the unported original. | `0da2a06` (Phase 7) — `rules/generate.js#contact`, re-expressed as a new strata kind rather than ported, per §7 below |
+| cruciform ore blobs | never existed | **never actually built**, in the mockup or any `src/` era. | `0da2a06` (Phase 7) — new generation, not a port; `docs/SPEC.md` §16.5 |
+| tree canopy | `8880d6f` (round leaf-BLOB tile cluster) / mockup (`oliveTree` dot-cloud) | **deliberate simplification, stated in-code** at `50402c4`; not revisited. | n/a — accepted as shipped |
+| pickaxe relic sprite (haft+head silhouette, bob, glow halo) on the ground | `8880d6f` (`drawPickup`, `sim/tutorial.js#pickup`) | **casualty of the reimplementation**, same shape as the strata loss: archived at `a4e839b`, never ported, deleted at `f87e669`. | `ae768d4` (Phase 8b), building on `b6b1937` — `view/sprites.js#pick` plus the `pick` substance's `halo` treatment |
+| player's held-pick sprite | n/a — never lost | **not a loss.** `view/scene.js#drawPlayer`, identical shape since `8880d6f`. | n/a |
+| tutorial callout WIDGET (bordered bottom-centre panel) | n/a — never lost | **not a loss.** `view/hud.js#hint`/`#panel`, line-for-line identical placement math since `8880d6f`. | n/a |
+| tutorial callout CONTENT (the beat sheet itself, SPEC §5) | `8880d6f` (`sim/tutorial.js#BEATS`, `updateTutorial`, altar/trial flow) | **casualty of the reimplementation**: archived at `a4e839b`, deleted unported at `f87e669`. | `ae768d4` (Phase 8b), building on `259acdb` — `model/tutorial.js` + `rules/tutorial.js` + `data/callouts.js`, pushing journal rows rather than calling `toast()` directly |
 
 ---
 
-## 7. What can and cannot be ported
+## 7. What could and could not be ported — the routes rejected along the way
 
-**Strata dither (§2.2).** The two `hash2` lines CANNOT be pasted back as-is:
-they index a flat `WORLD_TH`-tall single array by absolute row (`s+5`..`s+9`
-relative to a per-column `surface[x]`), whereas today's model is band-local
-tile rows plus a `data/world.js` strata-row `{fromTy,toTy}` window with no
-concept of "distance below THIS row's own top" baked into `KINDS.layer`. To
-port the effect: add a new `KINDS` entry (say `fringe`) that takes a row like
-`{ kind:'fringe', sub:'stone', under:'soil', depth:4, chance:0.35 }` and, for
-each column, walks down from where the ABOVE layer's material stops, flipping
-tiles to `sub` with `rand() < chance` for `depth` rows — i.e. re-expressed as
-a new strata kind per `docs/BUILD_PLAN.md` Phase 7's own stated extension
-point ("a new pass is a new `KINDS` entry plus a new strata row"), not a
-revert. It must use `rand()`, not `hash2` (worldgen consumes the run stream;
-`hash2` is for paint, which may not).
+**Strata dither.** The two `hash2` lines could not be pasted back as-is: they
+indexed a flat, single-array world by absolute row, and today's model is
+band-local tile rows plus a `{fromTy,toTy}` strata window with no concept of
+"distance below THIS row's own top." The rejected route was a literal port;
+the shipped route re-expressed it as a new `KINDS` entry (a new strata kind
+per `docs/BUILD_PLAN.md` Phase 7's own extension point), using `rand()` and
+not `hash2` (worldgen consumes the run stream; `hash2` is for paint, which
+may not).
 
-**Ore blobs.** Nothing to port — round-with-ragged-rim already IS the live
-code, unchanged since `6f93f3b`. If a cruciform (or any non-round) shape is
-wanted, it is new content: a new `KINDS.blobs`-adjacent shape function, still
-gated through `rand()` for the same reason.
+**Tree canopy.** The mockup's `oliveTree()` draws in raw screen pixels with
+no tile/band awareness, so it could not be called as-is against the
+band/chunk model — every coordinate would need to become `cell.px/py/tile`
+and the dot-cloud's hashed points would need `hash2`, not `rand()`, the way
+`TREAT.glint` already works. The flat prototype's tile-level leaf-blob
+cluster was closer to portable in spirit, but nobody asked to revisit the
+`50402c4` decision, and it is flagged there as a judgment call, not a bug —
+rejected by inaction, not by argument.
 
-**Tree canopy.** The mockup's `oliveTree()` still typechecks as pure JS against
-nothing in particular — it draws in raw screen pixels off a `(x,y,s)` triple
-with no tile/band awareness at all, so it cannot be called as-is against the
-band/chunk model; every coordinate would need to become `cell.px/py/tile` the
-way `TREAT.canopy` already receives them, and the dot-cloud's 26 individually
-hashed points would need to become `hash2`-seeded (never `rand()`, since this
-is a paint-time treatment) using `c.tx`/`c.ty` for stability across repaints —
-exactly the pattern `TREAT.glint` already uses. The flat prototype's leaf-BLOB
-tile cluster (§3.2) is closer to portable in spirit (it's tile-level, so it
-would become a `trees`-adjacent `KINDS` entry that also stamps a `leaves`
-substance blob) but nobody has asked to revisit the `50402c4` decision, and
-CLAUDE.md/BUILD_PLAN both flag it as a judgment call, not a bug.
-
-**Pickaxe glow.** Fully portable with a content-only change, no engine work:
-add `treatments:[{ fn:'halo', col:'ichor', r:12, a:0.4 }]` (or a new named
-colour) to the `pick` substance's `look` block in `src/data/substances.js`.
-`paintItem()` already calls `treat(g, l, cell)` for every dropped item
-(`src/view/paint.js:272`), so this alone restores the glow. The BOB animation
-and the distinct haft/head silhouette are a different matter: `paintItem()` is
-generic by design (SPEC §12 — no per-substance draw function), so a bobbing,
-non-square sprite would need either (a) a new `treatments` fn that overlays a
-haft+head shape on top of the generic square (cheap, keeps the "no per-item
-draw function" rule intact), or (b) a dedicated exception the `paintItem`
-header comment explicitly says was rejected for machines ("no machine name, no
-per-machine draw function — that was rejected precisely because it makes 'add
-a machine' always cost a render edit"); the same argument applies to items.
-Route (a) is the only one consistent with the existing architecture.
-
-**Tutorial beat sheet.** The widget needs no work — it already renders
-whatever the journal's last toast says. The content (`BEATS`, `advance()`,
-the altar/trial/furnace-gift flow) must be re-expressed as a new
-`rules/tutorial.js` (or similar) sibling, scheduled per `shell/schedule.js`,
-that pushes journal rows (`CLAUDE.md`: "notification flows downward as data;
-`rules` never calls `play()`/`toast()` directly") instead of calling `toast()`
-imperatively the way `8880d6f`'s version did — that direct call is itself
-now against the architecture, so this is a rewrite-against-current-APIs case,
-not a port, even though the STATE MACHINE'S LOGIC (nine beats, evidence-based
-advancement, no timers) can be carried over essentially unchanged in shape.
-
-**One note on the screenshot description itself.** §5.1 found that the
-tutorial widget was always bottom-centre (`y = H - 16`), in every version
-checked, from the first flat prototype through today. If `known-good.png`
-truly shows it centred vertically in the middle of the screen, that is either
-a different, unfound version (none turned up in `git log --all`, and there are
-no other branches or stashes to search) or a description mismatch worth
-re-checking against the actual PNG before Phase 8 spends effort moving the
-widget's anchor.
+**Pickaxe glow's bob and silhouette.** A dedicated per-item draw function was
+the rejected route — `paintItem()`'s own header explicitly rejects that shape
+for machines ("no machine name, no per-machine draw function... makes 'add a
+machine' always cost a render edit"), and the same argument applies to items.
+The shipped route (`ae768d4`) instead used `view/sprites.js`'s dispatch
+table, the same "data names it, view draws it generically" idiom `TREAT`
+already used for terrain.

@@ -170,9 +170,9 @@ export const SUBSTANCES = [
     look:{ base:'irC', hi:'irB', lo:'irD', speckle:0.24,
            face:'irB', contact:'irD',
            item:['limeB', 'limeD'],
-           /* Bedding planes: free once `banded` exists, per docs/ART_DESIGN.md
-              -- a stratum that used to be a flat noise field now reads as
-              sedimentary rock at a glance, with no new rendering code. */
+           /* Bedding planes, per docs/ART_DESIGN.md -- a stratum that used to
+              be a flat noise field now reads as sedimentary rock at a
+              glance, with no new rendering code. */
            treatments:[ { fn:'banded', col:'irD', every:8 } ] } },
 
   /* ---- bellows: the trinket tier. See
