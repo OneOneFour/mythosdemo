@@ -5,8 +5,7 @@ committed — 0 through 11, including the 8c–8g segment-transport insertion.**
 A third wave ran after this document stopped being extended: the interaction-
 model rework (key audit, unified LMB, opt-in pickup, a real slot-grid
 inventory), planned in `docs/PLAN-phase12.md` as Phases 12a/12b/12c/12c2/12d
-and also fully committed. This file was never updated to add that wave to its
-own sequencing tables; treat `docs/PLAN-phase12.md` as the record for it.
+and also fully committed; treat `docs/PLAN-phase12.md` as the record for it.
 Two items sit parked, not fixed, in `docs/FINDINGS.md` #13 (a HUD label can
 overlap the burden bar at wide values) and #14 (an intermittent
 `winch-lit`/`winch-unlit` visual-test flake under full parallel runs).
@@ -1325,29 +1324,6 @@ and D9 (the depth datum does not move, and the Heavens band already exists as
 `astral`) are resolved in **`CLAUDE.md` §"Resolved decisions"**. Read that, do
 not re-derive it, and do not soften it.
 
-### Ground truth this wave was corrected against
-
-The prompts below were first drafted without repo access. Every file path,
-export and `docs/SPEC.md` citation has since been checked against the code. The
-corrections that changed a phase's shape, rather than just a section number:
-
-| claim as drafted | ground truth |
-|---|---|
-| worldgen lives in `data/world.js` | `data/world.js` holds only the declarative `BANDS` rows; the passes are `rules/generate.js#KINDS` + `#generate(b)`. **Phase 7 must own `rules/generate.js`.** |
-| the world is one array; the Heavens need rows reserved at its top | three per-band records with absolute `origin`s (`model/world.js#bands`), allocated at boot. The `astral` band already exists; nothing declares it as a destination any more (see docs/PLAN-gears-and-winches.md). Nothing to reindex. |
-| `view/` has no per-material paint data | it does: `look:{ base, hi, lo, treatments:[{fn,…}] }` on every substance row, consumed generically by `view/paint.js` through `view/treatments.js#TREAT`. |
-| the tree canopy was lost | `TREAT.canopy` exists, and its own comment records that blocky leaf-blocks were chosen **deliberately** over the mockup's stochastic `oliveTree()` (preserved at `reference/mockup/src/world/strata.js`) because the latter reads as fuzzy at this viewport. |
-| overview is bound to `C`, in `view/overview.js` | it is `O` (`shell/input.js:181`, `flags.showMap`), drawn by `view/scene.js#drawMap`. There is no `view/overview.js` yet. |
-| the FAVOUR panel already masks Hades | no FAVOUR, TRIBUTE, SUSPICION or masking exists anywhere in `src/`. The predicate is written by the ruler phase and reused by the cycle phase. |
-| `test/**` | `tests/**`. There is no `test/` directory, and Phase 6 above already forbids creating one. |
-| `docs/ARCHITECTURE.md` | `ARCHITECTURE.md`, at the repo root. |
-| astral is merely "inset" at `x:128`, `tw:96` | **corrected twice now.** First pass misread `origin.x` as a tile column (it is world PIXELS) and concluded astral (`x:[128,896)` px) and surface (`x:[0,1024)` px) don't overlap at all — false. Phase 6.5 recon executed `data/world.js` directly: astral's px range is a proper subset of surface's, and the two bands are exactly y-contiguous with no gap. In surface's own tile coordinates that's `tx ∈ [16,112)` — **96 of surface's 128 columns already have astral directly above them today.** Only the two 16-column edge strips (`tx 0-15` and `tx 112-127`) don't. Widening astral to full width is still worth doing (it closes a real 32-column gap), but Phase 10 must not reason from "no column connects" — most already do. See Phase 10 Step 1. |
-
-Two citations checked and **kept as drafted**, because they are right:
-`docs/SPEC.md` §12 really does state "no machine or substance name appears in
-`src/view/`" (SPEC.md:319–320; §12 runs 252–325, §13 begins at 326), and §15
-really does record two remaining substance rows.
-
 ---
 
 ## Phase 6.5 — Recon (1 × `cartographer`, read-only, ~30 min)
@@ -2214,10 +2190,9 @@ This is answered before you start, and AUDIT-2 §1 §3 should confirm it:
     typed arrays by world.write.allocate(cfg) in shell/boot.js. There is no
     single array, nothing to grow, and nothing to reindex.
 
-So the band EXISTS, and — CORRECTED after Phase 6.5 recon executed
-`data/world.js` directly, since `origin.x` is world PIXELS not a tile column
-— it is mostly NOT disjoint from the surface band. Real px ranges:
-astral `x:[128,896)`, surface `x:[0,1024)`, exactly y-contiguous (astral's
+So the band EXISTS, and it is mostly NOT disjoint from the surface band.
+Real px ranges: astral `x:[128,896)`, surface `x:[0,1024)`, exactly
+y-contiguous (astral's
 floor at y:320 meets surface's origin at y:320, no gap). In surface's tile
 coordinates that overlap is `tx ∈ [16,112)`: **96 of surface's 128 columns
 already have astral directly above them.** Only the two 16-column edge
@@ -2509,15 +2484,14 @@ Phases 8, 8b, 8e and 9 all live in `src/view/` — do not run them concurrently.
 
 ### Three things to watch across the wave
 
-**The paint-data indirection already exists, and the risk has inverted.** The
-first draft of this plan assumed `view/` had no per-material data and that
-Phase 8's job was to add it. It has: `look:{ base, hi, lo, treatments:[…] }`
-plus `view/treatments.js#TREAT`. So the failure mode to guard against is no
-longer "the agent adds substance names to `view/`" but "the agent adds a
-second, parallel `paint:{}` table beside `look:{}`" — which passes the layer
-checker, passes the screenshot, and leaves two tables describing one thing.
-If that happens, the phase has failed even if the pixels improve. Extend the
-table that is there.
+**The paint-data indirection already exists.** `view/` has per-material data
+today: `look:{ base, hi, lo, treatments:[…] }` plus
+`view/treatments.js#TREAT`. The failure mode to guard against is not "the
+agent adds substance names to `view/`" but "the agent adds a second,
+parallel `paint:{}` table beside `look:{}`" (CLAUDE.md D7) — which passes
+the layer checker, passes the screenshot, and leaves two tables describing
+one thing. If that happens, the phase has failed even if the pixels
+improve. Extend the table that is there.
 
 **A regression is cheaper to fix than a redesign, so find out which you have —
 and be willing to find neither.** Phase 6.6 exists because some of the look
@@ -2591,7 +2565,6 @@ unaffected and may proceed.** Phase 9 and Phase 10 depend on the new mechanism
 existing — Phase 9 to visualise it, Phase 10 for the Cloud Dock to be reachable
 — so neither should start until 8c–8g are either done or explicitly deferred.
 
-*(Done — see the RESOLVED note above this section.)*
 
 ---
 
@@ -2666,8 +2639,11 @@ document was deliberately not executed and remains scoping-only.
   Its §5 drafts three binding-document diffs which are **deliberately
   unapplied**, exactly as `docs/PLAN-gears-and-winches.md` §3 did.
 
-Five facts from wave 4's planning that are true of the repo **today** and are
-worth knowing whether or not the wave ever runs:
+Three facts from wave 4's planning worth knowing whether or not the rest of
+the wave still ran when this was written (two others — the non-placeable
+click no-op and the missing feed verb — are now `docs/SPEC.md` §23's
+record, and `docs/PLAN-phase12.md` D-I's un-landed double frame was fixed
+by Phase 16c):
 
 1. **Appending a tile-capable substance row to `data/substances.js` throws at
    import.** `SUB.length` is 23, `PACKABLE_LIMIT` is 20, and the twelve
@@ -2681,43 +2657,10 @@ worth knowing whether or not the wave ever runs:
    items 4 and 5, and `docs/PLAN-phase16-interaction-model-v2.md` §7.3 for
    why the draft's own UI belongs in a Phase 17 document rather than in
    either of them.
-3. ~~**Clicking a non-placeable inventory slot does nothing at all.**~~
-   **FIXED by Phase 16a** (docs/SPEC.md §23.1): any occupied slot arms, on
-   both the click and the digit path. It *was* true — the gate required a
-   tile-capable form, `F.rig` or `F.phial`, so every ore, ingot, plate,
-   brand and relic was click-inert, control falling through to
-   `runw.moveSlot(i, i)`, which returns immediately on `from === to`. See
-   `docs/PLAN-phase16-interaction-model-v2.md` §3.3.
-4. ~~**There is no way to feed a machine on purpose.**~~ **FIXED by Phase
-   16a, and the fallback retired by Phase 16b** (docs/SPEC.md §23). The verb
-   is `rules/machines.js#handOne`: arm a held pair, aim at a machine inside
-   `handFeed.reach`, LMB, one unit per press. The proximity drain
-   (`#handFeed`) is now gated on `cmd.autoFeed` — the Character tab's AUTO
-   FEED row, default off, reset every run (§23.6) — and `step` takes `cmd`.
-   It *was* true, and unpleasantly so: an altar took everything you carried
-   in under a second and `rules/cycles.js#drainReceivers` credited it the
-   same frame. `rules/cycles.js`'s `SPAWN_GAP = 4` and the `+15` offset in
-   `tools/check.mjs`'s burden probe are **kept**, with their reasoning
-   corrected rather than removed (the hazard is opt-in now, not gone, and
-   the altar's gap is correct staging regardless). The three "feed key"
-   comments (`data/machines.js` ×2, `docs/SPEC.md` §18.3) are gone. See
-   `docs/PLAN-phase16-interaction-model-v2.md` §3.4–3.5.
-5. **`docs/PLAN-phase12.md` D-I never landed** despite that document's status
-   line — and **has now landed, in Phase 16c**. `git log -- src/view/ui/slot.js`
-   showed no Phase 12 commit (three commits, newest `e80a3fc`, a comment trim)
-   and `frameSlot` drew a single 1-px border rather than the specified 2-px
-   double frame. It now draws both borders, the second inset by one pixel in
-   the same colour, and all three call sites — a relic's frame plus the
-   armed-placement highlight in each of the two grids — take it from the one
-   shared function. The baselines that moved for it are `ui-character.png`
-   (two relic slots) and the four new Phase 16c shots.
-6. **Every currently-placeable form is also consumed as feedstock somewhere,
-   on both terrain rows the game has.** `timber/log` is fuel
-   (`handFeed:{from:['*/#fuel']}`) and a bare ingredient in five recipes
-   (`hub`, `crank`, `gear`, `axle`, `daedalan`) *and* directly placeable as
-   a ladder. `*/gravel` (stone, soil, granite, adamant's shared mined drop)
-   is cycle 4's literal tribute currency and a recipe ingredient in
-   `belt_r`/`gear` *and* the "shovel it back" placeable tile. Both are the
-   same shape of bug, on different substances — see
-   `docs/PLAN-phase14-mining-and-drops.md` §4's D14-A/B (gravel) and D14-H
-   (log), and the drafted `CLAUDE.md` D12 that names the general rule.
+3. **FIXED by Phase 14a's D14-H.** `timber/log` was fuel and a recipe
+   ingredient *and* directly placeable as a ladder, and `*/gravel` was
+   cycle 4's tribute currency and a recipe ingredient *and* the "shovel it
+   back" placeable tile — the same double-duty shape, on different
+   substances, both real. Fixed by deleting each form's `tile` block;
+   `rung`/`stair`/`block` remain the only placeable equivalents. The general
+   rule is `CLAUDE.md` D12.

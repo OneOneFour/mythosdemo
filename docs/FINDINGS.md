@@ -6,44 +6,6 @@ rewrite history here.
 
 ---
 
-## Orchestrator process note — concurrent agents in a shared checkout
-
-Ran the machine-items agent and the HUD-simplification agent concurrently,
-reasoning that their FILE OWNERSHIP blocks were disjoint (`data/`,
-`model/run.js`, `rules/placement.js`, `shell/*` vs. `view/hud.js` only). That
-reasoning was insufficient: the machine-items agent detected mid-task that
-`view/hud.js` (owned by the other agent) had uncommitted changes, and used
-`git stash`/`stash pop` to isolate its own diff before committing. Both
-agents run in the SAME working directory with no isolation (no `worktree`),
-so a stash operation snapshots and restores the ENTIRE tree, not just the
-files one agent intends to touch — the HUD agent's report confirms its own
-files were "repeatedly reset to HEAD" mid-session as a result, recovered only
-because it happened to notice via its own `git status` checks and re-applied
-its edits from context before committing. This worked out, but by vigilance,
-not by design.
-
-**Lesson for future orchestration in this repo**: disjoint FILE OWNERSHIP is
-not sufficient justification for running agents concurrently in a shared,
-non-worktree checkout — any `git stash`/`checkout`/`reset` one agent runs to
-manage its own working state affects every other agent's uncommitted files
-too. Either serialize agents that might touch git state at all (the default,
-safe choice — this is what every other phase in this session did), or launch
-concurrent agents with `isolation: "worktree"` so each gets its own working
-tree and git-level operations can't cross-contaminate.
-
-## Phase 5a review (orchestrator)
-
-- **`oxlint` is not a declared `devDependency`.** `package.json#scripts.lint`
-  runs `oxlint src tools tests` directly (not via `npx`), and it currently
-  passes only because an earlier ad hoc install left a binary in
-  `node_modules/.bin`. First flagged in Phase 3's own report (`npx oxlint`
-  resolving without an explicit dependency) and reconfirmed at Phase 5a's
-  review. A genuinely fresh `npm install` on a clean checkout would fail
-  `npm run lint`. Pick up in **Phase 6**, which owns `package.json`'s
-  scripts/dependency hygiene as part of harness work — add `oxlint` to
-  `devDependencies` at whatever version is currently in use (`1.80.0` as of
-  this writing).
-
 ## Phase 2a (encumbrance, dropping, and ladders)
 
 - **Pre-existing bug, fixed in this commit despite being outside FILE
@@ -517,33 +479,7 @@ tree and git-level operations can't cross-contaminate.
   later phase disagrees and wants it reset on death specifically (not on
   every `newRun()`).
 
-- **`'i'` now does two things (`flags.showInv` AND `shell/ui.js#toggle('main')`),
-  and only the first has ever been visible.** See `src/shell/input.js`'s own
-  comment at the `'i'` handler. This phase could not retire `flags.showInv`
-  without breaking the 1-9 build-menu digits, which are gated on it
-  (`src/shell/input.js` lines below), and breaking that would be a gameplay
-  regression outside "infrastructure only." Phase 5b, once its tabbed window
-  reads `isOpen('main')`, should decide whether the build menu migrates onto
-  the new panel too or `flags.showInv` stays a second, permanent system.
-
 ## Phase 5b (the panels)
-
-- **RESOLVED, the question the last bullet above left open.** `'i'` toggles
-  `flags.showInv` and `shell/ui.js#toggle('main')` TOGETHER (unchanged), so
-  the old text panel (`view/hud.js#invPanel`) and the new tabbed one always
-  opened at once and drew directly on top of each other — confirmed by
-  screenshot, not assumed. `view/hud.js#drawHUD` now gates the OLD panel on
-  `!f.ui.stack.includes('main')`, so it only ever draws if the new one is
-  somehow closed while `flags.showInv` stays true (Escape closes `'main'`
-  via `closeTop()` without touching `flags.showInv` — a real, if minor,
-  desync; pressing `'i'` twice resyncs both). The OLD panel's POCKETS and
-  CRAFT sections are superseded by the new CHARACTER and CRAFTING tabs; its
-  BUILD section (the only thing with no new equivalent) was ported into the
-  new LOGISTICS tab (`view/ui/mainPanel.js#drawLogisticsTab`), reading the
-  SAME `model/run.js#buildableMachines()` list `shell/input.js`'s 1-9 digit
-  handler already keys off, so the digits keep working and keep a visible
-  menu. `flags.showInv` itself is untouched — it is still the digit gate —
-  only its own TEXT PANEL stopped drawing.
 
 - **The `run.known` seeding decision, restated plainly for the commit that
   reads this file and not the code comment.** `model/run.js#RUN_SCHEMA.known`
@@ -775,56 +711,6 @@ tree and git-level operations can't cross-contaminate.
   one new import in `src/shell/main.js` (`write as runw` from
   `model/run.js`), nothing else.
 
-- **The three Tier 3 flows that place a machine, craft by hand, or drop
-  material all needed real fixture debugging before they measured anything
-  true, none of it a game bug.** Kept here because each is the exact
-  "measures the wrong thing" trap CLAUDE.md warns about, caught only by
-  actually reading what the state showed rather than trusting a plausible
-  assertion:
-    - The furnace flow's ingot count was rounding to 12 ore + 6 log which is
-      the furnace's OWN build cost (`docs/SPEC.md` section 13) — there was
-      nothing left to actually smelt once the bill was paid. Fixed by giving
-      more than the bill.
-    - The furnace flow's ingot then never reached the pockets because
-      `rules/machines.js#produce` ejects a finished good from the machine's
-      OWN mouth (the furnace's `top` port), which rests near the footprint's
-      CENTRE — while the player who placed it is standing at the SIDE (per
-      `rules/mining.js#aimAtKeys`'s "aim to the side" resolution with no
-      up/down held), outside `eff('pickupR')` (10 px). Fixed by moving the
-      player under the machine's centre after placing it, the same thing a
-      real player would do to hand-feed or collect from what they just
-      built.
-    - The drop/climb flow's shed-then-reabsorb cycle: dropping material at
-      the player's own feet and never moving away means anything given time
-      to clear `rules/items.js#MAGNET_DELAY` (0.35s = 42 substeps) gets
-      picked right back up. Fixed by shedding in a burst tighter than that
-      window, with margin, since the immediately-following climb check
-      itself runs long enough to cross the delay and reclaim a few units.
-    - The craft-queue flow over-crafted (7-8 completions instead of 5) when
-      driven as ONE `__mf.frames(1400)` call: `shell/main.js#tickCraftQueue`
-      only drains what it can see in the journal SINCE THE LAST call, once
-      per real animation frame in actual play, so a single giant batch holds
-      `cmd.craft` continuously for the whole window regardless of how many
-      times the queue should already have emptied. Fixed by ticking in small
-      batches, the faithful stand-in for "once per real frame".
-
-- **The phone project's screenshots are already blank in this sandbox,
-  before and after this phase.** Every `phone` baseline this phase added
-  (`shaft-*`, `ui-*`) hashes byte-IDENTICAL to the pre-existing, already-
-  accepted `surface-phone-darwin.png` — a solid black canvas with only the
-  DOM key-hints bar visible underneath it. This is a pre-existing
-  characteristic of running this suite's `phone` project (390x844, per
-  `playwright.config.js`, not the 200x422 figure an earlier draft of the
-  build plan assumed) in THIS headless environment, not something Phase 6
-  introduced: it reproduces on the ALREADY-COMMITTED `surface.png` baseline
-  too. `maxDiffPixels: 0` still does its job either way (a future change
-  that actually fixed or further broke phone rendering would move at least
-  one of these bytes), but the phone screenshots are not currently proving
-  anything about canvas CONTENT the way the desktop ones do. Not fixed here
-  — out of this phase's scope (a rendering/environment question, not a
-  harness-assertion one) — but worth a human's attention before trusting a
-  phone screenshot diff at face value.
-
 - **`conflictsWith` symmetry is NOT required by design, only consistency
   where both directions happen to exist.** `rules/boons.js#step` only ever
   resolves a conflict off the boon granted LATER (it walks forward from an
@@ -905,19 +791,6 @@ tree and git-level operations can't cross-contaminate.
   original bug report ("can't click on a lot of the buttons in there") was
   describing. Fixed by adding a generic clickable-text-row primitive
   (`view/ui/state.js#drawn.buttons`) and registering each BUILD row into it.
-
-## Orchestrator verification — UI interaction bugfix batch (post-launch)
-
-Independently reconfirmed: `npm run check` (0 layer violations), `npm run
-check:content` (165 checks), `npm run lint`, and the full Playwright suite
-(88 tests, both viewports + parity) all pass after `ca0ad75` and `113823a`.
-The `wants.machine`/`clearEdges()` ordering bug fixed in `113823a` is
-corroborated by a real `page.mouse`-driven regression test
-("a LOGISTICS BUILD row places the machine, the same as its digit key") that
-would have caught the original failure mode and now passes — the digit-key
-path's own pre-existing test ("cold start -> mine 12 copper ore -> ... place
-a furnace") still passes too, confirming the fix is additive, not a
-regression on the path that already worked.
 
 ## Machine items: reversing Phase 3's "cost at placement" deviation (post-launch)
 
@@ -1001,20 +874,6 @@ the gaps and judgment calls the reversal forced.
   and now they do nothing unconditionally (removed, not just gated), which
   is a strict subset of what the test already asserted.
 
-- **A GIT-CONCURRENCY NOTE, since it happened during this exact change:**
-  another task was independently, concurrently editing `src/view/hud.js`
-  (removing the always-on pocket strip in favour of a burden bar, part of
-  the follow-up click-to-arm/lock-gating work this change's own task
-  description names as explicitly out of scope) while this change was in
-  progress. `src/view/hud.js` and its one dependent test assertion
-  ("hovering an inventory pair resolves a tooltip naming it") were left
-  completely untouched — reverted back to their in-flight state after a
-  scratch verification pass, never committed by this change — precisely
-  because that file was explicitly not this task's to touch. Worth
-  recording so a future reader is not confused by a hud.js diff that
-  appears alongside this commit in history but belongs to a different
-  change.
-
 - **Desktop-only scope reduction: the `phone` Playwright project is gone**
   (`playwright.config.js`), along with every `*-phone-*.png` baseline under
   `tests/visual.spec.js-snapshots/`. Stale comments in `tests/visual.spec.js`
@@ -1077,17 +936,8 @@ entry is only the one thing found outside that ownership.
   targets does read back as broken (`tileAt` returns `AIR`) — the collision,
   not the mining, is what stalls.
 
-  **Why not fixed here:** the fix lives in `rules/player.js` and/or
-  `rules/mining.js`, both explicitly outside this task's FILE OWNERSHIP
-  (`src/model/machines.js`, `src/view/hover.js`, `src/view/scene.js`,
-  `src/view/paint.js`, `src/shell/input.js`, `tests/**`, `docs/SPEC.md`,
-  `docs/FINDINGS.md` only), and the right fix is a real design choice, not a
-  one-liner: possible directions include clearing both straddled columns
-  when digging straight down, biasing `aim` toward whichever column the
-  player is more OVER rather than a bare centre, or snapping `player.x` to
-  the tile grid the instant a downward dig begins. Any of those changes
-  mining or collision behavior a future task should pick deliberately, not
-  inherit as a side effect of a hover/status/right-click change.
+  The fix (clearing both straddled columns sequentially when digging
+  straight down) landed in `rules/player.js`/`rules/mining.js`, below.
 
   **Worked around, not hidden:** `tests/visual.spec.js`'s new
   `'digging straight down: no drift, monotonic depth, correct drops'` test
@@ -1138,11 +988,6 @@ player standing at ground level with no visible shaft at all (the bug,
 caught on camera); after the fix it shows a real dug shaft several tiles
 deep with the player standing at the bottom of it. That is the bug being
 fixed, not a regression — re-baselined via `npm run test:visual:update`.
-
-`npm run check` (hardness at 8 framerates, the 7,200-frame collision fuzz,
-the fall-damage table, determinism, all Phase 6 probes), `npm run
-check:content`, `npm run lint`, and the full `npm run test` (build + all 49
-Playwright specs) all pass unchanged after the fix.
 
 ## The old digit-driven BUILD menu retired; number keys now arm the quickbar
 
@@ -1221,12 +1066,6 @@ the drag gesture itself is exercised elsewhere) and press its digit, then
 'E'; the furnace screenshot baseline is unchanged (same look, same
 mechanism's end state), confirming this is a wiring change, not a rendering
 one.
-
-`npm run check` (all probes), `npm run check:content` (157 checks), `npm run
-lint` (oxlint, clean — confirms no dead import survived any of the above),
-and the full `npm run test` (build + all 48 Playwright specs, one fewer
-than before now that a retired mechanism's own test is gone rather than
-rewritten) all pass.
 
 ---
 
@@ -1359,15 +1198,12 @@ currently travels as data and nobody reads it. Two lines in
 existing `'refused'` kind, and all five `linkCheck` strings were observed
 reaching `view/fx.js#toasts` through the real dispatch.
 
-**2. `tools/check.mjs#snapshotModel` does not include `segments`, so the
-`newRun()` reset probe cannot see one.** Section 4's "every exported model
-object fingerprints identically across two fresh calls" is the assertion
-invariant 8 rests on, and a segment surviving a restart would pass it today.
-`shell/boot.js` *does* call `segw.clear()` and this phase verified the reset by
-hand (a linked pair, `newRun(1337)`, `__mf.segments.length === 0`), but the
-harness does not. `tools/` was outside this phase's ownership; **Phase 8g owns
-this** and its own brief already names the newRun fingerprint probe as the
-thing to extend rather than duplicate.
+**2. `tools/check.mjs#snapshotModel` did not include `segments`, so the
+`newRun()` reset probe could not see one.** `shell/boot.js` called
+`segw.clear()` and this phase verified the reset by hand, but the harness
+did not — a segment surviving a restart would have passed invariant 8's
+fingerprint check regardless. Fixed by Phase 8g: `snapshotModel()` now
+fingerprints `segments` directly (`tools/check.mjs`).
 
 **3. TWO VERTICALLY STACKED HUBS CANNOT LINK UNTIL THE UPPER ONE'S FLOOR IS
 MINED OUT.** A hub is `footing:2`, so both tiles under a 2-wide footprint must
@@ -1552,9 +1388,8 @@ they carry no callout. The reason is narrow and worth keeping narrow: a baseline
 whose whole subject is a moving drivetrain should not be re-taken every time
 `data/callouts.js` is reworded, and six pictures of gears are the wrong place to
 also assert what beat 0 says. Phase 8e's existing shots were deliberately NOT
-touched — they are reviewed output belonging to another phase, and churning them
-to make the tree self-consistent would cost a reviewer more than the
-inconsistency does. **#10 is therefore still open as a general ruling**: there is
+touched — they are reviewed output belonging to another phase. **#10 is
+therefore still open as a general ruling**: there is
 no shared `settle()`-adjacent helper, and the next agent to own
 `tests/visual.spec.js` inherits the same choice for whatever it adds.
 
@@ -1772,10 +1607,8 @@ Consequences, in the order they bite:
    `rules/generate.js#trees` ("timber's `log` form is the only tile-capable
    form in the game" — already false when `rung`/`stair`/`gravel` existed),
    and `rules/player.js#boxClimbK` ("a rung or a placed log both read as 1").
-   All four were corrected. **They are a separable hunk**: `git diff` over
-   those three files is comments only, so a reviewer who wants the "no `rules/`
-   file touched" claim literally true can drop them without touching
-   behaviour.
+   All four were corrected, comments only — `git diff` over those three
+   files carries no behaviour change.
 
 5. **`data/forms.js`'s packing header still had a stale illustration**, fixed
    in passing: "With four forms the stride is five, so a byte holds 50

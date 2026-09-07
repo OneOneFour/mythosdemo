@@ -42,7 +42,7 @@ Decisions locked in by the user for this run (do not re-ask):
 | 7d3 | docs: trim PLAN-phase16-interaction-model-v2.md spent scaffolding | Status banner fixed; §1 sizing table deleted (content was redundant with §3's audit); 3 first-person/self-referential asides deleted (§3.5, §4 intro, §4.4); D16-A's 30-line post-Phase-14 revision narration compressed to 1 durable paragraph; §6's three FILE OWNERSHIP blocks + 3 executed prompts collapsed to a landed-summary; §7.1/§7.2's sequencing reasoning (all now-moot, every dependency landed) compressed to one paragraph; §9's risk register (all landed clean) collapsed to 2 sentences on the two risks worth remembering. KEPT §3/§4/§5 headings verbatim (cited by visual.spec.js:3112, check.mjs:213, and a dozen src/ comments by section number) and §7.3 (already extracted to PLAN-phase17-drafts.md, kept here as the pointer). 1129 -> 715 lines | done | (pending commit) |
 | 7d4 | docs: fix PLAN-horizontal-chunks-SCOPE.md's §7 phase-letter collision | Relettered the never-executed candidate table from 16a-16e to W-a-W-e (16a-16c since taken by the shipped interaction-model wave); fixed the one other 16d reference. File otherwise untouched -- it is explicitly NOT spent scaffolding per the plan | done | (pending commit) |
 | 7e | docs: trim PLAN-phase13.md spent scaffolding | Status banner fixed; §1 sizing table deleted; §3.1's instructional heading/opening tightened; §4.5 rewritten from "note, do not fix" to a landed fact (setter added, one still-live idiom kept); three FILE OWNERSHIP blocks + four prompts (13a/13b/13c/13d) collapsed to landed-summaries; §6's sequencing table absorbed into .claude/brain/phase-plan-conventions.md (already existed, now pointed to). KEPT §2.3, §4.3 (D13-A), §5.2's 20-item punch list, §7 -- all cited elsewhere by section number. Fixed FINDINGS.md:1728's stale line-number citation (§794 -> §5.3) in the same commit. 877 -> 621 lines | done | (pending commit) |
-| 8 | docs: trim session narration from FINDINGS, SPEC and BUILD_PLAN | Part 2 §2C/§2D/§2E | pending | |
+| 8 | docs: trim session narration from FINDINGS, SPEC and BUILD_PLAN | FINDINGS.md 2199->2032 lines (orchestrator process notes moved to .claude/brain/agent-orchestration.md; oxlint-devDependency/invPanel-RESOLVED/Tier-3-fixture/phone-blank/3x test-run-confirmation/why-not-fixed-here items deleted, all verified already resolved in the repo; caught and reverted an over-eager deletion of item 8d #2 which 4 live files cite by number -- restored and marked resolved instead; GEOMETRY-UNDER-TEST and scene-through-model rules relocated to DEVELOPER_GUIDE.md, reviewer-consideration asides trimmed). SPEC.md 2463->2452 (brandLeft/starting-kit paragraph corrected to current reality -- no starting brand exists at all, beyond what the plan asked; self-scoring and stale-paragraph asides deleted; 2 "found by hand" narratives moved to .claude/brain/verification-gaps.md). BUILD_PLAN.md 2712->2666 (never-updated-for-wave-3 meta deleted; the whole "Ground truth this wave was corrected against" table deleted as duplicate of the phase bodies, resolving 3 previously-flagged dead line-number citations for free; a matching diary aside in the Phase 10 body trimmed; paint-data-indirection diary trimmed to the surviving CLAUDE.md D7 rule; redundant "(Done -- see RESOLVED note above)" deleted; wave-4's "five facts" list cut to 3 real facts, the other 2 marked fixed with a corrected D14-H-aware rewrite of the feedstock-overlap item since it was flagged stale mid-edit). | done | (pending commit) |
 
 ## Findings to report to the user at the end
 
@@ -53,6 +53,12 @@ Decisions locked in by the user for this run (do not re-ask):
   `pocketHits` survives only in comments in `view/ui/{grid,panel,state}.js`.
   Not fixed (out of scope) — `docs/DEVELOPER_GUIDE.md:1140` and
   `docs/PLAN-phase10.md:385-388` also need this fix per the plan (in scope there).
+- `docs/BUILD_PLAN.md`'s status header (top of file) tracks waves 1-2 and
+  notes wave 3 (Phase 12) was never added to its sequencing tables; wave 4
+  (Phases 13-16, all now shipped) has the same gap and isn't mentioned at
+  all. Not fixed -- out of the plan's specific scope for this pass, but a
+  real, growing staleness gap the same shape as the wave-3 one already
+  flagged in the file's own text.
 
 ## Notes / deviations from plan (fill in as encountered)
 

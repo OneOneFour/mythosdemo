@@ -236,15 +236,11 @@ Both are in `STARTING_MACHINES` (`src/data/machines.js`... `src/data/grants.js`)
 for testability, same precedent as `press`/`belt_r`/`belt_l` — no director
 exists yet to gate them behind a boon.
 
-The starting kit (`src/shell/boot.js`) planted one `timber/brand` beside the
-stock pickaxe, on the opposite side of spawn, inside the same flat shelf.
-**Removed later** (this session): it landed on the same side of spawn as the
-altar and, before it had a sprite of its own, read as an unidentified object
-appearing at the altar rather than a second gift. `run.brandLeft` (new
-`RUN_SCHEMA` field, `src/model/run.js` — see `docs/FINDINGS.md` for why this
-phase touched that file) is otherwise unchanged and still auto-relights from
-the pockets the instant it reaches zero, with no separate "light your torch"
-verb, for any `timber/brand` acquired through play (`data/recipes.js#kindle`).
+The starting kit (`src/shell/boot.js`) plants no `timber/brand` — only the
+stock pickaxe. `run.brandLeft` (`RUN_SCHEMA` field, `src/model/run.js`)
+auto-relights from the pockets the instant it reaches zero, with no separate
+"light your torch" verb, for any `timber/brand` acquired through play
+(`data/recipes.js#kindle`).
 
 **Schedule reorder.** The live step order was `player -> reveal -> mining ->
 ...` (not `player -> mining -> reveal -> ...` as `docs/BUILD_PLAN.md`
@@ -613,12 +609,10 @@ Rows that can never be packed — relics, miracles, machine items — now cost
 the tile byte **nothing**. They do still consume ordinals, so a *tile-capable*
 row must land at an ordinal ≤ `PACKABLE_LIMIT`.
 
-**CORRECTION (Phase 14a): appendable headroom for a tile-capable row is ZERO,
-and has been for some time.** This table used to end with a row reading
-"**tile-capable headroom — 12 rows** (ordinals 9–20)". That was arithmetically
-true as a *slot count* and thoroughly misleading as advice, because **every
-one of those twelve ordinals is already occupied** by a non-packable row:
-9–20 are `auger`, `chasm`, `furnace`, `press`, `belt_r`, `brazier`, `hearth`,
+**Appendable headroom for a tile-capable row is ZERO.** Ordinals 9–20 read
+as "12 rows of headroom" by slot count alone, but **every one of those
+twelve ordinals is already occupied** by a non-packable row: 9–20 are
+`auger`, `chasm`, `furnace`, `press`, `belt_r`, `brazier`, `hearth`,
 `talos_head`, `cyclops_maw`, `hub`, `crank`, `gear`. `SUB.length` is 23, so
 the next **appended** row lands at ordinal 23, and if it were packable:
 
@@ -880,10 +874,8 @@ from the footprint's own **centre**, i.e. down the right-hand column — then ra
 straight into the hub's own footing tile one row below, so `linkCheck` refused
 every span steeper than 45° with `'THE PATH IS BLOCKED'`. "A hub at the surface
 and a hub at the shaft floor" was therefore unbuildable through
-`rules/placement.js` at all. Found by physically performing Phase 8f's
-acceptance walkthrough; Phase 8e never saw it because a screenshot scene places
-machines through `model/machines.js#write.place`, which asks nothing about
-footing.
+`rules/placement.js` at all (`.claude/brain/verification-gaps.md` records how
+this stayed invisible until it did).
 
 **And `footing:1` did not end it.** With one column supported, the *remaining*
 footing tile still sits directly under the footprint the anchor is the centre
@@ -1663,8 +1655,7 @@ Daedalan stair is refined bronze work, not a vein of copper — it is placed, so
 `formOf(byte) !== NATIVE`, so it carries charge 1 and drops itself back rather
 than ore (§19.6). `tin/stair` and `adamant/stair` are legal and
 **unobtainable**: `daedalan`'s output is the literal pair `copper/stair`, so no
-recipe outputs either and nothing drops them. (This paragraph said "`copper/stair`
-and `tin/stair` … obtainable" until Phase 14e; the tin half was never true.)
+recipe outputs either and nothing drops them.
 
 **`tools/content.mjs` assertion 21 checks exactly this, per pair** (Phase 14e):
 for every `deposit` substance and every tile-capable form the crossing must be
@@ -1839,8 +1830,7 @@ Dividing the count alone leaves that floor intact and overshoots.
 / 30 / 22) is exactly that division and measured **+43.2% / +34.5% / +36.5% /
 +35.7% / +31.7%** — outside the 10% band on every row. The counts above are
 the solution of one linear fit against the measurement, verified in a second
-pass; two iterations, no third needed. The `vein` figure is the one number
-D14-F got right on the first try.
+pass.
 
 **The consequence is intended: veins are fewer, smaller and richer.** Five
 copper clusters in the whole `surface` band, not twenty-six — a deposit is a
@@ -2360,20 +2350,17 @@ answers only "would this machine take this pair", which is what
 not walked to yet.
 
 **Rule 2 also does not consult `feedCheck` for whether *this* pair is
-welcome.** A first draft required `feedCheck(...).ok` before rule 2 would even
-fire, on a literal reading of "and it accepts the armed pair" — and that made
-both of §23.4's refusal strings unreachable from a real press: the moment the
-armed pair was wrong or the machine was full, rule 2 would not fire at all and
-the press fell through to rule 3 (place), which is how a ladder rung ended up
-placed *inside* a furnace's own footprint instead of refusing to feed it.
-Found by hand during Phase 16a's own acceptance walkthrough, fixed the same
-phase (`shell/input.js#feedTargetAt`), and named here rather than left
-implicit: a reachable, hand-feedable machine under the reticle is **always**
-the target, and whether this pair is welcome is `handOne`'s question,
-downstream, asked once — which is exactly where its answer needs to turn into
-the `'refused'` row the player actually sees. `tests/visual.spec.js`'s "REAL
-CLICK: clicking an ore slot arms it..." test drives this exact case (a wrong
-pair, a real click, over a real machine) as a permanent regression.
+welcome** (`shell/input.js#feedTargetAt`): a reachable, hand-feedable machine
+under the reticle is **always** the target, and whether this pair is welcome
+is `handOne`'s question, downstream, asked once — which is exactly where its
+answer needs to turn into the `'refused'` row the player actually sees.
+Gating rule 2 itself on `feedCheck(...).ok` instead makes both of §23.4's
+refusal strings unreachable from a real press, because the press falls
+through to rule 3 (place) the moment the pair is wrong or the machine is
+full — `.claude/brain/verification-gaps.md` records how this was found.
+`tests/visual.spec.js`'s "REAL CLICK: clicking an ore slot arms it..." test
+drives this exact case (a wrong pair, a real click, over a real machine) as
+a permanent regression.
 
 ### 23.3 One unit per press
 

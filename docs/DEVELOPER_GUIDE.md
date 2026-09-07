@@ -1656,6 +1656,22 @@ way:
   pass.** A nonzero diff is either a regression or an intended change; in the
   second case run `npm run test:visual:update` and say in the commit why the
   pixels moved.
+- **Size a carve from the geometry under test, not from placement
+  coordinates you happen to have handy.** A cross-band segment test once
+  cleared a fixed 4×4 window around each hub's own placement tile, but a
+  hub's anchor is its footprint centre — one tile above that for a 2×2 — so
+  the window never reached the band seam and a solid tile at the seam sat on
+  the span, undetected. Walk the actual anchor-to-anchor line and clear a
+  neighbourhood around every sample point instead; it is both shorter and
+  impossible to mis-size.
+- **A scene assembled through `model` write APIs is not a scene the game can
+  reach, and a scene the game cannot reach cannot expose a defect in the
+  rules that reach it.** A harness that placed every hub with
+  `model/machines.js#write.place` skipped `footing` entirely (that call asks
+  nothing about it), so no scene ever put solid rock under a span the way
+  real placement always does — masking a real boundary-sampling bug in
+  `model/segments.js`. Place a machine the way `rules/placement.js` would,
+  or say why not.
 
 ---
 
