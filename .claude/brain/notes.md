@@ -215,6 +215,11 @@ Rule of thumb: a key that **spawns something from nothing** goes behind
 - **All visual baselines remain UNREVIEWED.** They were taken mechanically after
   the architecture refactor to catch regressions, not because anyone judged them
   good.
+- **`__mf.hold()` and `__mf.frames()` drain the journal internally**
+  (`shell/main.js`'s `hold`/`frames`, both call `drainJournal(clock.t)`
+  before returning), so a test asserting a specific refusal or event row must
+  read it before either helper's next call swallows it — drive the one
+  substep you want to inspect through a raw `__mf.step()` instead.
 
 ## Structural observations
 

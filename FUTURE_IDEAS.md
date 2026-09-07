@@ -130,11 +130,9 @@ this queue on its own.
 that `produce()` pushes onto instead of calling `write.spawn`. A grabber
 machine, placed adjacent, dequeues the oldest entry on its own tick and either
 credits it to the player's inventory (if the player is the target) or ejects it
-as a physical item toward its own output side. Raised while fixing the
-hand-craft direct-inventory bug (`src/rules/crafting.js`), 2026-09-03 — the
-user's stated preference is hand-craft output goes straight to the player's
-inventory, but machine output should stay machine-side until something
-(this grabber) moves it, rather than becoming a player pickup.
+as a physical item toward its own output side. Hand-craft output goes straight
+to the player's inventory, but machine output should stay machine-side until
+something (this grabber) moves it, rather than becoming a player pickup.
 
 ---
 
