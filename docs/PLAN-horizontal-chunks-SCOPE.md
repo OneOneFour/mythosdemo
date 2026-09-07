@@ -471,15 +471,18 @@ The reasoning:
   actually the missing thing.
 
 **A concrete shape for that cheaper work**, sized like the other waves and
-offered as a candidate rather than a plan:
+offered as a candidate rather than a plan. Lettered **W-a…W-e** rather than
+given a phase number, deliberately: this work has never been picked up, and
+by the time it is, the next free number is whatever the phase director says
+it is — not `16`, which the shipped interaction-model wave has since taken.
 
 | phase | what | owner |
 |---|---|---|
-| 16a | `data/world.js` `tw:128 → 1024` on all three bands; `docs/SPEC.md` §1's width row; re-measure boot time, allocation and worldgen time and report | `systems` |
-| 16b | paint-cache eviction (§3.7) + the four coordinate keys made overflow-proof (§3.2, without going signed) | `ui` |
-| 16c | `rules/reveal.js` Pass A scoped to a radius/viewport (§3.3) and `rules/light.js`'s per-recompute allocation made proportional to the lit region (§3.4) | `systems` |
-| 16d | `view/overview.js` — a fit-to-width projection that actually fits (§3.8), the design decision included | `ui` |
-| 16e | harness: band-edge camera and player-clamp tests (§3.12), plus the Phase 11 property sweep re-run at the new width | `harness` |
+| W-a | `data/world.js` `tw:128 → 1024` on all three bands; `docs/SPEC.md` §1's width row; re-measure boot time, allocation and worldgen time and report | `systems` |
+| W-b | paint-cache eviction (§3.7) + the four coordinate keys made overflow-proof (§3.2, without going signed) | `ui` |
+| W-c | `rules/reveal.js` Pass A scoped to a radius/viewport (§3.3) and `rules/light.js`'s per-recompute allocation made proportional to the lit region (§3.4) | `systems` |
+| W-d | `view/overview.js` — a fit-to-width projection that actually fits (§3.8), the design decision included | `ui` |
+| W-e | harness: band-edge camera and player-clamp tests (§3.12), plus the Phase 11 property sweep re-run at the new width | `harness` |
 
 That is five phases with **no** binding-document change, **no** generator
 rewrite, and **no** invariant inversion — and it retires eight of §3's twelve
@@ -524,7 +527,7 @@ how likely a bad answer is to kill the feature.
    1 is already a wall on one side). Get this decided before anything is
    written; it changes half the diff.
 5. **What does the overview map become (§3.8)?** A design decision, needed
-   before 16d-equivalent work, and one that might reasonably conclude "the
+   before W-d-equivalent work, and one that might reasonably conclude "the
    overview shows the frontier, not the world".
 6. **Does anything about the tribute loop assume a bounded world?** The
    Cloud Dock, the altar's spawn-relative placement, `bandAt`'s x test
