@@ -1320,7 +1320,7 @@ the cheap way to draw a leaf and `view/treatments.js#TREAT` already exists —
 but its stated *reason* is stale. `CLAUDE.md` was outside this phase's file
 ownership; whoever next edits D7 should reword the premise, not the verdict.
 
-**2. `docs/PLAN-gears-and-winches.md` §2.5 miscounts the non-packable rows.**
+**2. `docs/PLAN-gears-and-winches.md`'s recon (since trimmed, its blockers were resolved in Phase 8c) miscounted the non-packable rows.**
 It says "Ten of the nineteen rows (`bellows`, `pick`, `auger`, `chasm`, and all
 six machine substances)". There are **eight** machine substances (`furnace`,
 `lift`, `press`, `belt_r`, `brazier`, `hearth`, `talos_head`, `cyclops_maw` —
@@ -1505,9 +1505,9 @@ this phase's to change.
 `grep -rn "rules/lift" src/ tests/ tools/` is empty. `docs/DEVELOPER_GUIDE.md`'s
 `#charges-and-honest-fuel` and `#the-rules-order` sections, which described the
 staged winch as current, have since been updated to cover segment transport
-instead. `docs/BUILD_PLAN.md` Phases 2a/9/10 still carry the patches
-`docs/PLAN-gears-and-winches.md` §7 already specifies, explicitly "not applied
-by this document" -- left alone, historical. `docs/AUDIT.md`, `docs/AUDIT-2.md`
+instead. `docs/BUILD_PLAN.md` Phases 2a/9/10 carry the patches
+`docs/PLAN-gears-and-winches.md` §7 specified and `02849b1` applied --
+left alone, historical. `docs/AUDIT.md`, `docs/AUDIT-2.md`
 and `docs/COMMENT_AUDIT.md`, dated records of a past state that this cleanup
 pass superseded, are deleted; `docs/rfc/*` remains, correct as history.
 
@@ -1523,8 +1523,9 @@ nothing wrote them. `rules/drive.js` now owns `t`, `load`, `dir` and `turn` and
 overwrites all four every substep, so seven baselines drifted (an unpowered
 carrier slid ~0.9 px in 4 substeps, and every declared `load` was recomputed to
 0). Setting them after the substeps restores the matrix bit-exactly and keeps
-each test's own `expect(...t).toBe(t)` honest. The **moving** states are Phase
-8g's own matrix, per `docs/PLAN-gears-and-winches.md` §6.5.
+each test's own `expect(...t).toBe(t)` honest. The **moving** states are
+Phase 8g's own matrix (`docs/PLAN-gears-and-winches.md`'s phase prompts,
+since trimmed as executed).
 
 **10. Phase 8b's tutorial callout couples EVERY early-game screenshot to
 tutorial state, including scenes testing something else entirely.**

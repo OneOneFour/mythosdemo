@@ -586,12 +586,10 @@ real modules at the twelve forms shipped today: the guard's own figure is
 would take it to 135 and 15. A form is affordable; a tile-capable substance is
 not appendable at all — see the correction below.
 
-This section used to say **two substance rows left**, which was true of the
-guard as it was written and false of the game (corrected in Phase 8c,
-`docs/PLAN-gears-and-winches.md` §2.5 and §6.1). The old guard measured from
-`SUB.length - 1`, pricing *every* row as if it were tile-capable:
-`1 + 18 * 12 + 11 = 228` of 255, so the third new row overflowed at 264. But
-twelve of the nineteen rows can never be packed at all — `bellows`, `pick`,
+**A naive guard, measuring from `SUB.length - 1`, prices *every* row as if it
+were tile-capable** and reads far more conservative than the game actually
+is: `1 + 18 * 12 + 11 = 228` of 255, so a third new row would overflow at
+264. But twelve of the nineteen rows can never be packed at all — `bellows`, `pick`,
 `auger` (relics), `chasm` (a miracle) and all **eight** machine substances.
 `rules/placement.js#placeTile` refuses any form with no `tile` block,
 `#placeableFromPockets` sends `rig` down `placeMachine` instead, and no

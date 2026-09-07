@@ -33,8 +33,12 @@ Decisions locked in by the user for this run (do not re-ask):
 | 3 | tidy: drop bare Phase-N tags | Track B2, 41 of 48 files touched (7 had zero bare hits) | done | 42127aa |
 | 4 | docs: fix stale tools/resolve.mjs and file:line references | Part 2 §2H + DEVELOPER_GUIDE facts (§2K) | done | c727393 |
 | 5 | docs: retire the spent REVIEW, AUDIT and MIGRATION artifacts | Part 2 §2A, 23 deletions + 2 brain salvages | done | 787e05d |
-| 6 | docs: extract TRANSPORT.md and adr/0001 from the shipped plans | new user-facing files (+ PLAN-phase17-drafts.md) | done | (pending commit) |
-| 7 | docs: trim spent scaffolding from the shipped phase plans | Part 2 §2I/§2J | pending | |
+| 6 | docs: extract TRANSPORT.md and adr/0001 from the shipped plans | new user-facing files (+ PLAN-phase17-drafts.md) | done | 9f0f6b6 |
+| 7a | docs: trim PLAN-gears-and-winches.md's spent scaffolding | §1 brief salvaged to .claude/brain/transport-brief.md; §2.1-2.5, §3, §6.0-6.5, §7 trimmed to pointers; §5/§9 tables cut to the rows with lasting content; 1442 -> 554 lines | done | c661d8d + 1 more (citation fixes in FINDINGS.md/SPEC.md) |
+| 7b | docs: trim PLAN-phase10.md spent scaffolding | | pending | |
+| 7c | docs: trim PLAN-phase12.md spent scaffolding | | pending | |
+| 7d | docs: trim PLAN-phase14/15/16 spent scaffolding | | pending | |
+| 7e | docs: trim PLAN-phase13.md spent scaffolding | | pending | |
 | 8 | docs: trim session narration from FINDINGS, SPEC and BUILD_PLAN | Part 2 §2C/§2D/§2E | pending | |
 
 ## Findings to report to the user at the end
