@@ -2161,7 +2161,7 @@ Consequences, in the order they bite:
    applies to every row that has the block. Recorded rather than silently
    corrected, because §6.4's own prompt makes the count a stop condition.
 
-2. **PARKED — `docs/PLAN-phase10.md:815` still asserts the feed key.** The
+2. **PARKED — `docs/PLAN-phase10.md:771` still asserts the feed key.** The
    three live claims 16b was asked to fix are fixed (`data/machines.js` ×2,
    `docs/SPEC.md` §18.3, plus `data/machines.js`'s own `handFeed` key
    reference and `docs/DEVELOPER_GUIDE.md`). `docs/PLAN-phase10.md` is a

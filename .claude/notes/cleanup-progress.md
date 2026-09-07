@@ -35,7 +35,7 @@ Decisions locked in by the user for this run (do not re-ask):
 | 5 | docs: retire the spent REVIEW, AUDIT and MIGRATION artifacts | Part 2 §2A, 23 deletions + 2 brain salvages | done | 787e05d |
 | 6 | docs: extract TRANSPORT.md and adr/0001 from the shipped plans | new user-facing files (+ PLAN-phase17-drafts.md) | done | 9f0f6b6 |
 | 7a | docs: trim PLAN-gears-and-winches.md's spent scaffolding | §1 brief salvaged to .claude/brain/transport-brief.md; §2.1-2.5, §3, §6.0-6.5, §7 trimmed to pointers; §5/§9 tables cut to the rows with lasting content; 1442 -> 554 lines | done | c661d8d + 1 more (citation fixes in FINDINGS.md/SPEC.md) |
-| 7b | docs: trim PLAN-phase10.md spent scaffolding | | pending | |
+| 7b | docs: trim PLAN-phase10.md spent scaffolding | §1 trimmed, §2.5/§2.10 deleted, §6.1-6.3 and §7.1-7.3 bodies trimmed (§7.3/AUDIT-2.md moot since that file's already deleted), §9 cut to rows 1-3; 1433 -> 1114 lines | done | (pending commit) |
 | 7c | docs: trim PLAN-phase12.md spent scaffolding | | pending | |
 | 7d | docs: trim PLAN-phase14/15/16 spent scaffolding | | pending | |
 | 7e | docs: trim PLAN-phase13.md spent scaffolding | | pending | |

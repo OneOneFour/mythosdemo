@@ -137,9 +137,9 @@ which. `shell/main.js:495-517`'s UI dispatcher already implements a real
 **per-slot** drag-to-equip/unequip/swap through `model/run.js#write.equip`
 directly — richer than `p` ever was (`p` cannot target a *specific* slot or
 unequip anything). `p` has been a fully redundant, strictly worse alternate
-path since that drag code landed (confirmed independently by
-`docs/PLAN-phase10.md §7.2`'s own DESIGN.md-staleness finding: *"`p` key...
-is now a redundant alternative, not the only path"*). Removing it costs
+path since that drag code landed (confirmed independently by a DESIGN.md
+staleness finding from Phase 10's own recon: *"`p` key... is now a
+redundant alternative, not the only path"*). Removing it costs
 nothing. See D-title "removed keys" in §4.
 
 ### 2.5 The magnet: automatic pickup, exactly, and where it lives

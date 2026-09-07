@@ -28,26 +28,12 @@ reason this plan has a Phase 10a at all.
 
 Phase 10's goal, verbatim: *"The Heavens become a real destination, cargo can
 reach them, and delivering cargo there drives the cycle loop. This is the
-game's win condition acquiring a location."*
+game's win condition acquiring a location."* Shipped: astral widened to
+`tw:128, origin.x:0`; the Cloud Dock; `data/cycles.js` + `rules/cycles.js`;
+the TRIBUTE and FAVOUR HUD panels; `docs/SPEC.md` §18.
 
-Six things the brief asks for:
-
-1. **Widen astral** to `tw:128, origin.x:0`, closing two 16-column dead strips.
-2. **Content in astral** — something to arrive at, something to receive cargo,
-   a reason to look up.
-3. **A Cloud Dock**: a 2-tile platform, an ordinary `data/machines.js` row,
-   which consumes arriving cargo and credits a tribute ledger. No invisible
-   wall; gravity is the gate. The gods take the cargo and never speak.
-4. **A cycle director**: `data/cycles.js` + `rules/cycles.js`. Cycle 1 unmoved
-   at the surface altar (SPEC §4/§5). Cycle 2+ delivers to the dock. Reward on
-   completion, punishment on miss, two misses ends the run.
-5. **TRIBUTE and FAVOUR HUD panels**, anchored over measured text, FAVOUR
-   masking unmet gods with Phase 9's own predicate.
-6. **Docs**: a new locked SPEC section, a DESIGN.md status-table update, and
-   two live DESIGN.md divergences fixed.
-
-Three things have moved under the brief since it was written, and all three
-matter:
+Three things had moved under the brief since it was written, and all three
+mattered to how it actually got built:
 
 - **The winch is gone** (Phase 8f). There is no `lift:{span,toBand}`, no
   `rules/lift.js`, no `'NO SHAFT TO SERVE'` branch. Transport is hubs, cranks,
@@ -239,23 +225,6 @@ Also relevant:
   recipe — `kiln_divine` is the precedent (`model/run.js:231-236`,
   SPEC §15 `:507-515`).
 
-### 2.5 Dead scaffolding this phase is supposed to consume
-
-| thing | file:line | state |
-|---|---|---|
-| `run.tribute` | `model/run.js:35`, reset `:107`, setter `write.tribute` `:178` | zero callers in `src/` |
-| `run.cycle` | `model/run.js:35` (`cycle: 1`) | never read, never incremented |
-| `tribute-bellows` | `data/drops.js:17` (`trigger:'tribute', chance:1, give:'bellows'`) | nothing fires a `'tribute'` roll |
-| beats 5 & 6 | `rules/tutorial.js:134,137` (both `null`), `data/callouts.js:23-24` (both `null`), `model/run.js:80-82` | reserved, in writing, for this phase |
-| `meta.godsMet` | `model/run.js:93`, reset `:124` | zero callers |
-| "future tribute panel" | `view/hud.js:585`, `data/forms.js:341-343` (`byHudOrder`) | comment pre-written for this phase |
-
-The drop-roll for `trigger:'mine'` has **no shared helper**: it is an inline
-8-line loop inside `rules/mining.js#step` at `:197-206`. A `rules` sibling may
-not import another (`tools/layers.mjs:29-34`, enforced `:103-107`), so
-`rules/cycles.js` must either duplicate those eight lines or hoist them to
-`model`. §4.7 recommends duplication, with precedent.
-
 ### 2.6 THE BLOCKER — a legally-placed hub cannot be linked to the hub below it
 
 `docs/BUILD_PLAN.md` Phase 10 Step 3 says: *"IF A CHAIN BUILT THERE CANNOT
@@ -413,21 +382,6 @@ nothing in `drawn.panels`. Anything clickable must use `view/ui/panel.js`.
 So a *clickable* TRIBUTE or FAVOUR panel costs a widening of both
 `input.js:426` and `main.js:381` from one hardcoded id to a set. §3.6
 recommends both panels be **read-only** in this phase, which costs nothing.
-
-### 2.10 Two open FINDINGS in this phase's blast radius
-
-- **#10** (`FINDINGS.md:1530-1547`, re-opened by #11 at `:1557`): `view/hud.js#hint`
-  falls back to `data/callouts.js#CALLOUTS[beat(run)]` (`:515-516`), and a
-  fresh `newRun()` starts at beat 0, so **every** early-game screenshot picks up
-  a tutorial callout. Filling beats 5–6 adds two more strings to that table and
-  therefore two more scenes that can acquire one. Not this phase's to fix, but
-  10c must not make it worse: any new baseline must set the beat explicitly.
-- **#13** (`FINDINGS.md:1578-1588`): the burden bar's value label overlaps the
-  bar. The real defect is `view/ui/bar.js:38` — `drawText(g, valueText, x + w +
-  3, barY - 2, …)`: a hardcoded 3 px gap, **no clamp against `vw`**, and
-  `barY - 2` with a 7 px glyph straddles the 3 px bar's own rows. `view/hud.js:166-169`
-  compounds it with a hardcoded `w: 50`. TRIBUTE lands directly under this and
-  will use the same primitive. §3.6 says fix it in 10c and says why.
 
 ### 2.11 Idioms this plan reuses rather than reinvents
 
@@ -1106,292 +1060,22 @@ the decision that requires it.
   systems work with a single acceptance walkthrough. Splitting the dock from
   the director would leave a receiver nothing drains, which is the state the
   repo is already in and the state this phase exists to leave.
-- The HUD is `view`, and the repo's own rule (`PLAN-gears-and-winches.md:1396-1397`)
-  is that view phases do not run concurrently. It also needs a human to approve
-  pixels, which is a different kind of gate.
+- The HUD is `view`, and this project runs at most one `src/view/`-owning
+  phase at a time. It also needs a human to approve pixels, which is a
+  different kind of gate.
 
-### 6.1 Phase 10a — unblock the cable (1 × `systems`, small, serial, FIRST)
-
-Paste-ready prompt:
-
-> You are implementing Phase 10a of `docs/PLAN-phase10.md` in the
-> mythos-factory repo. Read `CLAUDE.md`, `docs/SPEC.md` §17, and
-> `docs/PLAN-phase10.md` §2.6 and §3.1 (decision D-A) in full before touching
-> anything. **Scope is exactly one defect. Do not add content, do not touch
-> `data/`, do not start the Cloud Dock.**
->
-> The defect, measured: a straight vertical link between two *legally placed*
-> hubs always refuses with `'THE PATH IS BLOCKED'`, because a hub's anchor sits
-> on a tile-column boundary (`model/segments.js:114`), `solidNear`
-> (`:239-245`) correctly samples both tiles sharing a boundary-exact
-> coordinate, and every legally placed hub has a solid footing tile directly
-> under its footprint (`model/run.js:290-292`) which the span from below must
-> pass through. Reproduce it first: allocate the bands, generate, place two
-> hubs 12 tiles apart on flat surface ground with a real footing tile under the
-> upper one, and call `linkCheck`. **Do not proceed until you have seen the
-> refusal yourself.**
->
-> 1. Implement option A1 from §3.1: in `sweepSpan`, a sample lying within an
->    endpoint hub's own footprint columns, at or below that endpoint's anchor
->    and no lower than that footprint's bottom + 1 row, does not count as
->    blocked. Exactly two tiles per endpoint. Write the comment explaining
->    *why* the exemption is sound (the footprint is required clear, the footing
->    tile is required present, the drawn cable leaves the headframe) and why the
->    alternatives in §3.1 were rejected.
-> 2. `tools/check.mjs` §5: place every hub in the segment scenes with a real
->    footing tile, and add an assertion that a vertical link between two
->    legally placed hubs succeeds and that a genuine obstruction mid-span still
->    refuses. **Both assertions must be seen to fail before the fix and pass
->    after — report the exact output of each.** The existing scenes use
->    `machs.write.place`, which asks nothing about footing
->    (`data/machines.js:465-467` records this exact blind spot); that is why
->    this bug survived Phase 8g.
-> 3. `docs/SPEC.md` §17.6: amend the `'THE PATH IS BLOCKED'` row with the
->    exemption, in §17.2's own style for the `footing:2` history.
-> 4. `docs/FINDINGS.md`: record the measurement and the fact that the
->    `footing:2 -> 1` change did not fix the class of defect, boundary sampling
->    reopened it.
->
-> Run `npm run check`, `npm run lint` and `npm run test:visual`. Report exactly
-> what each says. No baseline should move; if one does, stop and explain why.
-
-Acceptance: two hubs placed legally 12 tiles apart, straight up, link. A hub
-pair with a real obstruction between them still refuses. Both assertions were
-seen to fail first. No pixels moved.
-
-### 6.2 Phase 10b — the loop (1 × `systems`, serial after 10a)
-
-Paste-ready prompt:
-
-> You are implementing Phase 10b of `docs/PLAN-phase10.md` in the
-> mythos-factory repo. Read `CLAUDE.md` in full (D1–D10), `docs/SPEC.md` §4 §5
-> §8 §12 §15 §17, `docs/DESIGN.md` "Run structure" and "The Hades act", and all
-> of `docs/PLAN-phase10.md`. Phase 10a must already be landed. **The HUD panels
-> are Phase 10c — do not draw anything.**
->
-> Land, in this order, each step verified before the next:
->
-> 1. **Widen astral** (§4.1): `data/world.js`, `tw:96 -> 128`,
->    `origin.x:128 -> 0`. Nothing else. Then re-accept `astral.png` and any
->    overview baseline that moved, **in its own commit**, stating that the
->    camera parks at `astral.origin` (`tests/visual.spec.js:277-278`) and
->    `origin.x` changed. Measure the overview's frame time before and after —
->    `docs/AUDIT-2.md:561` names this widening as a cost, so measure it rather
->    than assuming.
-> 2. **The two receiver rows** (§4.2, §4.3): `cloud_dock` (a hub, with
->    `ports`/`buffer`/`catchBox`/`handFeed`/`tribute:{}`, `tw:2 th:1
->    footing:2`) and `altar` (the same receiver block, no `hub`, **no substance
->    and no recipe** so the player can never build it — `kiln_divine` is the
->    precedent). Give `cloud_dock` a substance and one `hand:true` build recipe;
->    price both against SPEC §17.3's hub anchor. **Prove the `catchBox` slack
->    arithmetic against where a released haul actually comes to rest** — the
->    item is released *inside* the footprint at the anchor
->    (`rules/drive.js:260-263`), not falling in through the top mouth. Assert
->    it; do not eyeball it.
-> 3. **`RUN_SCHEMA`** (§4.8): three new fields, fresh containers built in
->    `write.reset()` for the reason `inv`/`granted`/`equipped` already are, plus
->    `write.favour`/`write.chart`/`write.miss` and the `tributeMet()` query.
->    Update `tools/check.mjs:759`, which already writes `run.tribute`.
-> 4. **`data/cycles.js`** (§4.7, §4.9): four rows, exactly the locked table.
->    Then `tools/content.mjs`: one import line in the registry at `:17-30` and
->    assertion 19, modelled on assertion 12 (`:429-442`) — closed-set `at` and
->    `reward.draft` vocabularies, `holdable(sub, form)` per demand row, and
->    `expand(sub + '/' + form).length > 0` per demand row. **Every assertion
->    must be seen to fail against a deliberately broken row.**
-> 5. **`rules/cycles.js`** (§4.7). A `rules` sibling: it may not import another
->    `rules` module (`tools/layers.mjs:104-105`). No `play()`, no `toast()` —
->    `model/journal.js#push` only. Deadlines accumulate from `dt` and live on
->    `run`, never in module scope and never off `Date.now()`. The
->    `trigger:'tribute'` drop roll duplicates `rules/mining.js:197-206` with a
->    comment naming the original and the sibling rule that forces the copy.
->    The draft is written into `run` for `shell/main.js` to perform, not called
->    directly — `draftable()` lives in four `rules` siblings you may not
->    import, and `schedule.js:204-209` already argues that a draft is an event
->    rather than a step.
-> 6. **`shell/schedule.js`** (§3.7): insert `cycles` between `drive` and
->    `tutorial`. Write the `drive before cycles` comment and **replace** the
->    `drive before tutorial` comment with `cycles before tutorial`, carrying its
->    reasoning over verbatim.
-> 7. **Beats 5 and 6** (D-E/E1): two predicates in `rules/tutorial.js:134,137`
->    reading state the director wrote, and two strings in
->    `data/callouts.js:23-24`. `rules/tutorial.js` stays the only writer of
->    `run.tutorialBeat`. Be aware of `docs/FINDINGS.md` #10: these two new
->    callout strings can appear in unrelated screenshots, so any scene you
->    baseline must set the beat explicitly.
-> 8. **The furnace grant** (D-H/H1): remove `'furnace'` from
->    `STARTING_MACHINES`; cycle 1 grants it. Audit `tools/check.mjs`'s five
->    `furnace` references and re-accept any CRAFT-panel baseline **in its own
->    commit** with the reason.
-> 9. **`docs/SPEC.md` §18** (§4.9 and step 6 below) and **`docs/DESIGN.md`**
->    (§7.1).
->
-> Harness (`tools/check.mjs`), and each assertion must be seen to fail first:
-> a cycle arms; a hand delivery to the altar credits the ledger; the ledger's
-> completion predicate fires exactly once; a deadline expires at the same
-> wall-clock time at 30 fps and at 144 fps (the fixed 1/120 s step makes this
-> checkable — do it, because a deadline is the first wall-clock quantity the
-> game has ever had); two misses kill the run; `newRun()` resets all five
-> fields (invariant 8); and a full seeded run is still bit-reproducible
-> (invariant 7).
->
-> Then perform the acceptance walkthrough **by hand, in order, and report what
-> happened at each step**, including anything that felt bad:
-> finish cycle 1 at the surface altar; watch `run.tutorialBeat` reach 5 when the
-> altar appears and 6 on delivery; chain three segments to astral from a column
-> under the now-full-width band; crank plate up; watch the ledger fill; get the
-> band unlock; then walk off the dock on purpose and die.
-
-Acceptance: as the walkthrough above. Plus `npm run check`, `npm run lint`,
-`npm run test:visual` all reported honestly, and every re-accepted baseline in
-its own commit with its own reason.
-
-### 6.3 Phase 10c — the panels (1 × `ui`, serial after 10b, THE VISUAL PHASE)
-
-Paste-ready prompt:
-
-> You are implementing Phase 10c of `docs/PLAN-phase10.md` in the
-> mythos-factory repo. Read `CLAUDE.md` (especially D2, D8 and the Conventions
-> section), `docs/PLAN-phase10.md` §2.8 §2.9 §2.10 §3.6 §4.10, and
-> `docs/FINDINGS.md` #10 #13 #15. Phase 10b must already be landed. **This is
-> the only phase in this wave that touches `src/view/` — nothing else may run
-> concurrently.**
->
-> 1. **Fix `view/ui/bar.js:38` first** (FINDINGS #13), before drawing anything
->    on top of it: measure the value text with `core/font.js#textWidth`, clamp
->    it against `vw`, and place it clear of the bar's own rows. Prove the fix
->    with a screenshot diff on the existing over-cap burden scene
->    (`drive-reversing-overcap.png`) — that shot is the finding's own evidence.
-> 2. **TRIBUTE**, left column, anchored at the value `view/hud.js:103` already
->    computes and currently throws away. One `drawBar` per demand row plus one
->    aggregate, labels through `data/forms.js#labelOf`, order through
->    `byHudOrder`. **No timer when `run.tribute.left === null`** — cycle 1 has
->    no clock and must not show a zero.
-> 3. **FAVOUR**, right column, inserted into the `boonBottom` anchor chain:
->    capture its bottom and pass it to **both** `hudRuler` (`:118`) and `debug`
->    (`:126`), or they will draw through your panel. Mask unmet gods with
->    `masked` imported from `view/ui/ruler.js:76`. **Do not write a second mask
->    predicate** — that file's header (`:21-33`) names this panel as its
->    intended second reader. `bandKnown` is not reusable for gods; the `known`
->    argument is your own query over `run.favour`.
-> 4. **Every x and y comes from measured text.** No hardcoded panel origins.
->    The mockup's FAVOUR label overruns its own frame and its boon cards clip
->    off the viewport; `view/ui/ruler.js:54-59` records hitting the identical
->    failure and fixing it by measuring. Match the mockup's density, not its
->    bugs.
-> 5. **Fix `view/ui/mainPanel.js:533`** (FINDINGS #15): the IDLE clause keys off
->    "no ports and no recipes", so the Cloud Dock — ports, no recipes — reads
->    `BLOCKED` on the LOGISTICS tab and in the overview's machines layer. Widen
->    it to "no recipes".
-> 6. **Both panels read-only.** Register no clickable rect, so neither forces
->    the always-on-UI widening at `shell/input.js:426` and `shell/main.js:381`.
-> 7. Project both panels through `__mf.ui` (D2) so a test can assert the ledger
->    without reading pixels.
-> 8. New baselines at **both** viewports including the 200 px phone floor: an
->    armed cycle 1 with no clock; a mid-cycle-3 ledger with a running deadline
->    and two of three gods known; an over-cap burden bar with TRIBUTE beneath
->    it (the #13 regression guard). Set `run.tutorialBeat` explicitly in every
->    new scene (FINDINGS #10). **Review each new baseline as an image and say
->    what you judged**, not just that it was captured.
->
-> Run `npm run check`, `npm run lint`, `npm run test:visual`. Report exactly
-> what each says, and for every baseline that moved, say why the pixels moved.
-
-Acceptance: a human looks at the panels at both viewports and says they are
-legible and dense enough. `#13`'s overlap is gone on its own evidence
-screenshot. The dock reads IDLE, not BLOCKED. No panel overlaps the depth
-readout, the boon stack, the ruler or the debug panel at any viewport down to
-200 px.
+**All three shipped** (10a's cable fix, 10b's loop, 10c's panels) — their
+prompt-and-acceptance text is gone with the work; `docs/SPEC.md` §18 and
+`view/hud.js`'s TRIBUTE/FAVOUR panels are the normative reference now.
 
 ---
 
 ## 7. The docs owed (SPEC §18 and DESIGN.md)
 
-### 7.1 `docs/SPEC.md` — new §18
-
-The next free number is **18** (§17.11 ends at `:1138`; there is no trailing
-matter). Follow §17's shape: a provenance line, then `### 18.N` subsections,
-numbers in GFM tables with the load-bearing ones bolded, ASCII arrows, code
-references backticked and `path#member`-qualified.
-
-Subsections to lock:
-
-- **18.1 The nouns.** `cycle`, `tribute`, `demand`, `favour`, `receiver`. State
-  that a Cloud Dock **is a hub** (D-B) so no sixth transport noun is coined
-  against §17.1/D10.
-- **18.2 The astral band, as widened.** `tw:128, origin.x:0`; world x
-  `[0,1024)`, y `[0,320)`; the ten-row stone slab at rows 30–39 (y 240–320) and
-  that its top edge is ragged by `layer()`'s lip carve; astral's floor top to
-  surface ground = 240 px = 30 tiles; that the surface→astral gap is
-  **3 segments at 12 tiles each** and why; and that **0 M does not move** (D9).
-- **18.3 The two receivers.** Full rows for `cloud_dock` and `altar`:
-  footprint, footing, blocks, `accepts` selectors, `buffer.cap`, `catchBox`
-  slack, held substance and mass, build bill and `secs` for the dock; and for
-  the altar, that it has no substance and no recipe and is placed by the
-  director. Include the sentence that the receiver **is a sink**, quoting
-  `rules/machines.js:174-177`, so the deliberate crossing of that line is on
-  the record.
-- **18.4 The cycle table.** §4.9 verbatim, with the ore-equivalent column
-  showing the §8 arithmetic.
-- **18.5 The ledger.** `run.cycle`, `run.tribute` (`{id, have, left}`),
-  `run.favour`, `run.charted`, `run.misses`; that the deadline accumulates from
-  `dt` at the fixed 1/120 s step and never from `Date.now()`; that two misses
-  ends the run through `write.hurt`.
-- **18.6 Rewards and punishments.** What a draft offers per tier and which
-  `draftable()` it comes from; that charting is knowledge and not access (D-D)
-  and that its payoff arrives with more bands; the punishment values.
-- **18.7 The fall off the dock.** The §3 arithmetic: 240 px, 392 px/s, 5 hearts,
-  dead. And the honest caveat that a parked carrier in the shaft will catch the
-  player, which is correct and must not be special-cased.
-- **§17.6 amendment** (from 10a): the endpoint-footing exemption, written in
-  §17.2's own style for its `footing:2` history.
-
-### 7.2 `docs/DESIGN.md`
-
-Two fixes the brief names, both confirmed:
-
-1. **`:96`** — *"Tribute must escalate in **refinement, not volume**. Cycle 1:
-   20 copper plates."* SPEC `:73` and `:91` lock **10 raw copper**. SPEC wins;
-   the divergence is three-way (quantity 20 vs 10, form plate vs raw, and
-   `:91`'s "each cycle … with a deadline" against `:73`'s "No clock"). Fix all
-   three in the same commit.
-2. **`:100`** — *"The HUD shows a static cycle-4 tribute panel as decoration."*
-   Doubly false: no such panel exists (`AUDIT-2.md:500-504`, re-verified — the
-   only traces are comments at `view/hud.js:505` and `:585`), and DESIGN's own
-   `:96-97` puts the progression at cycles 1–6, so "cycle-4" is not even the
-   endpoint it would decorate. Delete the sentence and replace it with the
-   truth after this phase.
-
-**Status table** (`:246-279`) rows to flip:
-
-| line | row | after Phase 10 |
-|---|---|---|
-| `:276` | tribute cycles, boon drafting, favour — *"no (drafting is exercisable by key, no director)"* | **yes** — `data/cycles.js` + `rules/cycles.js`, four cycles, the draft offered on completion |
-| `:275` | suspicion meter, Hades gated by depth — *"no"* | still **no**, but say that `masked` now exists and is in use, so the "Hades masked as `????????`" half is one predicate away |
-| `:262` | fog of war plus a map overview — cites only `rules/reveal.js` | add `view/overview.js` and `view/ui/ruler.js` (Phase 9 extracted the old `drawMap`; `scene.js:83-85` records it) |
-| `:279` | run loop, death, meta-progression — *"`meta` has no save"* | still partial, and now honest about `meta.godsMet` being written but unsaved (D-I) |
-
-**Three more DESIGN.md lines this recon found false**, worth fixing while the
-file is open (they are cheap and they mislead):
-
-- `:273` — *"no grid, queue or tabs — Phase 5"*. False: `view/ui/grid.js`,
-  `view/ui/tabs.js`, `mainPanel.js:50-54`'s three tabs and
-  `shell/ui.js:160-179` all exist. Only "queue" is still absent.
-- `:270` / `:181-182` — *"drag-to-equip UI still Phase 5b"*. False:
-  `shell/main.js:450-490` implements it; the `p` key (`input.js:129-132`) is
-  now a redundant alternative, not the only path.
-- `:79-80` — *"the lift's speed asymmetry"* names a machine that no longer
-  exists in `src/`. It is describing `reference/mockup/`, which is preserved,
-  so a parenthetical is enough — but a reader arriving from `:260` will trip.
-
-### 7.3 `docs/AUDIT-2.md`
-
-Do **not** rewrite it — it is Phase 6.5 recon and dated as such. But
-`AUDIT-2.md:62-64`, `:181-187`, `:191-193` and `:236-241` all reason from
-`data/machines.js:148`'s `lift.toBand:'astral'`, which no longer exists, and
-`:487-489`'s claim that no `altar`/`favour` string exists in `src/` is already
-false for both after Phase 9 and 8a. Add a dated staleness banner naming those
-five spans. `docs/PLAN-gears-and-winches.md` §7 is the precedent for patching a
-document rather than silently letting it rot.
+Both applied: `docs/SPEC.md` §18 is the locked section, and `docs/DESIGN.md`'s
+divergences named against this phase are fixed. (A third owed doc-fix,
+`docs/AUDIT-2.md`'s staleness banner, dissolved when that file was deleted
+as a spent artifact.)
 
 ---
 
@@ -1428,8 +1112,3 @@ document rather than silently letting it rot.
 | **10a's exemption lets a cable through real rock.** | Any blind spot in a clear-path test is a hole. | The exemption is two tiles per endpoint, both under a machine, in a footprint `placementCheck` proved clear with a footing tile it proved present. 10a's harness must assert a genuine mid-span obstruction still refuses, and must see that assertion fail first. |
 | **The ascent is priced too high and simply is not fun.** §4.5: 4 hubs, 3 cranks, ~108 ore, 30 tiles of scaffold, 40.5 T against a 40 T cap. | This is the first time "up is expensive" has been asked to carry a whole win condition, and nothing has playtested it. | 10b's acceptance is a physical walkthrough by a human who is asked to report what felt bad. Every lever is a tunable (`segReach` is scoped to the machine, so a longer-reach hub tier is a `variantOf` row and needs no engine edit). |
 | **The astral crank bootstrap reads as a deadlock.** The top segment lies wholly in astral and needs a crank there. | Components are per band (`rules/drive.js:404-417`) and the player must carry a crank up on a carrier they have not driven yet. | Named in §4.5. 10b must walk it and either give it a callout or record that it is acceptable. Do not "solve" it by making components cross bands — that breaks §17.9. |
-| **Baseline churn.** The astral widening moves the camera; the furnace grant changes the CRAFT panel; 10c adds panels over half the HUD. | Unavoidable given three separate real changes. | Every re-accept is its own commit with its own stated reason, and 10c reviews each new shot as an image rather than merely capturing it. |
-| **The `catchBox` slack is wrong and the dock silently swallows nothing.** | The released haul appears *inside* the footprint at the anchor, not falling in through the mouth — the mouth rects are 4 px tall and computed at placement (`model/machines.js:34-40`). | 10b must assert the arithmetic, not eyeball it. A dock that never credits is a phase that looks finished and is not. |
-| **The deadline is the game's first wall-clock quantity, and nothing has ever tested one.** | Every existing framerate assertion is about distance or hardness. | 10b's harness must expire a deadline at 30 fps and at 144 fps and compare, in the same style as the existing hardness table. |
-| **FINDINGS #10 gets worse.** Two more callout strings means two more unrelated scenes that can acquire one. | It is already open and already re-opened once (`:1557`). | Both 10b and 10c are told to set `run.tutorialBeat` explicitly in every scene they baseline. Fixing #10 itself is still not this phase's. |
-| **`tools/content.mjs` does not know about `data/cycles.js` and silently validates nothing.** | Its table registry is a static import block (`:17-30`) with no discovery, so a new table is simply absent rather than failing. | Named as an ownership amendment (§5), with assertion 12 (`:429-442`) as the template and "seen to fail against a deliberately broken row" as the acceptance. |
