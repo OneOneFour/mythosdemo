@@ -3409,8 +3409,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
 }
 
 /* --- NO FALL DAMAGE WHILE RIDING, AND FULL FALL DAMAGE THE MOMENT YOU STEP
-   OFF. docs/PLAN-gears-and-winches.md section 6.5 asks for both in one test,
-   and the reason is the mechanism: the ride branch does not DISABLE fall
+   OFF, both asked for in one test, and the reason is the mechanism: the ride branch does not DISABLE fall
    damage, it PINS `fallFrom` to the player's own y every substep
    (`rules/player.js`'s existing line, reused unchanged). A test that only
    proved "riding hurts nobody" would pass just as well against a ride branch

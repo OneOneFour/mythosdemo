@@ -4168,8 +4168,7 @@ test('winch: the same segment lit by a brazier', async ({ page }) => {
   await shot(page, 'winch-lit.png');
 });
 
-/* RENDER PURITY OVER EVERY NEW DRAW PATH (invariant 9 and the acceptance
-   criterion in docs/PLAN-gears-and-winches.md section 6.3): a cable, a bucket
+/* RENDER PURITY OVER EVERY NEW DRAW PATH (invariant 9): a cable, a bucket
    chain, a carrier with cargo, a turned gear train and the cable ghost, all
    on screen at once, drawn twice -- and `model/epoch.js` must not move. The
    headless harness in `tools/check.mjs` asserts the same thing over the

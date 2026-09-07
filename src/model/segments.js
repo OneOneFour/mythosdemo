@@ -381,9 +381,9 @@ export function chains() {
 
 /* WHERE A CHAIN STOPS: every hub that anchors exactly ONE segment. A gap in a
    chain is the space between two of these, which is what the
-   overview draws (docs/PLAN-gears-and-winches.md section 7.1) -- and WHICH
-   pair of open ends constitutes a gap worth highlighting is that phase's
-   DECISION, not this file's number. `model` owns the question; this is the
+   overview draws -- and WHICH
+   pair of open ends constitutes a gap worth highlighting is the overview's
+   own DECISION, not this file's number. `model` owns the question; this is the
    question. A lone segment reports both its hubs. */
 export function breaks() {
   const count = new Map();
