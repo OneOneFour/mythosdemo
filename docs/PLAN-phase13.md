@@ -1,9 +1,8 @@
 # Plan — wave 4, part 1: legibility, the ladder, the collect default, and the loop's punch list
 
-**Status: PROPOSAL. Nothing here is committed.** This is the plan-mode step
-`docs/BUILD_PLAN.md`'s own convention requires before a wave touches code —
-the same convention `docs/PLAN-phase10.md` and `docs/PLAN-phase12.md`
-followed.
+**Status: BUILT.** Phases 13a-13d all landed. Kept below as the design
+record; the "PROPOSAL" framing that follows describes the plan before it
+was executed.
 
 Everything below was read directly out of the repo at commit `818236e`
 (Phase 12d gap-fix, the tip at time of writing); every `file:line` is real
@@ -27,30 +26,6 @@ budget:
 the twelve invariants and D1–D10) and `ARCHITECTURE.md` §1, §5 and §7.
 `docs/SPEC.md` holds the locked numbers; `docs/DESIGN.md` holds the
 reasoning.
-
----
-
-## 1. Sizing, honestly, before anything else
-
-13a is the only phase in this document that is *bigger* than it looks, and it
-is bigger for one reason: **grey is load-bearing in ten places** (§2.3). A
-blanket `uiDim → ui` sweep would pass `npm run check`, move a pile of
-baselines, and silently delete ten status affordances — an undiscovered
-oxlint-invisible, screenshot-invisible regression. So 13a is a *classified*
-recolour, not a find-and-replace.
-
-13b is genuinely small and, scoped correctly, moves **zero** existing
-baselines. 13c is the smallest phase in the wave — one decision, a one-line
-fix, two tightened test probes and two stale comments. 13d is a proposal
-rather than a scheduled phase and needs a greenlight, because it changes
-what the game *is* rather than how it reads.
-
-| phase | agent | rough size | risk |
-|---|---|---|---|
-| 13a | 1 × `ui` | ~25 call sites, 1 `core/` signature, 2–4 palette rows, wide baseline churn | **medium** — semantic landmines, §2.3 |
-| 13b | 1 × `ui` | one form-aware branch in `paint.js`, one treatment, one new baseline | low |
-| 13c | 1 × `systems` + `harness` in one commit | 1 line of `src/`, 2 test probes, 2 comments | low |
-| 13d | 1 × `systems`, **needs greenlight** | 5 punch-list items across 6 files, plus a docs-drift correction | medium |
 
 ---
 
@@ -226,83 +201,17 @@ rect. Do not solve it by raising `maxDiffPixels`.
 - **No new panel, no repositioning, no font scale change.**
 - **No `fillText`.** Ever. Invariant 11.
 
-### 2.6 FILE OWNERSHIP — Phase 13a
-
-```
-src/core/palette.js          uiInk2, uiShade, uiDim's raised value. Hex only.
-src/core/font.js             drawText's 8th parameter. textWidth untouched.
-src/view/hud.js              UI table + the classified call sites
-src/view/scene.js            :534 only (band name -- tone + shadow)
-src/view/overview.js         :94 binding + the classified call sites + two
-                             backing rects
-src/view/ui/bar.js           :54 (value text tone)
-src/view/ui/tooltip.js       :38 (body-line tone, with the mask exception)
-src/view/ui/mainPanel.js     the classified call sites ONLY
-src/view/ui/tabs.js          NO CHANGE -- listed so the agent states it read
-                             it and left it alone (semantic, §2.3 #6)
-src/view/ui/ruler.js         NO CHANGE for the same reason (§2.3 #1)
-src/view/ui/{panel,slot,grid,quickbar}.js   bindings only if a classified
-                             site lives there; do not rebind speculatively
-tests/visual.spec.js         baseline updates only
-docs/DEVELOPER_GUIDE.md      the colour-and-appearance section, if it names
-                             the two tones
-```
-
-`src/view/paint.js:381` (`pipOff`) is **out of scope**: it is a machine-status
-pip colour, not text.
-
-### 2.7 Paste-ready prompt — Phase 13a
-
-> You are implementing Phase 13a of `docs/PLAN-phase13.md` in the
-> mythos-factory repo. Read `CLAUDE.md` in full (especially invariant 11,
-> integer pixels / no `fillText`, and D8), then `docs/PLAN-phase13.md` §2 in
-> full. **This phase changes colour and adds one optional drawing parameter.
-> It changes no layout, no panel geometry and no font metric.**
->
-> 1. `src/core/palette.js`: add `uiInk2` and `uiShade` exactly as §2.4(a)
->    gives them, and raise `uiDim`. Named entries only — no inlined hex
->    anywhere else in this diff.
-> 2. `src/core/font.js`: add the 8th `shadow = null` parameter to
->    `drawText` per §2.4(c). Draw the shadow pass as a COMPLETE string
->    traversal before the ink pass — do not interleave per bit, and do not
->    set `fillStyle` inside the glyph loop. Leave `textWidth` alone.
-> 3. Recolour **only** the sites §2.3 lists as safe to whiten, to `uiInk2`.
->    **Leave every one of the ten load-bearing sites on `uiDim`**, and in
->    your report list all ten by `file:line` with one line each saying what
->    state that grey encodes, to prove you read them rather than skipped
->    them.
-> 4. Apply the shadow / backing-rect rule in §2.4 verbatim. Do not shadow a
->    site that already sits inside a panel.
-> 5. Before/after check, and report the numbers: for `uiDim`, `uiInk2` and
->    `ui`, compute the WCAG contrast ratio against `uiBack` and against the
->    two worst real backdrops you can find in a screenshot (lit soil, lit
->    granite). Say which sites are still under 4.5:1 after your change and
->    why you left them.
-> 6. Verify by hand, in a browser: open the Character tab, a tooltip, the
->    overview, the TRIBUTE and FAVOUR panels, and the death screen. Confirm
->    every one of the ten semantic greys is still visibly distinct from the
->    body text beside it.
->
-> Run `npm run check`, `npm run lint`, `npm run test:visual`. Report exactly
-> what each says. Baselines WILL move — this is a deliberate visual change.
-> Re-accept with `npm run test:visual:update` and, in the commit message,
-> say why the pixels moved and name any baseline that moved for a reason you
-> did not expect. `maxDiffPixels` stays 0.
-
-**Acceptance (a physical action):** open the game, stand on lit surface soil
-at midday with no panel open, and read the band name at the bottom-left
-(`view/scene.js:534`) and the depth readout top-right without leaning in.
-Then open the Character tab and confirm the AUTO COLLECT row still reads
-*visibly* off when it is off and green when it is on — i.e. the contrast fix
-did not eat the state.
+**Landed**: `uiInk2`/`uiShade` in `core/palette.js`, `drawText`'s 8th
+parameter in `core/font.js`, the classified recolour across `view/hud.js`,
+`view/scene.js`, `view/overview.js` and the `view/ui/` files this section's
+FILE OWNERSHIP named, with the ten load-bearing sites in §2.3 left on
+`uiDim`. The executed prompt is git history.
 
 ---
 
 ## 3. Phase 13b — the ladder
 
-### 3.1 The rename already landed. Say so and move on.
-
-The brief asks for the ladder to be "just called ladder". **It already is.**
+### 3.1 The rename already landed
 
 `src/data/forms.js:148-152`:
 
@@ -459,63 +368,12 @@ opens anyway:
   `rules/player.js:293-294` documents the correct behaviour.
 - `src/data/forms.js:63` calls `log` "the only tile-capable form". Stale:
   `rung`, `stair` and `gravel` are too. (And `docs/PLAN-phase14-mining-and-drops.md`
-  changes that list again — coordinate the wording if 14a has already
-  landed.)
+  changed that list again once it landed.)
 
-### 3.6 FILE OWNERSHIP — Phase 13b
-
-```
-src/data/forms.js            a `look` block on `rung` and on `stair`;
-                             the two stale comments in §3.5
-src/view/treatments.js       TREAT.ladder (+ its EXTENT entry if it draws
-                             outside its own tile -- it does not, so it
-                             should NOT get one)
-src/view/paint.js            paintTile: the form-look branch, and the
-                             suppression of the generic top/face/bottom
-                             passes for a form that declares one
-tests/visual.spec.js         ONE new baseline (a ladder column in an open
-                             shaft, unlit and lit), both viewports
-README.md                    the climbable-tree line only
-```
-
-### 3.7 Paste-ready prompt — Phase 13b
-
-> You are implementing Phase 13b of `docs/PLAN-phase13.md`. Read
-> `CLAUDE.md` (invariants 3, 7 and 11, and D7's "a third name check does not
-> belong here"), then `docs/PLAN-phase13.md` §3 in full.
->
-> First, confirm in the repo that `src/data/forms.js:148`'s `rung` row
-> already reads `label:'LADDER'`, and say so in your report. **Do not rename
-> the id `rung`** — §3.1 explains why, and it is out of this phase's
-> ownership.
->
-> 1. `src/view/treatments.js`: add `TREAT.ladder` drawing the 8×8 geometry
->    in §3.3. Derive rung rows from the ABSOLUTE row (`cell.ty`), not from a
->    per-tile counter, so a stacked column has an unbroken pitch. Use
->    `hash2` if you want jitter and **never** `rand()`. Colour params must be
->    names from `data/palette.js`.
-> 2. `src/view/paint.js#paintTile`: add the form-look branch exactly as §3.3
->    gives it, using `model/tiles.js#formRowOf`, and suppress the generic lit
->    top / `cliffFace` / bottom-line passes for any tile whose FORM declares
->    a `look`. Do NOT add a name check to `decorate`.
-> 3. `src/data/forms.js`: give `rung` and `stair` their `look` blocks. Fix
->    the two stale comments named in §3.5.
-> 4. Add ONE new visual baseline: a 6-tile ladder column in an open shaft,
->    unlit and lit, both viewports, following the existing `shaft-unlit`/
->    `shaft-lit` scene idiom. Drive it through the model or the keyboard,
->    never through hardcoded click coordinates.
-> 5. **Report every baseline that moved.** §3.4 predicts ZERO existing
->    baselines move. If any did, stop and explain why before re-accepting —
->    it means the branch is firing for native timber, which is a bug, not a
->    visual change.
->
-> Run `npm run check`, `npm run lint`, `npm run test:visual`. Report exactly
-> what each says.
-
-**Acceptance (a physical action):** dig a 6-tile shaft, hand-craft rungs,
-place six of them up the wall, and look at it. It reads as a ladder — two
-rails and evenly spaced rungs continuous across every tile boundary — not as
-a stack of lit wooden cubes. Climb it and confirm the speed is unchanged.
+**Landed**: `TREAT.ladder` in `view/treatments.js`, `paintTile`'s form-look
+branch in `view/paint.js`, `look` blocks on `rung` and `stair` in
+`data/forms.js`, and both stale comments above fixed. Zero existing
+baselines moved. The executed prompt is git history.
 
 ---
 
@@ -622,20 +480,20 @@ register named ("a test asserting automatic pickup silently starts failing
 once `cmd.collect`/`ui.autoCollect` gates it") — landing on the other side of
 the coin: the test did not fail, it went hollow.
 
-### 4.5 Two fragile test idioms — note, do not fix
+### 4.5 A setter, not a toggle
 
-- `toggleAutoCollect()` is a blind **toggle**, not a setter. Its six call
-  sites in `tests/visual.spec.js` are safe only because each does a fresh
-  `page.goto` first.
-- `__mf.hold({collect:1}, n)` never releases: `clearEdges()` does not clear
-  `collect`, so `cmd.collect` stays latched true for the rest of that page's
-  life after any use.
+`toggleAutoCollect()` was a blind **toggle**: its six call sites in
+`tests/visual.spec.js` were safe only because each did a fresh `page.goto`
+first, and a toggle asserts the caller already knows the current value —
+true there only by accident. `setAutoCollect(bool)` replaces it, and the
+value is now exposed on `__mf.ui` so a test never has to blind-toggle to
+reach a known state.
 
-Neither is broken today; both are one refactor away from silently being
-wrong. A `setAutoCollect(bool)` setter and exposing the value on `__mf.ui`
-(it is **not** exposed today, so a test can only blind-toggle it) would fix
-both, and are the natural things for this phase to add since it is already in
-those files.
+**Still live, not fixed:** `__mf.hold({collect:1}, n)` never releases —
+`clearEdges()` does not clear `collect`, so `cmd.collect` stays latched true
+for the rest of that page's life after any use. Not broken today, and
+unrelated to the setter above (this is the raw `'c'` hold command, not the
+`ui.autoCollect` preference).
 
 ### 4.6 Two stale comments
 
@@ -646,67 +504,13 @@ those files.
 - `src/shell/boot.js:125`: "the existing pickup radius does the rest".
   Same staleness.
 
-`docs/SPEC.md` §5's beat sheet says the same thing in prose ("Walk into it to
-take it") and should be corrected in the same commit — `CLAUDE.md`'s rule is
-that if SPEC and code disagree, SPEC is stale and gets fixed in the same
-commit.
+`docs/SPEC.md` §5's beat sheet said the same thing in prose ("Walk into it to
+take it") and was corrected in the same commit.
 
-### 4.7 FILE OWNERSHIP — Phase 13c
-
-```
-src/shell/boot.js            one line in newRun's teardown (D13-A), plus
-                             the stale comment at :125
-src/shell/ui.js              setAutoCollect(bool) beside the toggle; header
-                             comment rewritten for whichever way D13-A went
-src/shell/main.js            expose autoCollect on the __mf.ui projection
-src/rules/tutorial.js        beat 2's comment
-tools/check.mjs              the two vacuous probes (§4.4), plus a new
-                             assertion that ui.autoCollect is false after
-                             newRun() if D13-A resets it
-tests/visual.spec.js         the six toggle call sites move onto the setter
-docs/SPEC.md                 §5 beat 2's prose
-docs/DEVELOPER_GUIDE.md      the input-intents section, if it describes
-                             pickup
-```
-
-### 4.8 Paste-ready prompt — Phase 13c
-
-> You are implementing Phase 13c of `docs/PLAN-phase13.md`. Read
-> `CLAUDE.md` (invariants 5 and 8) and `docs/PLAN-phase13.md` §4 in full.
->
-> **Before changing anything, re-verify §4.1 in the repo and report what you
-> found**: that `ui.autoCollect` is declared `false`
-> (`src/shell/ui.js:55-68`), that `model/run.js#write.collect` has exactly
-> one non-test caller (`src/rules/items.js:127`), and that nothing else in
-> `src/rules/` adds to `run.inv`. If any of that is false, STOP and report
-> rather than proceeding — the whole phase rests on it.
->
-> 1. Implement D13-A (§4.3): reset `ui.autoCollect` to `false` in
->    `shell/boot.js#newRun`'s teardown block, and rewrite `shell/ui.js`'s
->    header comment, which currently argues the opposite.
-> 2. Add `setAutoCollect(bool)` beside `toggleAutoCollect()` and expose the
->    current value on the `__mf.ui` projection in `shell/main.js` (§4.5) —
->    it is not observable from a test today.
-> 3. Fix the two vacuous probes in `tools/check.mjs` (§4.4) by mixing a
->    `collect:true` substep in, following the trinket probe at `:612-617`.
->    **Prove each one now has teeth: break the mechanic it asserts (e.g.
->    delete the burden refusal at `rules/items.js:124`) and confirm the probe
->    FAILS.** Report both seen-to-fail runs. A probe you did not see fail is
->    a probe you have not fixed.
-> 4. Add a probe asserting `ui.autoCollect === false` after `newRun()`.
-> 5. Move the six `toggleAutoCollect()` call sites in
->    `tests/visual.spec.js` onto the new setter.
-> 6. Fix the two stale comments (§4.6) and `docs/SPEC.md` §5 beat 2's prose,
->    in this same commit.
->
-> Run `npm run check`, `npm run lint`, `npm run test:visual`. Report exactly
-> what each says. No baseline should move — this phase touches no `view/`
-> file — so any screenshot diff is a bug, not an intended change.
-
-**Acceptance (a physical action):** start a run, open the Character tab, turn
-AUTO COLLECT on, mine some ore and watch it fly to you. Now die (dig a 20-tile
-shaft and drop down it), restart from the death-screen button, mine again —
-and the ore stays on the ground until you hold `c`.
+**Landed**: D13-A implemented (`ui.autoCollect` resets to `false` in
+`shell/boot.js#newRun`), `setAutoCollect(bool)` added and exposed on
+`__mf.ui`, the two vacuous probes given teeth, both stale comments and
+`docs/SPEC.md` §5 beat 2's prose fixed. The executed prompt is git history.
 
 ---
 
@@ -778,81 +582,19 @@ opens further" (access, not a name-unmask), "you draft a boon" (real choice),
 and "keeping stolen recipes and banked favour" (meta-progression). Mark each
 as not-implemented rather than deleting the design intent.
 
-**FILE OWNERSHIP — Phase 13d**
-
-```
-src/rules/cycles.js          drainReceivers' cyc.at gate + its header;
-                             the rw.grant -> grants.grant reroute (#9)
-src/data/machines.js         cloud_dock's band gate
-src/model/run.js             placementCheck's band clause, if the gate needs
-                             a new key rather than reusing minDepth
-src/shell/notify.js          TEXT + CHIPS rows for cycle/tribute/debt
-src/data/sfx.js              KIND_SFX rows + voice gaps for the same three
-src/data/callouts.js         beats past index 6
-src/rules/tutorial.js        BEATS past index 6
-src/view/hud.js              the win screen
-docs/SPEC.md                 a new §20 locking the band gate and the end
-                             condition; the §18.4 and §75 drift
-docs/DESIGN.md               the three unkept promises, marked
-```
-
-**Paste-ready prompt — Phase 13d**
-
-> You are implementing Phase 13d of `docs/PLAN-phase13.md`. Read
-> `CLAUDE.md` (D1, D5, D6, D9), `docs/SPEC.md` §18 in full, and
-> `docs/PLAN-phase13.md` §5 in full.
->
-> This phase closes the tribute loop. It fixes five things and nothing else —
-> §5.2's other fifteen items are OUT OF SCOPE and stay in that table.
->
-> 1. `rules/cycles.js#drainReceivers`: only credit a receiver whose machine
->    id matches the live cycle's `cyc.at`. Rewrite that function's header
->    comment (`:102-108`), which currently argues for the behaviour you are
->    removing. Material fed to the wrong receiver must not silently vanish —
->    decide and state whether it stays in that machine's buffer (recommended)
->    or is refused at the port, and say which you did.
-> 2. `data/machines.js`: gate `cloud_dock` to the `astral` band. Prefer a
->    band id over a negative `minDepth`, per §5.3's reasoning, and lock the
->    key in `docs/SPEC.md` before you read it in code.
-> 3. A win state at `run.cycle > CYCLES.length` (`rules/cycles.js:71`): a
->    screen drawn and hit-tested through the SAME `drawn`/hit-test idiom
->    Phase 12d's death-screen restart button uses. Do not invent a second
->    one.
-> 4. Wire `'cycle'`, `'tribute'` and `'debt'` through `shell/notify.js#TEXT`/
->    `CHIPS` and `data/sfx.js#KIND_SFX` with voice gaps. In the same commit,
->    reroute `rules/cycles.js:155`'s `rw.grant(id)` to
->    `rules/grants.js#grant` so cycle 1's reward pushes a `'grant'` row at
->    all — check first whether that is a legal import from `rules/cycles.js`
->    (**it is not**: `rules` siblings may not import each other), and if it
->    is not, say what you did instead and why it is not a second grant path.
-> 5. Extend `data/callouts.js` and `rules/tutorial.js#BEATS` past index 6 to
->    cover cycle 2's four first-time asks: plate, the dock, a segment chain,
->    and a clock.
-> 6. Correct the SPEC/DESIGN drift named at the end of §5.3, in this commit.
->
-> Run `npm run check`, `npm run lint`, `npm run test:visual`. Report exactly
-> what each says, and for every baseline that moved, say why.
-
-**Acceptance (a physical action):** finish cycle 1 at the altar and *hear and
-see* it land. Then try to pay cycle 2 by hand-feeding three plates to the same
-altar — and fail. Build a hub chain to astral, place the dock (and confirm
-placing it on the surface is refused, legibly), crank the plates up, watch
-cycle 2 complete. Then finish cycle 4 and get a real ending instead of a HUD
-that quietly stops mentioning tribute.
+**Landed**: `drainReceivers`'s `cyc.at` gate and rewritten header,
+`cloud_dock`'s `astral`-band gate, the win screen at `run.cycle >
+CYCLES.length`, the `'cycle'`/`'tribute'`/`'debt'` notify/sfx rows and the
+`grants.grant` reroute, `BEATS`/`CALLOUTS` extended past index 6, and the
+SPEC/DESIGN drift named above corrected in the same commit. The executed
+prompt is git history; the locked numbers are `docs/SPEC.md` §20.
 
 ---
 
 ## 6. Sequencing — wave 4, part 1
 
-| phase | agent | parallel? | gate to proceed |
-|---|---|---|---|
-| 13a UI contrast | 1 × `ui` | no (owns `src/view/` broadly) | all ten semantic greys enumerated and preserved; contrast figures reported; every moved baseline explained |
-| 13b ladder sprite | 1 × `ui` | **after 13a** — both edit `src/view/` | a ladder reads as a ladder; ZERO existing baselines moved |
-| 13c auto-collect | 1 × `systems` | yes, with 13a or 13b (disjoint ownership) | both fixed probes SEEN TO FAIL; collect off after a restart |
-| 13d close the loop | 1 × `systems` | **needs a greenlight**; after 13c | cycle 2 unpayable at the altar; the dock is astral-only; cycle 4 ends the run |
-
-13a and 13b both live in `src/view/` — **do not run them concurrently**, the
-same rule that kept Phases 8, 8b, 8e and 9 serial.
+Landed serially: 13a, then 13b (both owned `src/view/` —
+`.claude/brain/phase-plan-conventions.md` rule 1), then 13c, then 13d.
 
 ---
 

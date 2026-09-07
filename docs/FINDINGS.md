@@ -1726,7 +1726,7 @@ Consequences, in the order they bite:
 1. **`docs/SPEC.md` §21 does not exist and could not, so this landed as §19.**
    `docs/PLAN-phase14-mining-and-drops.md` §5 and §6.1 both said "a new §21".
    SPEC's last section was **§18**; §19 and §20 did not exist, and
-   `docs/PLAN-phase13.md` §794 reserves §20 for its own band gate. Numbering
+   `docs/PLAN-phase13.md` §5.3 reserves §20 for its own band gate. Numbering
    this 21 would have left two holes in a document nothing indexes
    sequentially, so it took the next free number and every `§21` reference in
    the plan document was rewritten to `§19` with a correction note in its §5.
