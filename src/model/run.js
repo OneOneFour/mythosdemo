@@ -262,19 +262,25 @@ export const write = {
 
   deepest(y) { if (y > run.deepest) { run.deepest = y; bump(); } },
 
-  /* MERGE-FIRST, always: the whole array is searched for an existing stack of
-     this exact pair before a new slot is ever allocated, so two slots holding
-     the identical pair simultaneously cannot occur (docs/PLAN-phase12.md
-     D-G) -- `invCount` stays a single lookup, never a sum across positions.
-     A brand-new pair may only land in `[0, run.mainSlots)`: the quickbar's
-     own tail is populated only by a deliberate drag, never by a pickup.
-     Returns FALSE, now, on no existing stack and no free main slot -- the
-     one new way a pickup may be refused (D-G/D-H, `rules/items.js#step`). */
+  /* Merge first, always. The whole array is searched for an existing stack of
+     this exact pair before any slot is allocated, so two slots can never hold
+     the identical pair and `invCount` stays one lookup, never a sum across
+     positions.
+
+     A brand-new pair fills the quickbar's own tail
+     (`run.inv[run.mainSlots ..]`) left to right, and only then the main grid,
+     so mined material lands under the digit keys and is usable with every
+     panel shut. A player who wants a different strip drags it there.
+
+     Returns false when there is no stack and no free slot anywhere, which is
+     the refusal `rules/items.js#step` turns into a journal row and a pickup
+     the ground keeps. */
   collect(sub, form, n) {
     const i = run.inv.findIndex(s => s && s.sub === sub && s.form === form);
     if (i !== -1) { run.inv[i].n += n; bump(); return true; }
-    const free = run.inv.findIndex((s, idx) => s === null && idx < run.mainSlots);
-    if (free === -1) return false;               // no existing stack, no free MAIN slot
+    const q = run.inv.findIndex((s, idx) => s === null && idx >= run.mainSlots);
+    const free = q !== -1 ? q : run.inv.findIndex(s => s === null);
+    if (free === -1) return false;
     run.inv[free] = { sub, form, n };
     bump();
     return true;

@@ -1,4 +1,4 @@
-/* LAYER view — THE QUICKBAR. Two rows of five, numbered 1-9-then-0, ALWAYS
+/* LAYER view — THE QUICKBAR. One row, numbered from 1, ALWAYS
    drawn (not gated on the main panel being open -- a quickbar is part of the
    permanent HUD, the same way the hearts are). The quickbar's cells ARE
    `run.inv[run.mainSlots .. run.inv.length)` -- the same physical storage the
@@ -28,7 +28,12 @@ import { frameSlot } from './slot.js';
 const INK = colour('ui'), DIM = colour('uiDim'), BACK = colour('uiBack');
 const ARMED = colour('uiGood');
 const SHADE = colour('uiShade');
-const SIZE = 14, COLS = 5;
+/* COLS MATCHES `eff('quickbarSlots')` (8, docs/SPEC.md section 24), so the
+   strip is one row with no ragged tail. `./grid.js` paints a cell for every
+   column of every row it draws, so a column count the slot count does not
+   divide leaves boxes that address nothing. 8 * (SIZE + 1) - 1 = 119 px
+   fits the 200 px base-buffer floor with room to spare. */
+const SIZE = 14, COLS = 8;
 
 /* Gap between the IN HAND line's baseline box and the quickbar's own top
    edge. The 5x7 font plus one row of shadow is 8 px tall, so 2 px of air
@@ -36,22 +41,30 @@ const SIZE = 14, COLS = 5;
 const HAND_GAP = 10;
 const HAND_PREFIX = 'IN HAND ';
 
-/* ONE mapping, TWO readers: this string is the whole rule for "which digit
-   key names which slot" -- slot 0 is '1', slot 8 is '9', slot 9 (the second
-   row's last cell) is '0', matching a physical numpad/keyboard row left to
-   right. `digitOf` (drawing the glyph in each cell) and `slotForDigit`
-   (`shell/input.js`'s digit-key handler, arming the SAME slot a click on it
-   already would) both index this one array, so "press 3" and "the slot
-   showing 3" cannot silently disagree about which slot that is.
+/* ONE mapping, TWO readers. This string is the whole rule for "which digit
+   key names which slot", counting along a physical keyboard row left to
+   right from slot 0 at '1'. It is longer than the strip, which is why both
+   readers are bounded by the real cell count below. `digitOf` (drawing the
+   glyph in each cell) and `slotForDigit` (`shell/input.js`'s digit-key
+   handler, arming the SAME slot a click on it already would) both index this
+   one string, so "press 3" and "the slot showing 3" cannot silently disagree
+   about which slot that is.
    See docs/DEVELOPER_GUIDE.md#one-decision-two-readers */
 const DIGITS = '1234567890';
 const digitOf = i => DIGITS[i];
 
 /* The inverse of `digitOf` above -- a lowercased `KeyboardEvent.key` to a
-   quickbar slot index, or -1 for any key that names no slot. Exported so
-   `shell/input.js` (which may import `view`, read-only, per its own header)
-   never has to re-derive or hand-copy this mapping. */
-export const slotForDigit = k => DIGITS.indexOf(k);
+   quickbar slot index, or -1 for any key that names no slot. The strip holds
+   fewer cells than `DIGITS` has glyphs, so the mapping is bounded by the
+   real cell count and a digit past the last cell names nothing rather than
+   an index off the end of `run.inv`. Measured off the array, because
+   `eff('quickbarSlots')` lives in `data/tuning.js` and `view` may not import
+   it. Exported so `shell/input.js` (which may import `view`, read-only, per
+   its own header) never has to re-derive or hand-copy this mapping. */
+export const slotForDigit = k => {
+  const i = DIGITS.indexOf(k);
+  return i >= 0 && i < run.inv.length - run.mainSlots ? i : -1;
+};
 
 /* One line of key bindings, collapsed by default (`ui.hintsOpen`). Named
    here rather than pulled from `shell/input.js` (`view` may not import

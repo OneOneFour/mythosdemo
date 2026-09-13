@@ -2686,3 +2686,33 @@ spawn and the altar) and `tools/check.mjs`'s burden probe digging `+15` tiles
 clear of it. Neither hazard is unconditional any more, but both are one click
 from returning, and the altar's 4-tile gap is correct staging regardless
 (§5's first beat is a walk).
+
+---
+
+## 24. Inventory slots and the pickup fill order (Phase 12c, revised 17i)
+
+| tunable | value | unit | meaning |
+|---|---|---|---|
+| `invSlots` | 30 | slots | length of the main inventory grid; `run.mainSlots` at reset |
+| `quickbarSlots` | 8 | slots | length of the quickbar, the tail of `run.inv` past `run.mainSlots` |
+
+`run.inv` is one fixed-length array of `invSlots + quickbarSlots` entries and
+the quickbar is its tail, so total capacity is 38 distinct pairs.
+
+**A pickup merges first.** `model/run.js#write.collect` searches the whole
+array for an existing stack of the exact pair before it allocates anything, so
+one pair occupies one slot wherever that slot currently sits.
+
+**A brand-new pair fills the quickbar first**, left to right, and reaches the
+main grid only once all 8 cells are taken. Mined material therefore lands
+under the digit keys and is usable with every panel shut. A player who wants a
+different strip drags a pair there, and a drag is still the only thing that
+reorders slots.
+
+**A pickup with no stack and no free slot is refused.** `write.collect`
+returns false, `rules/items.js#step` pushes a `'refused'` row reading
+`INVENTORY FULL`, and the item stays on the ground, per invariant 5.
+
+**Digit keys name cells 1 through 8.** `view/ui/quickbar.js#slotForDigit` is
+bounded by `run.inv.length - run.mainSlots`, so `9` and `0` name no slot while
+the strip is eight cells and pressing them arms nothing.

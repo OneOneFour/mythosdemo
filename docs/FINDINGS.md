@@ -2252,3 +2252,40 @@ also what gives it its first execution.
   IS PAID" burns down unseen behind it. Arguably right (the modal *is* the
   announcement) and deliberately not changed here; recorded so a later phase
   that wants the beat knows where it went.
+
+## Phase 17i (the quickbar is eight cells, and pickups fill it first)
+
+- **`src/view/ui/grid.js:75-84` paints a cell for every column of every row
+  it draws, so a grid whose item count its column count does not divide shows
+  boxes that address nothing.** The cell loop runs `for (c = 0; c < cols;
+  c++)` and pushes a slot for each position in the rectangle, drawing
+  `CELL_BG` even where `idx >= items.length`. This phase hit it first. Eight
+  slots at the old `COLS = 5` drew ten boxes, the last two without a digit
+  glyph, without an empty-slot fill, and without a `run.inv` index. Closed
+  here by matching `view/ui/quickbar.js#COLS` to the slot count rather than
+  by changing the primitive, because `mainPanel.js`'s recipe and craft-queue
+  grids are ragged by nature and share it. Those two are where the padded
+  boxes still show, and whether that is right is a question for whoever owns
+  the Crafting tab.
+
+- **`src/rules/items.js:128-131`'s refusal comment still says "no free main
+  slot".** The refusal now means no free slot anywhere, main or quickbar.
+  One stale phrase, in a file outside this block.
+
+- **FOR 17g — `hollow-relic-unlit.png` shows the same instability FINDINGS
+  #14 reports for `winch-lit`/`winch-unlit`.** Rendering that scene with
+  this phase's `src/` changes stashed produced a 12-pixel difference against
+  the committed baseline, confined to (628,390)-(652,406) — the relic's own
+  halo, nothing to do with the quickbar. The re-accepted baseline then
+  passed three consecutive runs. So the scene varies between sessions rather
+  than between renders, which is the shape a module-scope generator that
+  `reset()` does not rewind would produce (`view/fx.js:25`, already named in
+  17e's brief).
+
+- **`src/view/hud.js#hint` centres the bottom callout without reserving the
+  quickbar's rect, and the two now overlap by 4 px at the 200 px floor.**
+  `y = H - 16` puts the callout band at rows 164-176 and the strip occupies
+  153-167, which was already true when the strip was two rows of five —
+  what changed is the width, so "TAKE THE PICKAXE" now runs under cells 1-5
+  instead of 6-7. The fix is the D8 one (anchor off `drawn.grids`'s quickbar
+  rect the way `hudRuler` already does), not a nudged constant.

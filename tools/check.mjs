@@ -6741,6 +6741,147 @@ console.log('\n8j. STANDING STILL COSTS NOTHING (Phase 16b)');
        `ON loses every one of them, so the claim has teeth (Phase 16b, D16-C)`);
 }
 
+/* ============================================================
+   8k. THE QUICKBAR FILLS FIRST (Phase 17i, docs/SPEC.md section 24)
+   ------------------------------------------------------------
+   `model/run.js#write.collect` allocates a brand-new pair into the
+   quickbar's tail before the main grid, so the order the strip fills in is
+   a behavioural contract and not a display detail. Driven through the REAL
+   pickup path -- a ground item under the player and `cmd.collect` held --
+   because invariant 5 says mined material arrives as a falling item, and
+   because the two refusals in `rules/items.js#step` are only reachable from
+   there.
+
+   THE BURDEN CAP IS CHECKED FIRST in that function, so the full-inventory
+   probe below lifts `burden` through `model/mods.js` rather than hunting for
+   38 pairs light enough to fit under 40 T. The 44 crossable pairs weigh
+   60.9 T together; a probe that did not lift the cap would report the wrong
+   refusal and pass.
+   ============================================================ */
+console.log('\n8k. THE QUICKBAR FILLS FIRST (Phase 17i)');
+{
+  let bad = 0;
+  const QUICK = run.run.inv.length - run.run.mainSlots;
+
+  /* A flat floor, the player standing on it, nothing else in the room -- a
+     machine would catch the very items this probe wants pocketed. */
+  const room = seed => {
+    boot.newRun(seed);
+    const band = world.bandOf('topsoil');
+    for (let ty = 110; ty <= 118; ty++)
+      for (let tx = 16; tx <= 29; tx++) tiles.write.clear(band, tx, ty);
+    for (let tx = 16; tx <= 29; tx++) tiles.write.set(band, tx, 119, D_sub.S.stone);
+    player.write.band(band);
+    player.write.move(world.worldX(band, 22), world.worldY(band, 117));
+    player.write.vel(0, 0);
+    player.write.set('onGround', true);
+    runReal(30, 1 / 120, { hasMouse: false });          // settle onto the floor
+    return band;
+  };
+
+  /* Spawn one item at the player's own centre and hold COLLECT until it is
+     gone. 90 substeps is 0.75 s, comfortably past `rules/items.js`'s 0.35 s
+     MAGNET_DELAY. Returns the slot index it landed in, or -1. */
+  const pocket = (band, sub, form) => {
+    const c = player.playerCentre();
+    items.write.spawn(band, c.x, c.y, sub, form, 0, 0);
+    runReal(90, 1 / 120, { collect: true, hasMouse: false });
+    return run.run.inv.findIndex(s => s && s.sub === sub && s.form === form);
+  };
+
+  /* Every pair the content tables can express, so the capacity probe fills
+     real slots with real pairs rather than invented ones. A lit brand burns
+     down while it is held (`rules/light.js`), which would free a slot in the
+     middle of the probe, so that one pair is left out. */
+  const ALL = [];
+  for (const sub of Object.keys(D_sub.SUB))
+    for (const form of Object.keys(D_form.FORM))
+      if (D_form.crossable(+sub, +form) && +form !== D_form.F.brand) ALL.push([+sub, +form]);
+
+  /* ---- fill order: the strip first, left to right, then slot 0 of the bag ---- */
+  {
+    const band = room(7717);
+    const want = QUICK + 1;
+    const landed = [];
+    let mainStillEmpty = true;
+    for (let i = 0; i < want; i++) {
+      const [sub, form] = ALL[i];
+      landed.push(pocket(band, sub, form));
+      if (i === QUICK - 1)
+        mainStillEmpty = run.run.inv.slice(0, run.run.mainSlots).every(s => s === null);
+    }
+    const wantSlots = landed.map((_, i) => i < QUICK ? run.run.mainSlots + i : 0);
+    if (landed.some(i => i === -1)) {
+      fail(`QUICKBAR FILL: ${landed.filter(i => i === -1).length} of ${want} items were never pocketed ` +
+           `at all -- the scene is wrong, not the fill order`);
+      bad++;
+    } else if (landed.join() !== wantSlots.join()) {
+      fail(`QUICKBAR FILL: ${want} distinct pairs picked up one at a time landed in slots ` +
+           `[${landed}], want [${wantSlots}] -- the first ${QUICK} fill the quickbar's tail left to ` +
+           `right and only the next one reaches the main grid (docs/SPEC.md section 24)`);
+      bad++;
+    } else if (!mainStillEmpty) {
+      fail(`QUICKBAR FILL: the main grid already held something after ${QUICK} pickups -- every one of ` +
+           `them must be in the quickbar's tail before slot 0 of the bag takes anything`);
+      bad++;
+    } else {
+      ok(`QUICKBAR FILL: ${QUICK} distinct pairs picked up through the real item path land in quickbar ` +
+         `cells 0..${QUICK - 1} left to right with the main grid untouched, and the ${want}th lands in ` +
+         `main slot 0`);
+    }
+  }
+
+  /* ---- merge-first outranks the fill order ---- */
+  {
+    const band = room(7718);
+    const [sub, form] = [D_sub.S.copper, D_form.F.ore];
+    run.write.collect(sub, form, 1);
+    run.write.moveSlot(run.run.inv.findIndex(s => s && s.sub === sub && s.form === form), 3);
+    const at = pocket(band, sub, form);
+    const quickEmpty = run.run.inv.slice(run.run.mainSlots).every(s => s === null);
+    if (at !== 3 || run.run.inv[3].n !== 2 || !quickEmpty) {
+      fail(`MERGE FIRST: a second copper/ore collected while one already sat in MAIN slot 3 landed in ` +
+           `slot ${at} holding ${run.run.inv[3]?.n} unit(s), quickbar empty ${quickEmpty} -- want slot 3, ` +
+           `2 units, quickbar untouched: the whole-array merge search runs before any allocation`);
+      bad++;
+    } else {
+      ok('MERGE FIRST: a pair already held in a MAIN slot tops that slot up, rather than allocating a ' +
+         'quickbar cell -- the merge search still precedes the fill order');
+    }
+  }
+
+  /* ---- every slot full: refused, and the ground keeps it ---- */
+  {
+    const band = room(7719);
+    mods.write.add('phase17i-capacity', [{ key: 'burden', mul: 100 }]);
+    const cap = run.run.inv.length;
+    for (let i = 0; i < cap; i++) run.write.collect(ALL[i][0], ALL[i][1], 1);
+    const full = run.run.inv.every(s => s !== null);
+    const [sub, form] = ALL[cap];
+    const before = journal.peek().length;
+    const at = pocket(band, sub, form);
+    const rows = journal.peek().slice(before)
+      .filter(j => j.kind === 'refused' && j.data?.why === 'INVENTORY FULL');
+    const onGround = items.items.some(it => it.sub === sub && it.form === form);
+    mods.write.removeBySource('phase17i-capacity');
+    if (!full || ALL.length <= cap) {
+      fail(`INVENTORY FULL: the scene filled ${run.run.inv.filter(s => s !== null).length} of ${cap} slots ` +
+           `from ${ALL.length} expressible pairs -- it cannot prove a refusal it never reached`);
+      bad++;
+    } else if (at !== -1 || !onGround || !rows.length) {
+      fail(`INVENTORY FULL: with all ${cap} slots taken, a ${D_form.labelOf(sub, form)} under the player landed in slot ` +
+           `${at} (want -1), left on the ground ${onGround} (want true), 'INVENTORY FULL' rows ${rows.length} ` +
+           `(want at least 1) -- a refused pickup must survive as an item, per invariant 5`);
+      bad++;
+    } else {
+      ok(`INVENTORY FULL: all ${cap} slots taken, the next pickup is refused through rules/items.js#step ` +
+         `with one 'INVENTORY FULL' journal row, and the item is still lying on the ground`);
+    }
+  }
+
+  if (bad) fail(`QUICKBAR: ${bad} of 3 fill-order probes failed`);
+}
+
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +
             `journal ${journal.peek ? journal.peek().length : 0} undrained`);

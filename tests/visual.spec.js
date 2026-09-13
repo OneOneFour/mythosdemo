@@ -33,13 +33,13 @@ const shot = (page, name) => expect(page.locator('#stage')).toHaveScreenshot(nam
 const settle = async (page, seed = 1337) =>
   page.evaluate(s => { __mf.newRun(s); __mf.clock.t = 10; __mf.frames(2); }, seed);
 
-/* TEST-ONLY QUICKBAR SETUP (docs/PLAN-phase12.md §3 D-H, Phase 12c2): the
-   quickbar is `run.inv`'s own tail now, not a `shell/ui.js#assignQuickbar`
-   assignment table -- that function is gone. Putting a held pair into a
-   SPECIFIC quickbar slot for a test's own setup means collecting it (which
-   only ever lands in a MAIN slot, `write.collect` never allocates into the
-   quickbar's index range) and then moving it there directly with
-   `write.moveSlot`, exactly the mechanism a real drag now also drives. */
+/* TEST-ONLY QUICKBAR SETUP. The quickbar is `run.inv`'s own tail, so putting
+   a pair into a SPECIFIC cell means collecting it and then moving it from
+   wherever `write.collect` put it (docs/SPEC.md section 24: the quickbar's
+   free cells first, then the main grid) to the cell this test wants, through
+   the same `write.moveSlot` a real drag drives. The source index is read
+   back rather than assumed, because the landing slot depends on what the
+   scene already holds. */
 async function putInQuickbar(page, slot, subKey, formKey, n = 1) {
   await page.evaluate(async ({ slot, subKey, formKey, n }) => {
     const { run, write } = await import('/src/model/run.js');
@@ -50,6 +50,39 @@ async function putInQuickbar(page, slot, subKey, formKey, n = 1) {
     const idx = run.inv.findIndex(s => s && s.sub === sub && s.form === form);
     write.moveSlot(idx, run.mainSlots + slot);
   }, { slot, subKey, formKey, n });
+}
+
+/* THE SAME TWO HELPERS AIMED AT THE BAG. A pickup fills the quickbar's
+   cells before the main grid (docs/SPEC.md section 24), so a test whose
+   subject is the Character tab's own grid -- a drag out of it, a hover over
+   it, a click on one of its slots -- has to put the pair there deliberately
+   rather than trust where a collect landed.
+
+   THE FIRST FREE MAIN SLOT, never a caller's chosen index: `write.moveSlot`
+   is an unconditional SWAP, so aiming at slot 0 in a scene that already
+   holds something would fling that pair out into the quickbar and into the
+   screenshot. On a fresh run the first free slots are 0, 1, 2 in order,
+   which is all any caller here wanted. */
+async function putInMain(page, subKey, formKey, n = 1) {
+  await page.evaluate(async ({ subKey, formKey, n }) => {
+    const { write } = await import('/src/model/run.js');
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    write.collect(S[subKey], F[formKey], n);
+  }, { subKey, formKey, n });
+  await moveHeldToMain(page, subKey, formKey);
+}
+
+async function moveHeldToMain(page, subKey, formKey) {
+  await page.evaluate(async ({ subKey, formKey }) => {
+    const { run, write } = await import('/src/model/run.js');
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const sub = S[subKey], form = F[formKey];
+    const idx = run.inv.findIndex(s => s && s.sub === sub && s.form === form);
+    if (idx === -1 || idx < run.mainSlots) return;
+    write.moveSlot(idx, run.inv.findIndex((s, i) => s === null && i < run.mainSlots));
+  }, { subKey, formKey });
 }
 
 /* The other half of the same idiom: a pair ALREADY held (e.g. just crafted,
@@ -436,13 +469,13 @@ test('REAL DRAG: dragging a held item from the inventory grid onto an empty quic
     const { bandOf } = await import('/src/model/world.js');
     __mf.revealAll(bandOf('surface'));
   });
+  await putInMain(page, 'furnace', 'rig');
   const { S, F } = await page.evaluate(async () => {
     const { write } = await import('/src/model/run.js');
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { open, setTab } = await import('/src/shell/ui.js');
     write.grant('furnace');   // no longer a starting grant
-    write.collect(S.furnace, F.rig, 1);
     open('main');
     setTab('main', 'char');
     __mf.cmd.hasMouse = false;
@@ -1236,14 +1269,13 @@ test('the same seed renders identically twice', async ({ page }) => {
 test('hovering an inventory pair resolves a tooltip naming it', async ({ page }) => {
   await boot(page);
   await settle(page);
+  await putInMain(page, 'copper', 'ore', 5);
   const info = await page.evaluate(async () => {
-    const { write } = await import('/src/model/run.js');
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { banner } = await import('/src/view/fx.js');
     const { open, setTab } = await import('/src/shell/ui.js');
 
-    write.collect(S.copper, F.ore, 5);
     open('main');
     setTab('main', 'char');
     /* `drawHUD` shows the title card instead of a tooltip while `banner.fade`
@@ -1360,16 +1392,19 @@ test('the same shaft lit by a brazier', async ({ page }) => {
 test('the Character tab', async ({ page }) => {
   await boot(page);
   await settle(page);
+  /* INTO THE BAG, not the strip. The tab's own grid is this shot's subject,
+     and a pickup fills the quickbar first (docs/SPEC.md section 24), so two
+     pairs left where a collect puts them would baseline an empty grid --
+     which `ui-character-fresh.png` already covers. */
+  await putInMain(page, 'copper', 'ore', 5);
+  await putInMain(page, 'timber', 'log', 3);
   await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
-    const { F } = await import('/src/data/forms.js');
     const { write: rw } = await import('/src/model/run.js');
     const { open, setTab, setAutoCollect } = await import('/src/shell/ui.js');
     const { grant, step: trinketStep } = await import('/src/rules/trinkets.js');
     const { banner } = await import('/src/view/fx.js');
 
-    rw.collect(S.copper, F.ore, 5);
-    rw.collect(S.timber, F.log, 3);
     grant('bellows');
     /* Phase 12b (docs/PLAN-phase12.md): pickup is opt-in now, not automatic
        -- turn the magnet ON for the wait below, the same way `digging
@@ -1426,14 +1461,11 @@ test('the Character tab on a fresh run: eff(invSlots) mostly-empty cells, not a 
 test('dragging one occupied inventory slot onto another swaps them in place', async ({ page }) => {
   await boot(page);
   await settle(page);
+  await putInMain(page, 'copper', 'ore', 5);
+  await putInMain(page, 'timber', 'log', 3);
   await page.evaluate(async () => {
-    const { write: rw } = await import('/src/model/run.js');
-    const { S } = await import('/src/data/substances.js');
-    const { F } = await import('/src/data/forms.js');
     const { open, setTab } = await import('/src/shell/ui.js');
     const { banner } = await import('/src/view/fx.js');
-    rw.collect(S.copper, F.ore, 5);
-    rw.collect(S.timber, F.log, 3);
     open('main');
     setTab('main', 'char');
     __mf.cmd.hasMouse = false;
@@ -1466,21 +1498,21 @@ test('dragging one occupied inventory slot onto another swaps them in place', as
   await shot(page, 'ui-character-swap-phone.png');
 });
 
-test('the quickbar shows exactly eff(quickbarSlots) cells, fully populated, with no scrollbar or truncation', async ({ page }) => {
+test('the quickbar draws exactly eff(quickbarSlots) cells, fully populated, with no scrollbar or truncation', async ({ page }) => {
   await boot(page);
   await settle(page);
   const qslots = await page.evaluate(async () => {
     const { eff } = await import('/src/model/mods.js');
     return Math.round(eff('quickbarSlots'));
   });
-  expect(qslots).toBe(10);
-  /* Ten DISTINCT pairs -- `write.collect`'s merge-first search means giving
+  expect(qslots).toBe(8);
+  /* Eight DISTINCT pairs -- `write.collect`'s merge-first search means giving
      the SAME pair twice tops up one slot rather than filling a second, so
-     "fully populated" needs ten different substances, not one repeated. */
+     "fully populated" needs eight different substances, not one repeated. */
   const pairs = [
     ['copper', 'ore'], ['tin', 'ore'], ['timber', 'log'], ['stone', 'gravel'],
     ['soil', 'gravel'], ['granite', 'gravel'], ['adamant', 'gravel'],
-    ['pick', 'relic'], ['auger', 'relic'], ['bellows', 'relic']
+    ['pick', 'relic']
   ];
   for (let i = 0; i < pairs.length; i++) await putInQuickbar(page, i, pairs[i][0], pairs[i][1]);
   await page.evaluate(async () => {
@@ -1490,14 +1522,55 @@ test('the quickbar shows exactly eff(quickbarSlots) cells, fully populated, with
     __mf.frames(1);        // draw once so __mf.ui reflects the fill
   });
 
+  /* ONE DRAWN CELL PER SLOT, and the count is asserted on both sides:
+     `__mf.ui.quickbar` is `run.inv`'s tail and `grid.slots` is what was
+     painted. `view/ui/grid.js` paints every column of every row, so a
+     `COLS` that did not divide the slot count would show up here as more
+     drawn cells than addressable ones. */
   const grid = await page.evaluate(() => __mf.ui.grids.find(g => g.id === 'quickbar'));
-  expect(grid.slots.length).toBe(10);
+  const cells = await page.evaluate(() => __mf.ui.quickbar.length);
+  expect(cells).toBe(8);
+  expect(grid.slots.length).toBe(8);
   expect(grid.slots.every(s => s.sub != null)).toBe(true);
-  expect(grid.rows).toBe(2);            // two rows of five, never more
+  expect(grid.rows).toBe(1);            // one row of eight, never a second
 
   await shot(page, 'ui-quickbar-full.png');
   await phoneFloor(page);
   await shot(page, 'ui-quickbar-full-phone.png');
+});
+
+/* `DIGITS` is ten glyphs long and the strip is eight cells, so '9' and '0'
+   name nothing. The old mapping returned 8 and 9 for them and the arm
+   branch's `if (slot && slot.sub != null)` swallowed the out-of-range read
+   -- a silent no-op that no assertion could see. This drives the real
+   keyboard and reads the arm back, and it fails if a digit past the last
+   cell ever resolves again. */
+test('digit keys past the last quickbar cell arm nothing and throw nothing', async ({ page }) => {
+  const errors = await boot(page);
+  await settle(page);
+  for (let i = 0; i < 8; i++) await putInQuickbar(page, i, 'copper', 'ore');
+  await page.evaluate(() => __mf.frames(1));
+
+  await page.keyboard.press('8');
+  const armedAt8 = await page.evaluate(() => __mf.ui.armedPlace);
+  expect(armedAt8).toBeTruthy();          // the LAST real cell does arm
+
+  await page.evaluate(async () => (await import('/src/shell/ui.js')).clearArmedPlace());
+  await page.keyboard.press('9');
+  await page.keyboard.press('0');
+  await page.evaluate(() => __mf.frames(1));
+  expect(await page.evaluate(() => __mf.ui.armedPlace)).toBeNull();
+  expect(errors).toEqual([]);
+
+  /* AND THE MAPPING ITSELF, because the arm half alone cannot fail: an
+     unbounded `slotForDigit` returns 8 for '9', `run.inv[38]` is undefined,
+     and the arm branch's own null check swallows it. -1 is the only
+     observable difference between the two mappings. */
+  const digits = await page.evaluate(async () => {
+    const { slotForDigit } = await import('/src/view/ui/quickbar.js');
+    return { one: slotForDigit('1'), eight: slotForDigit('8'), nine: slotForDigit('9'), zero: slotForDigit('0') };
+  });
+  expect(digits).toEqual({ one: 0, eight: 7, nine: -1, zero: -1 });
 });
 
 /* No HAND recipe is genuinely lockable in this build -- `model/run.js
@@ -2177,11 +2250,9 @@ test('REAL CLICK: clicking an unaffordable recipe refuses instead of queuing for
 test('REAL DRAG: dragging a trinket onto an equip slot equips it, dragging it out unequips it (Bug 1)', async ({ page }) => {
   await boot(page);
   await settle(page);
+  await putInMain(page, 'bellows', 'relic');
   await page.evaluate(async () => {
-    const { S } = await import('/src/data/substances.js');
-    const { F } = await import('/src/data/forms.js');
     const { open, setTab } = await import('/src/shell/ui.js');
-    __mf.give(S.bellows, F.relic, 1);
     open('main');
     setTab('main', 'char');
     __mf.cmd.hasMouse = false;
@@ -2373,6 +2444,7 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
   });
   expect(crafted.rig).toBe(1);
 
+  await moveHeldToMain(page, 'furnace', 'rig');
   await page.evaluate(async () => {
     const { open, setTab } = await import('/src/shell/ui.js');
     open('main');
@@ -2512,6 +2584,7 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
   expect(afterDig.tile).toBe(0);                    // AIR: `data/forms.js#AIR`
   expect(afterDig.gravel).toBeGreaterThan(0);        // and it is actually pocketed, not merely dropped
 
+  await moveHeldToMain(page, 'soil', 'gravel');
   await page.evaluate(async () => {
     const { open, setTab } = await import('/src/shell/ui.js');
     open('main');
@@ -2609,6 +2682,7 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
 
   /* Click-to-arm the BLOCK, then place it back, aimed exactly the same way
      (no direction held, facing right) at the exact tile just mined. */
+  await moveHeldToMain(page, 'soil', 'block');
   await page.evaluate(() => __mf.frames(1));
   const invSlot = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
@@ -2728,6 +2802,7 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
      a confirmed, silent, complete no-op -- the click-to-arm gate required a
      tile-capable form, a `rig` or a `phial`, and `ore` is none of the
      three. ---- */
+  await moveHeldToMain(page, 'copper', 'ore');
   await page.evaluate(async () => {
     const { open, setTab } = await import('/src/shell/ui.js');
     open('main');
@@ -3539,18 +3614,16 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
      slot (click-to-arm), aim it, and screenshot the ghost BEFORE confirming
      the placement ---- */
   await page.evaluate(async () => {
-    const { S } = await import('/src/data/substances.js');
-    const { F } = await import('/src/data/forms.js');
     const { write } = await import('/src/model/run.js');
     const { setTab } = await import('/src/shell/ui.js');
     /* The furnace is cycle 1's reward, not a starting
        grant -- this stage's own comment already said "grant a furnace/rig",
        it just didn't have to say it in code until now. */
     write.grant('furnace');
-    __mf.give(S.furnace, F.rig, 1);
     setTab('main', 'char');
-    __mf.frames(1);
   });
+  await putInMain(page, 'furnace', 'rig');
+  await page.evaluate(() => __mf.frames(1));
 
   const invSlot = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');

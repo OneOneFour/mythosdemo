@@ -151,7 +151,7 @@ export const TUNABLES = [
      it -- the same "a slot count is content, read through eff()" precedent
      `trinketSlots` above already sets. */
   { id:'invSlots',      kind:'value', base:30, unit:'slots', note:'length of the main inventory grid; run.mainSlots at reset' },
-  { id:'quickbarSlots', kind:'value', base:10, unit:'slots', note:'length of the quickbar; the tail of run.inv past run.mainSlots' },
+  { id:'quickbarSlots', kind:'value', base:8,  unit:'slots', note:'length of the quickbar; the tail of run.inv past run.mainSlots' },
 
   /* ---- light. `lightMax` is both daylight and the ceiling any
      emitter can reach (the hearth). The two falloffs are per-tile-of-travel
