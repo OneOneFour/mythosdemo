@@ -12,10 +12,20 @@ import { expect, test } from '@playwright/test';
    refactor and are UNREVIEWED. Treat the first human look at the game
    as the real acceptance test, and re-baseline deliberately after it.
 
-   Diffs are bit-exact (maxDiffPixels: 0) because the renderer is
-   deterministic by construction: seeded RNG, rendering consumes no
-   randomness, integer-only pixels, and a bitmap font drawn with
-   fillRect rather than fillText.
+   Diffs are bit-exact because the renderer is deterministic by
+   construction: seeded RNG, rendering consumes no randomness,
+   integer-only pixels, and a bitmap font drawn with fillRect rather
+   than fillText. That takes BOTH `threshold: 0` and `maxDiffPixels: 0`
+   in `playwright.config.js`, and the second alone is not enough --
+   Playwright's default `threshold` of 0.2 hid four source-driven
+   baseline moves for a week (docs/FINDINGS.md, 17g1).
+
+   TWO RULES FOR A SCENE AT ANOTHER SIZE. Prefer `__mf.resize(w, h)`,
+   which moves `VIEW` synchronously and draws. If a test needs the real
+   CSS viewport instead, wait for `shell/boot.js`'s own `resize`
+   listener to have run before anything draws -- `setViewportSize`
+   resolves before that listener does, and under `?test=1` there is no
+   RAF loop to repaint after it.
    ============================================================ */
 
 async function boot(page) {
@@ -97,6 +107,91 @@ async function moveHeldToQuickbar(page, slot, subKey, formKey) {
     const idx = run.inv.findIndex(s => s && s.sub === sub && s.form === form);
     write.moveSlot(idx, run.mainSlots + slot);
   }, { slot, subKey, formKey });
+}
+
+
+/* ---------- THE CANVAS OP STREAM ----------
+   A pixel diff says where a difference landed. This says which draw call made
+   it. `recordOps` patches the 2D context prototype in the page, tags every
+   surface (the stage and each offscreen chunk canvas, in creation order), and
+   logs every mutating call and style write as a plain string. Diffing two
+   streams names the call; diffing two images names a rectangle.
+
+   RECORDS THE CALL, NOT THE RESULT. A chunk canvas already painted is a
+   `drawImage` and nothing more, so a cold cache and a warm one produce
+   legitimately different streams — `view/paint.js` repaints at most
+   `REPAINT_BUDGET` chunks per frame. Compare like with like. */
+async function installOpRecorder(page) {
+  await page.evaluate(() => {
+    if (globalThis.__ops) return;
+    globalThis.__ops = { on: false, log: [], surfaces: 0, grads: 0 };
+    const P = CanvasRenderingContext2D.prototype;
+    const tag = ctx => ctx.__opTag ??=
+      (ctx.canvas && ctx.canvas.id === 'stage') ? 'stage' : 'off' + (globalThis.__ops.surfaces++);
+    const num = v => typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(6)) : v;
+    const arg = v => {
+      if (v && v.__gradTag) return v.__gradTag;
+      if (v && v.tagName === 'CANVAS') return 'canvas' + v.width + 'x' + v.height;
+      return num(v);
+    };
+    const push = (ctx, name, args) => {
+      if (globalThis.__ops.on) globalThis.__ops.log.push(tag(ctx) + ' ' + name + '(' + args.map(arg).join(',') + ')');
+    };
+
+    for (const name of ['fillRect', 'clearRect', 'drawImage', 'save', 'restore',
+                        'translate', 'scale', 'setTransform', 'beginPath', 'fill', 'stroke']) {
+      const orig = P[name];
+      if (!orig) continue;
+      P[name] = function (...args) { push(this, name, args); return orig.apply(this, args); };
+    }
+
+    for (const name of ['createRadialGradient', 'createLinearGradient']) {
+      const orig = P[name];
+      P[name] = function (...args) {
+        const grd = orig.apply(this, args);
+        grd.__gradTag = 'grad' + (globalThis.__ops.grads++);
+        push(this, name, [grd, ...args]);
+        return grd;
+      };
+    }
+    const addStop = CanvasGradient.prototype.addColorStop;
+    CanvasGradient.prototype.addColorStop = function (...args) {
+      if (globalThis.__ops.on) globalThis.__ops.log.push(this.__gradTag + ' addColorStop(' + args.map(num).join(',') + ')');
+      return addStop.apply(this, args);
+    };
+
+    for (const name of ['fillStyle', 'strokeStyle', 'globalAlpha',
+                        'globalCompositeOperation', 'imageSmoothingEnabled', 'filter']) {
+      const d = Object.getOwnPropertyDescriptor(P, name);
+      if (!d || !d.set) continue;
+      Object.defineProperty(P, name, {
+        ...d,
+        set(v) { push(this, name + '=', [v]); d.set.call(this, v); }
+      });
+    }
+  });
+}
+
+/* Run `body` with the recorder on and return what it drew, one string per op. */
+async function recordOps(page, body) {
+  await installOpRecorder(page);
+  /* The gradient counter restarts with the log. It names a gradient by the
+     order the recording created it in, so a tag must not depend on how many
+     frames the page drew before the recorder was switched on. */
+  await page.evaluate(() => { __ops.log.length = 0; __ops.grads = 0; __ops.on = true; });
+  await body();
+  return page.evaluate(() => { __ops.on = false; return __ops.log.slice(); });
+}
+
+/* The first differing op, plus a little context each side. Empty when the two
+   streams are identical. */
+function firstOpDiff(a, b) {
+  const n = Math.max(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    if (a[i] === b[i]) continue;
+    return { at: i, a: a.slice(Math.max(0, i - 2), i + 3), b: b.slice(Math.max(0, i - 2), i + 3) };
+  }
+  return null;
 }
 
 
@@ -5977,8 +6072,18 @@ test('17c2: the modal stays legible at the 200 px base-buffer floor', async ({ p
   /* 400x360 css px at `core/canvas.js#resize`'s scale-2 floor is exactly the
      200x180 base buffer the widget contract names -- three cards no longer
      fit across, so the grid drops to two per row rather than squeezing them
-     under the readable minimum. */
+     under the readable minimum.
+
+     WAIT FOR THE PAGE'S OWN RESIZE LISTENER, not just for the browser.
+     `setViewportSize` resolves when Chromium has resized the view; the
+     `resize` handler `shell/boot.js` installed runs later, and it is that
+     handler which moves `VIEW` and re-clamps the camera. Under `?test=1`
+     there is no RAF loop to repaint afterwards, so a `newRun` that lands
+     first composes the scene at 640x400 and the screenshot catches a
+     different camera. The stage canvas's backing width IS `VIEW.w`
+     (`core/canvas.js#resize`), so waiting on it waits on the handler. */
   await page.setViewportSize({ width: 400, height: 360 });
+  await page.waitForFunction(w => document.getElementById('stage').width === w, 200);
   await settle(page);
   const V = await page.evaluate(async () => {
     const { VIEW } = await import('/src/core/canvas.js');
@@ -6039,3 +6144,86 @@ test('17c2: the modal stays legible at the 200 px base-buffer floor', async ({ p
 
   await shot(page, 'draft-boon-floor.png');
 });
+
+/* ============================================================
+   OP-STREAM PURITY (Phase 17g1, docs/PLAN-wave5-closeout.md §6c)
+
+   `tools/check.mjs`'s render-purity probe watches the model epoch over the
+   default scene. It cannot see a draw that varies without writing to the
+   model, and it never reaches a panel, so `view/ui/draft.js` had never
+   executed under any headless check at all. These record what the renderer
+   actually emitted and compare call for call.
+   ============================================================ */
+
+const SCENES = {
+  surface: async () => {},
+
+  'hollow with a relic': async page => {
+    await hollowScene(page);
+    await page.evaluate(async () => {
+      const { S } = await import('/src/data/substances.js');
+      const { F } = await import('/src/data/forms.js');
+      const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+      const { write: iw } = await import('/src/model/items.js');
+      const band = bandOf('topsoil');
+      const it = iw.spawn(band, worldX(band, 19) + 4, worldY(band, 103) + 4, S.bellows, F.relic, 0, 0);
+      if (it) it.rest = 1;
+    });
+  },
+
+  'the draft modal': async page => { await payTrial(page, 3); }
+};
+
+for (const [name, setup] of Object.entries(SCENES)) {
+  test(`op stream: ${name} repaints identically`, async ({ page }) => {
+    await boot(page);
+    await settle(page);
+    await setup(page);
+    /* Warm the chunk cache first. `view/paint.js` repaints at most
+       REPAINT_BUDGET chunks a frame, so a cold first draw carries paint ops a
+       warm second draw legitimately does not. */
+    await page.evaluate(() => { for (let i = 0; i < 12; i++) __mf.draw(); });
+
+    /* FOUR draws, not two. A draw path drawing from `rand()` lands on the
+       same op string by chance often enough that one repeat is a weak
+       sample -- an injected `(rand() * 10) | 0` passed a two-draw compare. */
+    const runs = [];
+    for (let i = 0; i < 4; i++) runs.push(await recordOps(page, () => page.evaluate(() => __mf.draw())));
+
+    expect(runs[0].length).toBeGreaterThan(200);
+    for (let i = 1; i < runs.length; i++) expect(firstOpDiff(runs[0], runs[i])).toBeNull();
+  });
+}
+
+test('op stream: the recorder sees the scene, not an empty log', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const before = await recordOps(page, () => page.evaluate(() => __mf.draw()));
+
+  /* One second of simulated time. Everything derived from `clock.t` -- the
+     item bob, the halo pulse, the furnace flame -- has to move, so a recorder
+     that logged nothing of the world would come back identical here. */
+  const after = await recordOps(page, () => page.evaluate(() => { __mf.clock.t += 1; __mf.draw(); }));
+
+  expect(firstOpDiff(before, after)).not.toBeNull();
+});
+
+test('op stream: the draft modal is drawn, and closing it removes those ops', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await payTrial(page, 3);
+  await page.evaluate(() => { for (let i = 0; i < 12; i++) __mf.draw(); });
+
+  const open = await recordOps(page, () => page.evaluate(() => __mf.draw()));
+  expect((await page.evaluate(() => __mf.ui.open)).includes('draft')).toBe(true);
+
+  await page.evaluate(async () => {
+    const { ui, closeTop } = await import('/src/shell/ui.js');
+    while (ui.stack.length) closeTop();
+  });
+  const closed = await recordOps(page, () => page.evaluate(() => __mf.draw()));
+
+  /* The modal is a third of the screen, so it cannot cost a handful of ops. */
+  expect(open.length - closed.length).toBeGreaterThan(100);
+});
+

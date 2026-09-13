@@ -2289,3 +2289,77 @@ also what gives it its first execution.
   what changed is the width, so "TAKE THE PICKAXE" now runs under cells 1-5
   instead of 6-7. The fix is the D8 one (anchor off `drawn.grids`'s quickbar
   rect the way `hudRuler` already does), not a nudged constant.
+
+## Phase 17g1 (the visual suite was never bit-exact)
+
+- **`maxDiffPixels: 0` alone does not mean bit-exact, and the suite has never
+  been bit-exact.** `playwright.config.js` set `maxDiffPixels: 0` and left
+  `threshold` at Playwright's default of 0.2. `threshold` is a per-pixel YIQ
+  colour distance a difference must exceed before pixelmatch counts the pixel
+  at all, so `maxDiffPixels` only ever counted pixels that had already cleared
+  a 20% bar. Every near-black shift of 1 to 11 units passed silently. Measured
+  at `c803360^`: the committed `hollow-relic-unlit.png` reports 0 differing
+  pixels at the default threshold and **100** at `threshold: 0`. The config now
+  sets both, and CLAUDE.md's "screenshots are bit-exact (`maxDiffPixels: 0`)"
+  should read "bit-exact (`threshold: 0`, `maxDiffPixels: 0`)".
+
+- **Every "drift" `docs/REVIEW-wave5-17i.md` §4.1 could not explain is an
+  ordinary source change the loose comparator hid. None of it was
+  nondeterminism.** Bisected by re-running the suite at `threshold: 0` in a
+  worktree at each commit:
+
+  | baseline | moved at | what that commit did |
+  |---|---|---|
+  | `hollow-relic-unlit` | `fc3a40e` | gave `bellows` a sprite, drawn under its own halo |
+  | `ui-character`, `ui-character-swap`, `ui-crafting`, `win-screen` | `a8ac398` | gave the starting `timber/brand` a sprite |
+  | the same four | `35b6ce6` | stopped spawning that brand at all |
+  | `ui-character-fresh-phone`, `ui-character-swap-phone`, `win-screen`, `win-screen-phone`, the four `draft-*` | `c803360` | quickbar `COLS` 5 → 8 moved the translucent strip |
+
+  Each should have been re-accepted in its own commit and was not, because the
+  suite stayed green. `c803360`'s blanket re-accept then wrote three of them
+  into the reference images, which is how the review found them.
+
+- **One real intermittent failure, and it is a late `resize`.**
+  `tests/visual.spec.js`'s 200 px floor draft test was the one test driving the
+  viewport through `page.setViewportSize` rather than `__mf.resize`.
+  `setViewportSize` resolves when Chromium has resized; `shell/boot.js`'s own
+  `resize` listener — which moves `VIEW` and re-clamps the camera — runs later,
+  and under `?test=1` no RAF loop repaints after it. Whichever side of
+  `settle()`'s `newRun` the listener landed on decided the camera, and the two
+  outcomes differ by 49,716 pixels. It failed 3 of 6 full parallel runs at
+  `threshold: 0`. Waiting on the stage canvas's backing width makes it
+  deterministic; 10 full parallel runs green after.
+
+- **FINDINGS #14's winch failure did not reproduce.** 34 full parallel runs, 25
+  of them at `threshold: 0`, plus 64 fresh pages across 8 browser launches
+  hashing the canvas backing store. `winch-lit`/`winch-unlit` never varied.
+  Five Chromium raster configurations (default, `--disable-gpu`,
+  `--disable-accelerated-2d-canvas`, `--use-gl=swiftshader`,
+  `--in-process-gpu`) produce byte-identical canvases, so a raster-backend
+  switch is ruled out on this machine. The 164 px the finding reports is far
+  above the old 0.2 threshold, so it was never of the class diagnosed here. It
+  stays open, with one lead: a late `resize` is now a proven mechanism for a
+  large intermittent diff, and any test that draws while anything is still
+  settling can produce one.
+
+- **`webServer.reuseExistingServer: true` makes two concurrent `playwright
+  test` invocations destroy each other.** The second reuses the first's server
+  on :5173 and then tears it down when it exits, and the first sees
+  `net::ERR_CONNECTION_REFUSED` on every remaining test. Two of the runs in
+  this phase's first batch died that way, from my own parallel probe. Not
+  worth changing — worth knowing before believing a mass failure.
+
+- **`tests/visual.spec.js` now records the canvas op stream.**
+  `installOpRecorder`/`recordOps`/`firstOpDiff` patch the 2D context prototype
+  in the page and log every mutating call and style write, tagged by surface.
+  A pixel diff names a rectangle; an op-stream diff names the draw call. Four
+  tests use it, three of them asserting that a repaint emits an identical
+  stream — which is `npm run check`'s render-purity probe extended into paths
+  no headless probe reaches, `view/ui/draft.js` first among them. Compare
+  streams with a warm chunk cache on both sides: `view/paint.js` repaints at
+  most `REPAINT_BUDGET` chunks per frame, so a cold draw legitimately carries
+  paint ops a warm one does not.
+
+- **FOR WHOEVER TOUCHES `view/fx.js#spark` (17e): it is still latent.** 17a's
+  reasoning holds and this phase found nothing against it. Every page is fresh,
+  so the generator starts at the same offset in every test.
