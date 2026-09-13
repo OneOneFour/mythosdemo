@@ -5907,16 +5907,62 @@ test('17c2: the modal stays legible at the 200 px base-buffer floor', async ({ p
      under the readable minimum. */
   await page.setViewportSize({ width: 400, height: 360 });
   await settle(page);
-  expect(await page.evaluate(async () => (await import('/src/core/canvas.js')).VIEW.w)).toBe(200);
+  const V = await page.evaluate(async () => {
+    const { VIEW } = await import('/src/core/canvas.js');
+    return { w: VIEW.w, h: VIEW.h };
+  });
+  expect(V).toEqual({ w: 200, h: 180 });
   await payTrial(page, 3);
 
   const drawn = await draftPanels(page);
   expect(drawn.length).toBe(4);                              // three cards and the reroll row
+  const cards = drawn.filter(p => p.id.startsWith('draft-card-'))
+                     .sort((a, b) => a.y - b.y || a.x - b.x);
+  const reroll = drawn.find(p => p.id === 'draft-reroll');
+  expect(cards.length).toBe(3);
+
+  /* THE LAYOUT CHOSE TO FIT; IT WAS NOT CLAMPED INTO FITTING. `drawPanel`
+     (`view/ui/panel.js:34-37`) forces every rect inside the buffer BEFORE
+     recording it, so `x + w <= vw` is a tautology and proves nothing -- three
+     cards drawn on top of each other at x 2 would satisfy it. What cannot be
+     faked is landing STRICTLY inside every one of those clamp boundaries:
+     `w == vw - 4`, `x == 2` or `x + w == vw - 2` is exactly what a clamped
+     rect looks like. */
   for (const p of drawn) {
-    expect(p.x).toBeGreaterThanOrEqual(0);
-    expect(p.y).toBeGreaterThanOrEqual(0);
-    expect(p.x + p.w).toBeLessThanOrEqual(200);              // nothing overruns the buffer
-    expect(p.y + p.h).toBeLessThanOrEqual(180);
+    expect(p.w).toBeLessThan(V.w - 4);
+    expect(p.h).toBeLessThan(V.h - 4);
+    expect(p.x).toBeGreaterThan(2);
+    expect(p.y).toBeGreaterThan(2);
+    expect(p.x + p.w).toBeLessThan(V.w - 2);
+    expect(p.y + p.h).toBeLessThan(V.h - 2);
   }
+
+  /* AND NOTHING SITS ON TOP OF ANYTHING ELSE. */
+  for (let i = 0; i < drawn.length; i++)
+    for (let j = i + 1; j < drawn.length; j++) {
+      const a = drawn[i], b = drawn[j];
+      const overlap = a.x < b.x + b.w && b.x < a.x + a.w &&
+                      a.y < b.y + b.h && b.y < a.y + a.h;
+      expect({ pair: [a.id, b.id], overlap }).toEqual({ pair: [a.id, b.id], overlap: false });
+    }
+
+  /* THE 2+1 GRID IS REAL: three cards at this width cannot go across, so two
+     share a row and the third drops below it. A single column (the shape a
+     too-wide MIN_CARD_W produces) has three distinct y values and fails here;
+     a squeezed single row has one. */
+  expect(cards[0].y).toBe(cards[1].y);
+  expect(cards[2].y).toBeGreaterThanOrEqual(cards[0].y + cards[0].h);
+  expect(new Set(cards.map(c => c.w)).size).toBe(1);         // one uniform card width
+
+  /* EACH ROW IS CENTRED ON ITS OWN COUNT, so the odd card does not hang left.
+     Off-by-one is the integer `>> 1` in the layout, not slop. */
+  const centred = r => Math.abs(r.left - r.right) <= 1;
+  const rowOf = rs => ({ left: Math.min(...rs.map(r => r.x)),
+                         right: V.w - Math.max(...rs.map(r => r.x + r.w)) });
+  expect(centred(rowOf([cards[0], cards[1]]))).toBe(true);
+  expect(centred(rowOf([cards[2]]))).toBe(true);
+  expect(centred(rowOf([reroll]))).toBe(true);
+  expect(reroll.y).toBeGreaterThanOrEqual(cards[2].y + cards[2].h);
+
   await shot(page, 'draft-boon-floor.png');
 });

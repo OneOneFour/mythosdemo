@@ -2221,16 +2221,29 @@ also what gives it its first execution.
   the Character tab and states nothing on the card. `data/tuning.js` and
   `model/mods.js` are outside this block.
 
-- **PARKED, latent: the modal draws under the death screen but is still
-  dispatchable through it.** `src/shell/main.js:207` guards
-  `applyDraftIntents` on `run.won` but not on `run.dead`, and
-  `view/hud.js#drawHUD` puts `deathScreen` above the modal (correctly — the
-  restart button must be reachable). A trial completing in the same frame the
-  player dies would therefore leave an invisible card takeable by a click
-  anywhere the death screen is not the restart button. Not reachable in play:
-  the run is frozen while an offer stands, so the player cannot die under one.
-  The fix is one guard in `shell/main.js`, in a phase that owns more of it
-  than the hit-test branch.
+- **CLOSED, and the first version of this entry was wrong about why.** It
+  claimed dead-with-an-offer was unreachable because the run freezes while a
+  modal stands. It is reachable: `rules/cycles.js:263` writes `run.offer`
+  inside a SUBSTEP, and `shell/main.js#raiseOffer` only opens the panel once
+  per frame, so the remainder of that frame runs live -- one substep at
+  60 Hz, up to 30 at `MAX_CATCHUP` -- and a lethal fall lands in the window.
+  `view/hud.js#drawHUD` draws `deathScreen` above the modal (correctly: the
+  restart button must stay reachable), so `shell/input.js:318`'s 1/2/3 would
+  have granted a permanent gift off an invisible panel. Fixed with a
+  `run.dead` return in `applyDraftIntents`. The POINTER half never needed
+  one: `resetDrawn()` runs every frame and no `draft-card-*` rect is
+  recorded on a frame the modal is not drawn.
+
+- **FOR 17g -- the modal has no coverage in `npm run check` at all.** Section
+  2's two purity probes render with no offer standing, so `view/ui/draft.js`
+  returns at its first line and nothing in the headless harness has ever
+  executed a line of it; only the six Playwright scenes do. What a headless
+  probe could assert without a browser: that `drawDraft` records
+  `ids.length + 1` rects, that none of them lands on a `view/ui/panel.js`
+  clamp boundary at the 200x180 floor, and that a second render with an
+  offer standing still performs zero model writes -- the epoch assertion
+  proves purity only for the scene without one today. `tools/check.mjs` is
+  outside both 17c1's and 17c2's blocks.
 
 - **The `'cycle'` banner is swallowed by the modal it announces.**
   `src/view/fx.js#banner` fades on `stepFx`, which runs outside `step()` and

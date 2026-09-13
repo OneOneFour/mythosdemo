@@ -413,6 +413,19 @@ function applyDraftIntents() {
   if (isOpen('draft') && !run.offer?.ids) { closePanel('draft'); return; }
   if (!isOpen('draft')) return;
 
+  /* A DEAD PLAYER CANNOT TAKE A CARD OFF A MODAL THEY CANNOT SEE.
+     `view/hud.js#drawHUD` draws `deathScreen` ABOVE the draft, deliberately,
+     because the restart button must stay reachable -- so without this the
+     1/2/3 keys would grant a permanent gift off an invisible panel. The
+     window is narrow but real: `rules/cycles.js#complete` writes `run.offer`
+     inside a SUBSTEP and `raiseOffer()` only opens the panel once per frame,
+     so the rest of that frame still simulates and a lethal fall lands in it.
+     Not merged with the `run.won` guard in the caller: that one stops every
+     intent, and death deliberately leaves the world live. The pointer half
+     needs no guard -- nothing records a `draft-card-*` rect on a frame the
+     modal is not drawn. */
+  if (run.dead) return;
+
   draftPointer();
 
   if (wants.takeCard !== null) {

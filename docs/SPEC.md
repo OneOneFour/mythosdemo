@@ -1790,6 +1790,12 @@ below the pause guard the modal itself raises and is unreachable while one
 stands. A press on the wash, or on the main panel still open beneath the
 modal, is swallowed.
 
+**No card is takeable while `run.dead`.** The death screen draws above the
+modal so its restart button stays reachable, which would otherwise leave the
+1/2/3 keys granting a permanent gift off an invisible panel. The window is
+real: `complete()` writes `run.offer` inside a substep and `raiseOffer()`
+opens the panel once per frame, so the rest of that frame still simulates.
+
 ## 19. Deposits, rubble and the packed block (Phase 14a)
 
 Locked with `docs/PLAN-phase14-mining-and-drops.md` (D14-A, D14-B, D14-C,
