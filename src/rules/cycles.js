@@ -86,6 +86,24 @@ export function step(dt) {
 function ensureLiveCycle() {
   if (run.tribute) return;
   if (run.cycle > CYCLES.length) {
+    /* A RUN IS NOT WON WHILE A REWARD IS OUTSTANDING. `complete()` writes
+       `run.offer` and bumps `run.cycle` in the same call, so on the LAST
+       trial this function can see the boundary in a later substep of the
+       very frame that paid it -- and `shell/main.js#applyIntents` returns on
+       `run.won` above both the offer's dispatch and its lay-out, so the
+       final draft would be discarded on whichever substep parity the
+       framerate happened to give. Deferring the win means it states
+       "everything is resolved" rather than "the counter moved", and it keeps
+       the decision here in the director instead of reordering the shell's
+       guards.
+
+       IT CANNOT HANG. A request (`ids === null`) is laid out or dropped the
+       same frame by `rules/draft.js#offer`, which clears the field outright
+       when the tier has nothing left; a laid-out offer always holds at least
+       one card and the only verb that can end it -- taking one -- is always
+       available, since Escape cannot dismiss it and a reroll never removes a
+       candidate. */
+    if (run.offer) return;
     if (!run.won) {
       rw.win();
       push('win', null, { cycles: CYCLES.length, favour: { ...run.favour }, misses: run.misses });
@@ -237,7 +255,12 @@ function complete(cyc) {
      `rules/grants.js`. */
   if (reward.grants?.length) rw.award([...reward.grants]);
   for (const id of reward.charts ?? []) rw.chart(id);
-  if (reward.draft) rw.offer(reward.draft);
+  /* THE ASKING GOD RIDES WITH THE REQUEST. `shell/main.js` cannot work out
+     who asked -- by the time it reads the field this function has already
+     bumped `run.cycle` past the row -- and a reroll spends a named god's
+     favour, so the id is written where it is still a fact rather than an
+     inference. See `model/run.js#RUN_SCHEMA.offer`. */
+  if (reward.draft) rw.offer(reward.draft, cyc.god);
   rollTributeDrop(m);
   push('cycle', pos, { cycleId: cyc.id, god: cyc.god, reward });
   rw.tribute(null);

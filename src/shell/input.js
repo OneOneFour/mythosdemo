@@ -296,11 +296,38 @@ export function installInput() {
   addEventListener('keydown', e => {
     unlockAudio();
 
+    const k = e.key.toLowerCase();
+
+    /* THE DRAFT MODAL CLAIMS THE WHOLE KEYBOARD, above the search field and
+       above the map, because it is the topmost thing the game can raise and
+       the run is frozen behind it (D17-A). FIRST, and not merely early: the
+       CRAFTING search field below is the only other branch that captures
+       every key, and with the field focused when a trial pays it swallowed
+       1/2/3/r into the search string and let Escape pop the modal off the
+       stack. A raised offer outranks a text field for the same reason it
+       outranks the world. 1/2/3 take a card, 'r' asks for a second look, and
+       every other key is swallowed -- a stray 'e' opening the tabbed window
+       UNDER a modal the player cannot leave is worse than a dropped
+       keystroke.
+
+       ESCAPE IS DELIBERATELY NOT A WAY OUT, which is the one place this
+       block differs from every other panel in this file. An un-taken
+       permanent gift is not recoverable, so it must not be losable to the
+       key a player presses reflexively -- the offer stands until a card is
+       taken. */
+    if (isOpen('draft')) {
+      const card = '123'.indexOf(k);
+      if (card >= 0) wants.takeCard = card;
+      if (k === 'r') wants.reroll = true;
+      e.preventDefault();
+      return;
+    }
+
     /* THE CRAFTING TAB'S SEARCH FIELD, captured HERE rather than
-       inside `set()` below, because it must pre-empt EVERY other binding in
-       this file -- 'wasd' are movement, 'e' places, 'p' equips, and a typed
-       search string must not also walk the player into a wall or place a
-       tile. `ui.searchFocus` is set by a click on the field itself
+       inside `set()` below, because it must pre-empt every other binding in
+       this file except the draft modal above -- 'wasd' are movement, 'e'
+       places, 'p' equips, and a typed search string must not also walk the
+       player into a wall or place a tile. `ui.searchFocus` is set by a click on the field itself
        (`shell/main.js`'s UI dispatcher) and cleared by Enter, Escape or a
        click elsewhere -- the same "only one thing owns the keyboard" rule a
        real text input enforces, done by hand because this project has no
@@ -332,28 +359,6 @@ export function installInput() {
       if (e.key === 'Enter') { setSearchFocus(false); e.preventDefault(); return; }
       if (e.key === 'Backspace') { setSearch(ui.search.slice(0, -1)); e.preventDefault(); return; }
       if (e.key.length === 1) { setSearch((ui.search + e.key).slice(0, 20)); e.preventDefault(); return; }
-      e.preventDefault();
-      return;
-    }
-
-    const k = e.key.toLowerCase();
-
-    /* THE DRAFT MODAL CLAIMS THE WHOLE KEYBOARD, above even the map, because
-       it is the topmost thing the game can raise and the run is frozen
-       behind it (D17-A). Same swallow-everything-else rule the search field
-       above uses, and for the same reason: a stray 'e' opening the tabbed
-       window UNDER a modal the player cannot leave is worse than a dropped
-       keystroke. 1/2/3 take a card, 'r' asks for a second look.
-
-       ESCAPE IS DELIBERATELY NOT A WAY OUT, which is the one place this
-       block differs from every other panel in this file. An un-taken
-       permanent gift is not recoverable, so it must not be losable to the
-       key a player presses reflexively -- the offer stands until a card is
-       taken. */
-    if (isOpen('draft')) {
-      const card = '123'.indexOf(k);
-      if (card >= 0) wants.takeCard = card;
-      if (k === 'r') wants.reroll = true;
       e.preventDefault();
       return;
     }

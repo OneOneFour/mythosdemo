@@ -5368,6 +5368,16 @@ console.log('\n8f. THE CLOSED LOOP (Phase 13d)');
     for (const d of row.demand) have[`${d.sub}/${d.form}`] = d.n;
     run.write.tribute({ ...run.run.tribute, have });
     stepReal(1 / 120, { hasMouse: false });               // resolve it
+    /* AND RESOLVE THE REWARD, which `stepReal` alone cannot: a cycle whose
+       reward is a draft raises an offer, the offer freezes the run, and a
+       run is not won while one is outstanding (docs/SPEC.md section 18.8).
+       `applyIntents` is the other half of a real frame -- it lays the cards
+       out -- and taking one is the only thing that ends the pause. Without
+       this the loop below stalls on cycle 2's grant draft and the win never
+       comes, which is the point: the boundary is now "everything is
+       resolved", not "the counter moved". */
+    main.applyIntents();
+    if (run.run.offer) { input.wants.takeCard = 0; main.applyIntents(); }
   }
   stepReal(1 / 120, { hasMouse: false });                  // the frame past the last row
   const rows = journal.peek();

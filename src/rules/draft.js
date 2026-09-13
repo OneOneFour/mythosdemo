@@ -24,7 +24,7 @@
 import { rand } from '../core/rng.js';
 import { push } from '../model/journal.js';
 import { eff } from '../model/mods.js';
-import { canReroll, rerollPrice, run, write as rw } from '../model/run.js';
+import { canReroll, offerExhausted, rerollPrice, run, write as rw } from '../model/run.js';
 
 /* k distinct ids, in draw order, consuming one `rand()` per id returned. */
 function pick(candidateIds) {
@@ -35,34 +35,42 @@ function pick(candidateIds) {
   return out;
 }
 
-/* Lay out an offer of `tier` over `candidateIds` and write it to `run.offer`.
+/* Lay out an offer of `tier`, asked by `god` (`null` for a debug draft),
+   over `candidateIds`, and write it to `run.offer`.
    FEWER CANDIDATES OFFER FEWER CARDS, honestly: the grant tier ships at two
    rows by decision (docs/PLAN-wave5-closeout.md §5.1), so two-of-two is a
    real case and padding it would mean offering something already taken. With
    NO candidates left there is nothing to choose between, so the request is
    dropped with a refusal rather than raising a modal holding nothing.
    Returns the ids offered. */
-export function offer(tier, candidateIds) {
+export function offer(tier, god, candidateIds) {
   const ids = pick(candidateIds);
   if (!ids.length) {
     rw.offer(null);
     push('refused', null, { why: 'NOTHING LEFT TO OFFER' });
     return ids;
   }
-  rw.offer(tier, ids);
+  rw.offer(tier, god, ids, candidateIds.length);
   return ids;
 }
 
 /* Spend `god`'s favour to re-pick the standing offer. Refuses -- spending
-   nothing -- when no offer stands or the god is short, through the same
-   `'refused'` row every other refusal in `rules` pushes, because a price the
-   player cannot pay must say so rather than quietly do nothing (D17-B).
-   A debug-key draft has no asking god and therefore can never be rerolled;
-   `model/run.js#canReroll` is where that is stated. */
+   nothing -- through the same `'refused'` row every other refusal in `rules`
+   pushes, because a price the player cannot pay must say so rather than
+   quietly do nothing (D17-B).
+
+   TWO REFUSALS, TWO MESSAGES, because they are two different facts about the
+   world and only one of them is about the purse: a tier with no more rows
+   than the offer already shows would sell a transposition of the same cards.
+   `model/run.js#canReroll` is the single predicate -- the same one `view`
+   dims the row with -- and `offerExhausted` is which half of it failed. */
 export function reroll(god, candidateIds) {
   if (!run.offer?.ids) return false;
-  if (!canReroll(god)) { push('refused', null, { why: 'NOT ENOUGH FAVOUR' }); return false; }
+  if (!canReroll(god)) {
+    push('refused', null, { why: offerExhausted() ? 'THIS IS ALL THERE IS' : 'NOT ENOUGH FAVOUR' });
+    return false;
+  }
   rw.favour(god, -rerollPrice());
-  offer(run.offer.tier, candidateIds);
+  offer(run.offer.tier, god, candidateIds);
   return true;
 }

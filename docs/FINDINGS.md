@@ -2144,3 +2144,56 @@ also what gives it its first execution.
   run cannot die while frozen — and the alternative (clearing `ui.stack` in
   `shell/boot.js#newRun`) is outside this block and would change what a
   restart does to every other panel.
+
+### 17c1 follow-up (against `docs/REVIEW-wave5-17c1.md`)
+
+- **FOR 17g — `rules/draft.js` has no probe at all, and `tools/check.mjs` is
+  the only place one can live.** Unasserted today: the offer is
+  `eff('offerSize')` cards of distinct ids drawn from the tier's
+  `draftable()`; a short tier offers fewer and an empty one refuses
+  `'NOTHING LEFT TO OFFER'`; the world does not advance behind a standing
+  offer (a falling item's `y` and `clock.t`/`run.t` unchanged across
+  substeps); a reroll spends exactly `eff('rerollCost')` from the offer's own
+  god and re-picks; both refusals (`'NOT ENOUGH FAVOUR'`,
+  `'THIS IS ALL THERE IS'`) spend nothing; the same seed and the same input
+  lay out the same cards; `newRun()` clears `run.offer`. All of it was
+  verified in a scratch harness for this phase and then thrown away, which is
+  exactly the evidence that should have been a permanent assertion. **The
+  one that must be driven at several framerates is the last cycle's draft**:
+  `rules/cycles.js#ensureLiveCycle` defers `rw.win()` while `run.offer`
+  stands, and with that deferral removed the trinket draft is dropped at 30
+  and 60 fps and survives at 72/120/144 — a real-accumulator loop
+  (n substeps, then ONE `applyIntents`) is what makes the parity visible, and
+  `stepReal` alone cannot see it. `tools/check.mjs` and `tests/` are outside
+  both 17c1's and 17c2's blocks.
+
+- **Taken outside the ownership block, again and for the same class of
+  reason: `tools/check.mjs:5364-5378`, the WIN STATE probe.** It paid all
+  four cycles through `stepReal` alone — half a frame, with no
+  `applyIntents` — so with the win now deferred behind an outstanding reward
+  it stalled on cycle 2's grant draft and `run.won` never came. Two lines:
+  call `main.applyIntents()` after each resolve and take card 0 when an offer
+  stands. The probe's own subject (the boundary is the table's length, fired
+  exactly once) is unchanged, and it now drives the whole frame it always
+  claimed to. A red `npm run check` was the alternative.
+
+- **PARKED — D5, latent: `flags.showMap` is guarded above
+  `applyDraftIntents`** (`src/shell/main.js:199` vs `:213`), so if anything
+  ever set `showMap` true under a standing offer, neither the card nor the
+  map could be reached. Unreachable today (the draft branch swallows `o`, and
+  `raiseOffer` cannot run while the map is open) and left alone on the
+  reviewer's own MINOR grading; the fix, if it is ever wanted, is to move the
+  map guard below `applyDraftIntents()` exactly as the draft guard already
+  is.
+
+- **PARKED — D6, latent: `rules/draft.js#reroll` spends before it re-picks.**
+  Only the freeze makes that safe. Narrower now than when it was written —
+  the reroll is refused outright unless the pool is strictly larger than the
+  offer, so the re-pick cannot come back empty — but the ordering is still
+  the thing holding it.
+
+- **PARKED — S1, style: `tests/visual.spec.js:1852` narrates the phase**
+  ("THE DEBUG KEY NOW RAISES AN OFFER RATHER THAN GRANTING OUTRIGHT (Phase
+  17c1)"), which `CLAUDE.md` says to delete. Left as-is by the coordinator's
+  instruction; the half worth keeping is that the baseline comes from the
+  seeded draw rather than from `BOONS[0]`.

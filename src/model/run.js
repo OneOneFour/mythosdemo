@@ -125,14 +125,31 @@ export const RUN_SCHEMA = Object.freeze({
      one event, one dispatch path, regardless of whether a key or a completed
      trial requested it.
 
-     `{ tier, ids } | null` (D17-F). `ids` IS THE OFFER AND `null` IS A
-     REQUEST FOR ONE: `rules/cycles.js` and the debug keys can only name a
-     tier, because only `shell` may see all four tiers' `draftable()` lists,
-     so the record is raised half-built and `rules/draft.js#offer` fills it
-     in the same frame. The ids are WORLD STATE and not session state -- they
-     were drawn from the seeded stream, and a run replayed from its seed must
-     lay out the same three cards -- which is why this is on `run` and resets
-     with it rather than living beside the panel stack in `shell/ui.js`.
+     `{ tier, god, ids, pool } | null` (D17-F). `ids` IS THE OFFER AND `null`
+     IS A REQUEST FOR ONE: `rules/cycles.js` and the debug keys can only name
+     a tier and its asker, because only `shell` may see all four tiers'
+     `draftable()` lists, so the record is raised half-built and
+     `rules/draft.js#offer` fills it in the same frame. The ids are WORLD
+     STATE and not session state -- they were drawn from the seeded stream,
+     and a run replayed from its seed must lay out the same three cards --
+     which is why this is on `run` and resets with it rather than living
+     beside the panel stack in `shell/ui.js`.
+
+     `god` IS STORED AND NOT DERIVED, and that is a correction: deriving it
+     from `run.cycle` was right only on the completion path (which bumps the
+     cycle in the same call) and named the PREVIOUS trial's god for a
+     debug-key draft, whose favour that god never offered. Whoever raises the
+     request knows who is asking, so it is written down there -- `null` for a
+     debug draft is a legitimate answer, not a missing one: nobody asked, so
+     there is no purse to spend.
+
+     `pool` is HOW MANY CANDIDATES THE CARDS WERE DRAWN FROM, recorded by
+     `rules/draft.js#offer` at the moment it draws. It exists so `canReroll`
+     below can refuse a second look that could only show the same cards (the
+     grant tier is 2 rows and lays out 2), and it is a snapshot rather than a
+     live count because the run is frozen while the offer stands -- nothing
+     can enter or leave a tier underneath it.
+
      A fresh object per write and `null` when none, the same shape `awarded`
      above uses, so no fresh-build in `reset()` is needed. */
   offer: null,
@@ -329,11 +346,16 @@ export const write = {
   chart(bandId)     { if (!run.charted.includes(bandId)) run.charted.push(bandId); bump(); },
   miss()            { run.misses++; bump(); },
   cycle(n)          { run.cycle = n; bump(); },
-  /* The draft bridge's one setter, in both its halves: `offer(tier)` raises
-     a REQUEST (ids still null, `rules/cycles.js` and the debug keys) and
-     `offer(tier, ids)` lays out the cards (`rules/draft.js`, the only caller
-     that has any). `offer(null)` clears. See `RUN_SCHEMA.offer`. */
-  offer(tier, ids = null) { run.offer = tier ? { tier, ids } : null; bump(); },
+  /* The draft bridge's one setter, in both its halves: `offer(tier, god)`
+     raises a REQUEST (ids still null -- `rules/cycles.js` and the debug
+     keys) and `offer(tier, god, ids, pool)` lays out the cards
+     (`rules/draft.js`, the only caller that has any). `offer(null)` clears.
+     ONE setter and not two, so `run.offer` keeps exactly one writer per
+     layer; see `RUN_SCHEMA.offer`. */
+  offer(tier, god = null, ids = null, pool = 0) {
+    run.offer = tier ? { tier, god, ids, pool } : null;
+    bump();
+  },
 
   /* ONE-WAY, LIKE `advanceBeat` ABOVE AND FOR THE SAME REASON: it takes no
      argument, so a writer that cannot be handed a boolean cannot be handed
@@ -604,24 +626,27 @@ export function tributeMet() {
 }
 
 /* ---- the standing draft offer (D17-B/D17-F) ----
-   Three queries, here rather than in `rules/draft.js`, because both a
-   `rules` module (which SPENDS the favour) and `view` (which draws the price
-   dimmed when it cannot be paid) have to agree on them, and the two may not
-   import each other -- the same one-decision-two-readers argument
-   `tributeMet` above and `placementCheck` already stand on.
-
-   `offerGod` is THE GOD WHOSE TRIAL RAISED THE OFFER, and it is derived
-   rather than stored: `rules/cycles.js#complete` writes `run.offer` and
-   increments `run.cycle` in the same call, so the asker is one row BEHIND
-   the live cycle, and the run is frozen while an offer stands (D17-A) so
-   nothing can advance `run.cycle` underneath it. `null` for a debug-key
-   draft, which nobody asked for and which therefore has no favour to
-   spend. */
-export const offerGod = () => (run.offer && CYCLES[run.cycle - 2]?.god) || null;
+   Four queries, here rather than in `rules/draft.js`, because both a `rules`
+   module (which SPENDS the favour) and `view` (which draws the price dimmed
+   when it cannot be paid) have to agree on them, and the two may not import
+   each other -- the same one-decision-two-readers argument `tributeMet`
+   above and `placementCheck` already stand on. `canReroll` is the whole
+   predicate: whoever dims the row and whoever refuses the press read this
+   one function, so they cannot disagree about why. */
+export const offerGod = () => run.offer?.god ?? null;
 
 export const rerollPrice = () => Math.max(0, Math.round(eff('rerollCost')));
 
-export const canReroll = god => god != null && (run.favour[god] ?? 0) >= rerollPrice();
+/* A SECOND LOOK AT THE SAME CARDS IS NOT A SECOND LOOK. With the pool no
+   bigger than the offer -- the grant tier is 2 rows and lays out 2 -- a
+   re-pick can only transpose what is already on the table, so the reroll is
+   refused rather than sold. This is what makes D17-B's "a god you have
+   pleased will look again" true of every tier rather than of the boons
+   alone. */
+export const offerExhausted = () => !!run.offer?.ids && run.offer.pool <= run.offer.ids.length;
+
+export const canReroll = god =>
+  god != null && !offerExhausted() && (run.favour[god] ?? 0) >= rerollPrice();
 
 /* The grant tier's real teeth (see docs/DEVELOPER_GUIDE.md#adding-a-recipe): a
    MACHINE-BUILD recipe (`data/recipes.js`'s own block of `<id>/rig`-producing

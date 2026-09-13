@@ -372,7 +372,7 @@ export function applyIntents() {
      and one dispatch, and `!run.offer` means a completion the same frame
      wins rather than the two silently overwriting each other -- the
      precedence the old `!wants.draft` test already gave it. */
-  if (wants.draft) { if (!run.offer) runw.offer(wants.draft); wants.draft = null; }
+  if (wants.draft) { if (!run.offer) runw.offer(wants.draft, null); wants.draft = null; }
 
   raiseOffer();
   applyUiIntents();
@@ -396,7 +396,8 @@ const candidatesFor = tier => (TIERS[tier]?.draftable() ?? []).map(r => r.id);
    instead, so the pause can never begin with no way to end it. */
 function raiseOffer() {
   if (!run.offer) return;
-  if (!run.offer.ids && !draft.offer(run.offer.tier, candidatesFor(run.offer.tier)).length) return;
+  const o = run.offer;
+  if (!o.ids && !draft.offer(o.tier, o.god, candidatesFor(o.tier)).length) return;
   /* Unreachable while the modal stands -- the guard above this function's
      caller returns first -- so this cannot churn the stack. It runs when an
      offer exists and the modal does not, which also re-raises one that was
@@ -423,7 +424,7 @@ function applyDraftIntents() {
   }
 
   if (wants.reroll) {
-    draft.reroll(offerGod(), candidatesFor(run.offer.tier));
+    draft.reroll(run.offer.god, candidatesFor(run.offer.tier));
     wants.reroll = false;
   }
 }
@@ -895,17 +896,20 @@ function installTestHook() {
         autoFeed: ui.autoFeed,
         /* THE STANDING DRAFT OFFER, projected rather than handed over: the
            ids are a live array on `run.offer` and the price and its
-           affordability are `model/run.js` queries, so all four are read
-           HERE and flattened into plain values that survive
-           `page.evaluate`'s structured clone. `god` is null for a debug-key
-           draft, which nobody asked for and which therefore can never be
-           rerolled. Null while no offer stands, and never while one is only
+           availability are `model/run.js` queries, so all of it is read HERE
+           and flattened into plain values that survive `page.evaluate`'s
+           structured clone. `god` is null for a debug-key draft, which
+           nobody asked for and which therefore can never be rerolled; `pool`
+           is how many candidates the cards were drawn from, and a `pool` no
+           bigger than `ids` is the other reason `canReroll` reads false.
+           Null while no offer stands, and never while one is only
            half-built -- `ids` is what makes an offer real. */
         offer: run.offer?.ids
           ? {
               tier: run.offer.tier,
               ids: run.offer.ids.slice(),
               god: offerGod(),
+              pool: run.offer.pool,
               rerollCost: rerollPrice(),
               canReroll: canReroll(offerGod())
             }

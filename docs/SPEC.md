@@ -1670,14 +1670,17 @@ singles this one out.
 storage and the wiring; **17c2 draws the modal** — until it lands the offer
 is raised and stands, and only a key (or a test) can take it.
 
-**The record.** `run.offer` is `{ tier, ids } | null`, declared in
-`RUN_SCHEMA` and reset by `newRun()`. `ids` is the offer and **`null` is a
+**The record.** `run.offer` is `{ tier, god, ids, pool } | null`, declared
+in `RUN_SCHEMA` and reset by `newRun()`. `ids` is the offer and **`null` is a
 request for one**: `rules/cycles.js#complete` and the four debug keys can
-only name a tier, because only `shell` may see all four tiers' `draftable()`
-lists, so the record is raised half-built and `rules/draft.js#offer` fills it
-the same frame. The ids are world state rather than session state — they were
-drawn from the seeded stream, and a run replayed from its seed lays out the
-same cards.
+only name a tier and its asker, because only `shell` may see all four tiers'
+`draftable()` lists, so the record is raised half-built and
+`rules/draft.js#offer` fills it the same frame. The ids are world state
+rather than session state — they were drawn from the seeded stream, and a run
+replayed from its seed lays out the same cards. `god` is **written down, not
+derived**: whoever raises the request knows who asked, and `null` (a
+debug-key draft, which nobody asked for) is a real answer rather than a
+missing one. `pool` is how many candidates the cards were drawn from.
 
 **The selection.** `rules/draft.js` is event-driven and is **not** in
 `shell/schedule.js`; `shell/main.js#applyIntents` calls it exactly as it
@@ -1696,16 +1699,36 @@ Nothing advances — not `clock.t`, not `run.t`, not a falling item, not a
 carrier under the player. The modal's own intents are dispatched **above**
 that guard, since taking a card is the only thing that ends the pause.
 
-**The reroll.** `eff('rerollCost')` = **2 favour**, spent with
-`model/run.js#offerGod()` — the god whose completed trial raised the offer,
-derived as `CYCLES[run.cycle - 2]` because `complete()` writes `run.offer`
-and increments `run.cycle` in the same call, and nothing can advance the
-cycle while the run is frozen. Against §18.4's payouts (3 favour standing at
-cycle 2's draft, 2 at cycle 3's, 3 at cycle 4's) that is exactly one second
-look per trial and never two. A god who is short refuses through the
-existing `'refused'` journal row and spends nothing; the price still draws.
-A debug-key draft has no asker, so `offerGod()` is `null` and it can never be
-rerolled.
+**The reroll.** `eff('rerollCost')` = **2 favour**, spent with the god on
+the offer record. Against §18.4's payouts (3 favour standing at cycle 2's
+draft, 2 at cycle 3's, 3 at cycle 4's) that is at most one second look per
+trial and never two.
+
+`model/run.js#canReroll(god)` is the whole predicate, and `view` dims the row
+with the same function `rules/draft.js` refuses the press with, so the two
+cannot disagree about why. It has **two** clauses, and each has its own
+`'refused'` message; neither spends anything:
+
+- the god is short → `'NOT ENOUGH FAVOUR'`. A debug-key draft has no asker,
+  so `god` is `null`, and it can never be rerolled.
+- **the pool is no bigger than the offer** → `'THIS IS ALL THERE IS'`. The
+  grant tier is 2 rows and lays out 2; the trinket tier is 3, or 2 once
+  `tribute-bellows` has landed. A re-pick over a pool that size can only
+  transpose the cards already on the table, so it is refused rather than
+  sold. Without this clause, two of the three drafts a run contains charge 2
+  favour for a shuffle.
+
+**A run is not won while a reward is outstanding.**
+`rules/cycles.js#ensureLiveCycle` defers `rw.win()` while `run.offer` is
+non-null. `complete()` writes the offer and bumps `run.cycle` in one call, so
+on the LAST trial the director can see `run.cycle > CYCLES.length` in a later
+substep of the very frame that paid it — and `shell/main.js#applyIntents`
+returns on `run.won` above both the offer's dispatch and its lay-out, so
+cycle 4's trinket draft was discarded on whichever substep parity the
+framerate happened to give (§20.2). The win therefore means "everything is
+resolved", not "the counter moved". It cannot hang: a request is laid out or
+dropped the same frame, a laid-out offer always holds at least one card, and
+the only verb that ends it is always available.
 
 **Escape does not dismiss an un-taken offer.** A permanent gift the player
 cannot recover must not be losable to a reflex keypress, so the draft modal
@@ -2096,7 +2119,7 @@ today; the altar is the only machine that arrives by it.
 
 | | |
 |---|---|
-| condition | `run.cycle > CYCLES.length` — every shipped trial paid (4 today) |
+| condition | `run.cycle > CYCLES.length` — every shipped trial paid (4 today) — **and no draft offer outstanding** (§18.8) |
 | state | `run.won`, a `RUN_SCHEMA` boolean, reset by `newRun()` like everything else |
 | set by | `rules/cycles.js#ensureLiveCycle`, **once**, guarded on `run.won` |
 | announced by | a `win` journal row → `data/sfx.js#KIND_SFX.win` (`triumph`) and `shell/notify.js#TEXT.win` (`THE GODS ARE ANSWERED`) |
