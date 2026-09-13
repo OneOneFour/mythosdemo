@@ -411,7 +411,8 @@ export const BEDROCK = 255;
 const STRIDE = FORM.length + 1;
 
 /* ---- what the byte actually costs: PACKABLE substances, not every substance.
-   Only two things ever reach `packTile`:
+   Three things reach `packTile`, and only the first two are constrained by
+   their own caller:
 
      a NATIVE tile   a substance carrying its own `tile` block, written by
                      worldgen -- `packTile(sub)` with `formOrd === NATIVE`.
@@ -420,6 +421,15 @@ const STRIDE = FORM.length + 1;
                      ('THAT DOES NOT BUILD'), and `#placeableFromPockets`
                      handles `rig` down a separate path (`placeMachine` writes
                      a structure through `model/machines.js`, not a tile).
+     a TRANSMUTED    `rules/miracles.js`'s `transmute` kind rewrites an
+     tile            already-solid tile to `effect.sub`'s NATIVE form. It
+                     passes through NEITHER gate above -- the substance comes
+                     off a `data/miracles.js` row, not off worldgen or the
+                     pockets -- so `tools/content.mjs` assertion 26 requires
+                     that substance to be `packable` and to exist at all. A
+                     non-packable ordinal would overflow 255 and WRAP into an
+                     unrelated pair, and a missing one packs to NaN, which a
+                     Uint8Array stores as AIR.
 
    So a substance is packable iff it is native terrain OR some tile-capable
    form is a legal crossing for it. Nothing else can be handed to `packTile`:

@@ -1212,10 +1212,42 @@ export function checkContent({ quiet = false } = {}) {
     checks++;
     if (e.kind === undefined && !e.boon)
       fail(`miracle "${m.id}": has neither an effect.kind nor an effect.boon, so using it does nothing at all`);
+    /* A KIND THAT WRITES A TILE NEEDS A PACKABLE SUBSTANCE, and both halves
+       of that are load-bearing rather than tidy. `rules/miracles.js`'s
+       `transmute` is a THIRD caller of `data/forms.js#packTile`, alongside
+       worldgen's native tile and `rules/placement.js#placeTile`'s validated
+       crossing, and it is subject to neither of their constraints -- so
+       nothing but this line stands between a content row and a corrupt tile
+       byte, silently:
+
+         no `sub` at all      `packTile(undefined)` is NaN, a Uint8Array
+                              stores NaN as 0, and 0 is AIR -- the miracle
+                              would CLEAR solid rock, which is exactly the
+                              step upward its own comment promises it cannot
+                              make.
+         a non-packable `sub` the ordinal overflows the byte and WRAPS:
+                              `lodestone` (26) packs to 365, truncates to
+                              109, and decodes as granite/stair -- a
+                              climbable tile nobody placed.
+
+       Both are the failure mode this whole file exists for: they place, they
+       paint, they collide, and nothing throws. */
+    if (e.kind === 'transmute') {
+      checks++;
+      if (e.sub === undefined)
+        fail(`miracle "${m.id}": effect.kind 'transmute' with no effect.sub -- model/tiles.js#write.set ` +
+             `would pack an undefined ordinal to NaN, which a Uint8Array stores as 0 (AIR), so the ` +
+             `miracle would CLEAR the rock it claims to convert. Name a substance`);
+    }
     if (e.sub !== undefined) {
       checks++;
-      if (S[e.sub] === undefined)
+      const sub = S[e.sub];
+      if (sub === undefined)
         fail(`miracle "${m.id}": effect.sub "${e.sub}" is not a data/substances.js row`);
+      else if (!packable(sub))
+        fail(`miracle "${m.id}": effect.sub "${e.sub}" is ordinal ${sub}, which data/forms.js#packable ` +
+             `rejects -- a relic, miracle or machine substance never reaches the tile byte, so packing it ` +
+             `overflows 255 and WRAPS to an unrelated substance x form pair. Name terrain`);
     }
     if (e.kind !== undefined) {
       checks++;

@@ -486,9 +486,35 @@ open sky, the same rule every other aimed verb obeys.
 pure-boon phial, which needed no engine code because `applyEffect` grants
 `effect.boon` independently of `effect.kind`. `transmute` only ever
 overwrites a tile that is already solid, so it can neither entomb the player
-nor conjure a step under their feet, and it pays in mining walked-to rather
-than in free ore — every transmuted unit still costs a full swing at
-copper's own `tile.hard`.
+nor conjure a step under their feet.
+
+**What `lodestone` is actually worth, stated rather than softened.** It
+CREATES ORE. `copper.tile.charge` is 4, so a radius-1 transmute turns up to
+9 tiles of ordinary soil or stone into **36 raw copper**, at any depth,
+including 0 M — 3.6x cycle 1's entire demand, out of rock that was worth
+nothing. The player still has to mine it (36 x 0.95 s ≈ 34 s of held
+swings), but the ore did not exist before the phial was used, and
+`data/recipes.js#pack` closes the loop the other way: 5 mining spoil become
+one `block`, which is `solid:true`, which `transmute` will convert. Spoil →
+copper is therefore a real conversion, bounded by phials held and not by
+material.
+
+That is the intended shape of a ONE-SHOT god gift — the largest single
+material windfall in the game, spent in one press, with the swings still to
+pay — and `effect.radius` is the one number that prices it. It is recorded
+here in full rather than described as "walking saved", which is what this
+section said first and is not true of a row that manufactures the ore.
+
+**`effect.sub` must name PACKABLE terrain, and `tools/content.mjs` assertion
+26 enforces it.** `transmute` is a third caller of `data/forms.js#packTile`,
+alongside worldgen and `rules/placement.js#placeTile`, and is constrained by
+neither of their gates. A row with no `sub` packs to `NaN`, which a
+`Uint8Array` stores as 0 — AIR — so the miracle would clear the rock it
+claims to convert; a row naming a `relic`, `miracle` or `machine` substance
+overflows 255 and wraps into an unrelated substance x form pair (ordinal 26
+packs to 365, truncating to 109: a granite `stair`, climbable, placed by
+nobody). Both shapes place, paint and collide perfectly well, which is why
+the guard is a build failure and not a comment.
 
 **Machine grants.** `data/grants.js`, **two** rows, and two is deliberate:
 

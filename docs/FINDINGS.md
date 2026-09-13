@@ -2062,8 +2062,39 @@ Consequences, in the order they bite:
    `docs/DEVELOPER_GUIDE.md` is outside this block.
 
 And one thing worth stating rather than parking: **`src/data/gods.js` ships
-with no importer.** That is the plan's own sequencing (17e moves
-`view/hud.js#GOD_NAME` and the draft modal onto it), so until then the only
-thing exercising the module is `tools/check.mjs`'s "import every module" pass.
-A table with no reader is exactly the shape of content that rots, and it has
-one phase to wait.
+with no importer, and — correcting this entry as first written — with NO
+EXECUTION COVERAGE AT ALL.** It is not exercised by `tools/check.mjs`'s
+import pass: that pass is a hand-written list of `await import(...)` calls
+(`tools/check.mjs:94-108`) and this file is not in it. `tools/layers.mjs`
+reads every file as text and executes none, so its file count includes
+`gods.js` without running it, and esbuild drops an unimported module from the
+bundle. Only `oxlint` parses it, which would catch a syntax error and not a
+runtime throw. CLAUDE.md records this exact failure mode ("`check.mjs` now
+imports every module for exactly this reason"). The module as written is
+trivially safe; the cost is that 17e, which gives it its first reader, is
+also what gives it its first execution.
+
+### 17b follow-up (against `docs/REVIEW-wave5-17b.md`)
+
+- **Taken outside the ownership block, with the coordinator's explicit
+  extension: one comment in `src/data/forms.js:413-433`.** It asserted "Only
+  two things ever reach `packTile`", and `rules/miracles.js`'s `transmute`
+  branch — landed in `f2c3d1a` — is a third, subject to neither of the two
+  gates the narrowing rests on. That comment is the registry-coupling claim
+  `tools/content.mjs` assertion 26 now enforces, so leaving it reading as
+  true while tightening the assertion that contradicts it was the worse of
+  the two options. No code in that file changed.
+
+- **PARKED — no assertion binds a row's `god:` id to `data/gods.js#GODS`**
+  (review D4). The sets are equal today by enumeration, but `godName`
+  (`src/data/gods.js:31`) falls back to the uppercased id, so a future
+  `hermes` would surface as a HUD label rather than as a build failure. 17e
+  is the phase that gives `GODS` its readers and is the right place for the
+  assertion.
+
+- **PARKED — `docs/SPEC.md:330-332` (§12) still prices the tile byte the old
+  way** (review D5): "adding the `auger` relic substance ... dropping
+  headroom from 14 to 13". Under the narrowed guard `auger` is not packable
+  and cost the guard nothing; §15 and §22 now agree with the code and §12 is
+  the last disagreeing copy. Left for 17h's sweep rather than widened into
+  this follow-up, which is about the `transmute` guard.

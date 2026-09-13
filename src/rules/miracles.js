@@ -50,10 +50,16 @@ function applyEffect(m, band, tx, ty) {
   }
 
   /* 'transmute': the same square, one verb over -- `write.set` instead of
-     `write.clear`, so it costs no new tile-write verb either. It only ever
-     overwrites a tile that is ALREADY SOLID, which is what makes it safe in
-     both directions: it can neither wall the player in nor conjure a step
-     under their feet, and "up is expensive" never enters the argument. */
+     `write.clear`, so it costs no new tile-write verb either. The `solidAt`
+     test is not redundant with `write.set`'s own bounds check and must not be
+     "simplified" away: it is the whole reason this branch cannot conjure
+     floor out of air, and without it the miracle is a terrain generator.
+
+     THE THIRD CALLER OF `packTile`, and the only one nothing validates on the
+     way in -- `e.sub` comes off a content row rather than from worldgen or
+     the pockets, so `tools/content.mjs` assertion 26 proves it exists and is
+     packable. An absent one packs to NaN and stores as AIR; a non-packable
+     one wraps the byte into an unrelated pair. */
   if (e.kind === 'transmute') {
     for (let dy = -e.radius; dy <= e.radius; dy++)
       for (let dx = -e.radius; dx <= e.radius; dx++)

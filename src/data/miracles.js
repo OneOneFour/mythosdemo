@@ -56,11 +56,15 @@ export const MIRACLES = [
     text:'EVERY STONE REMEMBERS THE SEA',
     effect:{ boon:'poseidon-flood' } },
 
-  /* 3x3 of rock become native copper, at copper's own `tile.charge` -- so it
-     pays in WALKING SAVED and not in free ore: every unit still costs a full
-     swing at copper's own `tile.hard`. It can do nothing at all to air (the
-     branch skips any tile that is not already solid), which is what keeps it
-     out of the "up is expensive" argument entirely. */
+  /* IT CREATES ORE, and `radius` is the number that prices it: 9 tiles at
+     copper's `tile.charge` of 4 is 36 raw copper out of worthless rock --
+     3.6x cycle 1's whole demand -- with 34 s of swings still to pay. That is
+     the intended size of a one-shot god gift, and docs/SPEC.md section 14
+     states it in full rather than calling it walking saved.
+     `effect.sub` must be PACKABLE terrain (tools/content.mjs assertion 26):
+     this is the one caller of `packTile` that neither worldgen nor
+     `rules/placement.js` validates. It can do nothing at all to air, which
+     keeps it out of the "up is expensive" argument entirely. */
   { id:'lodestone', name:'LODESTONE OF THE FORGE', god:'hephaestus',
     text:'BASE ROCK REMEMBERS THE VEIN',
     effect:{ kind:'transmute', radius:1, sub:'copper' } }
