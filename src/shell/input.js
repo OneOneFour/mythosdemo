@@ -80,8 +80,15 @@ export const cmd = {
    (the old digit-driven BUILD menu's own field) is gone along with the menu
    that set it -- placement now has exactly one path, `cmd.place`, whether
    the pair placed is a tile or a machine; see `shell/input.js`'s own digit-
-   key comment and `docs/FINDINGS.md`. */
-export const wants = { restart: false, draft: null };
+   key comment and `docs/FINDINGS.md`.
+
+   `draft` REQUESTS an offer of a tier (a debug key); `takeCard` is the
+   0-based index of the card taken from the offer standing now, and `reroll`
+   asks for a second look at the same tier. The three are separate fields
+   rather than one because they are three different verbs, and the last two
+   are the only intents `applyIntents` still dispatches while the run is
+   frozen behind the modal. */
+export const wants = { restart: false, draft: null, takeCard: null, reroll: false };
 
 /* Presentation toggles. Read by `view` through the frame context — `view` may
    not import `shell`, so they are passed in rather than imported. `showMap` is
@@ -108,7 +115,9 @@ let hopHeld = false, dropHeld = false, deconHeld = false, linkHeld = false;
    g/h (grid/debug overlays), o (map overview), m (mute), z (cancel a
    selection, additive to Escape), Escape (close panel / cancel selection),
    the digits (arm the quickbar slot at that index), and t/b/k/y/p behind
-   `flags.showDebug` (debug drafts, and the chunk overlay). Mining, placing,
+   `flags.showDebug` (debug drafts, and the chunk overlay). While a draft
+   offer stands, 1/2/3 take a card and r rerolls it, and every other key --
+   Escape included -- is swallowed; see that branch's own header. Mining, placing,
    feeding a machine by hand and using a held miracle have no dedicated key at
    all -- they are all LMB, resolved once at `pointerdown` (D-A, widened to
    four rules -- docs/SPEC.md section 23.2) -- and restart is a clickable button
@@ -328,6 +337,26 @@ export function installInput() {
     }
 
     const k = e.key.toLowerCase();
+
+    /* THE DRAFT MODAL CLAIMS THE WHOLE KEYBOARD, above even the map, because
+       it is the topmost thing the game can raise and the run is frozen
+       behind it (D17-A). Same swallow-everything-else rule the search field
+       above uses, and for the same reason: a stray 'e' opening the tabbed
+       window UNDER a modal the player cannot leave is worse than a dropped
+       keystroke. 1/2/3 take a card, 'r' asks for a second look.
+
+       ESCAPE IS DELIBERATELY NOT A WAY OUT, which is the one place this
+       block differs from every other panel in this file. An un-taken
+       permanent gift is not recoverable, so it must not be losable to the
+       key a player presses reflexively -- the offer stands until a card is
+       taken. */
+    if (isOpen('draft')) {
+      const card = '123'.indexOf(k);
+      if (card >= 0) wants.takeCard = card;
+      if (k === 'r') wants.reroll = true;
+      e.preventDefault();
+      return;
+    }
 
     /* THE MAP CLAIMS ITS KEYS FIRST -- see `mapKey`'s own header for why this
        pre-empts `set()` rather than running alongside it. Escape leaves the
@@ -675,4 +704,6 @@ export function clearEdges() {
   cmd.uiWheel = 0;
   wants.restart = false;
   wants.draft = null;
+  wants.takeCard = null;
+  wants.reroll = false;
 }

@@ -1849,17 +1849,24 @@ test('granting a boon in debug activates it, and it expires back to the base eff
   await settle(page);
   await page.evaluate(() => { __mf.flags.showDebug = true; __mf.cmd.hasMouse = false; });
 
+  /* THE DEBUG KEY NOW RAISES AN OFFER RATHER THAN GRANTING OUTRIGHT
+     (Phase 17c1): 'b' lays out a 1-of-3 draft of the timed tier and freezes
+     the run behind it, and '1' takes the first card. So the baseline is read
+     from the card that WILL be taken -- which row that is comes out of the
+     seeded draw, not out of `BOONS[0]`. */
+  await page.keyboard.press('b');         // the debug timed-boon draft (flags.showDebug required)
   const before = await page.evaluate(async () => {
+    __mf.frames(1);
     const { eff } = await import('/src/model/mods.js');
-    const { BOONS } = await import('/src/data/boons.js');
-    const b = BOONS[0];
+    const { BOON } = await import('/src/data/boons.js');
+    const b = BOON[__mf.ui.offer.ids[0]];
     const raw = b.mods[0].key;
     const dot = raw.indexOf('.');
     return { key: dot < 0 ? raw : raw.slice(0, dot), scope: dot < 0 ? undefined : raw.slice(dot + 1),
              secs: b.secs, value: eff(dot < 0 ? raw : raw.slice(0, dot), dot < 0 ? undefined : raw.slice(dot + 1)) };
   });
 
-  await page.keyboard.press('b');         // the debug timed-boon draft (flags.showDebug required)
+  await page.keyboard.press('1');         // take the first card
   const afterGrant = await page.evaluate(async ({ key, scope }) => {
     __mf.frames(3);
     const { eff } = await import('/src/model/mods.js');

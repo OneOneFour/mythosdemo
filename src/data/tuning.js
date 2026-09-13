@@ -136,6 +136,16 @@ export const TUNABLES = [
   /* ---- trinkets. See docs/DEVELOPER_GUIDE.md#the-four-gift-tiers ---- */
   { id:'trinketSlots', kind:'value', base:3, unit:'slots', note:'length of run.equipped; a boon could someday widen it' },
 
+  /* ---- the draft (D17-B/D17-F, docs/SPEC.md section 18.8). `offerSize` is
+     how many of a tier's still-undrafted rows a god lays out; a tier with
+     fewer left offers fewer, because `rules/draft.js` never pads.
+     `rerollCost` is in FAVOUR and is spent with the god whose trial raised
+     the offer. 2 against the running totals docs/SPEC.md section 18.4 pays
+     out -- 3 at cycle 2's draft, 2 at cycle 3's, 3 at cycle 4's -- buys
+     exactly one second look per trial and never two. */
+  { id:'offerSize',  kind:'value', base:3, unit:'cards',  note:'cards in one draft offer; fewer candidates offer fewer' },
+  { id:'rerollCost', kind:'value', base:2, unit:'favour', note:'favour spent with the asking god to re-pick the offer' },
+
   /* ---- inventory (Phase 12c, docs/PLAN-phase12.md D-G/D-H). `invSlots` is
      `run.mainSlots` at reset; `quickbarSlots` is the tail of `run.inv` past
      it -- the same "a slot count is content, read through eff()" precedent

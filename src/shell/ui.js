@@ -191,6 +191,17 @@ export const ui = {
   }
 };
 
+/* THE PANELS THE GAME RAISES, which freeze the run while they stand (D17-A),
+   as against the ones the player OPENS, which deliberately freeze nothing.
+   Stated ONCE, here, and consulted by both `shell/main.js#step` and
+   `#applyIntents` -- the same fact ("this frame does not simulate") the
+   `flags.showMap` and `run.won` guards beside it already state once each,
+   rather than a `'draft'` string hardcoded in two functions. A draft is a
+   ceremony: choosing a permanent gift while a crank stalls under you is
+   choosing under a pressure the design never asked for. */
+const PAUSING = ['draft'];
+export function pausesRun() { return ui.stack.some(id => PAUSING.includes(id)); }
+
 export function isOpen(id) { return ui.stack.includes(id); }
 export function top() { return ui.stack.length ? ui.stack[ui.stack.length - 1] : null; }
 

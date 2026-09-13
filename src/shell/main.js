@@ -21,9 +21,10 @@ import { items } from '../model/items.js';
 import { peek as journalPeek, push as journalPush } from '../model/journal.js';
 import { machineAt, machines } from '../model/machines.js';
 import { PH, PW, player, write as playerw } from '../model/player.js';
-import { canCraft, invCount, isKnown, machineIdFor, pocketRows, run, write as runw } from '../model/run.js';
+import { canCraft, canReroll, invCount, isKnown, machineIdFor, offerGod, pocketRows, rerollPrice, run, write as runw } from '../model/run.js';
 import { linkedTo, segments } from '../model/segments.js';
 import { bands, heightPx, widthPx, write as worldw } from '../model/world.js';
+import * as draft from '../rules/draft.js';
 import { dropHeaviest } from '../rules/items.js';
 import { handOne } from '../rules/machines.js';
 import { deconstruct, linkSegment, placeMachine, placeTile, placeableFromPockets, unlinkSegment } from '../rules/placement.js';
@@ -35,7 +36,7 @@ import { drainJournal } from './notify.js';
 import { boons, grants, miracles, stepAll, trinkets } from './schedule.js';
 import {
   armLink, armPlace, cancelQueued, clearArmedPlace, clearDrag, clearLink,
-  close as closePanel, closeTop, isOpen,
+  close as closePanel, closeTop, isOpen, open as openPanel, pausesRun,
   queueCraft, scrollBy, setDrag, setSearchFocus, setTab, toggleAutoCollect, toggleAutoFeed,
   toggleHints, ui
 } from './ui.js';
@@ -90,6 +91,18 @@ export function step(dt) {
      the world live behind the death screen, items still fall, and changing
      that is not this phase's business. */
   if (run.won) return;
+
+  /* AND A MODAL THE GAME RAISED (D17-A): the draft offer freezes the run the
+     same way and in the same place the two guards above do -- nothing
+     advances, a carrier under the player holds where it is, and a falling
+     item stays in the air until a card is taken. The predicate is
+     `shell/ui.js#pausesRun`, stated once there and consulted by
+     `applyIntents()` below too, rather than a `'draft'` string written into
+     two functions. Guarded HERE and not in `frame()` for the reason the map
+     freeze gives at the top of this function: under `?test=1` there is no
+     RAF loop, and a test proving the freeze drives exactly this entry
+     point. */
+  if (pausesRun()) return;
 
   /* THE CRAFT QUEUE RE-ASSERTS THE SAME ONE INTENT, every substep it is
      non-empty -- see `shell/ui.js#ui.craftQueue`'s own header for why this is
@@ -189,6 +202,16 @@ export function applyIntents() {
      nothing in a world that is no longer advancing. `wants.restart` is
      unaffected -- `frame()` consumes it before either guard. */
   if (run.won) return;
+
+  /* THE MODAL'S OWN INTENTS RESOLVE ABOVE THE FREEZE IT CAUSES, which is
+     why this call sits before the guard rather than beside the four branches
+     at the bottom of this function: taking a card is the only thing that
+     ends the pause, so it cannot be gated on the pause. Everything below the
+     guard is a WORLD intent -- placing, linking, feeding, raising another
+     draft -- and none of it may happen while a god is waiting for an
+     answer. */
+  applyDraftIntents();
+  if (pausesRun()) return;
 
   /* THE ARMED PAIR TRACKS THE POCKETS (Part 1, click-to-arm placement): the
      instant the pockets no longer hold the EXACT armed pair -- spent by a
@@ -343,38 +366,66 @@ export function applyIntents() {
     cmd.link = false;
   }
 
-  /* A cycle completion (`rules/cycles.js#complete`) arrives as `run.offer`,
-     since a `rules` module may not reach `shell/input.js#wants` -- see
-     `model/run.js#RUN_SCHEMA.offer`'s own comment. Folding it into `wants.draft`
-     before the four checks below gives it the identical "first undrafted row"
-     dispatch the debug keys already have, with no second draft path -- and
-     `!wants.draft` means a key held the same frame a trial completes wins,
-     rather than the two silently overwriting each other. */
-  if (run.offer && !wants.draft) { wants.draft = run.offer; runw.offer(null); }
+  /* A DEBUG KEY RAISES A REQUEST, NOT A GIFT (the four tiers are each
+     exercisable by hand behind `flags.showDebug`). It goes through the same
+     `run.offer` field a completed trial writes, so there is one raise path
+     and one dispatch, and `!run.offer` means a completion the same frame
+     wins rather than the two silently overwriting each other -- the
+     precedence the old `!wants.draft` test already gave it. */
+  if (wants.draft) { if (!run.offer) runw.offer(wants.draft); wants.draft = null; }
 
-  /* Drafting, bound to a key so all four tiers are exercisable by hand. */
-  if (wants.draft === 'trinket') {
-    const t = trinkets.draftable()[0];
-    if (t) trinkets.grant(t.id);
-    wants.draft = null;
-  }
-  if (wants.draft === 'grant') {
-    const g = grants.draftable()[0];
-    if (g) grants.grant(g.id);
-    wants.draft = null;
-  }
-  if (wants.draft === 'boon') {
-    const b = boons.draftable()[0];
-    if (b) boons.grant(b.id);
-    wants.draft = null;
-  }
-  if (wants.draft === 'miracle') {
-    const m = miracles.draftable()[0];
-    if (m) miracles.grant(m.id);
-    wants.draft = null;
-  }
-
+  raiseOffer();
   applyUiIntents();
+}
+
+/* ---------- the draft (D17-A/D17-B/D17-F) ----------
+   SHELL IS THE ONLY LAYER THAT MAY SEE ALL FOUR TIERS AT ONCE. Each tier's
+   `draftable()` lives in its own `rules` module and those four are siblings
+   that may not import one another, so gathering the candidates, and
+   dispatching a taken card back to the tier's own `grant()`, are both here.
+   `rules/draft.js` owns what is between: which of the candidates are
+   offered, what a reroll costs and whose favour pays for it. */
+const TIERS = { trinket: trinkets, grant: grants, boon: boons, miracle: miracles };
+
+const candidatesFor = tier => (TIERS[tier]?.draftable() ?? []).map(r => r.id);
+
+/* Turn a half-built `run.offer` -- a tier with no ids, written by
+   `rules/cycles.js#complete` or by a debug key above -- into a real offer,
+   and raise the modal over it. An offer with nothing to put in it never
+   opens: `rules/draft.js#offer` clears the request and refuses out loud
+   instead, so the pause can never begin with no way to end it. */
+function raiseOffer() {
+  if (!run.offer) return;
+  if (!run.offer.ids && !draft.offer(run.offer.tier, candidatesFor(run.offer.tier)).length) return;
+  /* Unreachable while the modal stands -- the guard above this function's
+     caller returns first -- so this cannot churn the stack. It runs when an
+     offer exists and the modal does not, which also re-raises one that was
+     closed out from under it. */
+  openPanel('draft');
+}
+
+function applyDraftIntents() {
+  /* THE MODAL TRACKS THE OFFER, the same staleness sweep `ui.armedPlace` and
+     `ui.linkFrom` get above: a `newRun()` under an open modal would leave a
+     panel on the stack freezing a run that has no offer in it, and the
+     freeze would have no way out. */
+  if (isOpen('draft') && !run.offer?.ids) { closePanel('draft'); return; }
+  if (!isOpen('draft')) return;
+
+  if (wants.takeCard !== null) {
+    const id = run.offer.ids[wants.takeCard];
+    const tier = TIERS[run.offer.tier];
+    /* A card index the offer does not hold (three keys, two cards) takes
+       nothing and leaves the offer standing. */
+    if (id && tier) { tier.grant(id); runw.offer(null); closePanel('draft'); }
+    wants.takeCard = null;
+    return;
+  }
+
+  if (wants.reroll) {
+    draft.reroll(offerGod(), candidatesFor(run.offer.tier));
+    wants.reroll = false;
+  }
 }
 
 /* ---------- the widget layer's own dispatcher ----------
@@ -842,6 +893,23 @@ function installTestHook() {
            asserting either half of that has to be able to read the value
            back rather than assume `setAutoFeed` took. */
         autoFeed: ui.autoFeed,
+        /* THE STANDING DRAFT OFFER, projected rather than handed over: the
+           ids are a live array on `run.offer` and the price and its
+           affordability are `model/run.js` queries, so all four are read
+           HERE and flattened into plain values that survive
+           `page.evaluate`'s structured clone. `god` is null for a debug-key
+           draft, which nobody asked for and which therefore can never be
+           rerolled. Null while no offer stands, and never while one is only
+           half-built -- `ids` is what makes an offer real. */
+        offer: run.offer?.ids
+          ? {
+              tier: run.offer.tier,
+              ids: run.offer.ids.slice(),
+              god: offerGod(),
+              rerollCost: rerollPrice(),
+              canReroll: canReroll(offerGod())
+            }
+          : null,
         panels: uiDrawn.panels.map(p => ({ ...p, closeHit: p.closeHit ? { ...p.closeHit } : null })),
         tabs: uiDrawn.tabs.map(t => ({ ...t, hits: t.hits.map(h => ({ ...h })) })),
         grids: uiDrawn.grids.map(gr => ({ ...gr, slots: gr.slots.map(s => ({ ...s })) })),

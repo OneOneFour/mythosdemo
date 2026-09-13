@@ -2098,3 +2098,49 @@ also what gives it its first execution.
   and cost the guard nothing; §15 and §22 now agree with the code and §12 is
   the last disagreeing copy. Left for 17h's sweep rather than widened into
   this follow-up, which is about the `transmute` guard.
+
+## Phase 17c1 (the offer, the pause and the reroll — headless half)
+
+- **Taken outside the ownership block: one test in
+  `tests/visual.spec.js:1847` ("granting a boon in debug activates it").**
+  It pressed `b` and asserted `BOONS[0]`'s modifier went live; `b` now
+  raises a 1-of-3 offer instead of granting outright, so the assertion was
+  false for the reason this phase exists. The edit is the smallest one that
+  keeps the test's own subject (a granted boon activates and expires): press
+  `b`, read the baseline from the card `1` will take -- which row that is
+  comes out of the seeded draw -- then press `1`. No screenshot and no other
+  test changed, and no baseline was re-accepted. Leaving the suite red was
+  the alternative, and the file is in neither 17c1's nor 17c2's block.
+
+- **PARKED — a drawn draft card has nothing to click.** `shell/main.js
+  #applyDraftIntents` dispatches keys 1/2/3 and `r` above the pause guard,
+  and `applyUiIntents()` (the pointer dispatcher) is deliberately not
+  reached while the modal stands, so a click on a card or on the REROLL row
+  resolves nothing. 17c2 owns `src/view/ui/draft.js` and `src/view/hud.js`
+  only, so the branch that hit-tests what it records into
+  `view/ui/state.js#drawn` has to be added in `shell/main.js` by whoever
+  owns that file next — the intents (`wants.takeCard`, `wants.reroll`) and
+  the dispatch already exist and need only a second caller.
+
+- **PARKED — `docs/DESIGN.md:128-129` is now stale.** It says "the draft is
+  1-of-1, not a choice: `shell/main.js` takes `draftable()[0]` and grants it
+  outright". Both halves are false as of this commit; `docs/DESIGN.md:179`
+  ("a draft is still 1-of-3 after each cycle") is now true rather than
+  aspirational. Outside this block; 17h's doc sweep.
+
+- **PARKED — an offer is raised silently.** `data/sfx.js#KIND_SFX` has no
+  kind for "a god has laid out a choice", and `rules/draft.js` deliberately
+  pushes no new journal kind rather than adding one to a file it does not
+  own (a kind with no `data/sfx.js` entry is silent by design, so the row
+  would have been decoration). The refusals it does push ride the existing
+  `'refused'` kind. `src/data/sfx.js` and `src/shell/notify.js` are 17c2's
+  or 17e's to decide on.
+
+- **Noted, not fixed: a `newRun()` under an open modal costs one frozen
+  frame.** `shell/main.js#applyDraftIntents`'s staleness sweep closes a
+  modal whose offer has gone, but `step()` has already returned early that
+  frame, so the first substep after such a restart does not simulate. Not
+  reachable in play — restart is only offered on the death screen and the
+  run cannot die while frozen — and the alternative (clearing `ui.stack` in
+  `shell/boot.js#newRun`) is outside this block and would change what a
+  restart does to every other panel.

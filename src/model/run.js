@@ -121,11 +121,20 @@ export const RUN_SCHEMA = Object.freeze({
   /* `offer` IS THE DRAFT BRIDGE, and it exists only because a `rules` module
      may not reach `shell/input.js#wants` (`tools/layers.mjs`'s `rules -> shell`
      ban): `rules/cycles.js#complete` cannot call `wants.draft = tier` itself,
-     so it writes the tier NAME here instead and `shell/main.js` performs the
-     identical "first undrafted row" lookup it already runs for the four
-     debug-key drafts, then clears this field -- one event, one dispatch path,
-     regardless of whether a key or a completed trial requested it. A scalar,
-     not a container, so no fresh-build in `reset()` is needed. */
+     so it writes the tier NAME here instead and `shell/main.js` dispatches --
+     one event, one dispatch path, regardless of whether a key or a completed
+     trial requested it.
+
+     `{ tier, ids } | null` (D17-F). `ids` IS THE OFFER AND `null` IS A
+     REQUEST FOR ONE: `rules/cycles.js` and the debug keys can only name a
+     tier, because only `shell` may see all four tiers' `draftable()` lists,
+     so the record is raised half-built and `rules/draft.js#offer` fills it
+     in the same frame. The ids are WORLD STATE and not session state -- they
+     were drawn from the seeded stream, and a run replayed from its seed must
+     lay out the same three cards -- which is why this is on `run` and resets
+     with it rather than living beside the panel stack in `shell/ui.js`.
+     A fresh object per write and `null` when none, the same shape `awarded`
+     above uses, so no fresh-build in `reset()` is needed. */
   offer: null,
 
   /* Phase 4 (docs/BUILD_PLAN.md) STEP 4, CLAUDE.md D1: a fixed-length
@@ -320,7 +329,11 @@ export const write = {
   chart(bandId)     { if (!run.charted.includes(bandId)) run.charted.push(bandId); bump(); },
   miss()            { run.misses++; bump(); },
   cycle(n)          { run.cycle = n; bump(); },
-  offer(tier)       { run.offer = tier; bump(); },
+  /* The draft bridge's one setter, in both its halves: `offer(tier)` raises
+     a REQUEST (ids still null, `rules/cycles.js` and the debug keys) and
+     `offer(tier, ids)` lays out the cards (`rules/draft.js`, the only caller
+     that has any). `offer(null)` clears. See `RUN_SCHEMA.offer`. */
+  offer(tier, ids = null) { run.offer = tier ? { tier, ids } : null; bump(); },
 
   /* ONE-WAY, LIKE `advanceBeat` ABOVE AND FOR THE SAME REASON: it takes no
      argument, so a writer that cannot be handed a boolean cannot be handed
@@ -589,6 +602,26 @@ export function tributeMet() {
   if (!row) return false;
   return row.demand.every(d => tributeHave(d.sub, d.form) >= d.n);
 }
+
+/* ---- the standing draft offer (D17-B/D17-F) ----
+   Three queries, here rather than in `rules/draft.js`, because both a
+   `rules` module (which SPENDS the favour) and `view` (which draws the price
+   dimmed when it cannot be paid) have to agree on them, and the two may not
+   import each other -- the same one-decision-two-readers argument
+   `tributeMet` above and `placementCheck` already stand on.
+
+   `offerGod` is THE GOD WHOSE TRIAL RAISED THE OFFER, and it is derived
+   rather than stored: `rules/cycles.js#complete` writes `run.offer` and
+   increments `run.cycle` in the same call, so the asker is one row BEHIND
+   the live cycle, and the run is frozen while an offer stands (D17-A) so
+   nothing can advance `run.cycle` underneath it. `null` for a debug-key
+   draft, which nobody asked for and which therefore has no favour to
+   spend. */
+export const offerGod = () => (run.offer && CYCLES[run.cycle - 2]?.god) || null;
+
+export const rerollPrice = () => Math.max(0, Math.round(eff('rerollCost')));
+
+export const canReroll = god => god != null && (run.favour[god] ?? 0) >= rerollPrice();
 
 /* The grant tier's real teeth (see docs/DEVELOPER_GUIDE.md#adding-a-recipe): a
    MACHINE-BUILD recipe (`data/recipes.js`'s own block of `<id>/rig`-producing

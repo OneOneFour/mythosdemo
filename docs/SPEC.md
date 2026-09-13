@@ -1555,9 +1555,9 @@ units, gated by `tile.tier` rather than by compression.
 | # | god | at | demand | ore-equiv. | deadline | reward | punishment |
 |---|---|---|---|---|---|---|---|
 | 1 | hephaestus | `altar` | 10 `copper/ore` | 10 | **none** | +1 favour; grant `furnace` + `cloud_dock`; chart `astral` | — (cannot be missed) |
-| 2 | hephaestus | `cloud_dock` | 3 `copper/plate` | 36 (+12 fuel across the two compression steps) | 480 s | +2 favour; chart `topsoil`; draft `grant` (1-of-1 today, see §18.6) | 1 heart, −1 favour |
-| 3 | athena | `cloud_dock` | 6 `copper/plate` + 4 `tin/ingot` | 72 + 16 = 88 | 420 s | +2 favour; draft `boon` (1-of-1 today, see §18.6) | 2 hearts, −1 favour |
-| 4 | poseidon | `cloud_dock` | 8 `copper/plate` + 8 `granite/gravel` | 96 + 8 tier-2 rock | 360 s | +3 favour; draft `trinket` (1-of-1 today, see §18.6) | 2 hearts, −1 favour |
+| 2 | hephaestus | `cloud_dock` | 3 `copper/plate` | 36 (+12 fuel across the two compression steps) | 480 s | +2 favour; chart `topsoil`; draft `grant` (2 of 2, the tier's whole roster, §18.8) | 1 heart, −1 favour |
+| 3 | athena | `cloud_dock` | 6 `copper/plate` + 4 `tin/ingot` | 72 + 16 = 88 | 420 s | +2 favour; draft `boon` (1-of-3, §18.8) | 2 hearts, −1 favour |
+| 4 | poseidon | `cloud_dock` | 8 `copper/plate` + 8 `granite/gravel` | 96 + 8 tier-2 rock | 360 s | +3 favour; draft `trinket` (1-of-3, §18.8) | 2 hearts, −1 favour |
 
 **Cycle 1 is the altar and every later cycle is the dock** — data expressing
 §4's "cycle 1 is unmoved at the surface" as a table lookup rather than as a
@@ -1613,9 +1613,9 @@ cycle it was or how many hearts remained, so "two" always means two.
 `rules` siblings that each know what is draftable in their own tier
 (`rules/grants.js`, `rules/boons.js`, `rules/trinkets.js`,
 `rules/miracles.js`), so completion writes the tier name into `run.offer` and
-`shell/main.js` performs the identical "first undrafted row" lookup it
-already runs for the four debug-key drafts, then clears the field — one
-event, one dispatch path, whether a key or a completed trial requested it.
+`shell/main.js` dispatches — one event, one path, whether a key or a
+completed trial requested it. §18.8 has the record's shape and what happens
+next.
 
 ### 18.6 Rewards and punishments
 
@@ -1635,16 +1635,8 @@ mix of:
   all has already entered that band — the payoff arrives once more bands
   exist to chart.
 - **`draft`** — one of `'grant' | 'boon' | 'trinket' | 'miracle'`, handed over
-  through `run.offer` (§18.5). Cycles 2–4 each draft a different tier, in that
-  order. **It is 1-of-1 today, not 1-of-3.** This section used to say
-  "offered 1-of-3" as though that shipped; it does not.
-  `shell/main.js`'s draft branches take `draftable()[0]` and grant it
-  outright — no offer, no choice, no pause. **The content half is now there:**
-  boons hold 5 rows, trinkets 3, miracles 3 and grants 2 (§14), so an offer of
-  three distinct rows is constructible from every tier except grants, which
-  offers two of two honestly. What is still missing is the offer SURFACE — a
-  modal, a pause and a way to choose — and that is the remaining half of
-  `docs/PLAN-phase13.md` §5.2 #4.
+  through `run.offer` (§18.5) and laid out as an offer by §18.8. Cycles 2–4
+  each draft a different tier, in that order.
 
 A miss's `punishment` is `{ hearts?, favour? }`, both real numbers rather
 than a flat penalty: hearts scale from 1 (cycle 2) to 2 (cycles 3–4) as the
@@ -1671,6 +1663,55 @@ care that the shaft it happens to be parked in leads to the Heavens. That is
 correct physics and not a hole to patch: a carrier is a real surface, and the
 fence D5 relies on is gravity acting on an *empty* shaft, not a rule that
 singles this one out.
+
+### 18.8 The offer: 1-of-3, the pause and the reroll (Phase 17c)
+
+`docs/PLAN-wave5-closeout.md` D17-A, D17-B and D17-F. Phase 17c1 is the
+storage and the wiring; **17c2 draws the modal** — until it lands the offer
+is raised and stands, and only a key (or a test) can take it.
+
+**The record.** `run.offer` is `{ tier, ids } | null`, declared in
+`RUN_SCHEMA` and reset by `newRun()`. `ids` is the offer and **`null` is a
+request for one**: `rules/cycles.js#complete` and the four debug keys can
+only name a tier, because only `shell` may see all four tiers' `draftable()`
+lists, so the record is raised half-built and `rules/draft.js#offer` fills it
+the same frame. The ids are world state rather than session state — they were
+drawn from the seeded stream, and a run replayed from its seed lays out the
+same cards.
+
+**The selection.** `rules/draft.js` is event-driven and is **not** in
+`shell/schedule.js`; `shell/main.js#applyIntents` calls it exactly as it
+calls `rules/placement.js`. It picks `eff('offerSize')` = **3** distinct
+candidates by partial Fisher-Yates, consuming **exactly one `rand()` draw per
+card laid out** — 3 for a full offer, 2 for the grant tier's two-of-two
+(§14: 5 boons, 3 trinkets, 3 miracles, 2 grants), and a reroll the same again.
+**Fewer candidates offer fewer cards**; nothing is ever padded, and a tier
+with nothing left refuses out loud (`'NOTHING LEFT TO OFFER'`) rather than
+raising a modal holding nothing.
+
+**The pause.** An offer freezes the run: `shell/ui.js#pausesRun()` is one
+predicate over `ui.stack`, consulted by both `shell/main.js#step` and
+`#applyIntents` beside the existing `flags.showMap` and `run.won` guards.
+Nothing advances — not `clock.t`, not `run.t`, not a falling item, not a
+carrier under the player. The modal's own intents are dispatched **above**
+that guard, since taking a card is the only thing that ends the pause.
+
+**The reroll.** `eff('rerollCost')` = **2 favour**, spent with
+`model/run.js#offerGod()` — the god whose completed trial raised the offer,
+derived as `CYCLES[run.cycle - 2]` because `complete()` writes `run.offer`
+and increments `run.cycle` in the same call, and nothing can advance the
+cycle while the run is frozen. Against §18.4's payouts (3 favour standing at
+cycle 2's draft, 2 at cycle 3's, 3 at cycle 4's) that is exactly one second
+look per trial and never two. A god who is short refuses through the
+existing `'refused'` journal row and spends nothing; the price still draws.
+A debug-key draft has no asker, so `offerGod()` is `null` and it can never be
+rerolled.
+
+**Escape does not dismiss an un-taken offer.** A permanent gift the player
+cannot recover must not be losable to a reflex keypress, so the draft modal
+swallows every key it does not own (1/2/3 take a card, `r` asks for a second
+look) — the same "one thing owns the keyboard" rule the CRAFTING search field
+already enforces, minus the way out.
 
 ## 19. Deposits, rubble and the packed block (Phase 14a)
 
