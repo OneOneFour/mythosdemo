@@ -23,7 +23,29 @@ export const TRINKETS = [
     text:'THE FIRE ANSWERS FASTER',
     /* The scoped-key example -- see
        docs/DEVELOPER_GUIDE.md#the-tunable-pipeline */
-    mods:[ { key:'rate.furnace', mul:1.25 } ] }
+    mods:[ { key:'rate.furnace', mul:1.25 } ] },
+
+  { id:'owl', name:'OWL OF ATHENA', short:'OWL', god:'athena',
+    text:'THE DARK GIVES UP ITS SHAPE',
+    /* `sightRadius` is the Pass B flood cap in `rules/reveal.js`, so this is
+       21 tiles of graph distance instead of 14 -- a whole cavern read from
+       its mouth. Visible the frame it is equipped, which is the point: a
+       modifier nobody can see the effect of is a number, not a gift. */
+    mods:[ { key:'sightRadius', mul:1.5 } ] },
+
+  /* THE TRADE TRINKET, and it is deliberately NOT a discount on ascent.
+     CLAUDE.md's premise is that up is expensive; `burden` and `climb` are two
+     of the three tunables D4 names as the whole player-scale expression of
+     it, so bending them has to be priced rather than granted. 1.25 x 0.8 =
+     1.0 EXACTLY: 50 T at 24 px/s delivers the same talents per second up a
+     shaft as 40 T at 30 px/s. What the girdle buys is fewer trips and less
+     walking between them; what it costs is a slower climb, a longer exposure
+     on the ladder, and a bigger load to lose in one fall. The cost is real
+     and it is in the same row as the benefit, the way `data/boons.js`'s
+     `ares-frenzy` is. */
+  { id:'girdle', name:'GIRDLE OF ARES', short:'GIRDLE', god:'ares',
+    text:'CARRY MORE; CLIMB SLOWER',
+    mods:[ { key:'burden', mul:1.25 }, { key:'climb', mul:0.8 } ] }
 ];
 
 export const TRINKET = Object.freeze(Object.fromEntries(

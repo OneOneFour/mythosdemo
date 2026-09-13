@@ -20,7 +20,7 @@ import { HAND_RECIPES, RECIPES, recipesOf } from '../src/data/recipes.js';
 import { MACH } from '../src/data/machines.js';
 import { TUNE } from '../src/data/tuning.js';
 import { TRINKETS } from '../src/data/trinkets.js';
-import { GRANTS } from '../src/data/grants.js';
+import { GRANTS, STARTING_MACHINES } from '../src/data/grants.js';
 import { BOONS, BOON } from '../src/data/boons.js';
 import { MIRACLES } from '../src/data/miracles.js';
 import { DROPS } from '../src/data/drops.js';
@@ -29,6 +29,7 @@ import { BANDS, SPAWN_BAND } from '../src/data/world.js';
 import { hasColour } from '../src/data/palette.js';
 import { TREAT } from '../src/view/treatments.js';
 import { holdable, massOfPair } from '../src/model/items.js';
+import { machineHeldSub, mirrorOf } from '../src/model/run.js';
 
 const EPS = 1e-6;
 
@@ -1114,6 +1115,114 @@ export function checkContent({ quiet = false } = {}) {
            `ground and stack it upward one tile at a time with no ladder and no scaffold, which is ` +
            `CLAUDE.md's "up is expensive" premise inverted. Set \`solid:false\` (docs/SPEC.md ` +
            `section 22)`);
+  }
+
+  /* ---- 25. EVERY MACHINE ROW IS REACHABLE IN A REAL RUN: something grants
+     it, AND a player who takes that grant can actually place it.
+
+     BOTH HALVES, and the second half is the one that matters. "Named by a
+     `data/grants.js` row" on its own would have passed `kiln_divine` — the
+     deadest row in the table — green: it was named by the only GRANTS row
+     there was, and `machineHeldSub('kiln_divine')` is `undefined`, so
+     `model/run.js#placementCheck` refused it `'NOTHING BUILT YET'` at every
+     depth, for ever. An assertion that goes green over the bug that
+     motivated it is worse than no assertion, so placeability is asked
+     through the SAME query `placementCheck` asks, imported rather than
+     re-derived.
+
+     `talos_head`/`cyclops_maw` were the other half of the same hole: three
+     tables each (machine, substance, recipe) and no grant anywhere, which
+     also made their recipes permanently unknown, since
+     `model/run.js#isKnown` gates a machine-build recipe on `canPlace`.
+
+     A MIRROR IS SPONSORED BY ITS BASE, because `rules/grants.js` grants the
+     pair (`model/run.js#mirrorOf`), so no content row ever names a `_l` id
+     and this must not demand one.
+
+     THE TWO EXEMPTIONS ARE FROM THE FIRST HALF ONLY. A row may be exempted
+     from having a sponsor -- that is a content decision, written down below
+     with its reason. Nothing is ever exempt from the second half: the moment
+     something DOES grant a machine, that machine must be placeable, which is
+     exactly the assertion that goes red if `gift-kiln` is ever restored. ---- */
+  const EXEMPT_UNSPONSORED = new Map([
+    /* The player must never obtain it: `rules/cycles.js#ensureAltarPlaced`
+       places it, and it deliberately has no substance row, which is
+       "never placeable by the player" expressed as an absence rather than
+       as a check. Both halves below are expected to fail for it. */
+    ['altar', 'placed by rules/cycles.js; deliberately has no substance row'],
+    /* Kept as documentation, not as content. `rate.kiln_divine` is
+       CLAUDE.md's own worked example of a scoped tunable key,
+       `data/machines.js` names it as the worked example for `variantOf`,
+       `docs/DEVELOPER_GUIDE.md#variants-are-nearly-free` documents it and
+       `shell/notify.js` cites it for the per-machine sound override. It has
+       no substance for the reason `data/substances.js`'s own comment gives
+       (its inherited build bill is bit-identical to `furnace`'s, so a hand
+       recipe for it could never fire), so it can never be placed and its
+       grant row was retired rather than left pretending otherwise. */
+    ['kiln_divine', 'a live worked example for variantOf and scoped tuning, with no sponsor and no substance']
+  ]);
+  const sponsors = [...STARTING_MACHINES,
+                    ...GRANTS.map(g => g.grants),
+                    ...CYCLES.flatMap(c => c.reward?.grants || [])];
+  const sponsored = new Set(sponsors);
+  for (const id of sponsors) { const mir = mirrorOf(id); if (mir) sponsored.add(mir); }
+
+  for (const m of MACH) {
+    const exempt = EXEMPT_UNSPONSORED.get(m.id);
+    const isSponsored = sponsored.has(m.id);
+    checks++;
+    if (!isSponsored && !exempt)
+      fail(`machine "${m.id}": nothing grants it -- it is in no STARTING_MACHINES, no data/grants.js row, ` +
+           `no cycle reward.grants, and is no mirror of one, so it cannot be placed in any run and its ` +
+           `build recipe is permanently unknown (model/run.js#isKnown). Add a grant, or exempt it by name ` +
+           `with its reason in tools/content.mjs assertion 25`);
+    if (isSponsored) {
+      checks++;
+      if (machineHeldSub(m.id) === undefined)
+        fail(`machine "${m.id}": something grants it, but machineHeldSub() is undefined -- no ` +
+             `data/substances.js row and no mirrored base to borrow one from, so ` +
+             `model/run.js#placementCheck refuses it 'NOTHING BUILT YET' at every depth however it is ` +
+             `granted. A grant of an unplaceable machine is a tier that does nothing: give it a substance ` +
+             `row and a recipe, or retire the grant`);
+      checks++;
+      if (exempt && machineHeldSub(m.id) !== undefined)
+        fail(`machine "${m.id}": exempted from the sponsorship half of assertion 25 as "${exempt}", but it ` +
+             `is now both sponsored and placeable -- delete the exemption rather than leave a stale one`);
+    }
+  }
+
+  /* ---- 26. EVERY MIRACLE EFFECT IS A KIND `rules/miracles.js` IMPLEMENTS,
+     hardcoded here for the reason assertions 10, 18 and 19 hardcode theirs:
+     it is a closed set defined by that file's branches, and a lint may not
+     learn its vocabulary from the data it is linting. A row naming a kind
+     nobody implements fails SILENTLY -- the phial is spent, the journal row
+     is pushed, and the world does not change.
+
+     A row with NO kind at all is legal and is the pure-boon phial
+     (`applyEffect` grants `effect.boon` independently of `effect.kind`), so
+     the requirement is that it do at least one of the two things. ---- */
+  const MIRACLE_KINDS = new Set(['collapse', 'transmute']);
+  for (const m of MIRACLES) {
+    const e = m.effect || {};
+    checks++;
+    if (e.kind !== undefined && !MIRACLE_KINDS.has(e.kind))
+      fail(`miracle "${m.id}": effect.kind "${e.kind}" is not one of ${[...MIRACLE_KINDS].join('/')} -- ` +
+           `rules/miracles.js#applyEffect has no branch for it, so the phial would be spent and nothing ` +
+           `would happen`);
+    checks++;
+    if (e.kind === undefined && !e.boon)
+      fail(`miracle "${m.id}": has neither an effect.kind nor an effect.boon, so using it does nothing at all`);
+    if (e.sub !== undefined) {
+      checks++;
+      if (S[e.sub] === undefined)
+        fail(`miracle "${m.id}": effect.sub "${e.sub}" is not a data/substances.js row`);
+    }
+    if (e.kind !== undefined) {
+      checks++;
+      if (!(Number.isInteger(e.radius) && e.radius >= 0))
+        fail(`miracle "${m.id}": effect.radius is ${JSON.stringify(e.radius)} -- a tile-editing kind needs ` +
+             `a whole non-negative radius, and rules/miracles.js loops it directly`);
+    }
   }
 
   if (!quiet) {

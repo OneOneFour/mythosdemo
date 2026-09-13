@@ -17,7 +17,17 @@
 import { GRANT, GRANTS } from '../data/grants.js';
 import { M } from '../data/machines.js';
 import { push } from '../model/journal.js';
-import { canPlace, run, write as rw } from '../model/run.js';
+import { canPlace, mirrorOf, run, write as rw } from '../model/run.js';
+
+/* A MIRRORED PAIR IS ONE GIFT (CLAUDE.md D1's tier, and the `_l` shape rule
+   `model/run.js#mirrorOf` derives). Both entry points below go through here,
+   so no content row ever names a `_l` id and a granted `talos_head` can be
+   placed facing either way the frame it arrives. */
+function grantPair(machineId) {
+  rw.grant(machineId);
+  const mirror = mirrorOf(machineId);
+  if (mirror) rw.grant(mirror);
+}
 
 export function grant(grantId) {
   const g = GRANT[grantId];
@@ -25,7 +35,7 @@ export function grant(grantId) {
   if (M[g.grants] === undefined)
     throw new Error(`grant: grant "${grantId}" grants unknown machine "${g.grants}"`);
   if (canPlace(g.grants)) return false;
-  rw.grant(g.grants);
+  grantPair(g.grants);
   push('grant', null, { grant: grantId, name: g.name, text: g.text, machine: g.grants });
   return true;
 }
@@ -70,7 +80,7 @@ export function award(machineId) {
   if (M[machineId] === undefined)
     throw new Error(`grant: award of unknown machine "${machineId}"`);
   if (canPlace(machineId)) return false;
-  rw.grant(machineId);
+  grantPair(machineId);
   push('grant', null, { machine: machineId });
   return true;
 }

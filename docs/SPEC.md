@@ -451,12 +451,79 @@ at once gives `(1 + 0.2) x 0.8 = 0.96` — WORSE than the unmodified base of
 1.0. A gift offered on a bad cycle can cost you more than refusing it would
 have; `docs/DESIGN.md`: "some gifts are traps."
 
-**Miracles.** `data/miracles.js` ships one row, `chasm` ("RIFT OF HADES"): a
-held `chasm/phial` pair (substance tagged `miracle`, crossed with Phase 1's
-`phial` form) that, on use, clears every tile in a 1-tile radius square
-around the aim reticle to AIR (`model/tiles.js#write.clear`) and grants
-`hades-passage` (above) as its side-effect boon — one of the timed tier's
-three stated sources (god grant, altar use, miracle side-effect).
+**Trinkets.** `data/trinkets.js`, three rows, all reaching numbers through
+the same `mods` shape:
+
+| trinket | god | mods |
+|---|---|---|
+| `bellows` ("BELLOWS OF THE FORGE") | hephaestus | `rate.furnace` x1.25 |
+| `owl` ("OWL OF ATHENA") | athena | `sightRadius` x1.5 (14 → 21 tiles) |
+| `girdle` ("GIRDLE OF ARES") | ares | `burden` x1.25 **and** `climb` x0.8 |
+
+**The girdle is the ascent trade, priced to exactly break even.** `burden`
+and `climb` are two of the three tunables D4 names as the whole player-scale
+expression of "down is free, up is expensive", so bending them is allowed
+only as a trade that is stated. `1.25 x 0.8 = 1.0`: 50 T at 24 px/s delivers
+the identical talents-per-second up a shaft as the base 40 T at 30 px/s. What
+it buys is FEWER TRIPS and less walking between them; what it costs is a
+slower climb, longer exposure on the ladder and a bigger load to lose in one
+fall. Ascent is not cheaper, it is lumpier.
+
+**Miracles.** `data/miracles.js`, three rows. Each is a held
+`<id>/phial` pair (substance tagged `miracle`, crossed with Phase 1's
+`phial` form), spends exactly one unit on use, and is applied at the AIM
+reticle — a miracle that edits nothing still cannot be used while aiming at
+open sky, the same rule every other aimed verb obeys.
+
+| miracle | god | effect |
+|---|---|---|
+| `chasm` ("RIFT OF HADES") | hades | `collapse` r1 — the 3x3 around the reticle to AIR (`model/tiles.js#write.clear`); grants `hades-passage` |
+| `tide` ("VIAL OF THE DEEP") | poseidon | no tile edit at all; grants `poseidon-flood` |
+| `lodestone` ("LODESTONE OF THE FORGE") | hephaestus | `transmute` r1 to `copper` — every ALREADY-SOLID tile in the 3x3 becomes native copper (`model/tiles.js#write.set`) |
+
+`effect.kind` is a closed set (`collapse`, `transmute`) that
+`tools/content.mjs` assertion 26 holds; a row with no `kind` at all is the
+pure-boon phial, which needed no engine code because `applyEffect` grants
+`effect.boon` independently of `effect.kind`. `transmute` only ever
+overwrites a tile that is already solid, so it can neither entomb the player
+nor conjure a step under their feet, and it pays in mining walked-to rather
+than in free ore — every transmuted unit still costs a full swing at
+copper's own `tile.hard`.
+
+**Machine grants.** `data/grants.js`, **two** rows, and two is deliberate:
+
+| grant | god | grants |
+|---|---|---|
+| `gift-talos` ("THE HEAD OF TALOS") | hephaestus | `talos_head` (+ its mirror) |
+| `gift-maw` ("THE CYCLOPS MAW") | poseidon | `cyclops_maw` (+ its mirror) |
+
+`gift-kiln` — the tier's only row until now — is RETIRED. It granted
+`kiln_divine`, which has no substance row (§15) and therefore cannot be
+placed at any depth by any player, so the whole machine-grant tier had never
+once done anything. The `kiln_divine` MACHINE row stays, as the live worked
+example for `variantOf` and for scoped tuning (`rate.kiln_divine`), and is
+one of the two names exempted from `tools/content.mjs` assertion 25's
+sponsorship half — the other being `altar`, which the player must never
+obtain. Nothing is exempt from that assertion's second half: whatever grants
+a machine, that machine must be placeable, which is what would go red if
+`gift-kiln` were ever restored.
+
+A third grant would need a third machine that does not exist yet, and
+padding the tier to three is not a reason to invent one.
+
+**A grant unlocks the BUILD, not only the placement.**
+`model/run.js#isKnown` gates a machine-build recipe on `canPlace`, so
+`talos_head` and `cyclops_maw` draw as locked silhouettes in the CRAFTING
+tab until their grant is taken. **A mirrored pair is one gift**:
+`rules/grants.js` grants `<id>` and `mirrorOf(<id>)` together, because
+`placementCheck` is asked about the concrete id `machineIdFor` resolves off
+`player.face`, so granting only the base would refuse every left-facing
+placement.
+
+**Gods.** `data/gods.js` is one row per god id the content tables use —
+`hephaestus`, `athena`, `poseidon`, `ares`, `hades` — with the display name.
+Before it, `ares` and `hades` could be asked for and could never be named:
+`view/hud.js`'s `GOD_NAME` covered three of the five.
 
 **Trinket equip slots.** `run.equipped`, length `eff('trinketSlots')` (3,
 Phase 1), a fixed-length array of substance ordinals or `null`. A trinket's
@@ -468,9 +535,20 @@ the same pass it syncs `model/mods.js`, so the two can never disagree.
 `flags.showDebug` only, alongside the other three tiers' debug grants). Real
 sources this phase: a 3% chance per broken tile at `tile.tier >= 2` (granite,
 adamant) named in `data/drops.js` and rolled in `rules/mining.js`'s rare-drop
-hook, through `rand()` only (invariant 7). A drop-table row for tribute
-completion is also in `data/drops.js` but not yet consumed — tribute
-completion is not a real event yet (see `docs/FINDINGS.md`).
+hook, through `rand()` only (invariant 7). The second row,
+`tribute-bellows`, is live: `rules/cycles.js#rollTributeDrop` rolls it on
+every completion and skips it once a copy is held, so in practice the first
+trial that pays hands over the bellows.
+
+**`tribute-bellows` stays `chance:1`, decided rather than inherited.** It was
+a certainty over a ONE-ROW trinket table, which is what emptied cycle 4's
+trinket draft — the guaranteed drop had already taken the only row there was.
+With three rows the draft has two left to offer, so the reason to make it a
+dice roll has gone, and the reason to keep it is the beat sheet: the first
+trial that pays is where the player learns this tier exists, and a tier
+introduced by a coin flip is a tier half the runs never meet. The 3% mining
+roll is the RARE source; this is the TAUGHT one, and they are deliberately
+not the same kind of event.
 
 ## 15. Machine items (design reversal, post-launch)
 
@@ -517,9 +595,10 @@ BIT-IDENTICAL to `furnace`'s, and two hand-recipes with an identical trigger
 would starve one of them forever under `rules/crafting.js#choose`'s
 first-match rule — the exact tie class `daedalan`/`auger`'s differing log
 counts exist specifically to avoid, with no quantity left to differentiate
-here since retuning would invent a number Phase 3 never set. It remains
-grantable (`data/grants.js#gift-kiln`) but not currently placeable; see
-`docs/FINDINGS.md`.
+here since retuning would invent a number Phase 3 never set. It is therefore
+placeable by nobody, at any depth, and its grant row has been retired rather
+than left pretending otherwise (§14); the machine row stays as the worked
+example for `variantOf` and scoped tuning.
 
 **Mirrored pairs share one substance.** `belt_r`/`belt_l`,
 `talos_head`/`talos_head_l` and `cyclops_maw`/`cyclops_maw_l` are each one
@@ -572,14 +651,15 @@ native hardness, and a timber ladder is `rung` via `peg_rungs`.
 **Tile-byte headroom.** Adding one form (`rig`, `data/forms.js`'s 11th) makes
 `STRIDE` 12, so a substance at ordinal `n` in form `f` packs to
 `1 + n * 12 + (f + 1)`, and `BEDROCK` (255) is the ceiling. **Phase 14a added
-a twelfth form (`block`), so the live figures are `STRIDE` 13 and
-`1 + n * 13 + (f + 1)`;** the shape of the arithmetic is unchanged.
+a twelfth form (`block`) and Phase 15 a thirteenth (`seed`), so the live
+figures are `STRIDE` 14 and `1 + n * 14 + (f + 1)`;** the shape of the
+arithmetic is unchanged.
 
 A new FORM does cost every substance one byte of stride, and that reads as if
 a form were the expensive thing. **It is the cheap one.** Measured against the
-real modules at the twelve forms shipped today: the guard's own figure is
-`1 + 8 * 13 + 12 = 117` of 255, and `PACKABLE_LIMIT` is 18. Two more forms
-would take it to 135 and 15. A form is affordable; a tile-capable substance is
+real modules at the thirteen forms shipped today: the guard's own figure is
+`1 + 8 * 14 + 13 = 126` of 255, and `PACKABLE_LIMIT` is 17. Two more forms
+would take it to 144 and 14. A form is affordable; a tile-capable substance is
 not appendable at all — see the correction below.
 
 **A naive guard, measuring from `SUB.length - 1`, prices *every* row as if it
@@ -596,29 +676,35 @@ tile-capable form's `subTags` (`gravel`: metal/rock, `log`/`rung`: organic,
 ordinal — native terrain, or a legal crossing with a form carrying a `tile`
 block:
 
-| | as measured, post-Phase-14a |
+| | as measured today |
 |---|---|
-| substance rows | 23 |
-| forms | 12, so `STRIDE` 13 |
-| packable substances | 7 of 23 (`copper`, `tin`, `timber`, `stone`, `soil`, `granite`, `adamant`) |
+| substance rows | 27 |
+| forms | 13, so `STRIDE` 14 |
+| packable substances | 7 of 27 (`copper`, `tin`, `timber`, `stone`, `soil`, `granite`, `adamant`) |
 | highest packable ordinal | 8 (`adamant`) |
-| byte in use at that ordinal | `1 + 8 * 13 + 12 = 117` of 255 |
-| last ordinal that still fits (`PACKABLE_LIMIT`) | 18, at `1 + 18 * 13 + 12 = 247` |
+| byte in use at that ordinal | `1 + 8 * 14 + 13 = 126` of 255 |
+| last ordinal that still fits (`PACKABLE_LIMIT`) | 17, at `1 + 17 * 14 + 13 = 252` |
+
+Two of the four rows appended since Phase 14a are `relic`-tagged trinkets and
+two are `miracle`-tagged phials (§14), and none of the four moved
+`PACKABLE_MAX` off `adamant` — which is exactly the asymmetry this table
+exists to state: a non-packable row costs an ordinal and nothing else.
 
 Rows that can never be packed — relics, miracles, machine items — now cost
 the tile byte **nothing**. They do still consume ordinals, so a *tile-capable*
 row must land at an ordinal ≤ `PACKABLE_LIMIT`.
 
-**Appendable headroom for a tile-capable row is ZERO.** Ordinals 9–20 read
-as "12 rows of headroom" by slot count alone, but **every one of those
-twelve ordinals is already occupied** by a non-packable row: 9–20 are
-`auger`, `chasm`, `furnace`, `press`, `belt_r`, `brazier`, `hearth`,
-`talos_head`, `cyclops_maw`, `hub`, `crank`, `gear`. `SUB.length` is 23, so
-the next **appended** row lands at ordinal 23, and if it were packable:
+**Appendable headroom for a tile-capable row is ZERO.** Ordinals 9–17 read
+as rows of headroom by slot count alone, but **every one of them is already
+occupied** by a non-packable row: 9–17 are `auger`, `chasm`, `furnace`,
+`press`, `belt_r`, `brazier`, `hearth`, `talos_head`, `cyclops_maw`.
+`SUB.length` is 27, so the next **appended** row lands at ordinal 27, and if
+it were packable:
 
 ```
 before Phase 14a (11 forms, STRIDE 12):  1 + 23 * 12 + 11 = 288  >= 255
 after  Phase 14a (12 forms, STRIDE 13):  1 + 23 * 13 + 12 = 312  >= 255
+today       (13 forms, STRIDE 14):       1 + 27 * 14 + 13 = 392  >= 255
 ```
 
 `data/forms.js` **throws at import** in both cases. Executed, not reasoned
@@ -1527,12 +1613,12 @@ mix of:
   order. **It is 1-of-1 today, not 1-of-3.** This section used to say
   "offered 1-of-3" as though that shipped; it does not.
   `shell/main.js`'s draft branches take `draftable()[0]` and grant it
-  outright — no offer, no choice, no pause — and three of the four tiers ship
-  exactly one content row (`data/grants.js`, `data/trinkets.js`,
-  `data/miracles.js` each say so in their own headers), so 1-of-3 is not
-  constructible from the content even with a UI for it. A real draft needs
-  both an offer surface and more rows in three tables; it is
-  `docs/PLAN-phase13.md` §5.2 #4/#5 and is not scheduled.
+  outright — no offer, no choice, no pause. **The content half is now there:**
+  boons hold 5 rows, trinkets 3, miracles 3 and grants 2 (§14), so an offer of
+  three distinct rows is constructible from every tier except grants, which
+  offers two of two honestly. What is still missing is the offer SURFACE — a
+  modal, a pause and a way to choose — and that is the remaining half of
+  `docs/PLAN-phase13.md` §5.2 #4.
 
 A miss's `punishment` is `{ hearts?, favour? }`, both real numbers rather
 than a flat penalty: hearts scale from 1 (cycle 2) to 2 (cycles 3–4) as the

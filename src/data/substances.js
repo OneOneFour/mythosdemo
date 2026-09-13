@@ -93,8 +93,8 @@
    tile-capable form: `data/forms.js`'s import-time guard prices the highest
    PACKABLE ordinal against `BEDROCK`, and `SUB.length` is already past
    `PACKABLE_LIMIT`, so appending such a row THROWS AT IMPORT today. Measured,
-   not predicted -- at 23 rows and 12 forms an appended packable row packs to
-   `1 + 23 * 13 + 12 = 312` of 255.
+   not predicted -- at 27 rows and 13 forms an appended packable row packs to
+   `1 + 27 * 14 + 13 = 392` of 255.
 
    docs/SPEC.md section 15 used to read as if twelve ordinals of tile-capable
    headroom remained. That was true as a SLOT COUNT and misleading as advice:
@@ -451,7 +451,33 @@ export const SUBSTANCES = [
      declaration-order block. */
   { id:'cloud_dock', name:'THE CLOUD DOCK', tags:['machine'],
     item:{ mass:15.2, hud:{ order:24 } },
-    look:{ item:['marbleB', 'ichor'] } }
+    look:{ item:['marbleB', 'ichor'] } },
+
+  /* ---- two more trinkets and two more miracles, so each tier is a real
+          draft rather than one row handed over every time. Appended, which is
+          safe for exactly the reason the header states: `relic` and `phial`
+          cross only with `relic`/`miracle`-tagged substances, so none of
+          these four is packable and `PACKABLE_MAX` does not move. ---- */
+
+  { id:'owl', name:'OWL OF ATHENA', short:'OWL', tags:['relic'],
+    item:{ mass:0.3, hud:{ order:25 } },
+    look:{ item:['bone', 'woodC'],
+           treatments:[ { fn:'halo', col:'ichor', r:7, a:0.2 } ] } },
+
+  { id:'girdle', name:'GIRDLE OF ARES', short:'GIRDLE', tags:['relic'],
+    item:{ mass:0.6, hud:{ order:26 } },
+    look:{ item:['cuB', 'basB'],
+           treatments:[ { fn:'halo', col:'ichor', r:7, a:0.22 } ] } },
+
+  { id:'tide', name:'VIAL OF THE DEEP', tags:['miracle'],
+    item:{ mass:0.2, hud:{ order:27 } },
+    look:{ item:['watC', 'watA'],
+           treatments:[ { fn:'halo', col:'ichor', r:9, a:0.22, pulse:0.1 } ] } },
+
+  { id:'lodestone', name:'LODESTONE OF THE FORGE', tags:['miracle'],
+    item:{ mass:0.3, hud:{ order:28 } },
+    look:{ item:['veinB', 'cuA'],
+           treatments:[ { fn:'halo', col:'ichor', r:9, a:0.24 } ] } }
 
   /* `altar` is deliberately NOT given a substance here either, and for a
      STRONGER reason than `kiln_divine`'s below: the altar must never be

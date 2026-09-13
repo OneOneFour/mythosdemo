@@ -2030,3 +2030,40 @@ Consequences, in the order they bite:
    phase does delete it, those are the five call sites to convert, and
    section 8j's anti-hollow half is the assertion that would need rewriting
    rather than deleting.
+
+---
+
+## Phase 17b (three rows per tier, and the grant roster) — four parked
+
+1. **PARKED — `.claude/brain/notes.md:48` still describes `GRANTS` as "one
+   row, `gift-kiln`".** That row is retired in this commit and the tier is now
+   `gift-talos`/`gift-maw`. Outside this phase's ownership block, and the note
+   file is a session aid rather than a binding document, so it is recorded
+   here rather than edited.
+
+2. **PARKED — `CLAUDE.md` D1 (line ~344) cites `gift-kiln` as the worked
+   example of the machine-grant tier.** Still true as a statement about what
+   `data/boons.js` held when D1 was written, and false as a statement about
+   the table today. `CLAUDE.md` is not editable from a phase; 17h's doc sweep
+   owns it.
+
+3. **PARKED — `docs/FINDINGS.md:816` (the machine-items entry) says
+   `kiln_divine` "remains grantable (`data/grants.js#gift-kiln`, the `k` debug
+   key, untouched)".** True when written; the grant is now retired and the
+   machine row is a named exemption in `tools/content.mjs` assertion 25. Left
+   in place rather than rewritten, per this file's own "append, do not rewrite
+   history" rule.
+
+4. **PARKED — `docs/DEVELOPER_GUIDE.md#adding-a-substance`'s canonical-example
+   line numbers have drifted** (it cites `bellows` at `substances.js:126` and
+   `chasm` at `:241`; they are at `:182` and `:317` before this commit). Not
+   caused by this phase — the four new rows are appended below every cited
+   line — but a reader following those citations lands on the wrong row today.
+   `docs/DEVELOPER_GUIDE.md` is outside this block.
+
+And one thing worth stating rather than parking: **`src/data/gods.js` ships
+with no importer.** That is the plan's own sequencing (17e moves
+`view/hud.js#GOD_NAME` and the draft modal onto it), so until then the only
+thing exercising the module is `tools/check.mjs`'s "import every module" pass.
+A table with no reader is exactly the shape of content that rots, and it has
+one phase to wait.

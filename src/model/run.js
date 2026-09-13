@@ -387,6 +387,13 @@ const MIRROR_TO_BASE = Object.freeze(Object.fromEntries(
 const BASE_TO_MIRROR = Object.freeze(Object.fromEntries(
   Object.entries(MIRROR_TO_BASE).map(([mirror, base]) => [base, mirror])));
 
+/* This machine's mirrored twin, or `undefined` if it has none. A query over
+   the same derivation above, exported because a gift is of a PAIR: granting
+   `talos_head` alone would refuse every left-facing placement, since
+   `placementCheck` is asked about the concrete id `machineIdFor` resolves off
+   `player.face`. `rules/grants.js` is the only caller. */
+export const mirrorOf = machineId => BASE_TO_MIRROR[machineId];
+
 /* The substance a machine id's held item lives under -- itself, unless it is
    a mirrored "_l" row, which shares its base's substance. A row with no
    substance at all (`kiln_divine` -- see `data/substances.js`'s own comment

@@ -19,7 +19,7 @@ import { push } from '../model/journal.js';
 import { write as iw } from '../model/items.js';
 import { player, playerCentre } from '../model/player.js';
 import { invCount, run, write as rw } from '../model/run.js';
-import { write as tw } from '../model/tiles.js';
+import { solidAt, write as tw } from '../model/tiles.js';
 
 /* The first held miracle, spent and applied at (band, tx, ty) -- the AIMED
    tile, resolved by `model/aim.js` exactly as a dig or a placement is.
@@ -47,6 +47,17 @@ function applyEffect(m, band, tx, ty) {
     for (let dy = -e.radius; dy <= e.radius; dy++)
       for (let dx = -e.radius; dx <= e.radius; dx++)
         tw.clear(band, tx + dx, ty + dy);
+  }
+
+  /* 'transmute': the same square, one verb over -- `write.set` instead of
+     `write.clear`, so it costs no new tile-write verb either. It only ever
+     overwrites a tile that is ALREADY SOLID, which is what makes it safe in
+     both directions: it can neither wall the player in nor conjure a step
+     under their feet, and "up is expensive" never enters the argument. */
+  if (e.kind === 'transmute') {
+    for (let dy = -e.radius; dy <= e.radius; dy++)
+      for (let dx = -e.radius; dx <= e.radius; dx++)
+        if (solidAt(band, tx + dx, ty + dy)) tw.set(band, tx + dx, ty + dy, S[e.sub]);
   }
 
   /* The side-effect boon, one of the timed tier's three stated sources.
