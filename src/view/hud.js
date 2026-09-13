@@ -66,6 +66,7 @@ import { banner, toasts } from './fx.js';
 import { resolveHover } from './hover.js';
 import { stats as paintStats } from './paint.js';
 import { drawBar } from './ui/bar.js';
+import { drawDraft, draftOpen } from './ui/draft.js';
 import { drawMainPanel } from './ui/mainPanel.js';
 import { drawPanel } from './ui/panel.js';
 import { drawQuickbar } from './ui/quickbar.js';
@@ -167,6 +168,16 @@ export function drawHUD(g, f) {
      that showed a victory over a corpse would be the wrong one. */
   if (run.dead) deathScreen(g, W, H);
   else if (run.won) winScreen(g, W, H);
+  /* THE DRAFT MODAL JOINS THIS CHAIN rather than being drawn beside it: it is
+     a window over everything above -- including `drawMainPanel`, which the
+     player may have left open -- and nothing under it may paint on top.
+     BELOW the two end screens on purpose, and not for tidiness: a run that is
+     over does not reach `applyDraftIntents` (`shell/main.js`'s `run.won`
+     guard returns above it), so a modal drawn over the win screen would be a
+     card nothing could take and a restart button it covered. ABOVE the title
+     banner and the hover tooltip, which are the world talking and must not
+     read through a ceremony the game raised. */
+  else if (draftOpen(f)) drawDraft(g, f);
   else if (banner.fade > 0) title(g, W, H);
   else tooltip(g, f);
 }

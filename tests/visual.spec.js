@@ -5705,3 +5705,218 @@ test('the growth cue actually changes pixels, and only on the tile that was plan
   // and no pixel anywhere outside that one tile moved either
   expect(seen.total).toBe(at(0));
 });
+
+/* ============================================================
+   THE DRAFT MODAL (Phase 17c2, docs/PLAN-wave5-closeout.md §6)
+
+   THE DELIVERY IS SET UP THROUGH THE MODEL; EVERYTHING AFTER IT IS THE
+   SHIPPED PATH. The subject here is the modal, not the mining, so these
+   tests fill a receiver's buffer directly and then let the real director
+   run: `rules/cycles.js#drainReceivers` credits it, `#resolve` completes
+   the trial and writes `run.offer`, `rules/draft.js` draws the cards out
+   of the seeded stream, and `shell/main.js#raiseOffer` opens the panel.
+   Nothing below writes `run.offer`, `ui.stack` or a card id by hand.
+   ============================================================ */
+async function payTrial(page, cycle) {
+  await page.evaluate(async (cycle) => {
+    const { run, write } = await import('/src/model/run.js');
+    const { CYCLE } = await import('/src/data/cycles.js');
+    const { M } = await import('/src/data/machines.js');
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const mach = await import('/src/model/machines.js');
+    const { bandOf } = await import('/src/model/world.js');
+
+    /* Disarm cycle 1 (armed at boot) so `ensureLiveCycle` re-arms the row
+       this test actually wants. */
+    write.tribute(null);
+    write.cycle(cycle);
+    __mf.frames(1);
+
+    const row = CYCLE[run.tribute.id];
+    const band = bandOf('surface');
+    const recv = __mf.machines.find(m => m.def === M[row.at]) ??
+                 mach.write.place(band, M[row.at], 2, 2);
+    for (const d of row.demand) mach.write.take(recv, S[d.sub], F[d.form], d.n);
+    __mf.frames(2);
+  }, cycle);
+}
+
+const offerOf = page => page.evaluate(() => __mf.ui.offer);
+const draftPanels = page => page.evaluate(() =>
+  __mf.ui.panels.filter(p => p.id.startsWith('draft-')).map(p => ({ id: p.id, x: p.x, y: p.y, w: p.w, h: p.h })));
+
+test('17c2: cycle 2 raises a two-card grant draft over a frozen world, and its reroll is refused as spent', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await payTrial(page, 2);
+
+  /* The grant tier ships TWO rows against an `offerSize` of 3, so two cards
+     is the honest answer and the layout must not reserve a third. */
+  const offer = await offerOf(page);
+  expect(offer.tier).toBe('grant');
+  expect(offer.ids.length).toBe(2);
+  expect(offer.god).toBe('hephaestus');
+  expect(offer.pool).toBe(2);
+  expect(offer.canReroll).toBe(false);      // pool <= ids: 'THIS IS ALL THERE IS'
+
+  const drawn = await draftPanels(page);
+  expect(drawn.map(p => p.id).sort()).toEqual(['draft-card-0', 'draft-card-1', 'draft-reroll']);
+
+  /* THE WORLD REALLY IS FROZEN BEHIND IT (D17-A): 120 substeps change no
+     simulated time and move no body. `stepFx` is deliberately not part of
+     this claim -- it runs outside `step()` and always has. */
+  const frozen = await page.evaluate(async () => {
+    const { run } = await import('/src/model/run.js');
+    const { player } = await import('/src/model/player.js');
+    const before = { t: run.t, ct: __mf.clock.t, px: player.x, py: player.y };
+    __mf.hold({ right: 1 }, 120);
+    return { before, after: { t: run.t, ct: __mf.clock.t, px: player.x, py: player.y } };
+  });
+  expect(frozen.after).toEqual(frozen.before);
+
+  await shot(page, 'draft-grant-two-cards.png');
+});
+
+test('17c2: the modal is not vacuous -- the same frame with the panel closed is a different picture', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await payTrial(page, 2);
+  const [card] = await draftPanels(page);
+
+  /* Two draws with no step between them, the panel popped for the first, so
+     nothing but the modal itself can account for a moved pixel. `view` reads
+     the stack off the frame context, so popping it is the whole "feature
+     off" switch -- the same shape the armed-slot and growth-cue probes use. */
+  const delta = await page.evaluate(async (card) => {
+    const { open, close } = await import('/src/shell/ui.js');
+    const c = document.getElementById('stage');
+    const ctx = c.getContext('2d');
+    const grab = () => ctx.getImageData(0, 0, c.width, c.height).data;
+
+    close('draft');
+    __mf.draw();
+    const before = grab();
+    const closedPanels = __mf.ui.panels.filter(p => p.id.startsWith('draft-')).length;
+
+    open('draft');
+    __mf.draw();
+    const after = grab();
+
+    const moved = i => before[i] !== after[i] || before[i + 1] !== after[i + 1] ||
+                       before[i + 2] !== after[i + 2];
+    let total = 0;
+    for (let i = 0; i < before.length; i += 4) if (moved(i)) total++;
+    let inside = 0;
+    for (let y = card.y; y < card.y + card.h; y++)
+      for (let x = card.x; x < card.x + card.w; x++) if (moved((y * c.width + x) * 4)) inside++;
+    return { total, inside, closedPanels, area: card.w * card.h };
+  }, card);
+
+  expect(delta.closedPanels).toBe(0);                 // the "off" state really is off
+  expect(delta.inside).toBeGreaterThan(0);            // the card is painted where it says it is
+  expect(delta.total).toBeGreaterThan(delta.inside);  // and the wash covers the rest of the screen
+});
+
+test('17c2: clicking a card takes that card and ends the freeze', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await payTrial(page, 2);
+
+  const before = await offerOf(page);
+  const [card] = await draftPanels(page);
+  await realClick(page, card.x + (card.w >> 1), card.y + (card.h >> 1));
+
+  const after = await page.evaluate(async () => {
+    const { run } = await import('/src/model/run.js');
+    const t0 = run.t;
+    __mf.frames(60);
+    return { offer: __mf.ui.offer, open: __mf.ui.open, granted: run.granted.slice(), moved: run.t - t0 };
+  });
+
+  /* `draft-card-0` is `run.offer.ids[0]`, and the grant tier's own `grants`
+     key names the machine it unlocks -- read back through the table rather
+     than remembered, so this goes red if the pointer ever reaches a
+     different card than the digit key would. */
+  const expected = await page.evaluate(async (id) => {
+    const { GRANT } = await import('/src/data/grants.js');
+    return GRANT[id].grants;
+  }, before.ids[0]);
+
+  expect(after.offer).toBe(null);
+  expect(after.open).not.toContain('draft');
+  expect(after.granted).toContain(expected);
+  expect(after.moved).toBeGreaterThan(0);        // the run is running again
+});
+
+test('17c2: cycle 3 draws three boon cards with their modifier lines, and a live reroll row', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await payTrial(page, 3);
+
+  const offer = await offerOf(page);
+  expect(offer.tier).toBe('boon');
+  expect(offer.ids.length).toBe(3);
+  expect(offer.god).toBe('athena');
+  expect(offer.rerollCost).toBe(2);
+  expect(offer.canReroll).toBe(true);            // athena's own trial paid exactly the price
+
+  /* Every offered boon carries at least one `mods` row, which is what the
+     card's delta lines are built from -- if a tier ever shipped a row with
+     none, this scene would be photographing an empty claim. */
+  const modded = await page.evaluate(async (ids) => {
+    const { BOON } = await import('/src/data/boons.js');
+    return ids.every(id => (BOON[id].mods ?? []).length > 0);
+  }, offer.ids);
+  expect(modded).toBe(true);
+
+  await shot(page, 'draft-boon-three-cards.png');
+});
+
+test('17c2: a reroll spends the asking god\'s favour, and the row then dims with the other reason', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await payTrial(page, 3);
+
+  const reroll = (await draftPanels(page)).find(p => p.id === 'draft-reroll');
+  const before = await page.evaluate(async () => {
+    const { run } = await import('/src/model/run.js');
+    return { favour: run.favour.athena, ids: __mf.ui.offer.ids.slice() };
+  });
+  expect(before.favour).toBe(2);
+
+  await realClick(page, reroll.x + (reroll.w >> 1), reroll.y + (reroll.h >> 1));
+
+  const after = await page.evaluate(async () => {
+    const { run } = await import('/src/model/run.js');
+    return { favour: run.favour.athena, offer: __mf.ui.offer };
+  });
+
+  expect(after.favour).toBe(0);                  // the price was really paid
+  expect(after.offer.ids.length).toBe(3);        // and a fresh offer stands
+  expect(after.offer.canReroll).toBe(false);     // purse empty, pool still deep
+
+  await shot(page, 'draft-boon-reroll-unaffordable.png');
+});
+
+test('17c2: the modal stays legible at the 200 px base-buffer floor', async ({ page }) => {
+  await boot(page);
+  /* 400x360 css px at `core/canvas.js#resize`'s scale-2 floor is exactly the
+     200x180 base buffer the widget contract names -- three cards no longer
+     fit across, so the grid drops to two per row rather than squeezing them
+     under the readable minimum. */
+  await page.setViewportSize({ width: 400, height: 360 });
+  await settle(page);
+  expect(await page.evaluate(async () => (await import('/src/core/canvas.js')).VIEW.w)).toBe(200);
+  await payTrial(page, 3);
+
+  const drawn = await draftPanels(page);
+  expect(drawn.length).toBe(4);                              // three cards and the reroll row
+  for (const p of drawn) {
+    expect(p.x).toBeGreaterThanOrEqual(0);
+    expect(p.y).toBeGreaterThanOrEqual(0);
+    expect(p.x + p.w).toBeLessThanOrEqual(200);              // nothing overruns the buffer
+    expect(p.y + p.h).toBeLessThanOrEqual(180);
+  }
+  await shot(page, 'draft-boon-floor.png');
+});

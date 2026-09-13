@@ -1667,8 +1667,8 @@ singles this one out.
 ### 18.8 The offer: 1-of-3, the pause and the reroll (Phase 17c)
 
 `docs/PLAN-wave5-closeout.md` D17-A, D17-B and D17-F. Phase 17c1 is the
-storage and the wiring; **17c2 draws the modal** — until it lands the offer
-is raised and stands, and only a key (or a test) can take it.
+storage and the wiring; Phase 17c2 draws the modal (§18.9) and adds the
+pointer.
 
 **The record.** `run.offer` is `{ tier, god, ids, pool } | null`, declared
 in `RUN_SCHEMA` and reset by `newRun()`. `ids` is the offer and **`null` is a
@@ -1735,6 +1735,60 @@ cannot recover must not be losable to a reflex keypress, so the draft modal
 swallows every key it does not own (1/2/3 take a card, `r` asks for a second
 look) — the same "one thing owns the keyboard" rule the CRAFTING search field
 already enforces, minus the way out.
+
+### 18.9 The modal (Phase 17c2)
+
+`src/view/ui/draft.js`, drawn from `view/hud.js#drawHUD`. Canvas-drawn,
+integer pixels, the 5x7 bitmap font, no `fillText` (CLAUDE.md D2).
+
+**Z-order.** The modal joins `drawHUD`'s existing exclusive end-of-frame
+chain, **below** the death and win screens and **above** the title banner and
+the hover tooltip. It therefore covers the main panel, the quickbar, the key
+hints and the debug overlay. Below the end screens is not tidiness: a won run
+returns above `applyDraftIntents`, so a modal over the win screen would be a
+card nothing could take and a restart button it covered.
+
+**Layout, measured and never hardcoded (D8).** One card per id in
+`run.offer.ids` — two is a real case and no gap is reserved for a third. A
+card is between 86 and 128 px wide; as many as fit across go in one row and
+the rest wrap to a second, each row centred on its own count. Text is word
+wrapped to the card's inner width, a word longer than the line is hard broken,
+and the draw loop stops at the card's bottom edge, so lines are dropped in
+reverse priority order: **god, name, modifier lines, flavour text** — the
+flavour is what goes on a short card. Verified at the 200x180 base-buffer
+floor `core/canvas.js#resize` enforces
+(`tests/visual.spec.js-snapshots/draft-boon-floor-*.png`), where three cards
+become a 2+1 grid.
+
+**A card names.** The row's own god through `data/gods.js#godName` (a card's
+god is the ROW's, which for a boon draft need not be the asker's), its `name`,
+its `mods` one line each, and its `text`. The modifier lines are built from
+the row and **not** from `model/mods.js#explain`, which filters the live
+`mods.rows` list and so describes only modifiers already applied; the wording
+is byte-identical to `view/ui/mainPanel.js#formatModRow`. They carry one
+accent colour and **do not colour by sign**: `poseidon-flood`'s `hard x0.85`
+is a benefit and `girdle`'s `climb x0.8` is a cost, and whether up is good is
+a fact about the tunable, which lives in `data/tuning.js` — importable only by
+`model/mods.js`.
+
+**The REROLL row** draws `rerollPrice()`, the asking god and that god's
+standing favour. When `canReroll(offerGod())` is false it is dimmed and prints
+**which** of §18.8's two clauses failed, in `rules/draft.js`'s own words
+(`'THIS IS ALL THERE IS'` / `'NOT ENOUGH FAVOUR'`), so the drawn reason and
+the journalled refusal are the same sentence. It stays clickable when dimmed —
+the press routes to the same refusal the `r` key does, because D17-B forbids a
+hidden button and because the predicate must live in exactly one place.
+
+**The pointer.** Every card and the reroll row are recorded into
+`view/ui/state.js#drawn.panels` as `draft-card-<i>` (`<i>` indexes
+`run.offer.ids`) and `draft-reroll`.
+`shell/main.js#applyDraftIntents`'s hit-test is a **second caller** for the
+intents 17c1 already built, not a second dispatch path: it sets the same
+`wants.takeCard` / `wants.reroll` the 1/2/3 and `r` keys set and nothing else.
+It lives there rather than in `applyUiIntents()` because that dispatcher sits
+below the pause guard the modal itself raises and is unreachable while one
+stands. A press on the wash, or on the main panel still open beneath the
+modal, is swallowed.
 
 ## 19. Deposits, rubble and the packed block (Phase 14a)
 

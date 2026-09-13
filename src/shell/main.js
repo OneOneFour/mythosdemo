@@ -413,6 +413,8 @@ function applyDraftIntents() {
   if (isOpen('draft') && !run.offer?.ids) { closePanel('draft'); return; }
   if (!isOpen('draft')) return;
 
+  draftPointer();
+
   if (wants.takeCard !== null) {
     const id = run.offer.ids[wants.takeCard];
     const tier = TIERS[run.offer.tier];
@@ -427,6 +429,33 @@ function applyDraftIntents() {
     draft.reroll(run.offer.god, candidatesFor(run.offer.tier));
     wants.reroll = false;
   }
+}
+
+/* `view/ui/draft.js`'s own ids. The index is the position in `run.offer.ids`,
+   which is what makes a click and a number key reach the identical card. */
+const DRAFT_CARD = /^draft-card-(\d+)$/;
+
+/* THE MODAL'S POINTER, AND IT IS A SECOND CALLER, NOT A SECOND DISPATCH.
+   `applyUiIntents()` below is unreachable while a draft stands -- the pause
+   guard in `applyIntents()` returns above it -- so the cards it draws would
+   otherwise have nothing to click. This only sets the SAME two `wants`
+   `shell/input.js`'s 1/2/3 and `r` branch sets; the take and the favour
+   spend stay where they already are, immediately below. Hit-tested in the
+   space `view/ui/state.js#drawn` recorded (screen, pre-camera) against the
+   `drawCam` snapshot, exactly as `applyUiIntents` does -- see
+   docs/DEVELOPER_GUIDE.md#record-what-you-drew.
+
+   A press that lands on the wash, or on the main panel still open beneath
+   the modal, is swallowed: `uiHitPanel` returns the topmost recorded rect,
+   the draft's cards are recorded last, and nothing below the guard runs. */
+function draftPointer() {
+  if (!cmd.hasMouse || !cmd.uiClick) return;
+  const hit = uiHitPanel(cmd.mx - drawCam.x, cmd.my - drawCam.y);
+  cmd.uiClick = false;
+  if (!hit) return;
+  const card = DRAFT_CARD.exec(hit.id);
+  if (card) wants.takeCard = Number(card[1]);
+  else if (hit.id === 'draft-reroll') wants.reroll = true;
 }
 
 /* ---------- the widget layer's own dispatcher ----------

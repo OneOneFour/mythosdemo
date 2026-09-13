@@ -2197,3 +2197,45 @@ also what gives it its first execution.
   17c1)"), which `CLAUDE.md` says to delete. Left as-is by the coordinator's
   instruction; the half worth keeping is that the baseline comes from the
   seeded draw rather than from `BOONS[0]`.
+
+### 17c2 (the draft modal)
+
+- **`view/ui/mainPanel.js#formatModRow` should be lifted out of that file**
+  (`src/view/ui/mainPanel.js:306`). It is a pure `{key, mul, add}` →
+  presentation-string function with no dependency on the live `mods.rows`
+  list, and `src/view/ui/draft.js:114`'s `modLines` now produces the same
+  strings from its own copy — 8 duplicated lines. `mainPanel.js` is outside
+  17c2's ownership block, so the export could not be added here. Note that
+  `trinketDeltaLines` (`:291`) around it is **not** the reusable part: it
+  filters `model/mods.js#explain`, which reads only modifiers already
+  applied, so it returns nothing for an offered card.
+
+- **A modifier's polarity is not knowable in `view`, so the draft card cannot
+  colour a delta by whether it helps.** `src/view/ui/draft.js:109`.
+  `poseidon-flood`'s `hard x0.85` is a benefit and `girdle`'s `climb x0.8` is
+  a cost, and both print `-N%`. The fact that decides it belongs on the
+  tuning row (a `better:'up'|'down'` key on `data/tuning.js`, surfaced
+  through `model/mods.js`, which is the only file allowed to import that
+  table). Until then both this file and `mainPanel.js#drawCharacterTab` paint
+  every delta in one accent colour, which overstates the girdle's trade in
+  the Character tab and states nothing on the card. `data/tuning.js` and
+  `model/mods.js` are outside this block.
+
+- **PARKED, latent: the modal draws under the death screen but is still
+  dispatchable through it.** `src/shell/main.js:207` guards
+  `applyDraftIntents` on `run.won` but not on `run.dead`, and
+  `view/hud.js#drawHUD` puts `deathScreen` above the modal (correctly — the
+  restart button must be reachable). A trial completing in the same frame the
+  player dies would therefore leave an invisible card takeable by a click
+  anywhere the death screen is not the restart button. Not reachable in play:
+  the run is frozen while an offer stands, so the player cannot die under one.
+  The fix is one guard in `shell/main.js`, in a phase that owns more of it
+  than the hit-test branch.
+
+- **The `'cycle'` banner is swallowed by the modal it announces.**
+  `src/view/fx.js#banner` fades on `stepFx`, which runs outside `step()` and
+  therefore keeps running while the draft freezes the world — but
+  `view/hud.js#drawHUD` draws the modal in place of the banner, so "THE TRIAL
+  IS PAID" burns down unseen behind it. Arguably right (the modal *is* the
+  announcement) and deliberately not changed here; recorded so a later phase
+  that wants the beat knows where it went.
