@@ -133,11 +133,16 @@ same-frame response.
 `tools/layers.mjs` checks **direction and names, not sense.** It will not notice
 an unreachable recipe, a machine with no way to be fed, or a wrong number.
 
-Screenshots are bit-exact (`maxDiffPixels: 0`) because the renderer is
-deterministic by construction. **Do not raise that threshold to make a test
-pass.** A nonzero diff is either a regression or an intended change — in the
-second case run `npm run test:visual:update` and say in the commit why the
-pixels moved.
+Screenshots are bit-exact because the renderer is deterministic by
+construction, and that takes **both** `threshold: 0` and `maxDiffPixels: 0` in
+`playwright.config.js`. Neither alone is enough. `threshold` is a per-pixel
+colour distance a difference must exceed before it is counted at all, so it
+defaults to 0.2 and silently filtered every near-black shift the suite ever
+made; `maxDiffPixels: 0` then counted an already-filtered set and reported
+bit-exactness the suite did not have. Seven baselines were stale the moment
+`threshold: 0` went in. **Do not raise either to make a test pass.** A nonzero
+diff is either a regression or an intended change — in the second case run
+`npm run test:visual:update` and say in the commit why the pixels moved.
 
 **The current baselines are UNREVIEWED.** They were re-taken mechanically after
 the architecture refactor to catch future regressions, not because anyone judged

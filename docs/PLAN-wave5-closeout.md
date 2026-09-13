@@ -503,6 +503,135 @@ through the existing path rather than dropping it silently.
 
 ---
 
+## 6b. Phase 17j — an ALL category in the crafting tab
+
+Added mid-wave at the user's request, and runs after 17i because both move
+panel pixels. Its letter is later than its position for the reason 17i's is.
+
+**What it does.** `view/ui/mainPanel.js#CATEGORY_TABS` gains an `all` entry
+that filters nothing, so the crafting grid can show every known recipe at
+once. `categoryOf` is unchanged — the new tab bypasses it rather than adding
+a sixth category to it, because "all" is the absence of a filter and not a
+kind of thing a recipe can be.
+
+Put `ALL` first and make it the default. `activeTab` already falls back to
+`tabs[0]` when nothing is stored, so opening CRAFTING for the first time
+would then show everything rather than only RAW, which is the more useful
+first frame and costs nothing.
+
+**The row does not fit at the phone floor, and the overflow is silent.**
+Measured through `core/font.js#textWidth`, tab width is `textWidth(label) + 6`:
+
+| RAW | REFINED | TOOLS | PLACE | DIVINE | total | with ALL |
+|---|---|---|---|---|---|---|
+| 23 | 47 | 35 | 35 | 41 | **181** | **204** |
+
+The crafting body is 232 px wide at the desktop buffer and **188 px** at the
+200 px floor (`drawMainPanel`'s `w = min(vw - 8, 236)`, less 4). So 204 fits
+the desktop and overflows the floor by 16 px, and `view/ui/tabs.js:37` drops
+a tab that would bleed past rather than truncating it — the category simply
+vanishes with nothing to say it has. This is the same trap that killed the
+fourth Character tab in 17e, caught the same way, and it must not be shipped
+by putting `ALL` first and letting `DIVINE` fall off the end instead.
+
+Three ways to fix it. Pick one and say why in the commit.
+
+1. **Wrap the tab row.** Teach `drawTabs` to flow onto a second line when the
+   next tab would exceed `maxRight`, returning the real height so callers
+   anchor below it. Generic, fixes every future tab row, and the drop
+   behaviour stays as the last resort when even one tab cannot fit. Costs a
+   `view/ui/tabs.js` change that four other callers inherit, so it needs
+   their baselines checked.
+2. **Shorten a label.** `REFINED` at 47 px is the widest and the easiest to
+   cut. Cheapest, and the least honest — it fixes this row and leaves the
+   next one to rediscover the limit.
+3. **Scroll the row horizontally.** Rejected before it is tried: a tab you
+   cannot see is no better than a tab that was dropped, and this UI has no
+   scroll affordance a player would find.
+
+Option 1 is the recommendation. Whichever is chosen, the acceptance is the
+same and it is a measurement, not an eyeball.
+
+**Acceptance.** At the 200 px floor, every one of the six categories is
+reachable, and a test asserts it by counting the tab rects `drawTabs`
+recorded rather than by looking at a screenshot. ALL shows every recipe the
+five categories show between them, with no recipe appearing twice and none
+missing — assert that as set equality against `RECIPES`, filtered by
+`isKnown`, so a future category that stops covering something fails here.
+
+**File ownership.** `src/view/ui/mainPanel.js`, `src/view/ui/tabs.js` (only
+if option 1), `tests/visual.spec.js`, `tests/visual.spec.js-snapshots/`,
+`docs/SPEC.md`, `docs/FINDINGS.md`.
+
+---
+
+## 6c. Phase 17g1 — the visual suite is not bit-exact, and that must be settled first
+
+**Promoted ahead of every remaining phase after 17i's review.** It was the
+back half of 17g. It runs now, alone, because every phase left in the wave
+re-accepts baselines, and a re-accepted baseline that carries session drift is
+indistinguishable from a re-accepted regression.
+
+**The evidence, and it is no longer one rare event.** Four scenes have now
+moved with no source change to explain them:
+
+| scene | drift | found by |
+|---|---|---|
+| `winch-lit` / `winch-unlit` | ~164 px, once under full parallelism | FINDINGS #14, Phase 9 |
+| `hollow-relic-unlit` | 100 px in a relic halo | 17i |
+| `ui-character` | 12 px outside the quickbar zone | 17i review |
+| `ui-character-swap` | 12 px | 17i review |
+| `ui-crafting` | 36 px | 17i review |
+
+17i's reviewer established that the movement is not the phase's by recording
+the scene's whole canvas op stream under current code in both the old and new
+inventory states and diffing: all 42 differing ops are `fillRect` inside the
+quickbar strip, and no world-layer op differs. So the world-layer pixels moved
+between sessions, not between commits. **That method is the phase's starting
+point** — an op-stream diff localises a drift to the draw call that made it,
+which a pixel diff cannot.
+
+**What is already ruled out, by inspection, and must not be re-tested.**
+`view/fx.js#spark` is a module-scope generator that `reset()` never rewinds,
+but Playwright gives each test a fresh page, so it starts at the same offset
+every time (17a). Do not spend a run on it.
+
+**Live hypotheses, in the order they are worth testing.**
+
+1. A late `resize` landing between the last `draw()` and the screenshot. Under
+   `?test=1` there is no RAF loop to repaint, so a viewport that settles after
+   the final draw leaves a stale canvas scaled to a new CSS size.
+2. Font or image decode timing — anything the renderer reads that is not ready
+   on the first frame and is ready later.
+3. State surviving between tests inside one worker process, as distinct from
+   one page: module scope is per page, but the Playwright worker is reused.
+4. A genuine `rand()` draw in a draw path that only fires in some states. The
+   render-purity probe in `npm run check` asserts this over the default scene
+   only, so a draw path that no headless probe reaches is not covered — and
+   `view/ui/draft.js` is exactly such a path today.
+
+**The deliverable is a diagnosis, not a green suite.** If it reproduces, name
+the draw call and the cause. If it does not reproduce in a stated number of
+full parallel runs, say so plainly and say what that rules out. Do not raise
+`maxDiffPixels`, do not re-accept a drifting baseline to make a run pass, and
+do not close this by re-running until green. A non-reproduction honestly
+reported is a real result; a suppressed symptom is not.
+
+**One cleanup is in scope regardless of the outcome**, because three drifting
+images were re-accepted in `c803360` and are now the reference: re-derive
+`hollow-relic-unlit`, `ui-character`, `ui-character-swap` and `ui-crafting`
+from a known-clean run, and say which of them changed again on the way.
+
+**File ownership.** `tools/check.mjs`, `tests/visual.spec.js`,
+`tests/visual.spec.js-snapshots/`, `playwright.config.js`, `package.json`
+scripts, `docs/FINDINGS.md`. **`src/` is out of bounds** — if the cause is in
+`src/`, report it and the owning phase fixes it.
+
+**Acceptance.** A written diagnosis in `docs/FINDINGS.md` naming either the
+cause or the evidence against each hypothesis, and four re-derived baselines.
+
+---
+
 ## 7. Phase 17d — the rolling-window rate demand (1 × `systems`, serial)
 
 **Brief.**
@@ -659,6 +788,8 @@ closed, and no closed item is described as open.
 17b  content         systems        data/ + two rules touches
 17c  draft modal     ui + shell     needs 17b's content
 17i  quickbar        systems        8 cells + fill order; moves baselines
+17g1 the drift      harness        PROMOTED: 4 scenes move with no source change
+17j  crafting ALL    ui             a sixth tab; the row needs to fit at 200 px
 17d  rate demand     systems        model/rules only, no view
 17e  HUD closeout    ui             needs 17d's query to draw
 17f  altar rises     systems        highest risk, owns its own harness
