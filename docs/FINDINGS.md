@@ -2381,3 +2381,43 @@ also what gives it its first execution.
   `view/ui/mainPanel.js` (`:139` the MENU row, `:426` the category row), and
   the MENU row's three labels cost 171 px against 188 px at the floor, so it
   never wraps and its pixels did not move.
+
+## Phase 17d (the rolling-window rate demand)
+
+- **Out of FILE OWNERSHIP, taken anyway because this phase would otherwise
+  ship a red `npm run check`: `tools/check.mjs:5369`'s WIN STATE loop.** The
+  probe stubs a delivery by writing `have` straight onto `run.tribute`, which
+  is the one path that skips `rules/cycles.js#creditTribute` and therefore
+  never stamps a rate credit. Cycle 4 now carries a rate clause, so
+  `tributeMet()` stayed false there and the win boundary never arrived. The
+  repair fills the window the same way a real credit does, two lines inside
+  the existing probe's setup, and adds no assertion. Nothing else in `tools/`
+  writes `have` for cycle 4.
+
+- **`tools/content.mjs` assertion 19 validates `demand` pairs and not
+  `rate`.** `src/data/cycles.js:153`'s `rate:{ sub, form, n, secs }` gets
+  neither the `holdable(sub, form)` check nor the `expand()` non-empty check
+  the `demand` rows get, so a typo in a rated pair is a clause nothing can
+  ever satisfy and nothing would throw. One more pair through the same two
+  helpers. Out of this phase's block; `tools/content.mjs` belongs to whoever
+  next owns it.
+
+- **FOR 17g2, the permanent assertions this phase verified in a scratch
+  harness and then deleted.** The harness drove the real `main.step()` at
+  1/30 and 1/144 with a `cloud_dock` placed in topsoil and cycle 4 armed
+  directly, the same setup shape `tools/check.mjs:5240`'s TRIBUTE GATE probe
+  already uses. Three claims, all measured and all passing, none of them
+  asserted anywhere in the repo today:
+
+  1. **The slow feed does not pay.** Eight `copper/plate` handed over one
+     every 45 s, plus all eight `granite/gravel`, leaves `run.cycle` at 4 and
+     `tributeMet()` false at `run.t` 315 s with both demand rows full —
+     `rateHave()` reads 3 against `rate.n` 4, at 30 fps and at 144 fps alike.
+  2. **The fast feed does pay.** Four more plates back to back complete the
+     trial within two substeps, at both framerates.
+  3. **The ledger is bounded.** Twelve plates handed over one per frame never
+     grew `run.tribute.credits` past 4 entries, which is `rate.n`.
+
+  A fixed-dt harness cannot see (1) or (2) — the window is the first quantity
+  in the game measured over hundreds of simulated seconds, and CLAUDE.md
+  records three framerate bugs that passed green for exactly that reason.

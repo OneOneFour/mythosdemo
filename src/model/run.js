@@ -50,14 +50,21 @@ export const RUN_SCHEMA = Object.freeze({
      completion and by nothing else.
 
      `tribute` is the LIVE DEMAND or `null` when none is armed:
-     `{ id, have, left }`. `id` is the `data/cycles.js` row's own id, so the
-     record survives a table reorder; `have` is keyed by the `sub/form` string
-     from `model/items.js#keyOf`, the SAME convention `m.buf` still uses
+     `{ id, have, left, credits }`. `id` is the `data/cycles.js` row's own id,
+     so the record survives a table reorder; `have` is keyed by the `sub/form`
+     string from `model/items.js#keyOf`, the SAME convention `m.buf` still uses
      (`run.inv` moved to a slot array; `have` did not -- a
      delivery ledger has no position, only a count per pair), so a receiver's
      buffer can be poured into it without a translation; `left` is seconds
      remaining, or `null` for a cycle with no
      clock.
+
+     `credits` IS THE RATE CLAUSE'S OWN LEDGER (docs/SPEC.md section 18.10),
+     an array of `{ t, n }` in nondecreasing `t` order holding only credits of
+     the cycle's rated pair. Empty on a row with no `rate` block, which is
+     every shipped row but cycle 4. `write.tribute` below prunes it on every
+     write, so it is bounded by `rate.n` entries rather than by the length of
+     the run.
 
      `left` IS AN ACCUMULATOR ON `run` AND NOT A MODULE SCALAR, and that is
      load-bearing rather than stylistic -- see `brandLeft` below, whose own
@@ -215,6 +222,29 @@ export const META_SCHEMA = Object.freeze({
 export const run  = {};
 export const meta = {};
 
+/* Drop what the rate clause can no longer use. Credits are appended at
+   `run.t`, which only increases, so the array is sorted by `t` and a prefix
+   drop is enough. Two passes -- what has aged out of the window, then the
+   oldest of what is left while the newer suffix still reaches `rate.n`. The
+   second pass is what bounds the array at `rate.n` entries, since every entry
+   carries at least 1; it cannot change a later answer, because `rateMet`
+   below is a threshold on that same suffix and the entries it drops are
+   already surplus to it.
+
+   Returns the array unchanged when nothing is dropped, so ticking a deadline
+   allocates nothing. */
+function prunedCredits(t) {
+  const cs = t.credits;
+  const rate = CYCLE[t.id]?.rate;
+  if (!cs || !cs.length || !rate) return cs;
+  let i = 0;
+  while (i < cs.length && run.t - cs[i].t > rate.secs) i++;
+  let sum = 0;
+  for (let j = i; j < cs.length; j++) sum += cs[j].n;
+  while (i < cs.length && sum - cs[i].n >= rate.n) { sum -= cs[i].n; i++; }
+  return i === 0 ? cs : cs.slice(i);
+}
+
 export const write = {
   /* The whole of `newRun()` as far as this module is concerned. Called by
      `shell/boot.js` alongside the `clear()` on every other model module. */
@@ -339,7 +369,8 @@ export const write = {
      `tribute` sets or clears the WHOLE live-demand record, so a demand and its
      own deadline can never be observed half-applied -- the same reason
      `craft` below writes its pair together. `rules/cycles.js` is the only
-     caller of any of these.
+     caller of any of these. It also PRUNES the rate ledger, which is what
+     keeps `credits` bounded no matter which caller built the record.
 
      `favour` and `chart` are both IDEMPOTENT-SAFE in the way their field
      wants: favour accumulates (a second trial for the same god adds), charting
@@ -347,7 +378,7 @@ export const write = {
      increment and the DECISION about what two misses mean stays in
      `rules/cycles.js` -- death goes through `hurt` below, so there is exactly
      one death path in this file and the director does not get a second. */
-  tribute(t)        { run.tribute = t; bump(); },
+  tribute(t)        { if (t) t.credits = prunedCredits(t); run.tribute = t; bump(); },
   favour(god, n)    { run.favour[god] = (run.favour[god] || 0) + n; bump(); },
   chart(bandId)     { if (!run.charted.includes(bandId)) run.charted.push(bandId); bump(); },
   miss()            { run.misses++; bump(); },
@@ -618,9 +649,12 @@ export function cycleRow() {
 export const tributeHave = (sub, form) =>
   (run.tribute?.have?.[keyOf(S[sub], F[form])] ?? 0);
 
-/* Is every demand row of the LIVE cycle satisfied? False with nothing armed --
-   an unarmed ledger is not a met one, and a director that read `true` there
-   would complete a trial nobody had been asked to perform.
+/* Is the LIVE cycle paid? Every demand row satisfied AND the rate clause with
+   it (docs/SPEC.md section 18.10) -- one predicate with two clauses, so the
+   director and the TRIBUTE panel cannot disagree about which half is short.
+   False with nothing armed -- an unarmed ledger is not a met one, and a
+   director that read `true` there would complete a trial nobody had been
+   asked to perform.
 
    NOT CLAMPED PER ROW: `have` may exceed `n` (a haul of five arrives against a
    demand for three), and over-delivery is accepted rather than refused, which
@@ -628,7 +662,31 @@ export const tributeHave = (sub, form) =>
 export function tributeMet() {
   const row = run.tribute ? CYCLE[run.tribute.id] : null;
   if (!row) return false;
-  return row.demand.every(d => tributeHave(d.sub, d.form) >= d.n);
+  return row.demand.every(d => tributeHave(d.sub, d.form) >= d.n) && rateMet();
+}
+
+/* Units of the rated pair delivered inside the live window, summed over
+   `run.tribute.credits` against `run.t` -- simulated time at the fixed
+   1/120 s substep, never `Date.now()` (invariant 10). A credit counts while
+   it is at most `rate.secs` old, so the boundary is inclusive. 0 when no rate
+   clause is armed. The shared query behind both the predicate below and the
+   TRIBUTE panel's bar, for the reason `tributeHave` above exists. */
+export function rateHave() {
+  const rate = run.tribute ? CYCLE[run.tribute.id]?.rate : null;
+  if (!rate) return 0;
+  let sum = 0;
+  for (const c of run.tribute.credits ?? [])
+    if (run.t - c.t <= rate.secs) sum += c.n;
+  return sum;
+}
+
+/* Is the live cycle's rate clause satisfied? VACUOUSLY TRUE on a row that
+   carries no `rate` block, which is every shipped row but cycle 4, so
+   `tributeMet` above can `&&` it with no branch and a future row adding a
+   clause needs no edit here. */
+export function rateMet() {
+  const rate = run.tribute ? CYCLE[run.tribute.id]?.rate : null;
+  return !rate || rateHave() >= rate.n;
 }
 
 /* ---- the standing draft offer (D17-B/D17-F) ----

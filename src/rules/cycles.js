@@ -42,9 +42,10 @@
    performs them, immediately after this module in `shell/schedule.js`, so the
    BUILD list gains the row the same frame the trial pays.
 
-   NO `rand()` outside the drop roll (invariant 7), and the deadline
-   accumulates from `dt` alone, never `Date.now()` (invariant 10) -- see
-   `RUN_SCHEMA.tribute.left`'s own comment in `model/run.js`. */
+   NO `rand()` outside the drop roll (invariant 7). The deadline accumulates
+   from `dt` alone and a rate credit is stamped with `run.t`, never with
+   `Date.now()` (invariant 10) -- see `RUN_SCHEMA.tribute`'s own comment in
+   `model/run.js`. */
 
 import { rand } from '../core/rng.js';
 import { F } from '../data/forms.js';
@@ -54,7 +55,7 @@ import { DROPS } from '../data/drops.js';
 import { M, MACH } from '../data/machines.js';
 import { SPAWN_BAND } from '../data/world.js';
 import { push } from '../model/journal.js';
-import { parseKey, write as iw } from '../model/items.js';
+import { keyOf, parseKey, write as iw } from '../model/items.js';
 import { defOf, machines, write as mw } from '../model/machines.js';
 import { player, write as pw } from '../model/player.js';
 import { invCount, run, tributeMet, write as rw } from '../model/run.js';
@@ -111,7 +112,7 @@ function ensureLiveCycle() {
     return;
   }
   const cyc = CYCLES[run.cycle - 1];
-  rw.tribute({ id: cyc.id, have: {}, left: cyc.deadlineSecs });
+  rw.tribute({ id: cyc.id, have: {}, left: cyc.deadlineSecs, credits: [] });
   if (cyc.at === 'altar') ensureAltarPlaced();
 }
 
@@ -208,9 +209,25 @@ function drainReceivers() {
   }
 }
 
+/* A CREDIT IS STAMPED WITH `run.t`, which is simulated time at the fixed
+   1/120 s substep and never `Date.now()` (invariant 10, docs/SPEC.md section
+   18.10). Only the rated pair is stamped; every other pair moves `have` and
+   nothing else.
+
+   THE LEDGER IS REBUILT PER CREDIT rather than pushed into, because
+   `run.tribute` is replaced whole and never patched in place -- the same
+   discipline the rest of this file holds to, stated on the field itself in
+   `model/run.js`. Hand-feeding is one unit per substep, so that is one fresh
+   array per unit; `model/run.js#prunedCredits` caps the array at `rate.n`
+   entries, so that copy stays four elements long rather than growing with the
+   run. */
 function creditTribute(k, n) {
   const have = { ...run.tribute.have, [k]: (run.tribute.have[k] || 0) + n };
-  rw.tribute({ ...run.tribute, have });
+  const rate = CYCLE[run.tribute.id]?.rate;
+  const credits = rate && k === keyOf(S[rate.sub], F[rate.form])
+    ? [...(run.tribute.credits ?? []), { t: run.t, n }]
+    : run.tribute.credits;
+  rw.tribute({ ...run.tribute, have, credits });
 }
 
 /* `left === null` is cycle 1's "no clock", a real branch and not a large

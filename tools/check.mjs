@@ -5366,7 +5366,12 @@ console.log('\n8f. THE CLOSED LOOP (Phase 13d)');
     const row = D_cycles.CYCLES[run.run.cycle - 1];
     const have = {};
     for (const d of row.demand) have[`${d.sub}/${d.form}`] = d.n;
-    run.write.tribute({ ...run.run.tribute, have });
+    /* A row carrying a rate clause (docs/SPEC.md section 18.10) needs its
+       window filled as well, or `tributeMet()` is short by its second clause
+       and the boundary this claim is about never arrives. Stamped at `run.t`
+       the way `rules/cycles.js#creditTribute` stamps a real credit. */
+    const credits = row.rate ? [{ t: run.run.t, n: row.rate.n }] : [];
+    run.write.tribute({ ...run.run.tribute, have, credits });
     stepReal(1 / 120, { hasMouse: false });               // resolve it
     /* AND RESOLVE THE REWARD, which `stepReal` alone cannot: a cycle whose
        reward is a draft raises an offer, the offer freezes the run, and a

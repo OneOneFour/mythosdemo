@@ -26,6 +26,13 @@
                    `holdable(sub, form)` proves the pair can exist at all, and
                    `expand(sub/form)` proves the selector is non-empty, which is
                    the check `data/forms.js#expand` exists for.
+     rate          OPTIONAL `{ sub, form, n, secs }` -- deliver `n` of that
+                   concrete pair inside ANY window of `secs` seconds of
+                   SIMULATED time (docs/SPEC.md section 18.10). A second
+                   clause on `model/run.js#tributeMet()` and never a
+                   replacement for `demand`: both must hold for the trial to
+                   pay. One block per row at most, and the pair is concrete
+                   for the same two reasons `demand`'s rows are.
      deadlineSecs  seconds, or `null` for NO CLOCK. `null` is a real branch and
                    not a large number: cycle 1 has no clock (docs/SPEC.md
                    section 4), so it can never be missed, and a panel must draw
@@ -129,10 +136,21 @@ export const CYCLES = [
   /* ---- 4. POSEIDON, AND THE TIER GATE. `granite` is `tile.tier 2`, which a
      stock pick cannot break at any framerate (docs/SPEC.md section 12), so this
      trial is unpayable until the player has built the adamant auger. That is
-     the gate the tool tiers exist for, asked for by name for the first time. ---- */
+     the gate the tool tiers exist for, asked for by name for the first time.
+
+     AND THE TABLE'S ONLY RATE CLAUSE, on the plate half. Cycle 2 already
+     taught compression and cycle 3 already taught depth, so a third plate
+     demand teaches nothing on its own; asking for four of them inside two
+     minutes makes this cycle about the FACTORY while the granite half keeps
+     it about the pick. Four plates weigh 9.6 T, which one carrier lifts in
+     one haul, and a credit is stamped when cargo reaches the dock rather
+     than while it climbs -- so two hauls of four pay the whole bill however
+     long each haul takes. What it forbids is the dribble, one plate per
+     trip. docs/SPEC.md section 18.10 holds the arithmetic. ---- */
   { id:'salt-tribute', god:'poseidon', at:'cloud_dock',
     demand:[ { sub:'copper',  form:'plate',  n:8 },
              { sub:'granite', form:'gravel', n:8 } ],
+    rate:{ sub:'copper', form:'plate', n:4, secs:120 },
     deadlineSecs:360,
     reward:{ favour:3, draft:'trinket' },
     punishment:{ hearts:2, favour:-1 } }
