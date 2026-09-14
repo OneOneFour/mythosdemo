@@ -787,6 +787,41 @@ export function checkContent({ quiet = false } = {}) {
                `not be able to give it away`);
       }
 
+      /* THE RATE CLAUSE IS A CRASH GUARD, NOT A LINT (Phase 17d,
+         docs/SPEC.md section 18.10). `rules/cycles.js#creditTribute` calls
+         `keyOf(S[rate.sub], F[rate.form])` on every delivery to a rated
+         cycle's receiver, and `model/items.js#keyOf` reads `SUB[sub].id`, so
+         a typo'd `sub` or `form` throws a TypeError mid-substep on the first
+         delivery of ANY pair to that receiver -- it does not quietly leave a
+         clause nothing can satisfy. A pair that is valid but unholdable
+         (`granite/plate`) is the quiet case, and `holdable` is what catches
+         it. `secs` must be positive for the same reason `deadlineSecs` may
+         not be zero: a window of no width is one nothing can land inside. */
+      if (c.rate !== undefined) {
+        const r = c.rate;
+        const rsub = S[r?.sub], rform = F[r?.form];
+        checks++;
+        if (rsub === undefined || rform === undefined || !holdable(rsub, rform)) {
+          fail(`cycle "${c.id}": rate names ${r?.sub}/${r?.form}, which is not a holdable pair -- ` +
+               `rules/cycles.js#creditTribute keys the window on it through model/items.js#keyOf, ` +
+               `which throws a TypeError on the first delivery to this cycle's receiver`);
+        } else {
+          checks++;
+          if (expand(`${r.sub}/${r.form}`).length === 0)
+            fail(`cycle "${c.id}": the rate selector ${r.sub}/${r.form} expands to nothing -- see ` +
+                 `data/forms.js#expand, which exists for exactly this`);
+        }
+        checks++;
+        if (!(Number.isInteger(r?.n) && r.n > 0))
+          fail(`cycle "${c.id}": rate.n is ${JSON.stringify(r?.n)}; it is a positive integer of ` +
+               `delivered units, and model/run.js#prunedCredits bounds the ledger by it`);
+        checks++;
+        if (!(Number.isFinite(r?.secs) && r.secs > 0))
+          fail(`cycle "${c.id}": rate.secs is ${JSON.stringify(r?.secs)}; it is a finite positive ` +
+               `number of simulated seconds -- zero is a window nothing can land inside, so the ` +
+               `trial would be unpayable for ever`);
+      }
+
       checks++;
       const dl = c.deadlineSecs;
       if (!(dl === null || (Number.isFinite(dl) && dl > 0)))

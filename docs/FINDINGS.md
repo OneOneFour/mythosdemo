@@ -2394,13 +2394,33 @@ also what gives it its first execution.
   the existing probe's setup, and adds no assertion. Nothing else in `tools/`
   writes `have` for cycle 4.
 
-- **`tools/content.mjs` assertion 19 validates `demand` pairs and not
-  `rate`.** `src/data/cycles.js:153`'s `rate:{ sub, form, n, secs }` gets
-  neither the `holdable(sub, form)` check nor the `expand()` non-empty check
-  the `demand` rows get, so a typo in a rated pair is a clause nothing can
-  ever satisfy and nothing would throw. One more pair through the same two
-  helpers. Out of this phase's block; `tools/content.mjs` belongs to whoever
-  next owns it.
+- **CORRECTED, AND CLOSED. A typo'd rated pair crashes the game; it does not
+  fail quietly.** The first version of this entry said a typo in
+  `src/data/cycles.js:153`'s `rate:{ sub, form, n, secs }` would leave "a
+  clause nothing can ever satisfy and nothing would throw". That is wrong.
+  `rules/cycles.js#creditTribute` calls `keyOf(S[rate.sub], F[rate.form])`,
+  and `model/items.js#keyOf:32` reads `SUB[sub].id`, so a bad `sub` evaluates
+  `SUB[undefined].id` and raises a `TypeError` mid-substep — on the first
+  delivery of ANY pair to that cycle's receiver, not only of the rated one.
+  The `rate &&` guard does not short-circuit it, because `rate` is truthy. A
+  one-character content error takes the run down mid-trial. Only a pair that
+  is valid but unholdable, say `granite/plate`, is the quiet case the old
+  entry described. `tools/content.mjs` assertion 19 now validates `rate` the
+  way it validates a `demand` row — `holdable()`, `expand()`, `n > 0` and
+  `secs > 0` — and says in the failure text that it is guarding a throw.
+  Closed here rather than parked, because no phase left in
+  `docs/PLAN-wave5-closeout.md` owns the content lint (17g2 owns
+  `tools/check.mjs` and `tests/`).
+
+- **The TRIBUTE panel reads 100% on an unpaid cycle 4, knowingly, until
+  17e.** `src/view/hud.js:305-309`'s `aggFrac` sums `Math.min(have, d.n)`
+  over the demand rows and knows nothing about the rate clause, so a player
+  who fills both demand rows slowly sees `8 / 8`, `8 / 8` and `100%` while
+  `tributeMet()` is false and the clock runs out into a 2-heart miss with
+  nothing on screen naming the reason. `src/view/` is not in 17d's ownership
+  block and drawing the rate row is 17e brief item 1, so this is a transient
+  by design — recorded because a reader of the repo between the two commits
+  would otherwise have no note saying the HUD is wrong on one cycle.
 
 - **FOR 17g2, the permanent assertions this phase verified in a scratch
   harness and then deleted.** The harness drove the real `main.step()` at

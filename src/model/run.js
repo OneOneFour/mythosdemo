@@ -665,12 +665,19 @@ export function tributeMet() {
   return row.demand.every(d => tributeHave(d.sub, d.form) >= d.n) && rateMet();
 }
 
-/* Units of the rated pair delivered inside the live window, summed over
-   `run.tribute.credits` against `run.t` -- simulated time at the fixed
-   1/120 s substep, never `Date.now()` (invariant 10). A credit counts while
-   it is at most `rate.secs` old, so the boundary is inclusive. 0 when no rate
-   clause is armed. The shared query behind both the predicate below and the
-   TRIBUTE panel's bar, for the reason `tributeHave` above exists. */
+/* Progress towards the rate clause, summed over `run.tribute.credits` against
+   `run.t` -- simulated time at the fixed 1/120 s substep, never `Date.now()`
+   (invariant 10). A credit counts while it is at most `rate.secs` old, so the
+   boundary is inclusive. 0 when no rate clause is armed. The shared query
+   behind both the predicate below and the TRIBUTE panel's bar, for the reason
+   `tributeHave` above exists.
+
+   SATURATES NEAR `rate.n` AND IS NOT A DELIVERY COUNT. `prunedCredits` drops
+   entries the clause no longer needs, so this reads at most a little over
+   `rate.n` however many units really landed in the window. It is exact for a
+   bar clamped at `rate.n`, which is what it is for. A raw "X delivered in the
+   last N seconds" readout would under-report and must come from somewhere
+   else. */
 export function rateHave() {
   const rate = run.tribute ? CYCLE[run.tribute.id]?.rate : null;
   if (!rate) return 0;
