@@ -389,7 +389,7 @@ HUD convention already in force. There is no DOM overlay and no new top-level
   state object in **`src/shell/ui.js`**, handed to `view` through `frameCtx`
   exactly as `shell/input.js#flags` already is. `view` may not import `shell`.
 - **a click that does something** is `shell` calling `rules`. `view` reports the
-  rectangles it drew (the `view/hud.js#pocketHits` idiom); `shell` hit-tests and
+  rectangles it drew (the `view/ui/state.js#drawn` idiom); `shell` hit-tests and
   dispatches. `view` never calls `rules` and never mutates `model` — the epoch
   check in `npm run check` proves the second half of that.
 - **`__mf.ui`** is the serialisable projection of the live widget tree, exposed

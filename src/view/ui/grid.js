@@ -14,8 +14,8 @@
    own columns. Reporting a clamped `w` while still looping over the full
    `cols` would draw slots past that `w` (and possibly past `vw`) while the
    returned rect claims they are not there, which is exactly the
-   layout/hit-test disagreement `view/hud.js#pocketHits`'s own header warns
-   against. So a grid that cannot fit `cols` columns at `cell` px each
+   layout/hit-test disagreement recording a drawn rect exists to prevent.
+   So a grid that cannot fit `cols` columns at `cell` px each
    REDUCES its effective column count instead, the same "shrink to fit"
    contract `panel.js` applies to width and `tabs.js` applies to how many
    tabs it draws. See docs/DEVELOPER_GUIDE.md#widget-primitives */

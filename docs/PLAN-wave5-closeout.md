@@ -779,12 +779,22 @@ and close the list this plan opened.
 - `docs/DEVELOPER_GUIDE.md`: the draft modal, the rate demand, and the three
   module sections `.claude/notes/cleanup-progress.md` records as never written
   (`rules/cycles.js`, `rules/growth.js`, `rules/tutorial.js`).
-- The four live comments citing the deleted `view/hud.js#pocketHits`
-  (`view/ui/grid.js:17`, `panel.js:6`, `state.js:4,12`) and `CLAUDE.md` D2's
-  copy of the same reference — the live idiom is `view/ui/state.js#drawn`.
-  **Comments in `src/` are outside this agent's write access**: record them for
-  a one-commit tidy pass by whoever owns `view` last, or hand them to the
-  `/tidy` skill.
+- **The empty DIVINE tab, whose recorded cause is wrong.** `docs/FINDINGS.md`
+  says no relic is craftable. The real cause is clause ordering in
+  `view/ui/mainPanel.js#categoryOf`: `sub.item?.tool` is tested at `:459`
+  before the relic tag at `:460`, and `data/recipes.js#auger` — the one recipe
+  in all 19 whose output carries `tags:['relic']` — also carries `item.tool`,
+  so it lands in TOOLS and DIVINE holds nothing. `docs/SPEC.md:2727` inherits
+  the same wrong cause. Correct both; do not reorder the clauses, which would
+  only empty TOOLS instead. `docs/REVIEW-wave5-17j.md` §D2 has the full
+  reasoning, and its `file:line` citations predate the 17j commit that moved
+  them.
+- **DONE, by the coordinator, ahead of this phase.** The four live comments
+  citing the deleted `view/hud.js#pocketHits` (`view/ui/grid.js`, `panel.js`,
+  `state.js` twice) and `CLAUDE.md` D2's copy of the same reference now name
+  `view/ui/state.js#drawn` or drop the citation. `docs/DEVELOPER_GUIDE.md:1143`
+  needed no change — it already records the retirement. Nothing left to do
+  here; the item stays listed so the closeout reads complete.
 
 **Acceptance.** No document in the repo still describes an open item this wave
 closed, and no closed item is described as open.

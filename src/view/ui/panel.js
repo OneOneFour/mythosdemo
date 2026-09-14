@@ -2,10 +2,9 @@
    fill, an optional close box. Imports `core` and `data/palette.js` only — no
    model, no gameplay content; a panel does not know what it contains.
 
-   Registers what it drew into `./state.js#drawn.panels`, the same idiom
-   `view/hud.js#pocketHits` uses, so a caller's hit-testing (and the test
-   hook) reads what was actually painted rather than a second copy of this
-   layout math.
+   Registers what it drew into `./state.js#drawn.panels`, so a caller's
+   hit-testing (and the test hook) reads what was actually painted rather
+   than a second copy of this layout math.
 
    CLAMPED to the viewport it is given (`vw`/`vh`) — below roughly 240 px of
    base width an unclamped panel overlaps the depth gauge and anything else
