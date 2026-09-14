@@ -222,8 +222,8 @@ export const RUN_SCHEMA = Object.freeze({
      without knowing which machine arrived. The renderer matches the record
      against `m.box.x`/`m.box.y` and draws the rise and the shaft of light
      for whatever it finds there, so no machine NAME reaches `view`
-     (ARCHITECTURE section 3). Written by `rules/cycles.js` and read by
-     nothing else.
+     (ARCHITECTURE section 3). `rules/cycles.js` is the only writer and
+     `view/scene.js` the only reader.
 
      A POSITION AND NOT A MACHINE REFERENCE: `run` is plain-serialisable
      everywhere else, and a live record holding a band holding typed arrays
