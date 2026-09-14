@@ -230,15 +230,20 @@ function runReal(n, dt, want = {}) {
    within reach; that is the same requirement the real verb has and the same
    one the old magnet had, only 2.5 tiles wider.
 
+   `dt` is the frame each press is delivered on. It defaults to a 120 Hz
+   frame and is passed explicitly only by section 8m's framerate sweep, where
+   the whole point is that a delivery lands at the same SIMULATED time
+   whatever the refresh rate.
+
    Returns how many units actually left the pockets, so a caller can fail on
    the SETUP rather than on the assertion it meant to make. */
-function feedByHand(m, sub, form, n) {
+function feedByHand(m, sub, form, n, dt = 1 / 120) {
   const before = run.invCount(sub, form);
   shellUi.armPlace(sub, form);
   for (let i = 0; i < n; i++) {
     input.cmd.mx = m.box.x + m.box.w / 2;
     input.cmd.my = m.box.y + m.box.h / 2;
-    frameReal(1 / 120, { hasMouse: true, feed: true });
+    frameReal(dt, { hasMouse: true, feed: true });
   }
   shellUi.clearArmedPlace();
   return before - run.invCount(sub, form);
@@ -7016,6 +7021,467 @@ console.log('\n8k. THE QUICKBAR FILLS FIRST (Phase 17i)');
   }
 
   if (bad) fail(`QUICKBAR: ${bad} of 3 fill-order probes failed`);
+}
+
+/* ============================================================
+   8l. THE DRAFT — the offer, the pause and the price
+   ------------------------------------------------------------
+   `rules/draft.js` had no headless coverage at all. The only mention of
+   `run.offer` in this file before this section took a card purely so the
+   win-state probe could get past cycle 2's reward.
+
+   THE WHOLE SECTION GOES THROUGH `main.step()` AND `main.applyIntents()`.
+   A draft is a one-shot intent, not a substep, so `frameReal` is what raises
+   one; `rules/draft.js` is never called directly. Claims 1 and 2 raise the
+   offer off `shell/input.js#wants.draft`, the field the debug 'b' key sets,
+   because a debug draft and a trial's reward are the same raise path by
+   design (`shell/main.js#applyIntents`). Claim 3 pays three real trials
+   through the director instead, because a debug draft carries no asking god
+   and the price of a reroll is a named god's favour.
+   ============================================================ */
+console.log('\n8l. THE DRAFT: the offer, the pause and the price (Phase 17c, D17-A/B/F)');
+{
+  let bad = 0;
+  const SIZE = Math.max(0, Math.round(mods.eff('offerSize')));
+  const PRICE = Math.max(0, Math.round(mods.eff('rerollCost')));
+  const BOON_IDS = D_boon.BOONS.map(b => b.id);
+
+  /* `newRun()` clears the model and leaves `shell/ui.js#ui.stack` alone, and
+     the modal's staleness sweep lives in `applyIntents`. One intent pass
+     after a reset therefore drops a modal the previous probe left standing,
+     so the next `step()` is not silently frozen by it. */
+  const freshRun = seed => { boot.newRun(seed); main.applyIntents(); };
+
+  const raiseBoon = () => { input.wants.draft = 'boon'; frameReal(1 / 120, { hasMouse: false }); };
+  const idsNow = () => (run.run.offer?.ids ?? []).join(',');
+  const refusals = from => journal.peek().slice(from).filter(r => r.kind === 'refused');
+
+  /* --- CLAIM 1: AN OFFER IS `eff('offerSize')` DISTINCT ROWS OF THE TIER,
+     AND IT IS THE SEED'S. Three separate facts, and the third is what stops
+     the other two passing over a constant. An implementation returning
+     `pool.slice(0, 3)` satisfies both the shape and the
+     same-seed-same-answer half, and only sweeping seeds catches it. --- */
+  {
+    const offers = new Set();
+    let why = '';
+    for (let s = 0; s < 40 && !why; s++) {
+      const seed = 9760 + s;
+      freshRun(seed);
+      raiseBoon();
+      const o = run.run.offer;
+      const ids = o?.ids ?? [];
+      if (!o || o.tier !== 'boon' || !o.ids)
+        why = `seed ${seed} raised ${JSON.stringify(o)} -- want a laid-out 'boon' offer`;
+      else if (ids.length !== SIZE)
+        why = `seed ${seed} laid out ${ids.length} card(s) [${ids}], want eff('offerSize') = ${SIZE}`;
+      else if (new Set(ids).size !== ids.length)
+        why = `seed ${seed} laid out [${ids}], which repeats a row`;
+      else if (ids.some(id => !BOON_IDS.includes(id)))
+        why = `seed ${seed} laid out [${ids}], and data/boons.js holds [${BOON_IDS}]`;
+      else if (o.pool !== BOON_IDS.length)
+        why = `seed ${seed} recorded pool ${o.pool}, want the ${BOON_IDS.length} candidates ` +
+              `rules/boons.js#draftable offered -- 'THIS IS ALL THERE IS' is decided on this number`;
+      offers.add(ids.join(','));
+    }
+
+    freshRun(9760); raiseBoon(); const first = idsNow();
+    freshRun(9760); raiseBoon(); const again = idsNow();
+
+    if (why) {
+      fail(`DRAFT OFFER: ${why}`);
+      bad++;
+    } else if (first !== again) {
+      fail(`DRAFT OFFER: seed 9760 laid out [${first}] and then [${again}] -- an offer is drawn from ` +
+           `the run's own stream and two runs of one seed must agree (invariant 7)`);
+      bad++;
+    } else if (offers.size < 2) {
+      fail(`DRAFT OFFER: all 40 seeds laid out the same [${first}] -- the selection is not reading ` +
+           `rand() at all, and the same-seed check above would pass over a constant`);
+      bad++;
+    } else {
+      ok(`DRAFT OFFER: ${SIZE} distinct data/boons.js rows per offer over 40 seeds, ${offers.size} ` +
+         `different offers among them, and seed 9760 lays out [${first}] both times`);
+    }
+  }
+
+  /* --- CLAIM 2: THE MODAL FREEZES THE RUN, AND THE RUN RESUMES WHERE IT
+     STOPPED (D17-A). Measured on a falling item, because a substep that does
+     not run is invisible unless something was mid-flight when it stopped.
+     The control run is the same seed with no modal raised, so the assertion
+     is a comparison against a world that did advance rather than against a
+     number typed here. --- */
+  {
+    const SEED = 9800, HELD = 60;
+    const airborne = () => {
+      const c = player.playerCentre();
+      return items.write.spawn(player.player.band, c.x, c.y - 40,
+                               D_sub.S.copper, D_form.F.ore, 0, 0);
+    };
+
+    freshRun(SEED);
+    runReal(30, 1 / 120, { hasMouse: false });
+    const ctl = airborne();
+    stepReal(1 / 120, { hasMouse: false });            // the step `raiseBoon` also runs
+    const ctlFrom = ctl.y;
+    runReal(HELD, 1 / 120, { hasMouse: false });
+    const ctlFell = ctl.y - ctlFrom;
+
+    freshRun(SEED);
+    runReal(30, 1 / 120, { hasMouse: false });
+    const it = airborne();
+    raiseBoon();
+    const at = { y: it.y, vy: it.vy, t: main.clock.t, runT: run.run.t, frame: main.clock.frame };
+    const paused = shellUi.pausesRun() && shellUi.isOpen('draft');
+    for (let i = 0; i < HELD; i++) frameReal(1 / 120, { hasMouse: false });
+    const held = { y: it.y, vy: it.vy, t: main.clock.t, runT: run.run.t, frame: main.clock.frame };
+
+    input.wants.takeCard = 0;
+    main.applyIntents();
+    const closed = !run.run.offer && !shellUi.isOpen('draft');
+    runReal(HELD, 1 / 120, { hasMouse: false });
+    const resumedFell = it.y - at.y;
+
+    if (!paused || ctlFell <= 4) {
+      fail(`DRAFT PAUSE: the SETUP failed -- the modal stands = ${paused} (want true) and the ore ` +
+           `fell ${ctlFell.toFixed(3)} px in ${HELD} unfrozen substeps (want > 4). A scene where ` +
+           `nothing was moving cannot show a freeze`);
+      bad++;
+    } else if (held.y !== at.y || held.vy !== at.vy || held.runT !== at.runT ||
+               held.t !== at.t || held.frame !== at.frame) {
+      fail(`DRAFT PAUSE: ${HELD} real frames with the modal up moved the ore ` +
+           `${(held.y - at.y).toFixed(3)} px, its vy by ${(held.vy - at.vy).toFixed(3)}, run.t by ` +
+           `${(held.runT - at.runT).toFixed(4)} s and clock.frame by ${held.frame - at.frame} -- a ` +
+           `draft freezes the run outright (D17-A)`);
+      bad++;
+    } else if (!closed) {
+      fail(`DRAFT PAUSE: taking card 0 left run.offer = ${JSON.stringify(run.run.offer)} and the ` +
+           `modal open = ${shellUi.isOpen('draft')} -- the one verb that ends the pause did not`);
+      bad++;
+    } else if (resumedFell !== ctlFell) {
+      fail(`DRAFT PAUSE: after the card was taken the ore fell ${resumedFell.toFixed(4)} px in ` +
+           `${HELD} substeps against ${ctlFell.toFixed(4)} px in the unfrozen control -- the freeze ` +
+           `must suspend the simulation, not slow it or skip it forward`);
+      bad++;
+    } else {
+      ok(`DRAFT PAUSE: ${HELD} real frames behind the modal move the falling ore 0 px and advance ` +
+         `neither clock.t nor run.t, and it then falls the control's ${ctlFell.toFixed(3)} px in the ` +
+         `same ${HELD} substeps once a card is taken`);
+    }
+  }
+
+  /* --- CLAIM 3: THE PRICE, AND THE TWO REFUSALS. Driven through the real
+     director, three shipped trials paid in turn, so the god who asks is the
+     god whose favour a reroll spends and neither the price nor the purse is
+     written here. Each trial's own ledger is credited outright, the way
+     section 8f's win-state claim does it -- what is under test is the offer
+     a reward raises, not the delivery that earned it. --- */
+  {
+    freshRun(9840);
+    const payLive = () => {
+      const row = D_cycles.CYCLE[run.run.tribute.id];
+      const have = {};
+      for (const d of row.demand) have[`${d.sub}/${d.form}`] = d.n;
+      const credits = row.batch ? [{ t: run.run.t, n: row.batch.n }] : [];
+      run.write.tribute({ ...run.run.tribute, have, credits });
+      frameReal(1 / 120, { hasMouse: false });
+    };
+    const oneFrame = () => frameReal(1 / 120, { hasMouse: false });
+    const takeCard = () => { input.wants.takeCard = 0; main.applyIntents(); };
+    const reroll = () => { input.wants.reroll = true; main.applyIntents(); };
+
+    oneFrame();                                   // cycle 1 arms
+    payLive();                                    // ... and pays. No draft in its reward.
+    oneFrame();                                   // cycle 2 arms
+    payLive();                                    // ... pays, and hephaestus lays out a GRANT offer
+
+    /* 3a -- A TIER WITH NOTHING SPARE REFUSES FOR THAT REASON, NOT FOR THE
+       PURSE. `data/grants.js` ships 2 rows against an offer of 3, so the
+       pool can never be strictly larger than the cards on the table, and
+       hephaestus is owed favour enough to pay twice over. */
+    const gOffer = run.run.offer;
+    const gFav = run.run.favour.hephaestus ?? 0;
+    const gIds = idsNow();
+    const gFrom = journal.peek().length;
+    reroll();
+    const gRows = refusals(gFrom);
+
+    if (gOffer?.tier !== 'grant' || gOffer.god !== 'hephaestus' || !gOffer.ids?.length) {
+      fail(`DRAFT REROLL (exhausted): paying cycle 2 raised ${JSON.stringify(gOffer)} -- want a ` +
+           `laid-out 'grant' offer asked by hephaestus, per data/cycles.js`);
+      bad++;
+    } else if (gFav < PRICE) {
+      fail(`DRAFT REROLL (exhausted): hephaestus is owed ${gFav} favour against a ${PRICE} price, ` +
+           `so a refusal here would be the purse and would prove nothing about the pool`);
+      bad++;
+    } else if ((run.run.favour.hephaestus ?? 0) !== gFav || idsNow() !== gIds) {
+      fail(`DRAFT REROLL (exhausted): the refused reroll moved hephaestus' favour ${gFav} -> ` +
+           `${run.run.favour.hephaestus} and the offer [${gIds}] -> [${idsNow()}] -- a refusal ` +
+           `spends nothing and changes nothing`);
+      bad++;
+    } else if (gRows.length !== 1 || gRows[0].data?.why !== 'THIS IS ALL THERE IS') {
+      fail(`DRAFT REROLL (exhausted): a reroll of a ${gOffer.pool}-candidate tier showing ` +
+           `${gOffer.ids.length} cards pushed ${JSON.stringify(gRows.map(r => r.data?.why))} -- want ` +
+           `exactly one 'THIS IS ALL THERE IS'`);
+      bad++;
+    } else {
+      console.log(`  ..  the grant tier offers ${gOffer.ids.length} of ${gOffer.pool} and refuses a ` +
+                  `reroll with 'THIS IS ALL THERE IS', hephaestus' ${gFav} favour untouched`);
+    }
+
+    takeCard();
+    oneFrame();                                   // cycle 3 arms
+    payLive();                                    // ... pays, and athena lays out a BOON offer
+
+    /* 3b -- THE PRICE IS EXACTLY `eff('rerollCost')`, SPENT WITH THE ASKER. */
+    const bOffer = run.run.offer;
+    const fav0 = run.run.favour.athena ?? 0;
+    const ids0 = idsNow();
+    reroll();
+    const fav1 = run.run.favour.athena ?? 0;
+    const spent = fav0 - fav1;
+    const still = run.run.offer;
+
+    if (bOffer?.tier !== 'boon' || bOffer.god !== 'athena' || fav0 < PRICE) {
+      fail(`DRAFT REROLL (price): paying cycle 3 raised ${JSON.stringify(bOffer)} with athena owed ` +
+           `${fav0} favour -- want a 'boon' offer asked by athena and at least the ${PRICE} price`);
+      bad++;
+    } else if (spent !== PRICE) {
+      fail(`DRAFT REROLL (price): one reroll moved athena's favour ${fav0} -> ${fav1}, spending ` +
+           `${spent} -- want exactly eff('rerollCost') = ${PRICE} (D17-B)`);
+      bad++;
+    } else if (still?.tier !== 'boon' || still.god !== 'athena' || still.pool !== bOffer.pool ||
+               still.ids.length !== SIZE || new Set(still.ids).size !== SIZE) {
+      fail(`DRAFT REROLL (price): the paid reroll turned [${ids0}] into ` +
+           `${JSON.stringify(still)} -- a re-pick keeps the tier, the asker and the pool, and lays ` +
+           `out ${SIZE} distinct cards again`);
+      bad++;
+    } else {
+      /* 3c -- AND IT IS A RE-PICK. The price alone would be paid by a reroll
+         that redrew the identical three every time, so ten more rerolls (on
+         favour handed over the way `rules/cycles.js#complete` hands it over)
+         must produce more than one set. */
+      const before = run.run.favour.athena ?? 0;
+      run.write.favour('athena', PRICE * 10);
+      const sets = new Set([idsNow()]);
+      for (let i = 0; i < 10; i++) { reroll(); sets.add(idsNow()); }
+      const leftOver = (run.run.favour.athena ?? 0) - before;
+      if (sets.size < 2) {
+        fail(`DRAFT REROLL (re-pick): eleven offers of ${BOON_IDS.length} candidates were all ` +
+             `[${idsNow()}] -- a reroll that charges for the same cards is not a reroll`);
+        bad++;
+      } else if (leftOver !== 0) {
+        fail(`DRAFT REROLL (re-pick): ten rerolls off ${PRICE * 10} favour left ${leftOver} over -- ` +
+             `every one must cost exactly ${PRICE}`);
+        bad++;
+      } else {
+        /* 3d -- AND A PURSE THAT CANNOT PAY IS TOLD SO. Athena is now at 0. */
+        const pFav = run.run.favour.athena ?? 0;
+        const pIds = idsNow();
+        const pFrom = journal.peek().length;
+        reroll();
+        const pRows = refusals(pFrom);
+        if (pFav >= PRICE) {
+          fail(`DRAFT REROLL (short): athena still holds ${pFav} favour against a ${PRICE} price -- ` +
+               `the scene never reached the refusal it means to test`);
+          bad++;
+        } else if ((run.run.favour.athena ?? 0) !== pFav || idsNow() !== pIds) {
+          fail(`DRAFT REROLL (short): the refused reroll moved athena's favour ${pFav} -> ` +
+               `${run.run.favour.athena} and the offer [${pIds}] -> [${idsNow()}]`);
+          bad++;
+        } else if (pRows.length !== 1 || pRows[0].data?.why !== 'NOT ENOUGH FAVOUR') {
+          fail(`DRAFT REROLL (short): a reroll on ${pFav} favour pushed ` +
+               `${JSON.stringify(pRows.map(r => r.data?.why))} -- want exactly one ` +
+               `'NOT ENOUGH FAVOUR'`);
+          bad++;
+        } else {
+          ok(`DRAFT REROLL: cycle 3's boon offer re-picks for exactly eff('rerollCost') = ${PRICE} ` +
+             `favour of athena's, ${sets.size} distinct sets over eleven looks, and is then refused ` +
+             `at ${pFav} favour with 'NOT ENOUGH FAVOUR' -- while cycle 2's 2-of-2 grant offer is ` +
+             `refused with 'THIS IS ALL THERE IS' on a full purse`);
+        }
+      }
+    }
+    takeCard();
+  }
+
+  if (bad) fail(`DRAFT: ${bad} of 3 draft probes failed`);
+}
+
+/* ============================================================
+   8m. THE BATCH CLAUSE — a rolling window on simulated time
+   ------------------------------------------------------------
+   Cycle 4's `batch:{ sub, form, n, secs }` (D17-C, docs/SPEC.md §18.10) had
+   no assertion anywhere. Section 8f only worked around it, stamping a credit
+   into the ledger by hand so the win-state probe could get past the row.
+
+   SWEPT AT THE SAME EIGHT FRAMERATES SECTION 3'S HARDNESS TABLE USES,
+   because a window measured on `Date.now()` and a window measured on `run.t`
+   are indistinguishable at one framerate and nowhere near each other at
+   eight. Every delivery goes through the real feed verb at the sweep's own
+   frame, so the credit is stamped by `rules/cycles.js#creditTribute` off
+   `run.t` and nothing here writes a credit.
+
+   THE FLAT DEMAND IS CREDITED OUTRIGHT AT THE START, so the batch clause is
+   the only thing left between the rig and a paid trial. Four plates
+   delivered too far apart must NOT pay it, and a fifth inside the window
+   must -- the same four arrivals, passing or failing on their spacing alone.
+   ============================================================ */
+console.log('\n8m. THE BATCH CLAUSE: a rolling window on simulated time (Phase 17d, D17-C)');
+{
+  const RATES = [20, 30, 60, 90, 107, 120, 144, 240];
+  const ROW = D_cycles.CYCLES.find(c => c.batch);
+  const N = D_cycles.CYCLES.indexOf(ROW) + 1;
+  let bad = 0;
+  const rows = [];
+
+  if (!ROW) {
+    fail('BATCH WINDOW: no shipped cycle carries a batch clause -- data/cycles.js and ' +
+         'docs/SPEC.md §18.10 disagree, and this section is testing nothing');
+    bad++;
+  }
+
+  const SECS = ROW?.batch.secs ?? 0, WANT = ROW?.batch.n ?? 0;
+  const PLATE = ROW ? [D_sub.S[ROW.batch.sub], D_form.F[ROW.batch.form]] : [0, 0];
+
+  /* A dock on a real footing in `topsoil`, the player 6 px off its left edge
+     -- the same rig and the same 6 px section 8i's feed probe stands at, for
+     the same reason: the feed verb's own reach gate has to consider this
+     "standing beside it". The cycle is armed by moving `run.cycle`, since
+     what is under test is this row's clause and not the three trials in
+     front of it. */
+  const rig = (seed, dt) => {
+    boot.newRun(seed);
+    main.applyIntents();
+    const band = world.bandOf('topsoil');
+    for (let ty = 110; ty <= 119; ty++)
+      for (let tx = 16; tx <= 29; tx++) tiles.write.clear(band, tx, ty);
+    for (let tx = 16; tx <= 29; tx++) tiles.write.set(band, tx, 119, D_sub.S.stone);
+    const m = footUnder(machs.write.place(band, D_mach.M.cloud_dock, 22, 118));
+    player.write.band(band);
+    player.write.move(world.worldX(band, 22) - 12, world.worldY(band, 117));
+    player.write.vel(0, 0);
+    player.write.set('onGround', true);
+    run.write.cycle(N);
+    stepReal(dt, { hasMouse: false });
+    const have = {};
+    for (const d of ROW.demand) have[`${d.sub}/${d.form}`] = d.n;
+    run.write.tribute({ ...run.run.tribute, have, credits: [] });
+    run.write.collect(PLATE[0], PLATE[1], WANT + 2);
+    return m;
+  };
+
+  /* Step until `pred` holds, and answer with the simulated time it first did
+     -- so every number below is `run.t`, read off the simulation, never
+     reconstructed as frames x dt. NaN if it never held.
+
+     BOUNDED BY FRAMES AND NOT BY `run.t`, deliberately: a won run and a
+     modal both make `main.step()` return without advancing the clock, so a
+     `while (run.t < limit)` loop here does not terminate under a
+     perturbation that pays the trial early. That is exactly the shape a
+     perturbation takes, and a hung checker reports nothing. */
+  const until = (pred, capSecs, dt) => {
+    const cap = Math.ceil(capSecs / dt) + 2;
+    for (let i = 0; i < cap; i++) {
+      stepReal(dt, { hasMouse: false });
+      if (pred()) return run.run.t;
+    }
+    return NaN;
+  };
+
+  for (const fps of RATES) {
+    if (bad) break;
+    const dt = 1 / fps;
+    const m = rig(9880 + fps, dt);
+
+    /* ONE plate, then wait for it to age out of the window. */
+    if (feedByHand(m, PLATE[0], PLATE[1], 1, dt) !== 1) {
+      fail(`BATCH WINDOW: at ${fps} fps the first feed press moved no ${D_form.labelOf(...PLATE)} ` +
+           `into the dock -- the rig is wrong, not the clause`);
+      bad++; break;
+    }
+    const landed = until(() => run.batchHave() >= 1, 2, dt);
+    const aged = until(() => run.batchHave() === 0, SECS + 5, dt);
+    if (!Number.isFinite(landed) || !Number.isFinite(aged)) {
+      fail(`BATCH WINDOW: at ${fps} fps one plate credited at ${landed} and aged out at ${aged} ` +
+           `(batchHave ${run.batchHave()}) -- a credit must both count and then stop counting`);
+      bad++; break;
+    }
+
+    /* THREE MORE, now that the first is surplus. Four plates have reached the
+       dock and the flat demand was satisfied before any of them: the trial is
+       unpaid on the spacing alone. */
+    const fed = feedByHand(m, PLATE[0], PLATE[1], WANT - 1, dt);
+    until(() => run.batchHave() >= WANT - 1, 2, dt);
+    const short = run.batchHave();
+    const met = run.tributeMet();
+    const demandMet = ROW.demand.every(d => run.tributeHave(d.sub, d.form) >= d.n);
+    const stillArmed = run.run.cycle === N && run.run.tribute?.id === ROW.id;
+
+    /* THE BITE IS TESTED BEFORE THE SETUP IS, because a clause that pays too
+       early clears `run.tribute` and every reading below it then reports an
+       empty ledger -- which reads like a broken rig and is not one. */
+    if (met || !stillArmed) {
+      fail(`BATCH WINDOW: at ${fps} fps, ${WANT} plates delivered with the first ` +
+           `${(run.run.t - landed).toFixed(2)} s back -- more than the ${SECS} s window -- left ` +
+           `run.cycle ${run.run.cycle} (want ${N}), tributeMet ${met} (want false) and batchHave ` +
+           `${short}. The whole flat demand was credited before any of them, so a trial paid here ` +
+           `is a window that does not bite`);
+      bad++; break;
+    }
+    if (fed !== WANT - 1 || !demandMet || short !== WANT - 1) {
+      fail(`BATCH WINDOW: at ${fps} fps the rig fed ${fed} of ${WANT - 1} plates, the flat demand ` +
+           `is satisfied = ${demandMet} and batchHave reads ${short} of a wanted ${WANT - 1} -- the ` +
+           `scene cannot isolate the clause`);
+      bad++; break;
+    }
+
+    /* AND THE SAME FOUR, BUNCHED. One more press inside the window pays it. */
+    const before = journal.peek().length;
+    feedByHand(m, PLATE[0], PLATE[1], 1, dt);
+    until(() => run.run.cycle > N, 2, dt);
+    const paid = journal.peek().slice(before)
+      .filter(r => r.kind === 'cycle' && r.data?.cycleId === ROW.id);
+    if (run.run.cycle !== N + 1 || paid.length !== 1) {
+      fail(`BATCH WINDOW: at ${fps} fps a ${WANT}th plate inside the window left run.cycle ` +
+           `${run.run.cycle} (want ${N + 1}) and ${paid.length} '${ROW.id}' journal row(s) (want 1), ` +
+           `batchHave ${run.batchHave()} of ${WANT}`);
+      bad++; break;
+    }
+    rows.push({ fps, window: aged - landed, err: aged - landed - SECS });
+  }
+
+  if (!bad) {
+    const worst = rows.reduce((a, r) => Math.abs(r.err) > Math.abs(a.err) ? r : a, rows[0]);
+    const spread = Math.max(...rows.map(r => r.window)) - Math.min(...rows.map(r => r.window));
+    console.log('  ..  measured window, one credit from landing to ageing out:');
+    for (const r of rows)
+      console.log(`      ${String(r.fps).padStart(3)} fps  ${r.window.toFixed(4)} s  ` +
+                  `(${r.err >= 0 ? '+' : ''}${r.err.toFixed(4)} s)`);
+    /* BOUNDED BY THE POLLING RESOLUTION AND NOTHING ELSE. `run.t` advances
+       one `dt` per substep and this reads it after each, so a credit is
+       first seen gone up to one frame after it really aged out -- and never
+       before, which is the half that says the window does not close early.
+       One frame at the slowest rate is 0.05 s; anything wider is the clause
+       moving, not the probe. */
+    const early = rows.filter(r => r.err < -1e-9);
+    const late = rows.filter(r => r.err > 1 / r.fps + 1e-6);
+    if (early.length || late.length || spread > 1 / Math.min(...RATES) + 1e-6) {
+      fail(`BATCH WINDOW: the measured window is ${worst.window.toFixed(4)} s at ${worst.fps} fps ` +
+           `against batch.secs = ${SECS}, spreading ${spread.toFixed(4)} s across ` +
+           `${RATES.join('/')} fps -- ${early.length} rate(s) closed the window early and ` +
+           `${late.length} held it open more than their own frame past ${SECS} s. A window that ` +
+           `moves with the framerate is not measured on run.t`);
+      bad++;
+    } else {
+      ok(`BATCH WINDOW: '${ROW.id}' stays unpaid on ${WANT} plates spread wider than its ` +
+         `${SECS} s window with the whole flat demand already credited, and pays on one more inside ` +
+         `it -- at ${RATES.join('/')} fps, every delivery through the real feed verb, the window ` +
+         `holding to ${SECS} s of run.t within ${Math.abs(worst.err).toFixed(4)} s (spread ` +
+         `${spread.toFixed(4)} s)`);
+    }
+  }
+
+  if (bad) fail('BATCH CLAUSE: the rolling window does not hold');
 }
 
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +

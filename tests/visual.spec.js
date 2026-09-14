@@ -4813,25 +4813,57 @@ test('drive: a carrier at a band seam', async ({ page }) => {
    `data/callouts.js` row has a string (FINDINGS #10) -- the same
    `while (run.tutorialBeat < N) rw.advanceBeat()` idiom `driveScene` already
    uses above, here inlined since these scenes are simple enough not to need
-   a shared scene builder. */
+   a shared scene builder.
+
+   ONLY SCENE 1 STEPS THE DIRECTOR. Setting the beat and drawing without a
+   frame leaves cycle 1's altar unplaced (D17-G), and that is right for every
+   scene here but the first. Scene 2 is armed at cycle 3 and photographs four
+   panels crowding at once, scene 3 photographs the over-cap burden bar, and
+   the three cycle-4 scenes below are armed at the dock and deliberately
+   never step, because a stepped frame with cycle 4 already paid completes
+   the trial out from under the picture. Scene 1's subject IS the first
+   trial, so it is the one that needs its receiver behind it. */
 
 const phoneFloor = page => page.evaluate(() => { __mf.resize(200, 180); __mf.draw(); });
 
+/* Exactly one altar stands, and it lies inside the buffer being
+   photographed. A scene whose subject is the first trial has to have the
+   altar in it, and a baseline alone cannot say so -- `tribute-cycle1-armed`
+   pictured an armed trial with no altar anywhere on screen for a whole phase
+   (docs/REVIEW-wave5-17f1.md D2). Screen px, camera already subtracted. */
+const altarOnScreen = page => page.evaluate(async () => {
+  const { M } = await import('/src/data/machines.js');
+  const standing = __mf.machines.filter(m => m.def === M.altar);
+  if (standing.length !== 1) return { standing: standing.length };
+  const b = standing[0].box, c = document.getElementById('stage');
+  const x = b.x - __mf.cam.x, y = b.y - __mf.cam.y;
+  return { standing: 1, onScreen: x + b.w > 0 && y + b.h > 0 && x < c.width && y < c.height };
+});
+
 /* ---- 1. cycle 1, freshly armed, no clock ----
-   `settle()` alone is enough to arm it: `rules/cycles.js#step` runs inside
-   `newRun`'s own first frames, and cycle 1's `deadlineSecs` is `null`
-   (docs/SPEC.md section 4) -- the scene this baseline exists to prove is
-   that TRIBUTE draws no timer line for it. */
+   `settle()` alone arms it: `rules/cycles.js#step` runs inside `newRun`'s
+   own first frames, and cycle 1's `deadlineSecs` is `null` (docs/SPEC.md
+   section 4), so the scene this baseline exists to prove is that TRIBUTE
+   draws no timer line for it.
+
+   THE ALTAR IS THE OTHER HALF OF THE PICTURE. Arming the trial and placing
+   its receiver are two different frames as of D17-G, so this steps the
+   director and then waits the rise out -- the presentation belongs to
+   `altar-arrival.png`, and this scene wants the altar settled behind the
+   panel. */
 test('tribute: cycle 1 armed, no clock', async ({ page }) => {
   await boot(page);
   await settle(page);
-  await page.evaluate(async () => {
-    const { write: rw, run } = await import('/src/model/run.js');
-    while (run.tutorialBeat < 4) rw.advanceBeat();
-    __mf.draw();
-  });
+  await altarArrives(page);
+  await pastArrival(page);
+  expect(await altarOnScreen(page)).toEqual({ standing: 1, onScreen: true });
   await shot(page, 'tribute-cycle1-armed.png');
+  /* `phoneFloor` shrinks the buffer and redraws without stepping, so the
+     camera stays where the desktop frame left it and the 200 px crop cuts
+     the altar off its right edge. The phone variant's subject is the panel
+     column at the floor; the altar claim above is the desktop's. */
   await phoneFloor(page);
+  expect((await altarOnScreen(page)).standing).toBe(1);
   await shot(page, 'tribute-cycle1-armed-phone.png');
 });
 

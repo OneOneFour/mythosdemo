@@ -2544,3 +2544,117 @@ also what gives it its first execution.
   (`tests/visual.spec.js:4811`), so even a scene whose subject is cycle 1's
   TRIBUTE panel has no altar behind it; one `__mf.frames(1)` after the beat
   jump would bring it back where a scene wants it.
+
+## Phase 17g2 (the draft and batch sections, and five audited assertions)
+
+- **`rules/draft.js` now has a headless section, and every branch of it was
+  perturbed to red.** `tools/check.mjs` section 8l drives the offer through
+  `main.step()` and `main.applyIntents()` only. Five perturbations of `src/`,
+  each reverted:
+
+  | perturbation | red |
+  |---|---|
+  | `pick` splices from index 0 instead of `(rand() * len) \| 0` | `all 40 seeds laid out the same [hephaestus-forge,poseidon-flood,athena-focus]` |
+  | `pick` reads `pool[i]` without splicing | `seed 9760 laid out [hades-passage,athena-focus,hades-passage], which repeats a row` |
+  | `shell/main.js#step`'s `pausesRun()` guard commented out | `60 real frames with the modal up moved the ore 42.000 px ... run.t by 0.5000 s` |
+  | `rw.favour(god, -1)` instead of `-rerollPrice()` | `one reroll moved athena's favour 2 -> 1, spending 1 -- want exactly eff('rerollCost') = 2` |
+  | `offerExhausted()` returns `false` | `the refused reroll moved hephaestus' favour 3 -> 1` |
+
+- **The draft pause is asserted as "the run resumes where it stopped", not
+  merely as "nothing moved".** A falling ore falls 42.000 px in 60 unfrozen
+  substeps, 0 px in 60 frames behind the modal, and the same 42.000 px in the
+  60 substeps after a card is taken. The control run is the same seed with no
+  modal, so the number is measured rather than typed.
+
+- **A poll loop in this harness must be bounded by frames, never by `run.t`.**
+  Section 8m's `until()` first read `while (run.t < limit)`, and the first
+  perturbation of the batch clause — `batchMet()` always true — pays cycle 4
+  on the rig's own first step, wins the run, and `main.step()` then returns
+  early without advancing the clock. The checker hung instead of failing, and
+  a hung checker reports nothing. A perturbation that freezes the simulation
+  is the ordinary case for a probe that drives the real loop.
+
+- **The batch window measures exactly one polling frame wide at every
+  framerate.** Section 8m delivers every plate through the real feed verb at
+  the sweep's own frame and reads `run.t` off the simulation. One credit,
+  from landing to ageing out:
+
+  ```
+   20 fps  120.0500 s (+0.0500)    107 fps  120.0000 s (+0.0000)
+   30 fps  120.0333 s (+0.0333)    120 fps  120.0000 s (+0.0000)
+   60 fps  120.0167 s (+0.0167)    144 fps  120.0069 s (+0.0069)
+   90 fps  120.0111 s (+0.0111)    240 fps  120.0042 s (+0.0042)
+  ```
+
+  Every error is at most one frame and never negative, so the assertion is
+  `err >= 0 && err <= dt` per rate rather than a blanket tolerance. Halving
+  `batchHave`'s window reports `-59.95 s` at 20 fps; stamping a credit with
+  `Date.now() / 1000` leaves it never ageing out at all.
+
+- **All five of 17e's unaudited assertions can fail.** Perturbed one at a
+  time in `src/view/`, each reverted:
+
+  | assertion | perturbation | red |
+  |---|---|---|
+  | honest at every stage | the batch row stops counting towards the aggregate | `Expected: not "100%"` |
+  | honest at every stage | `batchLabel` always returns the full name | `Expected: "CU PLT IN 2:00" Received: "COPPER PLATE IN 2:00"` |
+  | the miss tally | `missTally` returns before drawing | `Expected: not 844597379` |
+  | the urgency flash | `urgentFlash` returns `false` | `expect(hotB).not.toBe(hotA)` |
+  | the urgency flash | `urgentFlash` drops the `urgentSecs` test | `expect(calmB).toBe(calmA)` |
+  | the death tally | the death screen prints depth only | `Expected: not 1381599770` |
+  | the chip stream | `reset()` stops rewinding `spark` | 18 of 18 chip velocities differ |
+
+- **The chip-stream rewind IS demonstrable, and 17e already demonstrated
+  it.** `docs/REVIEW-wave5-17e.md` §6 says it "cannot be demonstrated against
+  a baseline", which is true and not the whole story — the test 17e wrote is
+  not a baseline test. It bursts six chips, advances the stream, resets, and
+  bursts six more inside one page, and deleting `spark = mulberry(SPARK_SEED)`
+  from `view/fx.js#reset` turns it red. Nothing about it is latent or
+  uncovered.
+
+- **`src/view/hud.js:1049-1054` clamps the callout's PANEL to the buffer and
+  then draws the text unclamped.** `bottomLine` computes
+  `w = Math.min(textWidth(text) + 12, W - 4)` and then `drawText(g, text,
+  x + 6, ...)` with no clip. At the 200 px floor `CALLOUTS[5]` —
+  `'CLICK YOUR ORE, THEN THE ALTAR -- 10 COPPER'`, 257 px against a 196 px
+  panel — runs 67 px past the right edge. Pre-existing, and newly pictured in
+  `tribute-cycle1-armed-phone.png`, which now steps the director and so
+  reaches beat 5; no callout long enough had ever been photographed at the
+  floor. `view/` is outside this block. The fix is D8's own rule, the one
+  `batchLabel` already follows, which is to measure and then abbreviate.
+
+- **FINDINGS #14 did not reproduce in 18 more full parallel runs, and the
+  CPU-contention lead explains a different failure from the one #14
+  records.** 12 runs on this machine as found and 6 more under twelve extra
+  busy loops; 140 tests each, 2,520 test executions, every run green in
+  16-21 s. Every one of those runs competed with an unrelated process holding
+  200-600% CPU throughout, which is the condition `docs/REVIEW-wave5-17e.md`
+  §5 reports its six winch failures under. **Those six were `Test timeout of
+  30000ms exceeded`, not pixel diffs** — the same class 17g1 records for a
+  `boot()` stall and for `reuseExistingServer`. #14 is a 164 px PIXEL diff,
+  observed twice in Phase 9 at `threshold: 0.2`. Contention produces a
+  stalled worker; it has never produced a wrong pixel here. The two should
+  not be read as one symptom.
+
+  The running total against #14 is 52 full-suite runs since it was written,
+  43 of them at `threshold: 0`, plus 17g1's 64 fresh-page canvas hashes across 8
+  browser launches and 5 raster configurations. Ruled out by that evidence
+  and by inspection: the raster backend, threshold-hidden drift, the chip
+  stream (fresh page per test, and `reset()` has rewound the generator since
+  17e), and CPU contention as a source of pixel error. One hypothesis
+  survives, a late `resize` landing between the last `draw()` and the
+  screenshot, which 17g1 proved is a real mechanism elsewhere — though it
+  would move the camera and so cost tens of thousands of pixels, not 164.
+  **What would settle it is one captured diff image.** Nothing in the
+  evidence explains a small, localised, intermittent difference, and nothing
+  since Phase 9 has produced one.
+
+- **`tribute-cycle1-armed` pictures the first trial with its altar again, and
+  an assertion now says so.** `altarOnScreen` reads the machine list and the
+  camera and requires exactly one altar inside the buffer, so the scene
+  cannot silently lose its subject a second time. The other five `tribute-*`
+  scenes keep their no-altar framing on purpose. Two are armed at cycle 3 and
+  cycle 4 with the dock as receiver, the over-cap scene's subject is the
+  burden bar, and the three cycle-4 scenes must not step at all, because a
+  stepped frame with the ledger already full completes the trial out from
+  under the picture.
