@@ -1,7 +1,9 @@
 # Plan — wave 5: closing every open item before the code review
 
-**Status: IN FLIGHT. 17a has landed (`docs/AUDIT-wave5.md`); 17b onward is
-running. Every decision in §2 and §5.1 is settled — do not reopen one.**
+**Status: BUILT, bar 17g2.** Every phase from 17a to 17f2 has landed with a
+reviewer verdict; `docs/BUILD_PLAN.md`'s wave-5 block holds the phase-to-commit
+table. This document stays the design record — every decision in §2 and §5.1 is
+settled, and §12's brief for a phase is what that phase was held to.
 
 This wave exists to empty the project's open-work list so a general code review
 has a still target. It is a closeout wave, not a feature wave: everything in it
@@ -813,6 +815,15 @@ and close the list this plan opened.
 
 **Acceptance.** No document in the repo still describes an open item this wave
 closed, and no closed item is described as open.
+
+**LANDED.** `docs/SPEC.md` §20.3 and §25 corrected, `docs/DESIGN.md`'s draft
+and favour promises brought up to the code, `docs/BUILD_PLAN.md` given a
+wave-5 block, `docs/PLAN-phase13.md` §5.2 given a verdict and a live citation
+per item, `docs/PLAN-phase17-drafts.md` retired to a stub pointing here,
+`FUTURE_IDEAS.md` given the five parked items above, and
+`docs/DEVELOPER_GUIDE.md` given the draft offer, the tribute director, the
+tutorial beats and growth. `docs/FINDINGS.md` was carved out to 17g2 and its
+three entries were handed over as replacement text rather than applied.
 
 ## 12. Sequencing
 

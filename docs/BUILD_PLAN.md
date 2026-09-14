@@ -6,11 +6,9 @@ A third wave ran after this document stopped being extended: the interaction-
 model rework (key audit, unified LMB, opt-in pickup, a real slot-grid
 inventory), planned in `docs/PLAN-phase12.md` as Phases 12a/12b/12c/12c2/12d
 and also fully committed; treat `docs/PLAN-phase12.md` as the record for it.
-Two items sit parked, not fixed, in `docs/FINDINGS.md` #13 (a HUD label can
-overlap the burden bar at wide values) and #14 (an intermittent
-`winch-lit`/`winch-unlit` visual-test flake under full parallel runs).
-`FUTURE_IDEAS.md` and `docs/DESIGN.md`'s unbuilt sections are backlog, not
-scheduled work.
+Waves 4 and 5 followed, each in its own document and each summarised at the
+bottom of this file. `FUTURE_IDEAS.md` and `docs/DESIGN.md`'s unbuilt
+sections are backlog, not scheduled work.
 
 **Wave 4 is DONE as of `a7e0240` (2026-09-02).** Phases 14a–14e, 13a–13d, 15,
 and 16a–16c are all committed, in that order (14a had to land first once its
@@ -22,8 +20,8 @@ rather than absorbing it:
 
 | document | phases | what |
 |---|---|---|
-| `docs/PLAN-phase13.md` | **13a–13d** | UI text contrast (a *classified* recolour — grey is load-bearing in ten places); the ladder's sprite (the label rename already landed in `7c6993c`, so this is pixels only); the auto-collect default (one real gap — `newRun()` does not reset it — plus two now-vacuous test probes); and a **20-item punch list of what is left to close the tribute loop**, with 13d proposed as the five-item shortest path. 13d needs a greenlight. |
-| `docs/PLAN-phase14-mining-and-drops.md` | **14a–14e** | Mined material becomes a prerequisite (rubble stops being placeable; 5 → 1 packed block) and named deposits **deplete** instead of vanishing. Its own document because it changes what a material *is*. Carries the wave's risk register. **Read its §2.1 first, whatever else you are doing: appending a tile-capable substance row throws at import today, and `docs/SPEC.md` §15 reads as if there is room.** Also drafts **D12** — a form is either feedstock or buildable, never both — and applies it a second time to `timber/log` (D14-H); **now the wave's first phase to land, ahead of 13 and 15.** |
+| `docs/PLAN-phase13.md` | **13a–13d** | UI text contrast (a *classified* recolour — grey is load-bearing in ten places); the ladder's sprite (the label rename already landed in `7c6993c`, so this is pixels only); the auto-collect default (one real gap — `newRun()` does not reset it — plus two now-vacuous test probes); and a **20-item punch list of what is left to close the tribute loop**, with 13d the five-item shortest path. All four landed, and §5.2 carries a verdict and a live citation per item. |
+| `docs/PLAN-phase14-mining-and-drops.md` | **14a–14e** | Mined material becomes a prerequisite (rubble stops being placeable; 5 → 1 packed block) and named deposits **deplete** instead of vanishing. Its own document because it changes what a material *is*. Carries the wave's risk register. **Read its §2.1 first, whatever else you are doing: appending a tile-capable substance row throws at import today.** Also drafts **D12** — a form is either feedstock or buildable, never both — and applies it a second time to `timber/log` (D14-H); **now the wave's first phase to land, ahead of 13 and 15.** |
 | `docs/PLAN-phase15-trees.md` | **15** | A fully felled tree drops a seed; a planted seed grows into a tree on the fixed step. Shares `data/forms.js` and the form budget with 14a and must land after it — and after D14-H, since a placed timber ladder can no longer be `log`. |
 | `docs/PLAN-phase16-interaction-model-v2.md` | **16a–16c** | **The missing feed verb**, and what a click on an inventory slot means. Extends Phase 12's interaction model rather than replacing it: today clicking a placeable arms it (correct, and Factorio-shaped) but clicking an ore/ingot/plate/brand/relic is a **confirmed silent no-op**, and feeding a machine is not a gesture at all — `rules/machines.js#handFeed` is proximity-only, ungated, at 120 Hz. **Three places in the repo already work around that and three more claim a "feed key" that has never existed.** Keeps "the click *target* decides" as the implementation (more defensive against a future content mistake) now that D12 has made it behaviourally identical to plain type-dispatch for every legal pair — and recommends describing it to the player the simpler way regardless. 16b (the drain becomes opt-in `ui.autoFeed`) carries the whole risk. |
 | `docs/PLAN-horizontal-chunks-SCOPE.md` | **none — scoping only** | A horizontal, procedural, unbounded world. **Not a phase plan and must not be executed.** It establishes that the storage change is feasible (nothing outside `model/` reads a tile array directly) and that the *generator* change has an unsolved problem in it, drafts the `CLAUDE.md`/`ARCHITECTURE.md`/`SPEC.md` diffs **for review and deliberately unapplied**, and recommends a cheaper bounded-but-large intermediate instead, plus a read-only recon pass before any implementation. |
@@ -2598,8 +2596,8 @@ document was deliberately not executed and remains scoping-only.
 
 - **`docs/PLAN-phase13.md` — Phases 13a, 13b, 13c, 13d.** UI text contrast,
   the ladder's sprite, the auto-collect default, and the game-loop punch
-  list. 13d ("the shortest path to a closed loop") is a *proposal* and needs
-  a greenlight before it is scheduled; the other three are ready to run.
+  list. All four landed. Wave 5 closed the rest of the punch list, and §5.2
+  now carries a verdict and a live citation per item.
 - **`docs/PLAN-phase14-mining-and-drops.md` — Phases 14a–14e.** Mining drops
   become prerequisites and named deposits deplete. The largest item in the
   wave and the one with a full risk register. **Also carries a new
@@ -2646,17 +2644,16 @@ record, and `docs/PLAN-phase12.md` D-I's un-landed double frame was fixed
 by Phase 16c):
 
 1. **Appending a tile-capable substance row to `data/substances.js` throws at
-   import.** `SUB.length` is 23, `PACKABLE_LIMIT` is 20, and the twelve
-   "free" ordinals `docs/SPEC.md` §15 counts are all already occupied by
-   non-packable rows. `docs/SPEC.md` §15 and
-   `src/data/substances.js`'s "ROWS ARE APPEND-ONLY" header contradict each
-   other on this. See `docs/PLAN-phase14-mining-and-drops.md` §2.1.
-2. **`docs/SPEC.md` §18.4 promises a 1-of-3 draft and the code delivers
-   1-of-1**, and three of the four gift tiers have exactly one content row so
-   1-of-3 is not currently constructible. See `docs/PLAN-phase13.md` §5.2
-   items 4 and 5, and `docs/PLAN-phase16-interaction-model-v2.md` §7.3 for
-   why the draft's own UI belongs in a Phase 17 document rather than in
-   either of them.
+   import.** Still true, and the numbers have moved — `SUB.length` is 27,
+   `PACKABLE_LIMIT` is 17, and every ordinal between the highest packable row
+   and the end of the table is occupied by a non-packable one. A tile-capable
+   row must be *inserted* at an ordinal at or below the limit.
+   `docs/SPEC.md` §15 holds the live arithmetic; see also
+   `docs/PLAN-phase14-mining-and-drops.md` §2.1.
+2. **FIXED by wave 5.** The draft was 1-of-1 against three tiers of one row
+   each. Phase 17b took every tier to three rows (two for machine grants, by
+   decision) and Phase 17c built the 1-of-3 modal, the pause and the favour
+   reroll. `docs/SPEC.md` §18.8 is the contract.
 3. **FIXED by Phase 14a's D14-H.** `timber/log` was fuel and a recipe
    ingredient *and* directly placeable as a ladder, and `*/gravel` was
    cycle 4's tribute currency and a recipe ingredient *and* the "shovel it
@@ -2664,3 +2661,37 @@ by Phase 16c):
    substances, both real. Fixed by deleting each form's `tile` block;
    `rung`/`stair`/`block` remain the only placeable equivalents. The general
    rule is `CLAUDE.md` D12.
+
+---
+
+## Wave 5 — closing every open item before the code review (Phases 17a–17h)
+
+Planned as one standalone document, `docs/PLAN-wave5-closeout.md`, which is
+also the record of what shipped. The wave emptied the project's open-work
+list so a general code review has a still target: `docs/PLAN-phase13.md`
+§5.2's twenty-item punch list, the 1-of-3 draft extracted from wave 4, the
+two parked items in `docs/FINDINGS.md`, and Phase 16b's Character-tab
+overflow. Every phase carries a review at `docs/REVIEW-wave5-<phase>.md`.
+
+| phase | commit | what |
+|---|---|---|
+| 17a | `957b295` | the audit. `docs/AUDIT-wave5.md` re-verified all twenty punch-list items against the code and found four things the plan had wrong |
+| 17b | `f2c3d1a` | three rows in every gift tier, `data/gods.js`, `gift-kiln` retired, and a reachability assertion that makes an unplaceable machine a build failure |
+| 17c1 | `f343c86` | `run.offer` grows to `{ tier, god, ids, pool }`; `rules/draft.js` picks 3 of N and prices the reroll; the modal pauses the run |
+| 17c2 | `a9ef209` | `view/ui/draft.js` — the cards, the modifier lines and the reroll row |
+| 17i | `c803360` | the quickbar is eight cells and a pickup fills it first |
+| 17g1 | `ba7b5b8` | the visual suite was never bit-exact. `threshold: 0` made it so and re-derived the drifting baselines |
+| 17j | `89bf1c9` | an ALL category in the crafting tab, and a tab row that wraps instead of dropping a tab |
+| 17d | `c1927ad` | a rolling-window batch clause on a cycle's demand, measured on `run.t` |
+| 17e | `7854862` | the HUD closeout — the batch row, an aggregate that cannot read 100% unpaid, the miss tally, one urgency threshold, both end screens, and a scrolling stat block |
+| 17f1 | `22c9b93` | the altar arrives on tutorial beat 4 or on an 80 s grace, whichever is first |
+| 17f2 | `135a7c4` | the altar rises under a shaft of light, and the light goes out |
+| 17g2 | — | the harness pass: audit the assertions this wave shipped unaudited, and settle the visual flake |
+| 17h | — | the documentation closeout: this file, SPEC, DESIGN, the punch list, the guide and the backlog |
+
+**What wave 5 did not close, and where it went.** Cycles 5–6 need the
+`essence`/`ambrosia` refinement tiers, a genuine throughput quota needs
+credits stamped at production rather than at arrival, meta-progression needs
+a store `CLAUDE.md` forbids, and a recipe has no source that reveals it.
+All four are `FUTURE_IDEAS.md` entries with the reasoning in place, not
+oversights.

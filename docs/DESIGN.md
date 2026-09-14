@@ -97,9 +97,8 @@ axis literally is the run progress bar.
 
 Tribute must escalate in **refinement, not volume**. Cycle 1: 10 raw copper,
 no clock — `docs/SPEC.md` §4 and §18.4 lock the number, the form and the
-absence of a deadline; this file used to say 20 plates against a per-cycle
-deadline and was stale on all three counts. Cycle 6: three bottles of
-ambrosia, each 400 raw units deep. Volume quotas push players wide;
+absence of a deadline, and `CLAUDE.md` D6 keeps them there. Cycle 6: three
+bottles of ambrosia, each 400 raw units deep. Volume quotas push players wide;
 refinement quotas push them down.
 
 *Implemented as of Phase 10.* Four cycles ship (`data/cycles.js`,
@@ -114,7 +113,12 @@ return silently and let the game run out. Cycles 2–4 can only be paid at the
 Cloud Dock, which can only stand in the astral band (§20.1) — so the ascent is
 the progression rather than an optional flourish.
 
-*Three promises in the two paragraphs above are NOT IMPLEMENTED*, and each is
+*Implemented as of Phase 17c.* "You draft a boon" is a real choice. A paid
+trial raises a modal that freezes the run, lays out three cards drawn from
+one tier through the seeded stream, and sells a second look for favour
+(`docs/SPEC.md` §18.8).
+
+*Two promises in the paragraphs above are NOT IMPLEMENTED*, and each is
 named here rather than deleted, because the intent is still the design:
 
 - **"the earth opens further (a new depth band unlocks)"** — there is **no band
@@ -124,11 +128,6 @@ named here rather than deleted, because the intent is still the design:
   the ruler (`view/ui/ruler.js#masked`) and nothing else. Nothing stops a
   player digging into topsoil on minute three, and "depth band = act" is
   therefore a statement about pacing, not about a gate that exists.
-- **"you draft a boon"** — the *tier* is real and all four ship
-  (`CLAUDE.md` D1), but the **draft is 1-of-1, not a choice**:
-  `shell/main.js` takes `draftable()[0]` and grants it outright, with no
-  offer and no pause, and three of the four tiers ship exactly one content
-  row. See `docs/SPEC.md` §18.6.
 - **"keeping only stolen recipes and banked favour with individual gods"** —
   there is **no meta-progression and no save**. `meta` has three fields and no
   serialiser (`model/run.js`), `run.favour` is deliberately run-scoped so the
@@ -176,9 +175,15 @@ nest. What is new is **Boons**: a timed effect that happens *to* you and counts
 down in the corner of the screen. Nothing in that stack is clickable. A boon is
 not a resource you spend; it is weather. That is the Prometheus of it.
 
-A draft is still 1-of-3 after each cycle, and may now mix tiers — a timer, a
-trinket and a machine offered against each other is a real decision in a way
-three trinkets is not.
+A draft is 1-of-3 after each cycle, and **favour is what buys a second
+look** — the asking god's own standing, spent on rerolling that god's offer
+(`docs/SPEC.md` §18.8). That is the only sink favour has, and it makes a
+FAVOUR bar a resource rather than a scoreboard.
+
+*Mixing tiers is NOT IMPLEMENTED.* A timer, a trinket and a machine offered
+against each other would be a real decision in a way three trinkets is not,
+but a cycle row names one tier (`data/cycles.js`) and all three cards come
+from it, so cycles 2, 3 and 4 offer grants, boons and trinkets in turn.
 
 The rule that makes it interesting: **gifts from different gods are mutually
 hostile.** Poseidon's aquifer tap floods the strata Hephaestus's kilns need
@@ -205,24 +210,30 @@ absent from. The trinket tier is real and requires BOTH holding and
 equipping: `run.equipped` is a fixed-length selection over `run.inv`
 (`eff('trinketSlots')` slots), and `rules/trinkets.js#step` clears a slot the
 pockets no longer back in the same pass it syncs `model/mods.js`, so the two
-can never disagree. Timed boons are real: `data/boons.js` ships four (plus
-one miracle side-effect), decremented in the fixed step and synced into
-`model/mods.js` keyed `'boon:'+id` so the tiers can never remove each other's
-rows; `conflictsWith` resolves both ways content can name — SUPPRESS (the
+can never disagree. Timed boons are real: `data/boons.js` ships five,
+decremented in the fixed step and synced into `model/mods.js` keyed
+`'boon:'+id` so the tiers can never remove each other's rows;
+`conflictsWith` resolves both ways content can name — SUPPRESS (the
 Poseidon/Hephaestus pair `docs/DESIGN.md` names above) and INVERT (a second,
 shipped pair doubling as the one trap: Ares' frenzy reads as a flat buff but
 inverts Athena's focus if both run at once, netting WORSE than no boon at
-all). Miracles are real: `data/miracles.js` ships one, a held phial that
-collapses a radius of terrain to air and grants a side-effect boon. The HUD's
-top-right timer stack (`view/hud.js`) shows active boons only, newest first,
-draining and flashing in the last five seconds, derived from `clock.t` and
-never `rand()`. *Built since Phase 10:* the 1-of-3 draft itself now has a
-director deciding WHEN a god offers something — `rules/cycles.js`, arming,
-draining and resolving four tribute cycles (`docs/SPEC.md` §18) and writing
-the tier into `run.offer` on completion for `shell/main.js` to perform. The
-Character tab's equip UI is drag-to-equip for real, not only the model-driven
-`p` key. And tribute completion is a real event: `data/drops.js`'s
-tribute-triggered row (`tribute-bellows`, `chance:1`) is rolled by
+all). Miracles are real: `data/miracles.js` ships three held phials — one
+collapses a radius of terrain to air, one turns solid rock to native copper,
+and one edits no tile at all and only grants its boon. The HUD's top-right
+timer stack (`view/hud.js`) shows active boons only, newest first, draining
+and flashing in the last five seconds, derived from `clock.t` and never
+`rand()`.
+
+*Built since Phase 10.* `rules/cycles.js` decides WHEN a god offers
+something, arming, draining and resolving four tribute cycles
+(`docs/SPEC.md` §18) and writing the tier into `run.offer` on completion.
+`rules/draft.js` then decides WHICH rows are laid out, and `view/ui/draft.js`
+draws the three cards. Every tier holds enough rows to fill them — five
+boons, three trinkets, three miracles — except machine grants, which ship at
+two and offer two-of-two rather than padding. The Character tab's equip UI is
+drag-to-equip for real; the `p` equip key is retired and its letter reused.
+And tribute completion is a real event: `data/drops.js`'s tribute-triggered
+row (`tribute-bellows`, `chance:1`) is rolled by
 `rules/cycles.js#rollTributeDrop` on every cycle completion, so the first
 trial paid always hands over the bellows trinket.
 
@@ -310,13 +321,13 @@ says *planned*, `docs/BUILD_PLAN.md` names the phase.
 | ladders as a crafted, tiered item | no | yes (`timber/rung` cheap tier 1, `copper/stair` fast tier 2 with `climbK` — Phase 2a) |
 | machines built from a real material bill | no | yes (every `STARTING_MACHINES` row has a real `cost`; `docs/SPEC.md` section 13 — Phase 3) |
 | machine-grant tier of god gifts | cosmetic | yes (`run.granted`; `data/grants.js`/`rules/grants.js`, renamed from the misnamed `boons.js` — Phase 4) |
-| trinket tier, reaching numbers through one pipeline | cosmetic | yes (`model/mods.js`); equip slots real (`run.equipped`, `eff('trinketSlots')` — Phase 4); drag-to-equip real too (`shell/main.js`'s drag/drop resolve, `:445-500`ish); the `p` key (`shell/input.js:129-132`) is now a redundant alternative, not the only path |
+| trinket tier, reaching numbers through one pipeline | cosmetic | yes (`model/mods.js`); equip slots real (`run.equipped`, `eff('trinketSlots')` — Phase 4); drag-to-equip real too (`shell/main.js:487-552`), and the only path, since Phase 12 retired the `p` equip key |
 | timed boons with a countdown | no | yes (`data/boons.js`, `model/boons.js`, `rules/boons.js`, the HUD's top-right timer stack — Phase 4) |
-| miracles, `conflictsWith` hostile gods | cosmetic | yes (`data/miracles.js`, one row; `conflictsWith` both `suppress` and `invert` shipped and proven — Phase 4) |
+| miracles, `conflictsWith` hostile gods | cosmetic | yes (`data/miracles.js`, three rows; `conflictsWith` both `suppress` and `invert` shipped and proven — Phase 4) |
 | dense in-canvas inventory / crafting GUI | no | yes: a grid (`view/ui/grid.js`), a FIFO craft queue (`shell/ui.js#ui.craftQueue`, drawn in `view/ui/mainPanel.js`) and three tabs — CHARACTER / CRAFTING / LOGISTICS (`view/ui/tabs.js`, `mainPanel.js`) — Phase 5 |
 | spoil dumped to lava for free | yes | no |
 | suspicion meter, Hades gated by depth | cosmetic | still no, but the masked-id predicate it needs now exists and is in use (`view/ui/ruler.js#masked`/`bandKnown`, built for the FAVOUR/ruler panels) — Hades reading as `????????` is one predicate call away, not a new mechanism |
-| tribute cycles, boon drafting, favour | cosmetic | yes — `data/cycles.js` + `rules/cycles.js`, four cycles, each arming, draining, ticking and resolving for real; a draft is offered on completion (Phase 10) |
+| tribute cycles, boon drafting, favour | cosmetic | yes — `data/cycles.js` + `rules/cycles.js`, four cycles, each arming, draining, ticking and resolving for real; completion raises a 1-of-3 draft modal that pauses the run, and favour buys one reroll of it (`rules/draft.js`, `view/ui/draft.js` — Phase 17c) |
 | tree regrowth: a felled tree drops a plantable seed | no | yes — felling the **last** trunk tile of a tree drops one `timber/seed` (`rules/mining.js`; the condition is a column fact `data/drops.js` cannot express), planting is ordinary `cmd.place` on a new `tile.roots` form, and `rules/growth.js` accumulates `dt` against `model/growth.js` until `eff('treeGrowSecs')` (180 s) turns it into native trunk tiles the existing canopy crowns for free. Height from `hash2`, never `rand()`. Nothing regrows a tree the player did not plant — a world that reforests itself removes the reason to carry a seed (Phase 15, `docs/SPEC.md` section 22) |
 | buoyant heat, bottom-up flooding | no | seam only: `rules/fields.js` decays, does not diffuse |
 | monsters, aggro from emissions, ichor economy | no | no |

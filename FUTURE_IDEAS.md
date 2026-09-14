@@ -157,3 +157,104 @@ plumbing (or its equivalent) to land first, and should be worded to teach
 **Sketch.** A callout beat that fires the first time a player fells a tile
 off a trunk without felling the whole tree, along the lines of "fell it all
 the way down for the seed."
+
+---
+
+## Cycles 5 and 6, and the refinement tiers they need
+
+**Idea.** `data/cycles.js` ships four rows and the run ends past the last one
+(`docs/SPEC.md` §20.2). `docs/DESIGN.md`'s progression runs to six, ending on
+three bottles of ambrosia, each 400 raw units deep.
+
+**Why it's good.** The escalation is in refinement rather than volume, and
+`essence` (60:1) and `ambrosia` (~400:1) are the two rungs that make the
+break-even curve bite. At 400:1 a single bottle is worth hauling from
+anywhere, which is the point the whole cost-of-ascension equation is aiming
+at.
+
+**Why it's parked.** It is a content wave, not a fix. Two new forms, the
+recipes that make them, the machines that run those recipes, and a rebalance
+of the whole refinement curve — `docs/SPEC.md` §8 prices both tiers and marks
+both not implemented. Two cycle rows on top of that are the cheap part.
+
+**Sketch.** Add the two forms to `data/forms.js` and the two rows to
+`docs/SPEC.md` §8's table first. The win boundary is `run.cycle >
+CYCLES.length`, so the cycle rows themselves need no code at all.
+
+---
+
+## A genuine throughput quota
+
+**Idea.** A demand that measures how fast the player *produces*, not how
+tightly deliveries arrive.
+
+**Why it's good.** Every demand in the game is a pile. A line is the other
+half of the factory design, and `docs/SPEC.md` §4 promised one for a long
+time before Phase 17d had to withdraw the claim.
+
+**Why it's parked.** The shipped `batch` clause cannot become one. A credit
+is stamped when cargo reaches the receiver (`rules/cycles.js#creditTribute`),
+so a stockpile hauled up in one trip credits in one instant and the mechanism
+never sees production at all — `docs/SPEC.md` §18.10 states this in full. Two
+routes out, both real changes: stamp credits at production or when cargo
+boards a carrier, which needs a second write path and a decision about where
+production is observed; or make the bill too large for one load, which needs
+`n × massK` above `eff('burden')` — seventeen `copper/plate` on today's
+numbers, triple cycle 4's cost.
+
+---
+
+## Meta-progression, inside one page session
+
+**Idea.** `docs/DESIGN.md`'s run structure says a Torment ends "keeping only
+stolen recipes and banked favour with individual gods". `model/run.js#meta`
+is the reserved shape — `runs`, `bestDepth`, `godsMet` — and nothing writes
+`godsMet` yet.
+
+**Why it's parked, and what it can actually be.** `CLAUDE.md` forbids
+`localStorage` and `sessionStorage`, because they fail in some embed
+contexts. So "carries between runs" cannot mean what DESIGN implies. What is
+constructible is banking **within one page session**. `resetMeta()` runs once
+per page and `reset()` once per run (`shell/boot.js:65`), so `meta` already
+survives a death; `write.retire` is the fold-the-run-in writer and **nothing
+in `src/` calls it yet**. That is a real design question — what a
+meta-currency buys, and whether a player who reloads should lose it — rather
+than a missing function call.
+
+**Sketch.** Decide the purchase first. `run.favour` is deliberately
+run-scoped so the FAVOUR panel is a picture of *this* Torment; a banked
+currency has to be a different field with a different name, or the panel
+starts lying about which run it is describing.
+
+---
+
+## A source that reveals a recipe
+
+**Idea.** `run.known` is seeded with every `HAND_RECIPES` id at run start
+(`model/run.js:286`), so "keeping stolen recipes" has nothing to steal.
+
+**Why it's good.** It is the other half of the meta-progression above, and
+the cheaper half. The lock already exists and works: `isKnown`
+(`model/run.js:764-770`) gates a machine-build recipe behind its grant, and
+the CRAFTING tab draws an unknown recipe as a locked silhouette.
+
+**Why it's parked.** What is missing is a *source* — a thing in the world
+that teaches one. A god's gift, a cache in a hollow, or a tablet that has to
+be carried up. Picking which one is a design decision about where knowledge
+comes from in this myth, and it should be made with the Hades act in view,
+since a recipe stolen from below is the obvious candidate.
+
+---
+
+## A third machine grant
+
+**Idea.** `data/grants.js` ships two rows, `gift-talos` and `gift-maw`, so
+the machine-grant tier offers two-of-two where every other tier offers
+three.
+
+**Why it's parked.** A third grant needs a third machine that does not
+exist. Every machine in `data/machines.js` is already reachable — Phase 17b's
+`tools/content.mjs` assertion 25 makes an unreachable one a build failure —
+so there is nothing left to grant. Padding the tier to three is not a reason
+to invent a machine, and `rules/draft.js` already lays out fewer cards
+honestly rather than repeating one.

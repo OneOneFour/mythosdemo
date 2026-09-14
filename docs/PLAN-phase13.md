@@ -5,8 +5,9 @@ record; the "PROPOSAL" framing that follows describes the plan before it
 was executed.
 
 Everything below was read directly out of the repo at commit `818236e`
-(Phase 12d gap-fix, the tip at time of writing); every `file:line` is real
-and was verified by reading the file, not recalled.
+(Phase 12d gap-fix, the tip at time of writing). Those citations have since
+drifted; §5.2's were re-derived against the live tree and the rest have not
+been.
 
 This document covers four of the seven items in the brief. The other three
 have their own documents, and the four are cross-linked because they share a
@@ -520,36 +521,42 @@ This section is an **audit, not a phase**. §5.3 proposes one phase out of it.
 
 ### 5.1 The headline
 
-The plumbing is real and disciplined. A director ticks every frame
-(`shell/schedule.js:200`), deliveries are counted, deadlines count down at
-the fixed step, misses hurt, two misses kill, and rewards fire. What is
-missing is everything that makes it *feel* like a loop, and everything that
-makes a harder task actually *harder*.
+The plumbing is real and disciplined. A director ticks every frame, deliveries
+are counted, deadlines count down at the fixed step, misses hurt, two misses
+kill, and rewards fire. What was missing is everything that makes it *feel*
+like a loop, and everything that makes a harder task actually *harder*.
 
 ### 5.2 The punch list, ordered by how much it blocks the loop
 
+The **item** column is what the audit found. The **verdict** column is where
+it stands today and the **where** column cites the code that settles it;
+both were re-derived against the tree, since four of the original citations
+had drifted (`docs/AUDIT-wave5.md` §1). Every item is now closed — by Phase
+13d, by wave 5 (`docs/PLAN-wave5-closeout.md`), or as an acknowledged
+non-goal parked in `FUTURE_IDEAS.md`.
+
 | # | item | verdict | where |
 |---|---|---|---|
-| 1 | **Cycles 2–4 are payable at the spawn altar.** `drainReceivers` never checks that the receiving machine matches `cyc.at`; the altar is never despawned and accepts `*/#refined` at `handFeed.reach:10`. You can beat cycles 2, 3 and 4 by hand-feeding the starting altar four tiles from spawn — no ascent, no dock, no drivetrain. The file's own header (`:102-108`) documents this as intentional ("regardless of which one `cyc.at` names"). | **loop-defeating** | `src/rules/cycles.js:109-122` |
-| 2 | **The Cloud Dock has no `minDepth` or band gate.** The only depth-gated machine in the table is `kiln_divine` (`minDepth:200`). Nothing stops building the dock on flat ground at spawn, so "ascend to the Heavens" is fiction. | **absent gate** | `src/data/machines.js:713-716`, `src/model/run.js:416-421` |
-| 3 | **No content past cycle 4 and no end state.** `ensureLiveCycle` hits `run.cycle > CYCLES.length` and returns forever (`src/rules/cycles.js:71`). The TRIBUTE panel vanishes, FAVOUR keeps drawing 8/8, and there is no banner, toast, sound or screen. The game does not end; it runs out. (Cycles 5–6 wait on the unimplemented `essence`/`ambrosia` tiers — that half is an acknowledged gap, not a bug.) | **absent** | `src/rules/cycles.js:71`, `src/data/cycles.js` |
-| 4 | **The draft is 1-of-1, not 1-of-3.** `wants.draft` takes `draftable()[0]` and auto-grants it — no offer, no choice, no pause. `docs/SPEC.md` §18.4 promises "draft 1-of-3" for three of four cycles. | **stubbed, contradicts SPEC** | `src/shell/main.js:297-316` |
-| 5 | **Three of the four gift tiers have exactly ONE content row** (`data/grants.js:13-18`, `trinkets.js:20-27`, `miracles.js:24-29`, each self-documented "the tier is the point and the content is not"), so 1-of-3 is not constructible regardless of #4. Only `data/boons.js` has enough rows (5). | **stubbed content** | as cited |
-| 6 | **Cycle 4's trinket draft is a guaranteed no-op.** The only trinket (`bellows`) is already handed over by cycle 1's `chance:1` drop row, so `draftable()` is empty by cycle 4. | **real bug** | `data/drops.js:17` vs `data/cycles.js:137` |
-| 7 | **Cycle 2's grant draft always yields `kiln_divine`**, which has `minDepth:200` and is unplaceable anywhere a cycle-2 player has plausibly reached. | design smell | `data/machines.js:420` |
-| 8 | **Completion, payment and debt are all silent.** The `'cycle'`, `'tribute'` and `'debt'` journal kinds appear in none of `shell/notify.js`'s `CHIPS`/`TEXT` tables nor `data/sfx.js#KIND_SFX`. The most important moment in the game — a god accepting your work — has zero feedback. | **absent feedback** | `src/shell/notify.js:29-56`, `src/data/sfx.js:16-31` |
-| 9 | **Reward grants bypass `rules/grants.js`.** `rules/cycles.js:155` calls the raw model writer `rw.grant(id)` instead of `rules/grants.js#grant`, so cycle 1's furnace + dock reward pushes no `'grant'` journal row and therefore no toast. | **real bug** | `src/rules/cycles.js:155` |
-| 10 | **Tutorial and callouts stop dead at cycle 1.** `BEATS` has 7 entries (padding + 6 real) and `CALLOUTS[6]` is `null` by design. The exact moment the game issues its first real demand — plates, a dock, a three-segment drivetrain and a 480 s clock, every one a first-time-ever ask — is the exact moment all guidance stops. | **absent, high player impact** | `src/rules/tutorial.js:156`, `src/data/callouts.js:26` |
-| 11 | `run.misses` is displayed nowhere. The player never knows they are one miss from death. | absent | written only at `cycles.js:180` |
-| 12 | **Favour has zero consumers.** A display scoreboard with no spender, no gate and no threshold anywhere. | stubbed | `model/run.js:291` + four read sites, all in `hud.js` |
-| 13 | Charting ("a new depth band unlocks") only unmasks a name string. There is no band lock anywhere — `model/run.js:78-81` says so ("KNOWLEDGE AND NOT ACCESS"). | cosmetic, acknowledged | `view/ui/ruler.js:102-117` |
-| 14 | **No rate or throughput demand exists.** Every demand is a flat count plus a linear wall-clock budget; nothing measures a sustained production rate. `docs/SPEC.md:75` promises "throughput quotas escalate from cycle 2 onward". Never shipped. | **absent, contradicts SPEC** | `src/data/cycles.js:22-32` |
-| 15 | The deadline timer has no urgency treatment (plain dim text) while the boon stack flashes under 5 s. | polish | `hud.js:268-272` vs `:388` |
-| 16 | The death screen shows cause and depth only — no cycle reached, favour, or misses. | polish | `hud.js:753-757` |
-| 17 | No `data/gods.js`. God display names are hardcoded in `view/hud.js:450` covering 3 of the 5 god ids used elsewhere, so `ares` and `hades` can grant things but can never appear on the FAVOUR panel. | absent | `hud.js:450` |
-| 18 | SPEC §5's beat says "sky darkens, clouds part, a shaft of light, an altar rises". The code places the altar fully formed at frame 0 with no presentation. | absent presentation | `rules/cycles.js:95-100` |
-| 19 | No meta-progression, despite DESIGN.md's "banked favour carries between runs". `meta` has no save; acknowledged in code. | absent, acknowledged | `run.js:74-76, 201-205` |
-| 20 | `run.known` (recipes) is seeded fully-known at run start, so "keeping stolen recipes" has no source that reveals one. | stubbed, acknowledged | `run.js:127-128, 184` |
+| 1 | **Cycles 2–4 are payable at the spawn altar.** `drainReceivers` never checks that the receiving machine matches `cyc.at`; the altar is never despawned and accepts `*/#refined` at `handFeed.reach:10`. You can beat cycles 2, 3 and 4 by hand-feeding the starting altar four tiles from spawn — no ascent, no dock, no drivetrain. | **CLOSED, 13d.** Only the live cycle's own receiver credits it, and the header argues the reversal | `src/rules/cycles.js:220-227`, header at `:188-218` |
+| 2 | **The Cloud Dock has no depth or band gate.** Nothing stops building the dock on flat ground at spawn, so "ascend to the Heavens" is fiction. (The original wording blamed `kiln_divine`'s `minDepth:200`; that row has no `minDepth` at all — `cyclops_maw` is the one that does.) | **CLOSED, 13d.** One machine-row key, checked before `minDepth` | `src/data/machines.js:753`, `src/model/run.js:566-567` |
+| 3 | **No content past cycle 4 and no end state.** `ensureLiveCycle` hits `run.cycle > CYCLES.length` and returns forever. The game does not end; it runs out. | **CLOSED for the end state, 13d.** The content half is an acknowledged gap: cycles 5–6 need the `essence`/`ambrosia` tiers, parked in `FUTURE_IDEAS.md` | `src/rules/cycles.js:111-112`, `src/view/hud.js#winScreen`; the gap at `src/data/cycles.js:66-67` |
+| 4 | **The draft is 1-of-1, not 1-of-3.** `wants.draft` takes `draftable()[0]` and auto-grants it — no offer, no choice, no pause. | **CLOSED, 17c.** A request raises an offer of three, the modal freezes the run, and a card dispatches to its tier's `grant()` | `src/shell/main.js:375-405`, `src/rules/draft.js`, `src/view/ui/draft.js`, `docs/SPEC.md` §18.8 |
+| 5 | **Three of the four gift tiers have exactly ONE content row**, so 1-of-3 is not constructible regardless of #4. | **CLOSED, 17b**, and narrowed for one tier: 5 boons, 3 trinkets, 3 miracles, **2** machine grants. A third grant needs a third machine, which is content-wave work | `data/boons.js`, `data/trinkets.js`, `data/miracles.js`, `data/grants.js`; `docs/SPEC.md` §14 |
+| 6 | **Cycle 4's trinket draft is a guaranteed no-op.** The only trinket (`bellows`) is already handed over by cycle 1's `chance:1` drop row, so `draftable()` is empty by cycle 4. | **CLOSED, 17b.** With three trinkets the draft has two left to offer. `chance:1` was kept deliberately — the first trial paid is where the tier is taught | `src/data/drops.js:15-27`, `docs/SPEC.md` §14 |
+| 7 | **Cycle 2's grant draft always yields `kiln_divine`.** (Restated by `docs/AUDIT-wave5.md` §1.1: not a depth problem. `kiln_divine` has no substance row, so `placementCheck` refuses it at every depth — and it was the only `GRANTS` row, so the whole machine-grant tier was a no-op.) | **CLOSED, 17b.** `gift-kiln` is retired and the tier is `talos_head` + `cyclops_maw`. The `kiln_divine` machine row stays as the worked example for `variantOf` and scoped tuning, exempted by name from the reachability assertion | `src/data/grants.js`, `tools/content.mjs` assertion 25, `docs/SPEC.md` §14 |
+| 8 | **Completion, payment and debt are all silent.** The `'cycle'`, `'tribute'` and `'debt'` journal kinds appear in none of `shell/notify.js`'s tables nor `data/sfx.js#KIND_SFX`. | **CLOSED, 13d** | `src/shell/notify.js:44-46`, `:101-114`, `src/data/sfx.js:38-41` |
+| 9 | **Reward grants bypass `rules/grants.js`**, so cycle 1's furnace + dock reward pushes no `'grant'` journal row and therefore no toast. | **CLOSED, 13d.** `run.awarded` is the bridge; `rules/grants.js#step` drains it the same substep | `src/rules/grants.js:68-79`, `docs/SPEC.md` §20.3 |
+| 10 | **Tutorial and callouts stop dead at cycle 1**, exactly when the game issues its first real demand. | **CLOSED, 13d.** Beats 7–10 cover cycle 2's four first-time asks, and the two arrays' lengths are asserted equal at import | `src/data/callouts.js:38`, `src/rules/tutorial.js:253`, `docs/SPEC.md` §20.4 |
+| 11 | `run.misses` is displayed nowhere. The player never knows they are one miss from death. | **CLOSED, 17e.** Drawn in the TRIBUTE column once non-zero, with "ONE MORE ENDS THIS" at one | `src/view/hud.js:395-406` |
+| 12 | **Favour has zero consumers.** A display scoreboard with no spender, no gate and no threshold anywhere. | **CLOSED, 17c1.** Favour buys a reroll of the asking god's own offer, at `eff('rerollCost')` = 2 | `src/model/run.js:732-743`, `src/rules/draft.js#reroll`, `docs/SPEC.md` §18.8 |
+| 13 | Charting ("a new depth band unlocks") only unmasks a name string. There is no band lock anywhere. | **CLOSED AS ACKNOWLEDGED.** Stated in three places, deliberately | `src/model/run.js:85`, `src/data/cycles.js:55`, `src/view/ui/ruler.js:104-110` |
+| 14 | **No rate or throughput demand exists.** Every demand is a flat count plus a linear budget; nothing measures a sustained production rate. | **MECHANISM SHIPPED, PROMISE REWORDED, 17d.** A cycle may carry a `batch:{ sub, form, n, secs }` clause measured on `run.t`, and cycle 4 carries one. It measures how tightly arrivals are bunched, which is all a rolling window over delivery instants can measure. A **genuine throughput quota** needs credits stamped at production or a bill too large for one load, and is parked in `FUTURE_IDEAS.md` | `src/model/run.js:704-719`, `src/rules/cycles.js#creditTribute`, `docs/SPEC.md` §18.10 |
+| 15 | The deadline timer has no urgency treatment (plain dim text) while the boon stack flashes under 5 s. | **CLOSED, 17e.** One `urgentFlash` helper with two callers, threshold in `data/tuning.js` | `src/view/hud.js:253-254`, `src/data/tuning.js:182` |
+| 16 | The death screen shows cause and depth only — no cycle reached, favour, or misses. | **CLOSED, 17e.** Both end screens share `tallyLines` | `src/view/hud.js:1163-1170`, `docs/SPEC.md` §26.4 |
+| 17 | No `data/gods.js`. God display names are hardcoded in `view/hud.js` covering 3 of the 5 god ids used elsewhere. | **CLOSED, 17b + 17e.** Five rows; `godName` falls back to the upper-cased id rather than `undefined` | `src/data/gods.js`, `src/view/hud.js:44`, `src/view/ui/draft.js:39` |
+| 18 | SPEC §5's beat says "sky darkens, clouds part, a shaft of light, an altar rises". The code places the altar fully formed at frame 0 with no presentation. | **CLOSED, 17f1 + 17f2.** The altar waits for tutorial beat 4 or an 80 s grace, then rises over 1.6 s under a shaft of light, all derived from `run.t` and `hash2` | `src/rules/cycles.js:177-187`, `src/view/scene.js:873`, `docs/SPEC.md` §5 |
+| 19 | No meta-progression, despite DESIGN.md's "banked favour carries between runs". `meta` has no save. | **CLOSED AS ACKNOWLEDGED.** `CLAUDE.md` forbids the only storage that would change this, so within-page-session banking is the constructible version. Parked in `FUTURE_IDEAS.md` | `src/model/run.js:82`, `:234` |
+| 20 | `run.known` is seeded fully-known at run start, so "keeping stolen recipes" has no source that reveals one. | **CLOSED AS ACKNOWLEDGED**, and narrowed: `isKnown` now gates every machine-build recipe behind its grant, so what is missing is a *source that reveals*, not the lock. Parked in `FUTURE_IDEAS.md` | `src/model/run.js:286`, `:764-770` |
 
 ### 5.3 Proposed Phase 13d — the shortest path to a closed loop
 
@@ -582,6 +589,10 @@ opens further" (access, not a name-unmask), "you draft a boon" (real choice),
 and "keeping stolen recipes and banked favour" (meta-progression). Mark each
 as not-implemented rather than deleting the design intent.
 
+Wave 5 settled all four. The draft is 1-of-3 (`docs/SPEC.md` §18.8), §4 now
+says a batch clause is not a throughput quota, and `docs/DESIGN.md` marks
+the two promises that remain unbuilt — the band lock and meta-progression.
+
 **Landed**: `drainReceivers`'s `cyc.at` gate and rewritten header,
 `cloud_dock`'s `astral`-band gate, the win screen at `run.cycle >
 CYCLES.length`, the `'cycle'`/`'tribute'`/`'debt'` notify/sfx rows and the
@@ -613,7 +624,7 @@ Landed serially: 13a, then 13b (both owned `src/view/` —
   setter for testability only; the Character-tab row stays the one control.
 - **Fifteen of the twenty punch-list items** in §5.2. Named, cited, and left
   in the table on purpose — this document is not a redesign of the cycle
-  loop.
+  loop. `docs/PLAN-wave5-closeout.md` closed them; §5.2 carries the verdicts.
 - **Throughput/rate demands** (#14) and **a real 1-of-3 draft** (#4/#5).
-  Both are genuinely the next thing the loop wants after 13d, and both need
-  content and a UI surface rather than a fix. They belong in their own plan.
+  Both needed content and a UI surface rather than a fix, so both went to
+  their own plan — wave 5, Phases 17b/17c and 17d.

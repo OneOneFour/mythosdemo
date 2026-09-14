@@ -27,6 +27,10 @@ example; do not re-derive the pattern.
 - [Placed miners](#placed-miners)
 - [When a machine needs its own rules module](#when-a-machine-needs-its-own-rules-module)
 - [The four gift tiers](#the-four-gift-tiers)
+- [The draft offer](#the-draft-offer)
+- [The tribute director](#the-tribute-director)
+- [Tutorial beats](#tutorial-beats)
+- [Growth on the fixed step](#growth-on-the-fixed-step)
 - [Tools are relic substances](#tools-are-relic-substances)
 - [The tunable pipeline](#the-tunable-pipeline)
 - [Notification and the journal](#notification-and-the-journal)
@@ -602,10 +606,9 @@ tier-specific code beyond one small `rules` file.
 
 Shared idioms:
 
-- **Every tier's `draftable()` returns the same shape**, so one draft panel can
-  offer all four without knowing which is which — and so a debug key granting
-  `draftable()[0]` repeatedly walks the whole table instead of handing out the
-  same thing forever.
+- **Every tier's `draftable()` returns the same shape**, so one draft modal can
+  offer all four without knowing which is which. It lists the rows of that tier
+  not yet taken, so an offer can never repeat a gift the player already holds.
 - **A gift arrives as a falling item, never a direct credit** (invariant 5).
   `rules/trinkets.js#grant` and `rules/miracles.js#grant` both toss it at the
   player's feet.
@@ -648,6 +651,138 @@ accepted design, not a bug.
 **Rows are keyed by source.** `rules/boons.js` keys every row `'boon:' + id`, so
 the boon tier and the trinket tier can never remove each other's rows regardless
 of which `step` runs first.
+
+---
+
+## The draft offer
+
+A paid trial raises a 1-of-3 offer over one tier. Four files, and the split is
+the layer graph rather than taste.
+
+| what | where | why there |
+|---|---|---|
+| the record | `run.offer = { tier, god, ids, pool }` | world state — it came out of the seeded stream and must reset with `newRun()` |
+| which rows are laid out | `rules/draft.js#offer` | it consumes `rand()`, so it is a decision |
+| the candidate lists | `shell/main.js#candidatesFor` | `shell` is the only layer that may see all four tiers' `draftable()` at once |
+| the cards | `view/ui/draft.js` | canvas-drawn, measured, recorded into `view/ui/state.js#drawn` |
+
+**`ids: null` is a request, not an empty offer.** `rules/cycles.js#complete`
+and the four debug keys can only name a tier and its asker, because a `rules`
+module may not import its four siblings. They write the record half-built and
+`shell/main.js#raiseOffer` fills it the same frame.
+
+**The pause is one predicate.** `shell/ui.js#pausesRun()` tests `ui.stack`
+against a list, and both `shell/main.js#step` and `#applyIntents` consult it
+beside the existing `flags.showMap` and `run.won` guards. Do not add a second
+`'draft'` string test anywhere. The modal's own intents dispatch **above** that
+guard, since taking a card is the only thing that ends the pause.
+
+**An offer consumes exactly one `rand()` per card laid out** — a partial
+Fisher-Yates over a copy of the candidate list. Adding a draw changes every
+later draw in the run (invariant 7). Fewer candidates lay out fewer cards, and
+no candidates drops the request with a `'refused'` row rather than raising a
+modal with nothing in it.
+
+**A reroll is priced in the asking god's favour**, and
+`model/run.js#canReroll(god)` is the whole predicate — `view` dims the row with
+the same function `rules/draft.js` refuses the press with, so the drawn reason
+and the journalled one cannot disagree. `docs/SPEC.md` §18.8 and §18.9 hold the
+numbers and the layout.
+
+---
+
+## The tribute director
+
+`rules/cycles.js` is the loop. One decision per step, in this order: arm a
+cycle if none is live, place the altar if cycle 1 wants one, drain every
+receiver into the ledger, tick the deadline, then resolve.
+
+**`run.tribute` is replaced whole, never patched in place.**
+`model/run.js#write.tribute` is the one setter, so a demand and its own
+deadline can never be observed half-applied. Crediting a pair or ticking the
+clock builds a fresh object from the current one.
+
+**`model/run.js#tributeMet()` is the completion predicate and is a query.** It
+lives in `model` so the TRIBUTE panel can draw the same yes/no without
+importing `rules`, which `view` may not do.
+
+**Two bridges out, because four `rules` siblings are unreachable from here.**
+`run.offer` carries a draft to `shell/main.js#applyIntents`; `run.awarded`
+carries a reward grant to `rules/grants.js#step`, which `shell/schedule.js`
+runs immediately after this module, so the BUILD list gains the row in the
+same substep the trial pays.
+
+**A batch demand is a second clause, never a second predicate.** A cycle row
+may carry `batch:{ sub, form, n, secs }` beside its `demand`, asking for `n` of
+that concrete pair to arrive inside any window of `secs` **simulated** seconds:
+
+- The window is measured against `run.t`, the fixed 1/120 s accumulator, and
+  never `Date.now()` (invariant 10). `step()` returns above `stepAll` while the
+  map or the draft modal is open, so paused time is excluded for free.
+- `run.tribute.credits` is `{ t, n }` rows appended by `creditTribute`.
+  `write.tribute` prunes on every write — first what has aged out, then the
+  oldest of the rest while the newer suffix still sums to `n` — so the array is
+  bounded by `batch.n` and not by the length of the run.
+- **`batchHave()` therefore saturates near `batch.n`** and is not a count of
+  what was delivered. Clamp any bar drawn from it, or it under-reports.
+- `batchMet()` reads `true` on a row with no `batch` key, which is what lets
+  `tributeMet()` use a bare `&&` with no branch.
+
+It measures how tightly arrivals are bunched, not production — a credit is
+stamped when cargo reaches the receiver, so one haul of four is one credit of
+four. `docs/SPEC.md` §18.10 says so at length; do not call it a throughput
+quota.
+
+---
+
+## Tutorial beats
+
+`rules/tutorial.js` is one array of predicates and nothing else.
+`data/callouts.js` is the text, indexed by beats **already fired**.
+
+- **Every predicate is a read of state that already exists.** No beat gets a
+  counter, flag or hook of its own, because a second ledger of "how much copper
+  have you mined" is a ledger that can disagree with the copper.
+- **Monotonic, one-way, at most one beat per frame.** Only the condition for
+  `run.tutorialBeat + 1` is ever evaluated, so a player who satisfies a later
+  beat early still gets the earlier lesson first.
+- **`model/tutorial.js#beat(run)` is the query.** `view` reads that and never
+  this file, and `rules/cycles.js` reads it to gate the altar's arrival.
+- **The two arrays' lengths are asserted equal at import.** A beat with no
+  callout row draws nothing at all rather than failing, which is why the guard
+  is a throw and not a lint.
+- Running out of beats needs no flag: `BEATS[next]` is `undefined` past the end
+  and `step()` returns.
+
+Adding a beat means adding a `CALLOUTS` row, even if that row is `null`.
+
+---
+
+## Growth on the fixed step
+
+`rules/growth.js` is the only thing in the game that changes with no input.
+Two constraints follow from that and neither is negotiable.
+
+- **Time comes from `dt`, per seed.** Not `Date.now()`, not `performance.now()`
+  — both would keep growing a seed in a background tab, where nothing else in
+  the game advances. Not `run.t` either: a per-seed accumulator makes the
+  transition independent of *when* the seed was planted, where a comparison
+  against a run clock would need a planted-at stamp.
+- **Height comes from `hash2(tx, ty)`, never `rand()`.** A trunk's height must
+  be a function of where the seed was planted and nothing else. `rand()` is a
+  stream, so its value depends on how many draws preceded it, and two runs from
+  one seed that planted the same tile after mining a different number of tiles
+  would grow different trees.
+
+A grown trunk is written as **native** tiles through `model/tiles.js#write.set`
+— the same call `rules/generate.js#trees` makes — so `write.touch` bumps the
+chunk versions and `view/paint.js#decorate` grows the crown on the next repaint
+with no code on either side. The growth-stage cue is `view/scene.js` reading
+`model/growth.js#stageAt`; this step draws nothing.
+
+The tree's height range is read off the `trees` worldgen row rather than
+re-literalled, so a planted tree is the same size as a wild one by
+construction.
 
 ---
 
@@ -1422,8 +1557,10 @@ The run clock is ticked first and is not a rule: `run.t` is a number, not a
 decision, and no `rules` module may claim ownership of the frame.
 
 Event-shaped rules (`grant`, `draftable`, `use`) are re-exported from
-`schedule.js:162` rather than added to `STEPS`, because putting them in the array
-would be a lie about when they happen.
+`schedule.js:289` rather than added to `STEPS`, because putting them in the array
+would be a lie about when they happen. A module that is *only* event-shaped is
+not re-exported at all — `shell/main.js` imports `rules/draft.js` and
+`rules/placement.js` directly.
 
 ---
 

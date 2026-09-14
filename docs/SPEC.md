@@ -2336,7 +2336,7 @@ shell/notify.js#TEXT.grant ->  '<MACHINE NAME> IS GRANTED'
 | | `run.offer` (draft) | `run.awarded` (reward grant) |
 |---|---|---|
 | written by | `rules/cycles.js#complete` | `rules/cycles.js#complete` |
-| holds | a tier name | machine ids |
+| holds | a tier and its asking god, then the ids §18.8 lays out | machine ids |
 | performed by | `shell/main.js#applyIntents` | `rules/grants.js#step`, scheduled |
 | latency | one animation frame | **zero** — same substep |
 
@@ -2837,7 +2837,15 @@ the strip is eight cells and pressing them arms nothing.
 | REFINED | `refined` | the output form carries the `refined` tag |
 | TOOLS | `tools` | the output substance carries `item.tool` |
 | PLACE | `placeables` | the output form carries a `tile` block |
-| DIVINE | `divine` | the output substance is a relic or a miracle |
+| DIVINE | `divine` | the output substance is a relic or a miracle, and carries no `item.tool` |
+
+**DIVINE is empty, and the tool clause is why.** `categoryOf` tests
+`sub.item?.tool` (`view/ui/mainPanel.js:459`) before the relic tag
+(`:460`), and `auger` — the one output in all 19 hand recipes whose
+substance carries `tags:['relic']` (`data/recipes.js:344`) — also carries
+`item.tool`, so it lands in TOOLS. Reordering the two clauses empties TOOLS
+instead and is not the fix. The tab stays until a hand recipe makes a relic
+or a miracle that is not a tool.
 
 `ALL` is first and is therefore the default, because
 `shell/ui.js#activeTab` falls back to the first row when nothing is stored.
