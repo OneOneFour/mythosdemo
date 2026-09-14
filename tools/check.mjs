@@ -642,8 +642,8 @@ console.log('\n3. behaviour');
           every substep and the aim retargets as the player wanders, so
           almost no tile ever accumulates its full hardness. Mined material
           cannot be this probe's supply of mass.
-       3. THE ALTAR ATE THE PRELOAD. Cycle 1's altar stands within
-          `handFeed.reach` of spawn and USED to take ore with no key held, so
+       3. THE ALTAR ATE THE PRELOAD. Cycle 1's altar once stood within
+          `handFeed.reach` of spawn and took ore with no key held, so
           a one-shot preload drained from 38.5 T to 0.9 T inside the fuzz (38
           `accept` rows, cycle 1 completed) and the cap stopped being
           relevant a few hundred frames in. As of Phase 16b (D16-C) that
@@ -1391,15 +1391,15 @@ const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate
   {
     boot.newRun(1234);
     const band = player.player.band;
-    /* THE `+15` OFFSET: `rules/cycles.js` places the surface altar two tiles
-       left of `spawnTx` from the run's first frame, and its `handFeed` (reach
-       10 px) drains ore only when `cmd.autoFeed` is set -- off by default and
-       reset on every `newRun`, so a shaft dug at `spawnTx` itself is safe
-       today. AUTO FEED is one click away from being on, though, and a probe
-       that only measures what it claims while a preference happens to be off
-       is a probe that will silently start measuring something else the first
-       time somebody flips it in a scene above this one. The distance costs
-       nothing and removes the question. */
+    /* THE `+15` OFFSET. `rules/cycles.js` stands the surface altar a few
+       tiles left of `spawnTx` once beat 4 or `altarGraceSecs` opens its gate,
+       and its `handFeed` (reach 10 px) drains ore only when `cmd.autoFeed` is
+       set -- off by default and reset on every `newRun`, so a shaft dug at
+       `spawnTx` itself is safe today. AUTO FEED is one click away from being
+       on, though, and a probe that only measures what it claims while a
+       preference happens to be off is a probe that will silently start
+       measuring something else the first time somebody flips it in a scene
+       above this one. The distance costs nothing and removes the question. */
     const tx = world.tileX(band, player.player.x) + 15, ty = world.tileY(band, player.player.y);
     for (let dy = -1; dy <= 4; dy++) tiles.write.clear(band, tx, ty + dy);
     /* `F.rung`, not `F.log`: `log`'s `tile` block is stripped (CLAUDE.md
@@ -3892,6 +3892,134 @@ console.log('\n7. tutorial beats 5 and 6 (Phase 10b, D-E/E1)');
 }
 
 /* ============================================================
+   7a. THE ALTAR ARRIVES — THE GATE AND ITS GRACE (D17-G, docs/SPEC.md 5)
+   ------------------------------------------------------------
+   `rules/cycles.js#ensureAltarPlaced` no longer places cycle 1's altar on
+   frame 0. It waits for tutorial beat 4, the climbed-back-up beat, or for
+   `run.t` to pass `eff('altarGraceSecs')`, whichever comes first.
+
+   THE SOFT-LOCK IS THE THING UNDER TEST. Cycle 1 has exactly one receiver,
+   so an altar that never arrives is a run that can never be played. Claim 3
+   below therefore does not stop at "an altar exists" -- it pays the trial,
+   through the real feed verb, in a run that never dug, never walked and
+   never fired a single beat. ============================================ */
+console.log('\n7a. the altar arrives: the beat, and the grace (D17-G)');
+{
+  let bad = 0;
+  const GRACE = mods.eff('altarGraceSecs');
+  const anyAltar = () => machs.machines.some(m => m.def === D_mach.M.altar);
+
+  /* CLAIM 1 -- NOT ON FRAME 0, AND NOT A SECOND LATER. The cycle is armed
+     from the first step either way; only the altar waits. */
+  {
+    boot.newRun(9150);
+    runReal(120, 1 / 120, { hasMouse: false });
+    if (anyAltar() || !run.run.tribute || run.run.tribute.id !== 'first-trial') {
+      fail(`ALTAR GATE: after 1 s of real frames with no input, an altar exists = ${anyAltar()} ` +
+           `(want false) and the live cycle is ${JSON.stringify(run.run.tribute?.id)} (want ` +
+           `'first-trial') -- cycle 1 must arm immediately and the altar must not`);
+      bad++;
+    } else {
+      console.log(`  ..  1 s in at beat ${run.run.tutorialBeat}: cycle 1 armed, no altar standing`);
+    }
+  }
+
+  /* CLAIM 2 -- THE BEAT OPENS IT, AND THE CLOCK IS NOWHERE NEAR.
+     Beats 1-3 are driven off the state their own predicates read: a real
+     walked step, a pick in the pockets, six ore seen. Beat 4 is a round
+     trip, so the descent is a REAL FALL down a cleared shaft and only the
+     climb back is placed by hand -- the ladder is proven in section 8h and
+     what is under test here is the director's gate, not how the player got
+     out. */
+  {
+    boot.newRun(9151);
+    const band = world.bandOf('surface');   // SPAWN_BAND -- see data/world.js
+    runReal(10, 1 / 120, { right: true, hasMouse: false });
+    run.write.collect(D_sub.S.pick, D_form.F.relic, 1);
+    run.write.collect(D_sub.S.copper, D_form.F.ore, 6);
+    runReal(3, 1 / 120, { hasMouse: false });
+
+    const shaftTx = band.cfg.spawnTx + 6;
+    for (let dy = -2; dy <= 6; dy++)
+      for (let dx = -1; dx <= 1; dx++) tiles.write.clear(band, shaftTx + dx, band.cfg.floorTy + dy);
+    player.write.band(band);
+    player.write.move(world.worldX(band, shaftTx), world.worldY(band, band.cfg.floorTy + 1));
+    player.write.vel(0, 0);
+    runReal(60, 1 / 120, { hasMouse: false });
+
+    const beatAtBottom = run.run.tutorialBeat, altarAtBottom = anyAltar();
+    const fellTiles = (run.run.deepest - world.worldY(band, band.cfg.floorTy)) / band.tile;
+
+    /* Back on untouched surface terrain, one tile clear of the shaft's own
+       column. Beat 4 fires on the first frame here; `cycles` has already run
+       by then, so the altar lands on the second. */
+    player.write.move(world.worldX(band, band.cfg.spawnTx - 3), world.worldY(band, band.cfg.floorTy - 2));
+    player.write.vel(0, 0);
+    player.write.set('onGround', true);
+    stepReal(1 / 120, { hasMouse: false });
+    const beatBack = run.run.tutorialBeat, altarSameFrame = anyAltar();
+    stepReal(1 / 120, { hasMouse: false });
+
+    if (beatAtBottom !== 3 || altarAtBottom || fellTiles < 2) {
+      fail(`ALTAR GATE (beat): the SETUP failed -- at the bottom of the shaft the beat is ` +
+           `${beatAtBottom} (want 3), an altar exists = ${altarAtBottom} (want false) and the ` +
+           `player reached ${fellTiles.toFixed(1)} tiles below the floor line (want >= 2)`);
+      bad++;
+    } else if (beatBack !== 4 || !anyAltar() || run.run.t >= GRACE) {
+      fail(`ALTAR GATE (beat): back at the surface the beat is ${beatBack} (want 4), an altar ` +
+           `exists = ${anyAltar()} (want true) and run.t is ${run.run.t.toFixed(2)} s against a ` +
+           `${GRACE} s grace -- the BEAT must be what opened the gate, not the clock`);
+      bad++;
+    } else {
+      console.log(`  ..  beat 4 fired ${run.run.t.toFixed(2)} s in, ${(GRACE - run.run.t).toFixed(0)} s ` +
+                  `short of the grace; the altar stood ${altarSameFrame ? 'that' : 'the next'} frame`);
+    }
+  }
+
+  /* CLAIM 3 -- NO SOFT-LOCK. A run that does nothing at all still gets an
+     altar, and still pays cycle 1 through the real feed verb. Driven one
+     1/120 s substep at a time for the whole grace, so `run.t` is the
+     simulation's own clock and not a number this probe wrote. */
+  {
+    boot.newRun(9152);
+    const band = world.bandOf('surface');
+    const substeps = Math.ceil((GRACE + 0.5) * 120);
+    runReal(substeps, 1 / 120, { hasMouse: false });
+
+    const altar = machs.machines.find(m => m.def === D_mach.M.altar);
+    if (!altar || run.run.tutorialBeat !== 0) {
+      fail(`ALTAR GRACE: ${(substeps / 120).toFixed(1)} s of real frames with no input at all left ` +
+           `an altar = ${!!altar} (want true) at beat ${run.run.tutorialBeat} (want 0) -- a run that ` +
+           `never digs must still be handed cycle 1's only receiver`);
+      bad++;
+    } else {
+      player.write.band(band);
+      player.write.move(world.worldX(band, band.cfg.spawnTx - 3), world.worldY(band, band.cfg.floorTy - 2));
+      player.write.vel(0, 0);
+      player.write.set('onGround', true);
+      run.write.collect(D_sub.S.copper, D_form.F.ore, 10);
+      const moved = feedByHand(altar, D_sub.S.copper, D_form.F.ore, 10);
+      runReal(2, 1 / 120, { hasMouse: false });
+      if (moved !== 10) {
+        fail(`ALTAR GRACE: ten real feed presses at the grace-placed altar moved ${moved} unit(s), ` +
+             `not 10 -- the SETUP failed and the payment below proves nothing`);
+        bad++;
+      } else if (run.run.cycle <= 1 || !run.run.granted.includes('furnace')) {
+        fail(`ALTAR GRACE: fed the grace-placed altar the whole of cycle 1's demand and run.cycle is ` +
+             `${run.run.cycle} (want > 1) with granted ${JSON.stringify(run.run.granted)} (want the ` +
+             `furnace) -- the altar arrived but the trial it exists for cannot be paid`);
+        bad++;
+      }
+    }
+  }
+
+  if (!bad)
+    ok(`THE ALTAR ARRIVES: withheld at beat 0 and 1 s in, placed the frame after beat 4 fires with the ` +
+       `${GRACE} s grace barely started, and placed at that grace anyway in a run that never moved -- ` +
+       `where it is then fed cycle 1's ten ore by hand and pays the trial`);
+}
+
+/* ============================================================
    8. PHASE 11 TIER 2 — HARNESS GAPS FOUND BY A READ-ONLY AUDIT
    ------------------------------------------------------------
    Five invariant tests docs/BUILD_PLAN.md's Phase 11 TIER 2 block names but
@@ -4530,10 +4658,13 @@ console.log('\n8c. HEAVENS LEDGER: cycle completion unlocks exactly one band');
     for (let tx = 16; tx <= 29; tx++) tiles.write.clear(topsoil, tx, ty);
   for (let tx = 16; tx <= 29; tx++) tiles.write.set(topsoil, tx, 119, D_sub.S.stone);
 
-  /* CYCLE 1: the altar, placed here BEFORE the first real step so
-     `rules/cycles.js#ensureAltarPlaced`'s own `machines.some(...)` guard sees
-     one already exists and never places a second -- the same order THE
-     ALTAR test (section 6) already relies on. */
+  /* CYCLE 1: the altar, placed by hand rather than waited for. The director
+     withholds its own until beat 4 or `altarGraceSecs` (D17-G, proven in
+     section 7a), and this scene is about the CHART a completion writes, not
+     about when the receiver turns up. Placing it before the first real step
+     also means `ensureAltarPlaced`'s `machines.some(...)` guard sees one
+     already standing and never adds a second -- the same order THE ALTAR
+     test (section 6) already relies on. */
   const chartAltar = footUnder(machs.write.place(topsoil, D_mach.M.altar, 22, 117));
   player.write.band(topsoil);
   player.write.move(world.worldX(topsoil, 21), world.worldY(topsoil, 117));

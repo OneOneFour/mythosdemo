@@ -527,7 +527,7 @@ test('a placed furnace', async ({ page }) => {
      ultimately sets. */
   await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(240));
-  /* The altar is placed at boot (`rules/cycles.js#ensureAltarPlaced`)
+  /* The director places an altar of its own (`rules/cycles.js#ensureAltarPlaced`)
      -- exclude it so this still asserts "exactly the one machine THIS test
      placed, nothing stray", not a total that silently includes boot content. */
   expect(await page.evaluate(async () => {
@@ -611,7 +611,7 @@ test('REAL DRAG: dragging a held item from the inventory grid onto an empty quic
      ultimately sets. */
   await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(240));
-  /* Exclude the boot-placed altar (`rules/cycles.js#ensureAltarPlaced`) so
+  /* Exclude the director's own altar (`rules/cycles.js#ensureAltarPlaced`) so
      this still asserts exactly the one machine this drag-and-place put down. */
   expect(await page.evaluate(async () => {
     const { M } = await import('/src/data/machines.js');
@@ -678,7 +678,7 @@ test('a digit key arms the matching quickbar slot, not just any held item', asyn
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { invCount } = await import('/src/model/run.js');
-    /* Exclude the boot-placed altar (`rules/cycles.js#ensureAltarPlaced`) --
+    /* Exclude the director's own altar (`rules/cycles.js#ensureAltarPlaced`) --
        without it, `machines[0]` is no longer reliably the one this test just
        placed, and the whole point here is proving it's THAT one, not any. */
     const placed = __mf.machines.filter(m => m.def !== M.altar);
@@ -1888,7 +1888,7 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
        concern and already thoroughly covered elsewhere -- this flow's point
        is the smelt chain, not a second proof of walk speed. */
     __mf.frames(1);                      // let the keypress above actually place it
-    /* Exclude the boot-placed altar (`rules/cycles.js#ensureAltarPlaced`) --
+    /* Exclude the director's own altar (`rules/cycles.js#ensureAltarPlaced`) --
        `machines[0]` must be the furnace this test placed, not whichever the
        altar's own earlier placement put first in the array. */
     const placed = __mf.machines.filter(m => m.def !== M.altar);
@@ -2584,7 +2584,7 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
     __mf.revealAll(bandOf('surface'));
     __mf.cmd.hasMouse = false;
   });
-  /* Exclude the boot-placed altar (`rules/cycles.js#ensureAltarPlaced`) --
+  /* Exclude the director's own altar (`rules/cycles.js#ensureAltarPlaced`) --
      this test's point is that nothing armed means 'E' places nothing, not
      that the world is devoid of machines at boot. */
   const countExAltar = () => page.evaluate(async () => {
@@ -2666,7 +2666,7 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
     const { F } = await import('/src/data/forms.js');
     const { M } = await import('/src/data/machines.js');
     const { invCount } = await import('/src/model/run.js');
-    /* Exclude the boot-placed altar (`rules/cycles.js#ensureAltarPlaced`) --
+    /* Exclude the director's own altar (`rules/cycles.js#ensureAltarPlaced`) --
        this test's point is that exactly the furnace just placed exists. */
     return {
       machines: __mf.machines.filter(m => m.def !== M.altar).length,
@@ -3853,7 +3853,7 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
     const { F } = await import('/src/data/forms.js');
     const { M } = await import('/src/data/machines.js');
     const { invCount } = await import('/src/model/run.js');
-    /* Exclude the boot-placed altar (`rules/cycles.js#ensureAltarPlaced`) --
+    /* Exclude the director's own altar (`rules/cycles.js#ensureAltarPlaced`) --
        this test's point is that exactly the furnace just placed exists. */
     return {
       machines: __mf.machines.filter(m => m.def !== M.altar).length,
@@ -3871,7 +3871,7 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
      itself undoes. One round trip, so the camera read and the hover read
      can never disagree about which frame they describe. */
   /* `machines[0]` is no longer reliably the furnace this test placed --
-     the boot-placed altar (`rules/cycles.js#ensureAltarPlaced`) exists in
+     the director's own altar (`rules/cycles.js#ensureAltarPlaced`) can be in
      the array too, so this looks the furnace up by def instead. */
   const hoverMachine = () => page.evaluate(async () => {
     const { M } = await import('/src/data/machines.js');
@@ -3969,7 +3969,7 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
     if (dropped) pw.move(dropped.x - PW / 2, __mf.player.y);
     __mf.frames(200);
 
-    /* Exclude the boot-placed altar (`rules/cycles.js#ensureAltarPlaced`) --
+    /* Exclude the director's own altar (`rules/cycles.js#ensureAltarPlaced`) --
        this test deconstructed the furnace, not the altar, so the furnace's
        own count is what should read 0, not the world's total. */
     return {

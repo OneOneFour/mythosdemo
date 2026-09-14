@@ -2535,3 +2535,12 @@ also what gives it its first execution.
   lands on whichever worker is unlucky, the same class 17g1 already records
   for `webServer.reuseExistingServer`, and it should not be read as
   nondeterministic rendering: no run has ever produced a pixel diff.
+
+- **Fifty-nine baselines now hold a surface with no altar on it, and the
+  presentation half of 17f will move them again.** `rules/cycles.js:179`
+  withholds the altar until beat 4 or `altarGraceSecs`, and most scenes
+  neither dig nor step 80 s, so the 2x2 sprite left every near-spawn shot.
+  Several scenes set `run.tutorialBeat` and draw without running a frame
+  (`tests/visual.spec.js:4811`), so even a scene whose subject is cycle 1's
+  TRIBUTE panel has no altar behind it; one `__mf.frames(1)` after the beat
+  jump would bring it back where a scene wants it.

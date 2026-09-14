@@ -146,6 +146,19 @@ export const TUNABLES = [
   { id:'offerSize',  kind:'value', base:3, unit:'cards',  note:'cards in one draft offer; fewer candidates offer fewer' },
   { id:'rerollCost', kind:'value', base:2, unit:'favour', note:'favour spent with the asking god to re-pick the offer' },
 
+  /* ---- the altar's arrival (D17-G, docs/SPEC.md section 5). The director
+     withholds cycle 1's altar until the player has climbed back out of their
+     own shaft, and this is the deadline on that wait.
+
+     80 S IS THE BEAT SHEET'S OWN 1:20. Section 5 raises the altar between 1:20
+     and 1:40, so a player who never digs meets it at the earliest instant the
+     sheet allows rather than at a time this row invented. A player who does
+     dig has fired beat 4 well before then and never reaches this number at
+     all. Read only by `rules/cycles.js`, against `run.t`, which is simulated
+     seconds at the fixed 1/120 s substep. */
+  { id:'altarGraceSecs', kind:'value', base:80, unit:'s',
+    note:'the altar arrives this long into a run whatever the tutorial beat says; the beat sheet puts it at 1:20' },
+
   /* ---- the HUD's one urgency threshold (docs/SPEC.md section 20.6). Every
      countdown `view/hud.js` draws flashes under the same number of seconds:
      a boon's remaining time and the tribute deadline. 5 s is what the boon

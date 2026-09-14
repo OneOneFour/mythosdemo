@@ -156,14 +156,17 @@ const BEATS = [
   },
 
   /* 5 — "Sky darkens a notch ... an altar rises. First Trial: deliver 10 raw
-     copper." `rules/cycles.js#ensureAltarPlaced` places the altar
-     UNCONDITIONALLY from the run's very first frame -- this predicate is
-     purely a report that it now exists, never a timer or a second copy of
-     "has the director run yet". It reads true from frame 0 in the
-     underlying data, but the monotonic evaluator above never even asks
-     until beat 4 has already fired, so the player still meets the altar
-     only after climbing back out of their own shaft, exactly as the beat
-     sheet orders it. */
+     copper." THIS IS A GENUINE REPORT THAT THE DIRECTOR HAS RUN.
+     `rules/cycles.js#ensureAltarPlaced` withholds the altar until beat 4 has
+     fired or `altarGraceSecs` has passed (D17-G), and this predicate asks
+     only whether one now stands -- never a timer, and never a second copy of
+     the director's own gate.
+
+     IT LANDS ONE FRAME LATE, HARMLESSLY. `shell/schedule.js` runs `cycles`
+     before this file, so the director has already been and gone on the frame
+     beat 4 fires. It places the altar on the next frame, and this beat fires
+     later in that same frame. One frame at 1/120 s is nothing a player can
+     see, and the beat sheet's order holds either way. */
   () => machines.some(m => m.def === M.altar),
 
   /* 6 — "Deliver. The altar gifts a crude furnace." `rules/cycles.js#complete`

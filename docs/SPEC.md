@@ -105,6 +105,25 @@ The trap is deliberate: a player who places the furnace on the *surface* must
 haul ore up by hand. Nothing punishes them yet — cycle 1 has no clock — but
 they will feel the asymmetry, and cycle 2 has a deadline.
 
+**The altar arrives on the beat, or on a grace, whichever comes first.**
+`rules/cycles.js#ensureAltarPlaced` holds it back until `run.tutorialBeat`
+reaches 4, the climbed-back-up beat above, so the fifth row of the table is an
+event rather than a description of furniture that was always there.
+
+The grace is the second half, and it is not belt-and-braces. Cycle 1 has
+exactly one receiver, so an altar that never arrives is a run that can never be
+played — the same reason CLAUDE.md D4 leaves the one-tile auto-step ungated.
+`altarGraceSecs` is therefore **80 s**, and the altar stands once `run.t`
+passes it whatever the beat says. 80 s is the table's own 1:20, so a player who
+never digs meets the altar at the earliest instant the sheet allows rather than
+at some later time of the tunable's invention. A player who does dig has fired
+beat 4 long before then and never reaches the grace at all.
+
+`run.t` is simulated seconds at the fixed 1/120 s substep (invariant 10), never
+wall-clock time, so the grace is the same length of *game* at every framerate.
+`tools/check.mjs` section 7a proves both routes, and proves the grace-placed
+altar can still be fed cycle 1's ten ore and pay the trial.
+
 ## 6. Carried over from the mockup unchanged
 
 - `core/` in full — palette, 5x7 bitmap font, mulberry/hash RNG, integer-pixel

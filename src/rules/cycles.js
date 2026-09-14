@@ -57,13 +57,16 @@ import { SPAWN_BAND } from '../data/world.js';
 import { push } from '../model/journal.js';
 import { keyOf, parseKey, write as iw } from '../model/items.js';
 import { defOf, machines, write as mw } from '../model/machines.js';
+import { eff } from '../model/mods.js';
 import { player, write as pw } from '../model/player.js';
 import { invCount, run, tributeMet, write as rw } from '../model/run.js';
+import { beat } from '../model/tutorial.js';
 import { bandOf } from '../model/world.js';
 
 export function step(dt) {
   if (run.dead) return;
   ensureLiveCycle();
+  ensureAltarPlaced();
   drainReceivers();
   tickDeadline(dt);
   resolve();
@@ -113,7 +116,6 @@ function ensureLiveCycle() {
   }
   const cyc = CYCLES[run.cycle - 1];
   rw.tribute({ id: cyc.id, have: {}, left: cyc.deadlineSecs, credits: [] });
-  if (cyc.at === 'altar') ensureAltarPlaced();
 }
 
 /* THE ONE MACHINE THE PLAYER CANNOT BUILD gets placed the one way that skips
@@ -143,14 +145,38 @@ function ensureLiveCycle() {
         exactly as unfair with the click as it was without it. A gap costs
         nothing; discovering this again would cost the same day it cost the
         first time.
-     2. FRAMING. An altar in the player's own footprint on frame one is bad
+     2. FRAMING. An altar standing in the player's own footprint is bad
         staging regardless of what it does or does not take -- 4 tiles clears
         `handFeed.reach` plus the player's own width (`model/player.js#PW`)
         with room over, while staying a short, deliberate walk, and that walk
         is the first thing docs/SPEC.md §5's beat sheet asks for. */
 const SPAWN_GAP = 4;
 
+/* Beat 4 of `rules/tutorial.js#BEATS`, the climbed-back-up beat. The two
+   must agree, and neither file may import the other. */
+const ALTAR_BEAT = 4;
+
+/* IT DOES NOT ARRIVE ON FRAME 0 (D17-G, docs/SPEC.md section 5). The beat
+   sheet raises the altar once the player has climbed back out of their own
+   shaft, so the director waits for beat 4. `model/tutorial.js#beat` is a
+   `model` query over `run.tutorialBeat`, which is how this reads a beat
+   without importing the `rules` sibling that writes it.
+
+   THE GRACE IS NOT BELT-AND-BRACES. Cycle 1 has exactly one receiver and
+   nothing else can pay it, so a beat predicate that never fires would
+   soft-lock the first trial outright. `eff('altarGraceSecs')` places the
+   altar anyway once `run.t` passes it -- simulated seconds at the fixed
+   1/120 s substep, never `Date.now()` (invariant 10). CLAUDE.md D4 leaves
+   the one-tile auto-step ungated for the same reason, because the only way
+   forward must never wait on a state that can fail to arrive.
+
+   RE-ASKED EVERY STEP, not once when the cycle armed, since neither the
+   beat nor the clock has usually reached the gate by then. The live row's
+   own `at` is the authority on whether an altar is wanted, resolved by id
+   through `CYCLE` the same way `drainReceivers` resolves it. */
 function ensureAltarPlaced() {
+  if (CYCLE[run.tribute?.id]?.at !== 'altar') return;
+  if (beat(run) < ALTAR_BEAT && run.t < eff('altarGraceSecs')) return;
   if (machines.some(m => m.def === M.altar)) return;
   const band = bandOf(SPAWN_BAND);
   const def = MACH[M.altar];
