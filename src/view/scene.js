@@ -33,7 +33,7 @@ import { progressAt, workAt } from '../model/mining.js';
 import { eff } from '../model/mods.js';
 import { PH, PW, player } from '../model/player.js';
 import { hasPick, run } from '../model/run.js';
-import { bandAt, bands, chunkPx, heightPx, lightAt, seenAt, widthPx } from '../model/world.js';
+import { bands, chunkPx, heightPx, lightAt, seenAt, widthPx } from '../model/world.js';
 import { chips, drawChips } from './fx.js';
 import { drawHUD } from './hud.js';
 import { drawOverview } from './overview.js';
@@ -86,7 +86,10 @@ const INK = {
   shaftHi: colour('cloudA')
 };
 
-export const stats = { chunksDrawn: 0, bandsDrawn: 0 };
+/* What the last `render()` drew. `depthTint` is the alpha `atmosphere` put over
+   the whole screen, recorded so a test can assert the tint moves continuously
+   across a band seam without a second copy of the weighting. */
+export const stats = { chunksDrawn: 0, bandsDrawn: 0, depthTint: 0 };
 
 /* `f` is the frame context assembled by `shell/main.js`:
      { cam:{x,y}, t, dt, frame, W, H, flags }
@@ -99,7 +102,7 @@ export function render(g, f) {
   beginFrame();
 
   R(g, 0, 0, W, H, INK.void);
-  stats.chunksDrawn = 0; stats.bandsDrawn = 0;
+  stats.chunksDrawn = 0; stats.bandsDrawn = 0; stats.depthTint = 0;
 
   /* THE MAP OVERVIEW IS A DIFFERENT RENDER PATH, NOT A CAMERA TRICK, and it
      is a different FILE: `view/overview.js`, which owns its own
@@ -784,16 +787,42 @@ function drawFog(g, f) {
   }
 }
 
+/* Ambient light over the whole viewport, as the area-weighted mean of the
+   `look.ambient` each visible band claims. Reading one band under the camera
+   centre instead stepped the whole screen 0.055 -> 0.440 in the single frame
+   the centre crossed world-Y 768.
+
+   Weights are the exact pixel area of each band's intersection with the
+   viewport, so the mean moves continuously as the camera pans and no
+   blend-distance constant exists to tune. `visible()` is the same predicate
+   every band pass above uses, so the tint averages exactly the bands drawn.
+   Normalised over covered area rather than W*H, which keeps the mean at a
+   single band's own claim when the viewport overhangs the world. */
+function ambientOver(cam, W, H) {
+  let cover = 0, sum = 0;
+  for (const b of bands) {
+    if (!visible(b, cam, W, H)) continue;
+    const w = Math.min(cam.x + W, b.origin.x + widthPx(b)) - Math.max(cam.x, b.origin.x);
+    const h = Math.min(cam.y + H, b.origin.y + heightPx(b)) - Math.max(cam.y, b.origin.y);
+    cover += w * h;
+    sum += w * h * (b.cfg.look?.ambient ?? 1);
+  }
+  return cover > 0 ? sum / cover : 1;
+}
+
 /* ---------- atmosphere ----------
-   Depth tint from the band under the camera's centre: its `look.ambient` is how
-   much light the row claims reaches it. A vignette on top, because the frame
-   edge is where the eye leaks out. */
+   Depth tint from how much light the bands on screen claim reaches them, then a
+   vignette on top, because the frame edge is where the eye leaks out. */
 function atmosphere(g, f) {
   const { cam, W, H } = f;
-  const b = bandAt(cam.x + W / 2, cam.y + H / 2);
-  const amb = b?.cfg.look?.ambient ?? 1;
-  if (amb < 0.98) {
-    g.globalAlpha = Math.min(0.55, (1 - amb) * 1.1);
+  const amb = ambientOver(cam, W, H);
+  /* 1/510 is half an 8-bit quantum, so skipping below it cannot change a
+     composited pixel. A fixed cutoff higher than that would step the screen by
+     its own value the frame it was crossed. */
+  const a = Math.min(0.55, (1 - amb) * 1.1);
+  stats.depthTint = a;
+  if (a > 1 / 510) {
+    g.globalAlpha = a;
     R(g, 0, 0, W, H, INK.void);
     g.globalAlpha = 1;
   }

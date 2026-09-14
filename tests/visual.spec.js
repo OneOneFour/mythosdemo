@@ -994,7 +994,14 @@ test('an unexplored area renders as the hidden colour, whatever terrain is actua
        pixel with a second, unrelated blend on top of the fog colour, which is
        a real compositing detail worth its own test, not noise in this one).
        No `revealAll` here: this test's whole point is the opposite of that
-       one's. */
+       one's.
+
+       THE 200 PX FLOOR, because the tint is now the area-weighted mean of
+       every band on screen and astral is 320 px tall. At the 400 px desktop
+       buffer surface is always in frame under it, which puts the mean at 0.99
+       and the tint at 0.011 -- the very second blend this sample is picked to
+       avoid. A 200 px buffer at astral's own origin sees nothing but astral. */
+    __mf.resize(400, 400);
     const astral = bandOf('astral');
     __mf.cam.x = astral.origin.x;
     __mf.cam.y = astral.origin.y;
@@ -6924,6 +6931,103 @@ test('17k: a callout at the start of its fade draws nothing, bevel included', as
 
   expect(lit).not.toBe(three);
   expect(controlAfter).toBe(controlBefore);
+
+  expect(errors).toEqual([]);
+});
+
+/* ============================================================
+   THE DEPTH TINT CROSSES A BAND SEAM CONTINUOUSLY
+   (docs/AUDIT-seam-light.md section 2 and section 6 item 3)
+
+   `view/scene.js#atmosphere` used to read `look.ambient` from one `bandAt` of
+   the camera centre, so the whole-screen tint jumped 0.055 -> 0.440 in the
+   single frame the centre crossed world-Y 768. It now takes the area-weighted
+   mean of every visible band's claim, and this asserts the shape of that
+   weighting rather than a picture of it.
+
+   NUMBERS, NOT A SCREENSHOT. The tint is a flat alpha over the frame, so a
+   baseline of one camera position proves nothing about the position next to
+   it. `view/scene.js#stats.depthTint` records the alpha the last `render()`
+   actually used, which is what makes 240 consecutive camera rows assertable
+   in one test.
+
+   THE BOUND IS DERIVED, NOT PICKED. Two bands share the viewport across a
+   seam and the weights are exact pixel areas, so one row of camera travel can
+   move the mean by at most the bands' ambient gap over the viewport height.
+   `1.1` is `atmosphere`'s own alpha slope. At the 200 px floor that is
+   0.00193 for the surface/topsoil gap, against the 0.385 the old code stepped
+   by -- a factor of 200. The bound assumes the viewport lies inside the world,
+   which `shell/main.js#clampCam` guarantees for `cam.y` and both sweeps below
+   stay within; a viewport overhanging the world edge covers fewer rows and so
+   moves the mean faster per row, though still continuously.
+   ============================================================ */
+
+/* Park the camera at each world row in `[from, to]`, draw, and report the
+   alpha. `cam.y` rather than a walk: the subject is the camera, and 240 real
+   crossings driven by a player would take 240 shafts. */
+const tintSweep = (page, from, to) => page.evaluate(async ({ from, to }) => {
+  const { stats } = await import('/src/view/scene.js');
+  const { VIEW } = await import('/src/core/canvas.js');
+  const { BANDS } = await import('/src/data/world.js');
+  const out = [];
+  for (let y = from; y <= to; y++) {
+    __mf.cam.y = y;
+    __mf.draw();
+    out.push(stats.depthTint);
+  }
+  let gap = 0;
+  for (let i = 1; i < BANDS.length; i++)
+    gap = Math.max(gap, Math.abs((BANDS[i].look?.ambient ?? 1) - (BANDS[i - 1].look?.ambient ?? 1)));
+  return { out, H: VIEW.h, bound: gap * 1.1 / VIEW.h };
+}, { from, to });
+
+const tintAt = (page, y) => page.evaluate(async cy => {
+  const { stats } = await import('/src/view/scene.js');
+  __mf.cam.y = cy;
+  __mf.draw();
+  return stats.depthTint;
+}, y);
+
+test('17l: the depth tint has no step at either band seam', async ({ page }) => {
+  const errors = await boot(page);
+  await settle(page);
+
+  /* The 200 px floor, because astral is 320 px tall and the desktop buffer is
+     400 px high -- a viewport that never fits inside astral cannot show what
+     the tint reads deep inside it. */
+  await page.evaluate(() => __mf.resize(400, 400));
+
+  /* A seam's whole transition is exactly one viewport height of camera
+     travel, so each sweep starts H rows above the seam and ends 20 past it. */
+  const astral = await tintSweep(page, 320 - 200 - 20, 320 + 20);
+  const topsoil = await tintSweep(page, 768 - 200 - 20, 768 + 20);
+  expect(astral.H).toBe(200);
+
+  for (const s of [astral, topsoil]) {
+    let worst = 0, at = 0;
+    for (let i = 1; i < s.out.length; i++) {
+      const d = Math.abs(s.out[i] - s.out[i - 1]);
+      if (d > worst) { worst = d; at = i; }
+    }
+    /* 1e-12 absorbs float reassociation in the weighted mean, and is five
+       orders below the bound it is added to. */
+    expect(worst, `worst step ${worst} at index ${at}`).toBeLessThanOrEqual(s.bound + 1e-12);
+  }
+
+  /* MONOTONE DOWNWARD. A mean that stepped the right amount per row but in
+     the wrong direction would pass the bound above. */
+  for (const s of [astral, topsoil])
+    for (let i = 1; i < s.out.length; i++) expect(s.out[i]).toBeGreaterThanOrEqual(s.out[i - 1] - 1e-12);
+
+  /* BOTH STEADY STATES UNCHANGED. High in astral the screen takes no tint at
+     all, and deep in topsoil it takes the same 0.44 the single-band read gave
+     -- so the seam is fixed without re-grading either band's interior. */
+  expect(await tintAt(page, 0)).toBe(0);
+  expect(await tintAt(page, 2900)).toBeCloseTo(0.44, 6);
+
+  /* NOT VACUOUS. The two interiors must differ, or the sweeps above are
+     measuring a constant. */
+  expect(astral.out[0]).toBeLessThan(topsoil.out[topsoil.out.length - 1]);
 
   expect(errors).toEqual([]);
 });

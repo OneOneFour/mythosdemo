@@ -2716,11 +2716,38 @@ also what gives it its first execution.
   bands, or one flood over the union of bands, rather than the single top-down
   pass `step` makes. Neither is in the audit's scope.
 
-- **`src/view/scene.js:791` steps the whole screen 8x in one frame at the
-  surface/topsoil seam.** `atmosphere()` reads `bandAt(cam.x + W/2, cam.y +
-  H/2)` and tints by `min(0.55, (1 - ambient) * 1.1)`, which is 0.055 for
-  `surface` and 0.440 for `topsoil`. The audit's §2, and a `view` phase's to
-  fix; the light fix does not touch it.
+- **FIXED. `src/view/scene.js:791` stepped the whole screen 8x in one frame at
+  the surface/topsoil seam.** `atmosphere()` read `bandAt(cam.x + W/2, cam.y +
+  H/2)` and tinted by `min(0.55, (1 - ambient) * 1.1)`, which is 0.055 for
+  `surface` and 0.440 for `topsoil`. Measured at the 200 px buffer, `cam.y` 667
+  gave 0.055 and 668 gave 0.440. `view/scene.js#ambientOver` now takes the
+  area-weighted mean of every visible band's `look.ambient`, so one row of
+  camera travel moves the tint by at most 0.00193 at that buffer. `17l` in
+  `tests/visual.spec.js` sweeps 241 consecutive rows at each seam against a
+  bound derived from the ambient gap and the viewport height.
+
+- **`view/scene.js#atmosphere` tints the sky by what is on screen below it.**
+  The tint is one flat alpha over the whole frame, so a camera showing surface
+  sky over topsoil rock now dims the sky too -- 0.055 to 0.209 in
+  `drive-band-seam`, which is 40% underground. A per-band rect clipped to each
+  band's on-screen rows would leave every band's interior exact and only tint
+  the rows that belong to it, at the cost of a hard horizontal edge at the
+  seam. That is a look decision rather than a fix, so it was not taken here.
+
+- **`tools/check.mjs:559`'s printed epoch is not reproducible.** Section 2
+  prints `epoch ${before}` after `boot.boot(1337)` and one substep, and three
+  consecutive runs at an unchanged HEAD gave 318,993 / 318,615 / 318,786. The
+  assertion itself is sound -- it compares the counter across two `draw()`
+  calls and that delta is 0 every time -- but the absolute number reads like a
+  fingerprint and is not one, so a reviewer diffing check output will chase
+  it. Something in boot writes a wall-clock-dependent number of times.
+
+- **`view/scene.js#ambientOver` normalises over covered area, so a viewport
+  overhanging the world edge moves faster per camera row.** The mean stays
+  continuous, but the per-row bound `17l` asserts is `gap * 1.1 / coveredRows`
+  rather than `/ VIEW.h`. `shell/main.js#clampCam` keeps `cam.y` inside the
+  world whenever the world is taller than the viewport, which it is at every
+  shipped band configuration, so nothing reaches the overhang case in play.
 
 - **`src/rules/player.js:319` `rowBand` can now be deleted in favour of
   `model/world.js#bandSpans`.** `boxSolid`, `boxClimb` and their siblings walk
