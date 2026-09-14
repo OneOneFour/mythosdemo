@@ -345,14 +345,17 @@ already had one the old three-way split had no slot for:
 | **Miracle** | one shot | draft | `data/miracles.js`, `rules/miracles.js` | a consumable held pair in the pockets |
 | **Machine grant** | whole run, permanent | cycle reward | `data/grants.js`, `rules/grants.js` | a new row in the BUILD list |
 
-**What happens to today's `data/boons.js`.** Its content is the *machine-grant*
-tier — `gift-kiln` grants `kiln_divine`, and `STARTING_MACHINES` seeds
-`run.granted`. That is `docs/DESIGN.md`'s **Machines** tier, which the file was
-simply misnamed for. So: today's `BOONS` / `BOON` / `STARTING_MACHINES` move
-verbatim to **`src/data/grants.js`** as `GRANTS` / `GRANT` /
-`STARTING_MACHINES`, and `rules/boons.js` moves verbatim to
-**`src/rules/grants.js`**. The name `boons` is then free for the timed tier,
-which is new content in a new `data/boons.js`.
+**What happened to the old `data/boons.js`.** Its content was the
+*machine-grant* tier, which `docs/DESIGN.md` calls **Machines** and the file
+was simply misnamed for. `BOONS` / `BOON` / `STARTING_MACHINES` moved verbatim
+to **`src/data/grants.js`** as `GRANTS` / `GRANT` / `STARTING_MACHINES`, and
+`rules/boons.js` moved to **`src/rules/grants.js`**. The name `boons` then went
+to the timed tier in a new `data/boons.js`.
+
+`GRANTS` holds `gift-talos` and `gift-maw` (`data/grants.js:27,31`). The
+`gift-kiln` row this decision was originally written around is retired — its
+`kiln_divine` had no substance row and no recipe, so `placementCheck` refused
+it at every depth and the whole tier was a no-op (`docs/SPEC.md` §14).
 
 All four tiers stay `data/` tables in the existing frozen-table style. Every
 tier that carries a *modifier* — Boons and Trinkets — reaches it only through
@@ -529,11 +532,14 @@ holds `bands` as separate records, each with its own absolute `origin` and its
 own typed arrays, allocated per band by `world.write.allocate(cfg)` at boot —
 which is the whole point of ARCHITECTURE §6. A band above the surface is
 therefore already expressible, and one already exists:
-`src/data/world.js#BANDS[0]` is `astral` / **"THE MINOR HEAVENS"** (`tw:96`,
-`th:40`, `tile:8`, `origin:{x:128, y:0}`, `floorTy:30`), and
-`src/data/machines.js`'s winch stage already declares
-`lift:{ span:64, toBand:'astral' }`. The world is three bands and 416 rows
-(40 + 56 + 320) spanning world-Y 0..3328 px.
+`src/data/world.js#BANDS[0]` is `astral` / **"THE MINOR HEAVENS"**
+(`tw:128`, `th:40`, `tile:8`, `origin:{x:0, y:0}`, `floorTy:30`), and
+`src/data/machines.js#cloud_dock` declares `band:'astral'`, which is the whole
+ascent as one key. The world is three bands and 416 rows (40 + 56 + 320)
+spanning world-Y 0..3328 px.
+
+The staged winch that used to declare `lift:{ span:64, toBand:'astral' }` is
+gone, with `rules/lift.js`; D10 replaced it with segment transport.
 
 ### D10 — one word per part, and where the cable stops being physical
 
