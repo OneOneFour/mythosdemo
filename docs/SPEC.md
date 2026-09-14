@@ -2716,3 +2716,30 @@ returns false, `rules/items.js#step` pushes a `'refused'` row reading
 **Digit keys name cells 1 through 8.** `view/ui/quickbar.js#slotForDigit` is
 bounded by `run.inv.length - run.mainSlots`, so `9` and `0` name no slot while
 the strip is eight cells and pressing them arms nothing.
+
+## 25. The crafting category row (Phase 17j)
+
+| tab | id | what it lists |
+|---|---|---|
+| ALL | `all` | every hand recipe, unfiltered |
+| RAW | `raw` | the fallback category |
+| REFINED | `refined` | the output form carries the `refined` tag |
+| TOOLS | `tools` | the output substance carries `item.tool` |
+| PLACE | `placeables` | the output form carries a `tile` block |
+| DIVINE | `divine` | the output substance is a relic or a miracle |
+
+`ALL` is first and is therefore the default, because
+`shell/ui.js#activeTab` falls back to the first row when nothing is stored.
+It filters nothing and bypasses `view/ui/mainPanel.js#categoryOf` rather than
+adding a sixth branch to it. The five real categories partition the list, so
+ALL lists every hand recipe exactly once and lists exactly what the five list
+between them.
+
+**The row wraps.** A tab costs `core/font.js#textWidth(label) + 6` px, which
+is 23 / 23 / 47 / 35 / 35 / 41 and 204 px in total. The crafting body is 232
+px wide at the desktop buffer and 188 px at the 200 px base-buffer floor, so
+the row runs one line on a desktop and two on a phone.
+`view/ui/tabs.js#drawTabs` flows a tab that would pass its right edge onto the
+next line and returns `h` as `TAB_H` per line used. A tab too wide for a line
+of its own is still dropped rather than truncated, since drawn text is never
+clipped.

@@ -361,7 +361,17 @@ function drawCharacterTooltip(g, f, grid, eqGrid) {
   }
 }
 
+/* `all` filters nothing and comes first, so it is also the default --
+   `activeOf` falls back to the first row, and a first open of CRAFTING shows
+   every recipe rather than only RAW. It bypasses `categoryOf` below instead
+   of becoming a sixth branch in it, because "all" is the absence of a filter
+   and not a kind of thing a recipe can be.
+
+   The six labels cost 204 px and the crafting body is 188 px wide at the
+   200 px floor, so `tabs.js#drawTabs` wraps DIVINE onto a second line there.
+   That is the reason it wraps at all. */
 const CATEGORY_TABS = [
+  { id: 'all', label: 'ALL' },
   { id: 'raw', label: 'RAW' }, { id: 'refined', label: 'REFINED' },
   { id: 'tools', label: 'TOOLS' }, { id: 'placeables', label: 'PLACE' },
   { id: 'divine', label: 'DIVINE' }
@@ -425,7 +435,7 @@ function drawCraftingTab(g, f, body) {
   ry = searchBox.y + searchBox.h + 2;
 
   const needle = (f.ui.search || '').toLowerCase();
-  const recipes = HAND_RECIPES.filter(r => categoryOf(r) === catActive &&
+  const recipes = HAND_RECIPES.filter(r => (catActive === 'all' || categoryOf(r) === catActive) &&
     (!needle || r.name.toLowerCase().includes(needle)));
 
   const queueH = f.ui.craftQueue.length ? SLOT_SIZE + 6 : 0;

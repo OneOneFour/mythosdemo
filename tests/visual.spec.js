@@ -1701,6 +1701,92 @@ test('the Crafting tab', async ({ page }) => {
   await shot(page, 'ui-crafting.png');
 });
 
+/* ============================================================
+   PHASE 17j: THE ALL CATEGORY, AND THE ROW THAT NO LONGER FITS
+
+   Both assertions are MEASUREMENTS, not screenshots. A baseline of this row
+   proves the pixels have not changed; it cannot prove a sixth category is
+   reachable, which is exactly what `view/ui/tabs.js`'s drop behaviour used
+   to take away silently. */
+
+/* Six labels cost 204 px (`textWidth(label) + 6` each) and the crafting body
+   is 188 px wide at the 200 px floor, so DIVINE only survives because
+   `drawTabs` wraps. Without the wrap this reads five ids and 9 px. */
+test('the crafting category row wraps at the 200 px floor, so all six categories stay reachable', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { open, setTab } = await import('/src/shell/ui.js');
+    const { banner } = await import('/src/view/fx.js');
+    open('main');
+    setTab('main', 'craft');
+    __mf.cmd.hasMouse = false;
+    banner.fade = 0;
+    __mf.frames(1);
+  });
+  await phoneFloor(page);
+  await shot(page, 'ui-crafting-phone.png');
+
+  const row = await page.evaluate(() => __mf.ui.tabs.find(t => t.id === 'main-craft-cat'));
+  expect(row.hits.map(h => h.id)).toEqual(['all', 'raw', 'refined', 'tools', 'placeables', 'divine']);
+  expect(row.h).toBe(18);                        // two lines of TAB_H, not one
+
+  /* And every tab is inside the 200 px buffer, so wrapping did not simply
+     move the overflow from the right edge to somewhere else. */
+  for (const h of row.hits) {
+    expect(h.x).toBeGreaterThanOrEqual(0);
+    expect(h.x + h.w).toBeLessThanOrEqual(200);
+    expect(h.y + h.h).toBeLessThanOrEqual(180);
+  }
+});
+
+/* ALL is the absence of a filter, and the only way to prove that is to
+   compare what the tab actually drew against what the five real categories
+   drew between them. `drawn.recipeIndex.recipes` is the list
+   `view/ui/mainPanel.js` recorded for the dispatcher, so this reads the real
+   grid contents rather than re-deriving them. A category that stops covering
+   a recipe fails here. */
+test('the ALL category lists every hand recipe exactly once, and exactly what the five categories list between them', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const seen = await page.evaluate(async () => {
+    const { drawn } = await import('/src/view/ui/state.js');
+    const { HAND_RECIPES } = await import('/src/data/recipes.js');
+    const { open, setTab } = await import('/src/shell/ui.js');
+    open('main');
+    setTab('main', 'craft');
+    __mf.cmd.hasMouse = false;
+
+    const out = { every: HAND_RECIPES.map(r => r.id), by: {} };
+    for (const cat of ['all', 'raw', 'refined', 'tools', 'placeables', 'divine']) {
+      setTab('main-craft-cat', cat);
+      __mf.draw();
+      out.by[cat] = drawn.recipeIndex.recipes.slice();
+    }
+    return out;
+  });
+
+  const sorted = a => a.slice().sort();
+  const { all, ...cats } = seen.by;
+
+  expect(new Set(all).size).toBe(all.length);                  // no recipe twice
+  expect(sorted(all)).toEqual(sorted(seen.every));             // none missing
+
+  const union = Object.values(cats).flat();
+  expect(new Set(union).size).toBe(union.length);              // the five do not overlap either
+  expect(sorted(union)).toEqual(sorted(all));
+
+  /* Not vacuous: `every` comes from `data/recipes.js` rather than from the
+     draw, so the equality above cannot be two empty lists agreeing. The
+     per-category counts are stated outright because DIVINE draws nothing
+     today -- no hand recipe outputs a relic or a miracle (docs/FINDINGS.md,
+     17j) -- and a test that let a category empty itself silently would hide
+     the next one that does. */
+  expect(all.length).toBe(19);
+  const counts = Object.fromEntries(Object.entries(cats).map(([c, ids]) => [c, ids.length]));
+  expect(counts).toEqual({ raw: 13, refined: 2, tools: 1, placeables: 3, divine: 0 });
+});
+
 test('the boon stack with active boons', async ({ page }) => {
   await boot(page);
   await settle(page);

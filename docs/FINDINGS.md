@@ -2363,3 +2363,21 @@ also what gives it its first execution.
 - **FOR WHOEVER TOUCHES `view/fx.js#spark` (17e): it is still latent.** 17a's
   reasoning holds and this phase found nothing against it. Every page is fresh,
   so the generator starts at the same offset in every test.
+
+## Phase 17j (the ALL category in the crafting tab)
+
+- **The DIVINE category is empty, and has been since it was written.**
+  `view/ui/mainPanel.js:391` routes a recipe to `divine` when its output
+  substance carries `relic` or `miracle`, and no row in
+  `data/recipes.js#HAND_RECIPES` does — the 19 hand recipes split 13 raw, 2
+  refined, 1 tool, 3 placeable, 0 divine. The tab draws, clicks and shows an
+  empty grid. Content, not layout, so it is out of this phase's block; the new
+  set-equality test states the count `0` outright so the day a divine hand
+  recipe lands, the test says so.
+
+- **`drawTabs` has two callers, not five.**
+  `docs/PLAN-wave5-closeout.md:543` warns that wrapping the row costs "four
+  other callers" their baselines. Both callers are in
+  `view/ui/mainPanel.js` (`:139` the MENU row, `:426` the category row), and
+  the MENU row's three labels cost 171 px against 188 px at the floor, so it
+  never wraps and its pixels did not move.
