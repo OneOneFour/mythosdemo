@@ -27,7 +27,7 @@ where SPEC and code disagree, SPEC wins and is corrected in the same commit.
 | punch list #7 | **restated by 17a.** Not a depth problem: `kiln_divine` has no `minDepth` of its own (it is `variantOf:'furnace'`, `data/machines.js:201`) and no substance row or recipe by deliberate content decision (`data/substances.js:463-469`), so `placementCheck` refuses it `'NOTHING BUILT YET'` at every depth, for ever. It is the only `GRANTS` row, so **the whole machine-grant tier is presently a no-op** | 17b |
 | punch list #11 | **narrowed, not open.** `run.misses` reaches the win screen (`view/hud.js:1062`) and nowhere during play | 17e |
 | punch list #12 | FAVOUR has zero consumers | 17c |
-| punch list #14 | no rate or throughput demand exists | 17d, 17e |
+| punch list #14 | no rate or throughput demand exists. **Closes as "mechanism shipped, promise reworded"** — 17d's clause measures delivery bunching, which a rolling window over delivery instants is all it can measure; a genuine throughput quota stays unbuilt and goes to `FUTURE_IDEAS.md` | 17d, 17e, 17h |
 | punch list #15 | the deadline timer has no urgency treatment | 17e |
 | punch list #16 | the death screen shows cause and depth only | 17e |
 | punch list #17 | no `data/gods.js`; two god ids can never be named | 17b |
@@ -660,8 +660,16 @@ feed it fast enough and it pays. Both at 30 fps and at 144 fps, through the real
 
 **Brief.**
 
-1. **The rate row** in `view/hud.js#tribute`: progress against the window, in
-   the same measured-bar language every other demand row uses.
+1. **The batch row** in `view/hud.js#tribute`, showing progress against the
+   window in the same measured-bar language every other demand row uses.
+   Clamp it at `batch.n` — `batchHave()` saturates near that value and would
+   under-report a raw "X delivered" readout, which its own doc now says.
+
+   **The aggregate lies today.** `view/hud.js:305-309` draws `100%` on an
+   unpaid cycle 4, because it reads the demand rows and knows nothing about
+   the second clause. 17d shipped that knowingly and recorded it; fixing it
+   is this phase's, and a panel that reads 100% while the trial refuses to
+   pay is worse than one that reads 80%.
 2. **#11**: `run.misses` visible during the run, in the TRIBUTE column, drawn
    only once it is non-zero, and legible as "one more ends this".
 3. **#15**: the deadline gets the urgency treatment the boon stack already has
