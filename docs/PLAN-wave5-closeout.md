@@ -753,11 +753,26 @@ both pass.
    under `?test=1` has no RAF loop to repaint it. Do not raise
    `maxDiffPixels`, and do not close the item by re-running until green.
 
+4. **Audit 17e's five unaudited assertions** — the honest-at-every-stage test,
+   the miss tally, the urgency flash, the death-screen tally, and the
+   chip-stream rewind (`docs/REVIEW-wave5-17e.md` §5). For each, perturb the
+   source and quote the red. This wave has shipped three assertions that could
+   not fail: 17c2's four bounds checks, defeated by `drawPanel` clamping before
+   recording, and 17g1's own purity test, which passed with an injected
+   `rand()`. A green suite is not evidence that a test can go red.
+5. **`tribute-cycle1-armed` shows the first trial armed with no altar**
+   (`docs/REVIEW-wave5-17f1.md` D2). The scene sets `run.tutorialBeat` and
+   draws without stepping (`tests/visual.spec.js:4811`), so the director never
+   gets a frame. One `__mf.frames(1)` after the beat jump brings the altar
+   back. Five other `tribute-*` scenes share the shape; fix the ones whose
+   subject needs an altar behind it and leave the rest.
+
 **File ownership.** `tools/check.mjs`, `tests/visual.spec.js`,
 `tests/visual.spec.js-snapshots/`, `package.json` scripts, `docs/FINDINGS.md`.
 
 **Acceptance.** `npm run test` green, and every new assertion has a
-one-sentence description of what would make it red.
+one-sentence description of what would make it red **plus the red output a
+perturbation actually produced**.
 
 ## 11. Phase 17h — docs closeout (1 × `cartographer`)
 
