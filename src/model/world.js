@@ -163,6 +163,42 @@ export const bandAt = (x, y) => bands.find(b =>
 export const bandBelow = b => bands[b.ord + 1] || null;
 export const bandAbove = b => bands[b.ord - 1] || null;
 
+/* Does this band carry open sky of its own above its ground line?
+   `data/world.js#floorTy` IS that ground line, and it is already the number
+   `view/scene.js#skyBand` and `view/paint.js#paintChunk` divide sky from
+   excavated rock by. False for a band whose row 0 is buried under the band
+   above -- today `topsoil`, whose `floorTy` is 0 for exactly that reason.
+
+   Read it rather than the world above a band's row 0: the astral floor slab
+   spans every column, so the surface band -- where the player spawns -- has
+   solid rock 19 tiles over its own sky and a pure occlusion test darkens it
+   whole. A band's sky is a content statement, and this is where content
+   states it. */
+export const hasOwnSky = b => (b.cfg.floorTy ?? 0) > 0;
+
+/* Every band a world-pixel rect overlaps, each with the band-local tile box
+   the rect covers inside it. Bounds are INCLUSIVE and clamped to the band's
+   own grid, in top-down band order. Empty when the rect is outside the world.
+
+   A hitbox straddling a seam yields two entries, which is the point. A caller
+   that resolves one band for a whole box addresses the other band's rows at
+   negative or past-the-end ordinals, and `inBounds` rejects those silently --
+   so half the box is skipped and nothing reports it. */
+export function bandSpans(x, y, w, h) {
+  const out = [];
+  const x1 = x + w - 1, y1 = y + h - 1;
+  for (const b of bands) {
+    const bx1 = b.origin.x + widthPx(b) - 1, by1 = b.origin.y + heightPx(b) - 1;
+    if (x1 < b.origin.x || x > bx1 || y1 < b.origin.y || y > by1) continue;
+    out.push({
+      b,
+      tx0: tileX(b, Math.max(x, b.origin.x)), tx1: tileX(b, Math.min(x1, bx1)),
+      ty0: tileY(b, Math.max(y, b.origin.y)), ty1: tileY(b, Math.min(y1, by1))
+    });
+  }
+  return out;
+}
+
 /* ---- tile addressing. Band-local, always. ---- */
 
 export const idx = (b, tx, ty) => ty * b.tw + tx;

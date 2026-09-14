@@ -25,7 +25,7 @@ import { bump } from './epoch.js';
    them for exactly one line each -- see D14-E and D15-B there. */
 import { activeCount as growingCount, write as groww } from './growth.js';
 import { write as digw } from './mining.js';
-import { idx, inBounds } from './world.js';
+import { bandAt, hasOwnSky, idx, inBounds, tileX, tileY, worldX } from './world.js';
 
 /* ---- raw byte ---- */
 export function tileAt(b, tx, ty) {
@@ -67,18 +67,51 @@ export const climbOf = byte => byte !== AIR && tileBlockOf(byte)?.climb === true
 export const solidAt = (b, tx, ty) => solidOf(tileAt(b, tx, ty));
 export const climbAt = (b, tx, ty) => climbOf(tileAt(b, tx, ty));
 
-/* A clear vertical path to the top of THIS BAND'S OWN GRID -- true sky, not
-   merely "the tile directly above happens to be air", which a tunnel ceiling
-   also satisfies. `view/paint.js` is the only reader, for grass and canopy
-   caps: a cosmetic that should read as "this ground has seen the sun", not
-   "something happened to dig this tile out". Rows above `fromTy` in a band's
-   strata are never filled by worldgen, so row 0 is always open air and this
-   terminates without a separate "top of the world" constant. Only called from
-   the chunk-paint pass (cached per version), never per frame. */
+/* A clear vertical path to the top of THIS BAND'S OWN GRID -- true sky within
+   the band, not merely "the tile directly above happens to be air", which a
+   tunnel ceiling also satisfies. `view/paint.js` is the one reader in `src/`,
+   for grass and canopy caps, and it calls this from the chunk-paint pass
+   (cached per version) rather than per frame. `tools/worldgen-check.mjs`
+   reads it too, to find air that worldgen buried.
+
+   BAND-LOCAL, so it answers "yes" for a band whose row 0 is itself buried --
+   `topsoil`'s is, under 28 rows of surface rock. Anything deciding whether
+   DAYLIGHT reaches a tile wants `worldSkyAt` below instead. */
 export const skyExposedAt = (b, tx, ty) => {
   for (let y = ty - 1; y >= 0; y--) if (solidAt(b, tx, y)) return false;
   return true;
 };
+
+/* A clear vertical path out of the WORLD, across band seams. True daylight.
+
+   The walk ends at the top of a band that carries sky of its own
+   (`model/world.js#hasOwnSky`), and crosses into the band above otherwise.
+   `topsoil` carries none, so a shaft dug to its row 0 keeps walking up into
+   the surface band's rock and reports false -- which is the whole difference
+   from `skyExposedAt`.
+
+   CHEAP AT ROW 0, which is where both callers ask most. The in-band loop runs
+   zero times there, so the answer costs one `hasOwnSky` test for a band with
+   its own sky and one solidity test per band above for one that has not.
+   Never call it per TILE over a whole band: like `skyExposedAt` it walks the
+   column, so per-tile use over a 128x320 band is close to quadratic.
+
+   `up.ord >= band.ord` ends the walk at a band that is not above this one, so
+   a content layout with two bands claiming each other's sky cannot loop. */
+export function worldSkyAt(b, tx, ty) {
+  const wx = worldX(b, tx) + b.tile / 2;
+  let band = b, y = ty - 1;
+  for (;;) {
+    const cx = tileX(band, wx);
+    for (; y >= 0; y--) if (solidAt(band, cx, y)) return false;
+    if (hasOwnSky(band)) return true;
+    const wy = band.origin.y - 1;
+    const up = bandAt(wx, wy);
+    if (!up || up.ord >= band.ord) return true;
+    band = up;
+    y = tileY(up, wy);
+  }
+}
 
 /* BASE hardness in seconds at pick power 1. Deliberately the base and not the
    effective value: the `hard` tunable is applied in `rules/mining.js` through

@@ -8,11 +8,15 @@
    `seen`, and the only thing it reads FROM here is `lightAt()`, to keep its
    own flood from mapping a pitch-black cavern by standing in it.
 
-   PROPAGATION is a multi-source flood from every emitter -- every sky-exposed
-   tile at `eff('lightMax')`, every lit machine, and the player's own tile
-   while a `timber/brand` burns -- decrementing `eff('lightFalloffAir')` per
+   PROPAGATION is a multi-source flood from every emitter -- every tile open
+   to its own band's sky at `eff('lightMax')`, every lit machine, the player's
+   own tile while a `timber/brand` burns, and row 0 at whatever the band above
+   carried down across the seam -- decrementing `eff('lightFalloffAir')` per
    tile of open air crossed and `eff('lightFalloffRock')` per tile of solid
    rock, so light does not leak through strata the way sight already does not.
+   A BAND'S ROW 0 IS NOT SKY. Only a band carrying sky of its own
+   (`model/world.js#hasOwnSky`) seeds daylight; `topsoil`'s row 0 is buried
+   under the surface band's rock and is lit only by what reaches it.
    Implemented as a bucketed relaxation (Dial's algorithm: levels are small
    bounded integers, so a level-indexed array of queues, walked from brightest
    to dimmest, replaces a real priority queue at no cost) rather than a plain
@@ -34,8 +38,9 @@
    emitter set (position and level of every lit machine, plus the carried
    brand), because an emitter turning on or off or a fuel charge running out
    never touches a tile byte at all and would otherwise be invisible to a
-   `ver`-based check. Whichever band actually changed recomputes; the other two
-   do not, most frames neither does. */
+   `ver`-based check. Whichever band actually changed recomputes, plus the band
+   below it, whose row 0 reads the changed field across the seam; the rest do
+   not, and most frames none does. */
 
 import { F } from '../data/forms.js';
 import { S } from '../data/substances.js';
@@ -45,14 +50,26 @@ import { eff } from '../model/mods.js';
 import { player, playerBox } from '../model/player.js';
 import { invCount, run, write as rw } from '../model/run.js';
 import { solidAt } from '../model/tiles.js';
-import { bands, idx, inBounds, tileX, tileY, write as ww } from '../model/world.js';
+import { bandAt, bandSpans, bands, hasOwnSky, idx, inBounds, lightAt, tileX, tileY, worldX,
+         write as ww } from '../model/world.js';
 
+/* THE SEAM CASCADE. `recompute` carries light down across a band seam, so a
+   band's field depends on the band above having settled. `bands` is in
+   top-down declaration order (`model/world.js#bandAbove` is the previous
+   element, by construction), so one pass in that order is enough -- and a
+   band whose upstairs neighbour relit must relight too, or it keeps a flood
+   seeded from a field that has since moved. `carried` is that signal, and it
+   is a scalar rather than a set because the only band it ever has to describe
+   is the one immediately above. */
 export function step(dt) {
   tickBrand(dt);
+  const brand = brandSeeds();
+  let carried = false;
   for (const b of bands) {
-    const emitters = emittersFor(b);
-    const sig = signatureOf(emitters);
-    if (isDirty(b, sig)) recompute(b, emitters);
+    const emitters = emittersFor(b, brand);
+    const relight = isDirty(b, signatureOf(emitters)) || carried;
+    if (relight) recompute(b, emitters);
+    carried = relight;
   }
 }
 
@@ -86,7 +103,7 @@ function tickBrand(dt) {
    `eff()` (only `model/mods.js` may import `data/tuning.js`), so the row
    says the WORD and this, the interpreter, resolves it.
    See docs/DEVELOPER_GUIDE.md#light-emitters */
-function emittersFor(b) {
+function emittersFor(b, brand) {
   const out = [];
   for (const m of machines) {
     if (m.band !== b) continue;
@@ -96,15 +113,28 @@ function emittersFor(b) {
     const level = def.light.level === 'max' ? eff('lightMax') : def.light.level;
     out.push({ tx: m.tx, ty: m.ty, level });
   }
-  if (player.band === b && run.brandLeft > 0) {
-    const box = playerBox();
-    out.push({
-      tx: tileX(b, box.x + box.w / 2),
-      ty: tileY(b, box.y + box.h / 2),
-      level: eff('brandLevel')
-    });
-  }
+  for (const s of brand)
+    if (s.b === b) out.push({ tx: s.tx, ty: s.ty, level: eff('brandLevel') });
   return out;
+}
+
+/* WHERE A LIT BRAND SEEDS, one entry per band the player's hitbox overlaps.
+   `player.band` alone leaves the half of a straddling player's body that sits
+   in the other band's grid unlit, since the flood is per band and the seam
+   carry only runs downward.
+
+   The tile is the occupied one nearest the box CENTRE, clamped into that
+   band's own span, so a player standing clear of a seam seeds exactly the one
+   tile their centre falls in and nothing about the common case moves. */
+function brandSeeds() {
+  if (run.brandLeft <= 0 || !player.band) return [];
+  const box = playerBox();
+  const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+  return bandSpans(box.x, box.y, box.w, box.h).map(s => ({
+    b: s.b,
+    tx: Math.min(s.tx1, Math.max(s.tx0, tileX(s.b, cx))),
+    ty: Math.min(s.ty1, Math.max(s.ty0, tileY(s.b, cy)))
+  }));
 }
 
 /* A cheap rolling hash of the active emitter set, so "a brazier just ran dry"
@@ -155,18 +185,47 @@ function recompute(b, emitters) {
     if (lvl > best[i]) { best[i] = lvl; buckets[lvl].push(i); }
   };
 
-  /* Sky: walk DOWN from row 0 once per column and stop after the first solid
-     tile, exactly `rules/reveal.js#passA`'s own loop -- `skyExposedAt` walks
-     to row 0 EVERY call and running it per tile over a 128x320 band is close
-     to quadratic, so this never calls it at all. Every tile from row 0 to and
-     including that first solid tile is "sky exposed" by the identical
-     definition `skyExposedAt` uses (nothing solid strictly above it), so all
-     of them seed at `max`, not just the ground line. */
-  for (let tx = 0; tx < b.tw; tx++)
-    for (let ty = 0; ty < b.th; ty++) {
-      seed(tx, ty, max);
-      if (solidAt(b, tx, ty)) break;
-    }
+  /* SKY, and only a band that carries sky of its own gets any
+     (`model/world.js#hasOwnSky`). Walk DOWN from row 0 once per column and
+     stop after the first solid tile, exactly `rules/reveal.js#passA`'s own
+     loop -- `worldSkyAt` and `skyExposedAt` both walk a whole column, and
+     running either per tile over a 128x320 band is close to quadratic, so
+     this calls neither. Every tile from row 0 to and including that first
+     solid tile has nothing solid above it and therefore a clear path to the
+     band's own sky, so all of them seed at `max`, not just the ground line.
+
+     `topsoil` carries no sky, and its row 0 used to seed at `max` here under
+     28 rows of surface rock at level 0. Nothing about this loop could tell:
+     row 0 was the first solid tile it looked at. */
+  if (hasOwnSky(b))
+    for (let tx = 0; tx < b.tw; tx++)
+      for (let ty = 0; ty < b.th; ty++) {
+        seed(tx, ty, max);
+        if (solidAt(b, tx, ty)) break;
+      }
+
+  /* THE SEAM CARRY, which is what a buried row 0 gets instead. Each column
+     takes the level the band above finished at one world row up, minus the
+     cost of entering this tile -- the same falloff `relax` charges anywhere
+     else, so a shaft dug through the seam carries daylight down and solid
+     rock over the seam carries nothing. The band above has already settled
+     this frame (see `step`).
+
+     Where no band lies above a column the world really is open there, so it
+     seeds at `max`. That covers the topmost band and a column sticking out
+     horizontally past the band above it.
+
+     ONE DIRECTION ONLY. A brazier below a seam does not light the rock above
+     it, because resolving both directions needs the flood iterated to a fixed
+     point across bands rather than one top-down pass -- see docs/FINDINGS.md. */
+  const wyAbove = b.origin.y - 1;
+  for (let tx = 0; tx < b.tw; tx++) {
+    const wx = worldX(b, tx) + b.tile / 2;
+    const a = bandAt(wx, wyAbove);
+    if (!a || a.ord >= b.ord) { seed(tx, 0, max); continue; }
+    const lvl = lightAt(a, tileX(a, wx), tileY(a, wyAbove));
+    if (lvl > 0) seed(tx, 0, lvl - (solidAt(b, tx, 0) ? rock : air));
+  }
 
   for (const e of emitters) if (inBounds(b, e.tx, e.ty)) seed(e.tx, e.ty, e.level);
 

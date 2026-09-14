@@ -12,9 +12,10 @@
    Two independent passes:
 
      PASS A -- open sky. Unbounded, and reads no tunable: there is nothing to
-     obstruct a view across open air, so standing anywhere with a clear shot to
-     the top of the band's own grid reveals the WHOLE sky-exposed silhouette of
-     that band, not a radius around the player.
+     obstruct a view across open air, so standing anywhere with a clear shot
+     out of the WORLD (`model/tiles.js#worldSkyAt`, not the band's own row 0)
+     reveals every column of the band that shares that shot, not a radius
+     around the player.
 
      PASS B -- underground. Bounded. A flood-fill through open tiles, blocked
      by solid rock, capped at a graph distance (`eff('sightRadius')`,
@@ -49,8 +50,8 @@
 
 import { eff } from '../model/mods.js';
 import { player, playerBox } from '../model/player.js';
-import { skyExposedAt, solidAt } from '../model/tiles.js';
-import { chunkOf, chunkVer, inBounds, lightAt, tileX, tileY, write as ww } from '../model/world.js';
+import { solidAt, worldSkyAt } from '../model/tiles.js';
+import { bandSpans, chunkOf, chunkVer, inBounds, lightAt, write as ww } from '../model/world.js';
 
 /* Perf-only cache for Pass B, MODULE-LOCAL AND DELIBERATELY NOT IN `model/`
    (docs/DEVELOPER_GUIDE.md#module-local-perf-caches): keyed by the band
@@ -60,59 +61,71 @@ import { chunkOf, chunkVer, inBounds, lightAt, tileX, tileY, write as ww } from 
    below too, so a band going away mid-frame (there is no such path today, but
    nothing here should rely on that) can't leave a stale reference pointing at
    a dead one. */
-let lastBand = null, lastTx0 = NaN, lastTy0 = NaN, lastTx1 = NaN, lastTy1 = NaN, lastVer = NaN;
+let lastBand = null, lastKey = NaN, lastVer = NaN;
 
+/* EVERY BAND THE HITBOX OVERLAPS, never `player.band` alone. A player whose
+   feet are in `topsoil` and whose head is in `surface` has a `player.band` of
+   `topsoil` and a `tileY(topsoil, ...)` of -1 for the head rows, which
+   `model/world.js#inBounds` rejects without saying so -- so the tiles the
+   player is standing in went unrevealed and `view/scene.js#drawFog` painted
+   over half the sprite. */
 export function step() {
   const b = player.band;
   if (!b) { lastBand = null; return; }           // no world yet; never in play
 
   const box = playerBox();
-  const tx0 = tileX(b, box.x), tx1 = tileX(b, box.x + box.w - 1);
-  const ty0 = tileY(b, box.y), ty1 = tileY(b, box.y + box.h - 1);
+  const spans = bandSpans(box.x, box.y, box.w, box.h);
+  if (!spans.length) { lastBand = null; return; }
 
-  passA(b, tx0, ty0, tx1, ty1);
-  passB(b, tx0, ty0, tx1, ty1);
+  for (const s of spans) passA(s.b, s.tx0, s.ty0, s.tx1, s.ty1);
+  passB(b, spans);
 }
 
 /* ---------- Pass A: unlimited sky reveal ----------
-   Gated on a CHEAP check first: `skyExposedAt` on the player's own occupied
-   tiles only (at most the 2-4 columns/rows the hitbox actually straddles),
-   which is the same one-tile-at-a-time cost `view/paint.js` already pays for
-   a grass cap. Only if that says "yes, standing under open sky" does this pay
-   for the band-wide pass below -- a player underground, the common case,
-   never reaches it at all. */
+   Gated on a CHEAP check first: `worldSkyAt` on the player's own occupied
+   tiles only (at most the 2-4 columns/rows the hitbox actually straddles).
+   Only if that says "yes, standing under open sky" does this pay for the
+   band-wide pass below -- a player underground, the common case, never
+   reaches it at all.
+
+   THE GATE ASKS ABOUT THE WORLD, not about this band's own grid.
+   `skyExposedAt` stops at row 0 of whatever band it was handed, and
+   `topsoil`'s row 0 is buried under 28 rows of surface rock, so a player
+   38 tiles down their own shaft satisfied it and un-fogged the band's whole
+   row 0 -- 128 columns of rock nothing had ever seen. */
 function passA(b, tx0, ty0, tx1, ty1) {
   let exposed = false;
   for (let ty = ty0; ty <= ty1 && !exposed; ty++)
     for (let tx = tx0; tx <= tx1; tx++)
-      if (skyExposedAt(b, tx, ty)) { exposed = true; break; }
+      if (worldSkyAt(b, tx, ty)) { exposed = true; break; }
   if (!exposed) return;
 
   /* THE WHOLE POINT: reveal the band's entire sky-exposed silhouette, not
-     just where the player stands. Never call `skyExposedAt` per tile here --
-     it walks from a tile all the way up to row 0 EVERY call, so doing that
-     for every tile of a 128x320 band would be close to quadratic and far too
-     slow to run every frame. Instead walk DOWN from row 0 once per column and
-     stop AFTER the first solid tile -- the identical fact `skyExposedAt`
-     checks ("a clear vertical path to the top of the band's own grid" for
-     everything ABOVE a tile, which says nothing about that tile's own
-     solidity), computed once per column instead of once per tile. REVEAL,
+     just where the player stands. ONE `worldSkyAt` PER COLUMN, at row 0,
+     which is the cheapest row to ask about -- its in-band walk is empty, so a
+     band with sky of its own answers in one test and a band without answers
+     in one solidity test per band above it (see `model/tiles.js`). Never ask
+     per TILE: that walks the column every call and is close to quadratic over
+     a 128x320 band.
+
+     Then walk DOWN from row 0 and stop AFTER the first solid tile. REVEAL,
      THEN CHECK SOLID, in that order: the ground you are standing on -- the
-     first solid tile a column hits -- IS sky-exposed by this exact
-     definition (nothing above IT is solid) and must be revealed too, or the
-     visible, walkable surface would stay fogged everywhere except the
-     handful of tiles Pass B's flood already reaches around the player, while
-     the open air above it was fully lit -- a floating-sky-over-a-dark-strip
-     bug this project's own screenshots caught. Only what is BENEATH that
-     first solid tile is genuinely obstructed, so the loop stops there. Total
-     cost of a full scan is bounded by the number of tiles actually revealed
-     (typically a shallow surface skin) plus one solidity check per column,
-     never by band area. */
-  for (let tx = 0; tx < b.tw; tx++)
+     first solid tile a column hits -- has nothing solid above it and must be
+     revealed too, or the visible, walkable surface would stay fogged
+     everywhere except the handful of tiles Pass B's flood already reaches
+     around the player, while the open air above it was fully lit -- a
+     floating-sky-over-a-dark-strip bug this project's own screenshots caught.
+     Only what is BENEATH that first solid tile is genuinely obstructed, so
+     the loop stops there. Total cost of a full scan is bounded by the number
+     of tiles actually revealed (typically a shallow surface skin) plus the
+     per-column tests, never by band area. */
+  for (let tx = 0; tx < b.tw; tx++) {
+    if (!worldSkyAt(b, tx, 0)) continue;
     for (let ty = 0; ty < b.th; ty++) {
       ww.reveal(b, tx, ty);
       if (solidAt(b, tx, ty)) break;
     }
+  }
 }
 
 /* ---------- Pass B: bounded local sight ----------
@@ -148,19 +161,37 @@ function passA(b, tx0, ty0, tx1, ty1) {
    map until some UNRELATED tile write nearby happened to force a rerun.
    `model/world.js#write.touchLight` is bumped once per light recompute by
    `rules/light.js`, which runs immediately before this step, so this frame's
-   relight is what a stale check here would otherwise miss. */
-function passB(b, tx0, ty0, tx1, ty1) {
-  const c0 = chunkOf(b, tx0, ty0), c1 = chunkOf(b, tx1, ty1);
-  let ver = 0;
-  for (let cy = c0.cy - 1; cy <= c1.cy + 1; cy++)
-    for (let cx = c0.cx - 1; cx <= c1.cx + 1; cx++)
-      if (cx >= 0 && cx < b.cx && cy >= 0 && cy < b.cy) ver += chunkVer(b, cx, cy);
-  ver += b.lightVer;
+   relight is what a stale check here would otherwise miss.
 
-  if (b === lastBand && tx0 === lastTx0 && ty0 === lastTy0 &&
-      tx1 === lastTx1 && ty1 === lastTy1 && ver === lastVer) return;
-  lastBand = b; lastTx0 = tx0; lastTy0 = ty0; lastTx1 = tx1; lastTy1 = ty1; lastVer = ver;
+   ONE THROTTLE, ONE FLOOD PER STRADDLED BAND. The version sum and the tile
+   key both run over every span, so a crossing frame cannot be throttled away
+   by the half of the box that did not move. `home` is `player.band` and it is
+   in the key by OBJECT IDENTITY: `newRun()` hands out fresh band records, so
+   the cache is already stale on a restart with no reset call to forget. The
+   tile box is folded into a rolling hash rather than compared field by field
+   because the number of spans varies.
 
+   Each span floods its own band. The flood does not cross the seam, and it
+   does not need to -- the player's own tiles seed it on both sides. */
+function passB(home, spans) {
+  let ver = 0, key = 0;
+  for (const s of spans) {
+    const b = s.b;
+    const c0 = chunkOf(b, s.tx0, s.ty0), c1 = chunkOf(b, s.tx1, s.ty1);
+    for (let cy = c0.cy - 1; cy <= c1.cy + 1; cy++)
+      for (let cx = c0.cx - 1; cx <= c1.cx + 1; cx++)
+        if (cx >= 0 && cx < b.cx && cy >= 0 && cy < b.cy) ver += chunkVer(b, cx, cy);
+    ver += b.lightVer;
+    key = (key * 131 + b.ord * 8191 + s.tx0 * 977 + s.ty0 * 37 + s.tx1 * 13 + s.ty1) | 0;
+  }
+
+  if (home === lastBand && key === lastKey && ver === lastVer) return;
+  lastBand = home; lastKey = key; lastVer = ver;
+
+  for (const s of spans) flood(s.b, s.tx0, s.ty0, s.tx1, s.ty1);
+}
+
+function flood(b, tx0, ty0, tx1, ty1) {
   const radius = eff('sightRadius');
   const key = (tx, ty) => ty * b.tw + tx;
   const seen = new Set();

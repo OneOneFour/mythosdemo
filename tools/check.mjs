@@ -4460,16 +4460,20 @@ console.log('\n8. Phase 11 TIER 2 harness gaps');
    radius -- which proves the rule exists, not that it binds independently
    of the cap.
 
-   THE AUDIT'S OWN PREMISE, CHECKED AND FOUND FALSE BEFORE WRITING THIS:
-   "topsoil carries non-zero ambient light" is not why that test can't
-   isolate the gate. `data/world.js#look.ambient` is read in exactly two
-   places, `view/paint.js#cavityColour` and `view/scene.js#atmosphere` --
-   both pure render tint, neither ever reaching `model/world.js#b.light` or
-   `rules/light.js`. No band's `ambient` touches the light FIELD at all;
-   `lightAt()` reads 0 wherever nothing REAL (sky or an emitter) reaches,
-   in every band alike, which is the ordinary state of anywhere underground.
-   There is no zero-ambient band to go find, because ambient was never the
-   gate. What actually isolates the two mechanisms is a real light GRADIENT
+   AMBIENT IS NOT THE GATE, and "topsoil carries non-zero ambient light" is
+   not why that test can't isolate it. `data/world.js#look.ambient` is read in
+   exactly two places, `view/paint.js#cavityColour` and
+   `view/scene.js#atmosphere` -- both pure render tint, neither ever reaching
+   `model/world.js#b.light` or `rules/light.js`. No band's `ambient` touches
+   the light FIELD at all, so there is no zero-ambient band to go find.
+
+   `lightAt()` reads 0 wherever nothing real reaches, and what counts as real
+   is three things: the sky of a band that carries one
+   (`model/world.js#hasOwnSky`), an emitter, and the level a band above
+   carried down across a seam. Section 8o holds the seam carry to one tile of
+   falloff, so `ty0 = 260` below is far enough down `topsoil` for the carry to
+   have died out long before -- which is what lets this probe treat a dark
+   corridor as dark. What actually isolates the two mechanisms is a real light GRADIENT
    that dies out before the radius does -- any emitter dimmer than
    `eff('sightRadius')` (14) produces exactly that: a fuelled `brazier`
    (`level:12`, `rules/light.js`'s own falloff of 1/tile through open air)
@@ -7535,6 +7539,267 @@ console.log('\n8n. EVERY CALLOUT FITS THE NARROWEST BUFFER (view/hud.js#bottomLi
     ok(`CALLOUT FIT: all ${rows.length} data/callouts.js rows wrap inside ${inner}px at the ` +
        `${BASE_W_MIN}px floor (widest line ${widest}px), and ${wouldOverflow.length} of them ` +
        `overflow it unwrapped -- so the wrap is load-bearing`);
+}
+
+console.log('\n8o. DAYLIGHT STOPS AT A SEAM (docs/AUDIT-seam-light.md)');
+
+/* Every seam in the world, as the two tile rows that touch across it, derived
+   from `model/world.js#bandAbove` rather than from band ids -- a fourth band
+   costs this section nothing. Columns are mapped through WORLD X, so a band
+   with a different `tile` or `origin.x` than its neighbour is still compared
+   against the column that is actually above it (invariant 2). */
+function seamRows() {
+  const out = [];
+  for (const b of world.bands) {
+    const a = world.bandAbove(b);
+    if (a) out.push({ a, b });
+  }
+  return out;
+}
+const seamCols = (a, b, tx) => {
+  const wx = world.worldX(b, tx) + b.tile / 2;
+  return { atx: world.tileX(a, wx), aty: a.th - 1 };
+};
+
+/* --- CLAIM 1: LIGHT DOES NOT CROSS A SEAM FOR FREE.
+
+   The level either side of a seam may differ by at most one tile of falloff,
+   because a buried row 0 is seeded from the band above through exactly the
+   same `relax` cost as any other tile. `eff('lightFalloffRock')` is the
+   larger of the two costs, so it is the bound whichever the tile is.
+
+   A BAND CARRYING SKY OF ITS OWN IS EXEMPT, and the exemption is content
+   rather than slack: astral's floor slab is solid over every column of the
+   surface band, whose own 20 rows of sky are what light it, so the step across
+   that ceiling is 0 to 15 by design. The claim is about a band whose row 0 is
+   BURIED -- `topsoil`'s is, under 28 rows of surface rock. --- */
+{
+  boot.newRun(1337);
+  runReal(4, 1 / 120);
+  const bound = mods.eff('lightFalloffRock');
+  let checked = 0, bad = 0, worst = -1, worstAt = '';
+
+  for (const { a, b } of seamRows()) {
+    if (world.hasOwnSky(b)) continue;
+    for (let tx = 0; tx < b.tw; tx++) {
+      const { atx, aty } = seamCols(a, b, tx);
+      if (!world.inBounds(a, atx, aty)) continue;
+      const d = Math.abs(world.lightAt(a, atx, aty) - world.lightAt(b, tx, 0));
+      checked++;
+      if (d > worst) { worst = d; worstAt = `${a.id} ${atx},${aty} -> ${b.id} ${tx},0`; }
+      if (d > bound) bad++;
+    }
+  }
+
+  if (!checked)
+    fail('SEAM LIGHT (no free crossing): no seam has a band with a buried row 0 below it, so this ' +
+         'claim checked nothing -- either the band table changed or hasOwnSky no longer means what ' +
+         'rules/light.js seeds by');
+  else if (bad)
+    fail(`SEAM LIGHT (no free crossing): ${bad} of ${checked} column(s) step by more than ` +
+         `eff('lightFalloffRock') (${bound}) across a seam, worst ${worst} at ${worstAt}. Sky is ` +
+         `being seeded into a band's own row 0 regardless of what the world above it holds`);
+  else
+    ok(`SEAM LIGHT (no free crossing): all ${checked} buried column(s) across the world's seams ` +
+       `step by at most eff('lightFalloffRock') (${bound}), worst ${worst} at ${worstAt}`);
+}
+
+/* --- CLAIM 2: NO BAND'S ROW 0 IS DAYLIGHT UNLESS THE WORLD ABOVE IT IS OPEN.
+
+   Stated as an implication over every band and every column, so it binds at a
+   dug shaft as well as at boot: a row-0 tile reading `eff('lightMax')` must
+   satisfy `model/tiles.js#worldSkyAt`. NON-VACUOUS BY COUNT -- astral's and
+   surface's row 0 really are daylight and really do have sky, so the
+   antecedent has to fire hundreds of times before the claim can pass. --- */
+{
+  let bad = 0, daylight = 0, first = '';
+  for (const seed of [1337, 4242, 9550]) {
+    boot.newRun(seed);
+    runReal(4, 1 / 120);
+    const max = mods.eff('lightMax');
+    for (const b of world.bands)
+      for (let tx = 0; tx < b.tw; tx++) {
+        if (world.lightAt(b, tx, 0) < max) continue;
+        daylight++;
+        if (tiles.worldSkyAt(b, tx, 0)) continue;
+        bad++;
+        if (!first) first = `seed ${seed}, ${b.id} column ${tx}`;
+      }
+  }
+
+  if (!daylight)
+    fail('SEAM LIGHT (row 0 daylight): no band reads eff(\'lightMax\') at row 0 in any of the three ' +
+         'seeds, so the implication is vacuous -- the spawn band has lost its own sky');
+  else if (bad)
+    fail(`SEAM LIGHT (row 0 daylight): ${bad} of ${daylight} row-0 column(s) at eff('lightMax') have ` +
+         `no path out of the world above them, first at ${first}. That is a band lit by nothing`);
+  else
+    ok(`SEAM LIGHT (row 0 daylight): all ${daylight} row-0 column(s) reading eff('lightMax') over ` +
+       `three seeds have a clear path out of the world (model/tiles.js#worldSkyAt)`);
+}
+
+/* --- CLAIM 3: A CROSSING REVEALS A BOUNDED NEIGHBOURHOOD.
+
+   The shaft is carved from surface row 44 down, NOT from the sky, so nothing
+   above row 44 is open and `worldSkyAt` is false the whole way -- Pass A never
+   fires and every tile revealed below is Pass B's, bounded by
+   `eff('sightRadius')`. That is the point of the scene: before the fix, Pass A
+   fired on `skyExposedAt` and un-fogged all 128 columns of topsoil's row 0 in
+   the single substep `player.band` flipped.
+
+   The bound is Manhattan distance in tiles from the box's own swept path, which
+   is a NECESSARY condition on a 4-connected flood capped at graph distance
+   `radius` -- a tile the flood reached cannot be further than `radius` hops
+   from a seed, and a hop is one tile. --- */
+{
+  const SEED = 4242, TX = 20, W = 2;
+  boot.newRun(SEED);
+  const sur = world.bandOf('surface'), top = world.bandOf('topsoil');
+  const carved = seamCarve(sur, TX, 44, sur.th - 1, W) && seamCarve(top, TX, 0, 15, W);
+
+  player.write.spawn(sur, TX, 45);
+  const before = world.bands.map(b => b.seen.slice());
+
+  let loY = Infinity, hiY = -Infinity;
+  for (let i = 0; i < 150; i++) {
+    stepReal(1 / 120, {});
+    const box = player.playerBox();
+    loY = Math.min(loY, box.y); hiY = Math.max(hiY, box.y + box.h - 1);
+    if (run.run.dead) break;
+  }
+
+  const radius = mods.eff('sightRadius');
+  let newly = 0, outside = 0, worstCol = 0, firstBad = '';
+  world.bands.forEach((b, bi) => {
+    const rowLo = world.tileY(b, loY) - radius, rowHi = world.tileY(b, hiY) + radius;
+    for (let ty = 0; ty < b.th; ty++)
+      for (let tx = 0; tx < b.tw; tx++) {
+        const i = world.idx(b, tx, ty);
+        if (b.seen[i] === before[bi][i]) continue;
+        newly++;
+        const col = Math.max(0, Math.abs(tx - TX) - (W - 1));
+        if (col > worstCol) worstCol = col;
+        const beyond = col > radius || ty < rowLo || ty > rowHi;
+        if (beyond) { outside++; if (!firstBad) firstBad = `${b.id} ${tx},${ty}`; }
+      }
+  });
+
+  const row0 = (() => { let n = 0; for (let tx = 0; tx < top.tw; tx++) if (world.seenAt(top, tx, 0)) n++; return n; })();
+  const row0Bound = W + 2 * radius;
+
+  if (!carved)
+    fail('SEAM REVEAL (bounded): the probe failed to carve its own shaft, so the claim is vacuous');
+  else if (player.player.band !== top || newly === 0)
+    fail(`SEAM REVEAL (bounded): the player ended in "${player.player.band.id}" having newly revealed ` +
+         `${newly} tile(s) -- the scene never crossed the seam, so nothing here is under test`);
+  else if (outside)
+    fail(`SEAM REVEAL (bounded): ${outside} of ${newly} newly revealed tile(s) sit outside ` +
+         `eff('sightRadius') (${radius}) of the box's swept path, first at ${firstBad}, worst column ` +
+         `offset ${worstCol}. Pass A is firing on a shaft that has no path to the sky`);
+  else if (row0 > row0Bound)
+    fail(`SEAM REVEAL (bounded): ${row0} of ${top.tw} topsoil row-0 columns are revealed, over the ` +
+         `${row0Bound} a ${W}-wide shaft plus eff('sightRadius') either side can reach`);
+  else
+    ok(`SEAM REVEAL (bounded): crossing into topsoil down a sunless shaft reveals ${newly} tile(s), ` +
+       `every one within eff('sightRadius') (${radius}) of the box's own path (worst column offset ` +
+       `${worstCol}), and ${row0} of ${top.tw} row-0 columns against a bound of ${row0Bound}`);
+}
+
+/* --- CLAIM 4: THE PLAYER'S OWN TILES ARE REVEALED IN EVERY BAND THE HITBOX
+   OVERLAPS.
+
+   Both seams, and the box straddling each of them in both DIRECTIONS -- which
+   is about which band `rules/player.js#reband` hands back, not about which way
+   the player is travelling. `reband` reads the box CENTRE, so a box bottom past
+   the seam with its centre still above gives `ty1 >= b.th`, and a box top above
+   the seam with its centre already below gives `ty0 < 0`. Both used to lose
+   their out-of-range rows: `model/world.js#write.reveal` refuses an
+   out-of-bounds tile silently, so `view/scene.js#drawFog` painted over seven of
+   the sprite's sixteen rows.
+
+   TWO GUARDS, BECAUSE NEITHER ALONE KEEPS A SCENE HONEST. The expected band is
+   asserted, so a change to `reband`'s split cannot quietly collapse four
+   scenes into two. And each scene counts how many of the player's own tiles
+   were fogged BEFORE the step, so a scene whose tiles were already revealed
+   reports that rather than passing on it. `preSeen` marks the one scene where
+   that is the world's own doing and not a flaw: `shell/boot.js` calls
+   `revealRows(home, floorTy + 8)` at spawn, which reveals every column of
+   surface rows 0..27, so the lower side of the astral seam is never fogged in
+   a real run. That direction is covered non-vacuously at the surface/topsoil
+   seam instead. --- */
+{
+  const TX = 20;
+  const scenes = [
+    { seam: 'astral/surface', y: 308, band: 'astral', preSeen: 'boot revealRows covers surface rows 0..27',
+      carve: [['astral', 34, 39], ['surface', 0, 4]] },
+    { seam: 'astral/surface', y: 314, band: 'surface',
+      carve: [['astral', 34, 39], ['surface', 0, 4]] },
+    { seam: 'surface/topsoil', y: 756, band: 'surface',
+      carve: [['surface', 50, 55], ['topsoil', 0, 4]] },
+    { seam: 'surface/topsoil', y: 762, band: 'topsoil',
+      carve: [['surface', 50, 55], ['topsoil', 0, 4]] }
+  ];
+
+  let bad = 0;
+  const notes = [];
+  for (const sc of scenes) {
+    boot.newRun(4242);
+    for (const [id, from, to] of sc.carve) seamCarve(world.bandOf(id), TX, from, to, 2);
+    const home = world.bandOf(sc.band);
+    player.write.spawn(home, TX, world.tileY(home, sc.y));
+    player.write.move(world.worldX(home, TX) + 1, sc.y);
+    player.write.vel(0, 0);
+
+    /* Counted in the bands the hitbox reaches OTHER than `player.band`, which
+       is the only side the claim is about -- Pass B has always revealed the
+       player's own band, so pre-fogged tiles there would let a scene pass on
+       the half that was never broken. */
+    const box0 = player.playerBox();
+    let preUnseen = 0;
+    for (const s of world.bandSpans(box0.x, box0.y, box0.w, box0.h))
+      if (s.b !== home)
+        for (let ty = s.ty0; ty <= s.ty1; ty++)
+          for (let tx = s.tx0; tx <= s.tx1; tx++)
+            if (!world.seenAt(s.b, tx, ty)) preUnseen++;
+
+    stepReal(1 / 120, {});
+
+    const box = player.playerBox();
+    const spans = world.bandSpans(box.x, box.y, box.w, box.h);
+    let unseen = 0, firstBad = '';
+    for (const s of spans)
+      for (let ty = s.ty0; ty <= s.ty1; ty++)
+        for (let tx = s.tx0; tx <= s.tx1; tx++)
+          if (!world.seenAt(s.b, tx, ty)) { unseen++; if (!firstBad) firstBad = `${s.b.id} ${tx},${ty}`; }
+
+    const label = `${sc.seam} at y ${sc.y}, player.band ${sc.band}`;
+    if (spans.length < 2) {
+      fail(`SEAM REVEAL (own tiles): ${label} -- the box spans ${spans.length} band(s), so the ` +
+           `scene is not straddling the seam at all and proves nothing`);
+      bad++;
+    } else if (player.player.band !== home) {
+      fail(`SEAM REVEAL (own tiles): ${label} -- reband put the player in ` +
+           `"${player.player.band.id}" instead, so this scene no longer tests the direction it names`);
+      bad++;
+    } else if (!preUnseen && !sc.preSeen) {
+      fail(`SEAM REVEAL (own tiles): ${label} -- every tile the hitbox overlaps was already revealed ` +
+           `before the step, so this scene would pass with rules/reveal.js doing nothing`);
+      bad++;
+    } else if (unseen) {
+      fail(`SEAM REVEAL (own tiles): ${label} -- ${unseen} of the player's own occupied tile(s) are ` +
+           `still fogged, first at ${firstBad}. rules/reveal.js is seeding player.band alone`);
+      bad++;
+    } else {
+      notes.push(`${sc.seam} y${sc.y}/${sc.band}: ${preUnseen} fogged across the seam before` +
+                 (sc.preSeen ? ` (${sc.preSeen})` : ''));
+    }
+  }
+
+  if (!bad) {
+    console.log('  ..  ' + notes.join('; '));
+    ok(`SEAM REVEAL (own tiles): at both seams, with the box straddling each in both directions ` +
+       `(ty1 >= b.th and ty0 < 0), every tile the hitbox overlaps is revealed in both bands`);
+  }
 }
 
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +

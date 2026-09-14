@@ -297,6 +297,49 @@ A seen-but-dark tile therefore stays visibly distinct from both a fully-lit
 tile and an unseen (fog) one, and an ore vein is visually swamped by the
 darkest step well before its glint treatment could read as ore.
 
+### 11.1 Daylight, band seams and the world sky
+
+**A band's row 0 is not sky.** Daylight is seeded only into a band that
+carries sky of its own, which `src/model/world.js#hasOwnSky` reads off
+`data/world.js#floorTy` — the same ground line `view/scene.js` and
+`view/paint.js` already divide sky from excavated rock by. `astral` declares
+30 rows of sky and `surface` declares 20; `topsoil` declares 0, because its
+row 0 is buried under 28 rows of surface rock.
+
+| band | `floorTy` | own sky | row 0 at boot |
+|---|---|---|---|
+| `astral` | 30 | yes | `lightMax` (15) |
+| `surface` | 20 | yes | `lightMax` (15) |
+| `topsoil` | 0 | no | 0 |
+
+**Content states a band's sky, not occlusion.** The astral floor slab is solid
+across all 128 columns and sits 19 tiles over the surface band's own sky, so a
+pure "is anything solid above it in the world" test darkens the spawn band
+whole. `hasOwnSky` is the statement that the surface has a sky; occlusion
+decides everything under it.
+
+**The seam carry.** A band with no sky of its own takes row 0 from the band
+above: the level that band finished at one world row up, minus the ordinary
+`relax` cost of entering this tile (`lightFalloffAir` through air,
+`lightFalloffRock` through rock). So a shaft dug through the seam carries
+daylight down — surface 15 becomes topsoil 14, 13, 12 down the shaft — and
+solid rock over the seam carries nothing. Where no band lies above a column,
+the world really is open there and the column seeds at `lightMax`.
+
+The carry runs **downward only**. `src/rules/light.js#step` walks `bands` in
+top-down declaration order and relights a band whenever the band above relit,
+so one pass settles it; the upward direction would need the flood iterated to
+a fixed point across bands and is not implemented (`docs/FINDINGS.md`).
+
+**Fog of war asks the same question.** `src/rules/reveal.js`'s Pass A gates on
+`src/model/tiles.js#worldSkyAt`, which walks up across seams and stops at the
+top of a band that carries sky, rather than on the band-local `skyExposedAt`.
+A shaft dug 38 tiles down `topsoil` therefore does not read as sky-exposed.
+Pass B seeds over **every band the hitbox overlaps** (`model/world.js#bandSpans`),
+so a player straddling a seam has their own tiles revealed on both sides.
+
+`tools/check.mjs` section 8o holds all four facts.
+
 ## 12. Mining tiers and the automated line (Phase 2c)
 
 Locked with `docs/BUILD_PLAN.md` Phase 2c. A GATE on top of hardness, not a

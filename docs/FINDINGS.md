@@ -2694,3 +2694,37 @@ also what gives it its first execution.
   wide a string is. `tools/check.mjs` section 8n asserts every row fits when
   wrapped and that at least one would overflow unwrapped, so the wrap is
   proven load-bearing rather than assumed.
+
+## Phase: the II->III seam lights a row nothing reaches (docs/AUDIT-seam-light.md §6.1-2)
+
+- **The audit's §7 assertion 2, taken literally, darkens the spawn band.** It
+  asks that `lightAt(b, tx, 0) === 0` "for each band with a band above,
+  wherever the band above is solid at its last row". `data/world.js:59` makes
+  astral rows 30-39 a stone slab across all 128 columns, and it sits directly
+  over `surface`'s own 20 rows of sky, so that reading takes the whole spawn
+  band to light 0 and `view/scene.js#DARK_ALPHA[0]` paints it at 0.94. The
+  world is a contiguous stack and the surface's daylight is a content
+  statement, not an occlusion fact. The assertion shipped as "daylight at row
+  0 implies `model/tiles.js#worldSkyAt`", with the same teeth at the
+  surface/topsoil seam and no claim about a band that carries its own sky.
+  `docs/SPEC.md` §11.1 records the rule and the table.
+
+- **The seam carry runs downward only** (`src/rules/light.js:213`). A brazier
+  below a seam does not light the rock above it, so a shaft crossing the seam
+  with a light source in the lower band stays dark on the upper side.
+  Resolving both directions needs the flood iterated to a fixed point across
+  bands, or one flood over the union of bands, rather than the single top-down
+  pass `step` makes. Neither is in the audit's scope.
+
+- **`src/view/scene.js:791` steps the whole screen 8x in one frame at the
+  surface/topsoil seam.** `atmosphere()` reads `bandAt(cam.x + W/2, cam.y +
+  H/2)` and tints by `min(0.55, (1 - ambient) * 1.1)`, which is 0.055 for
+  `surface` and 0.440 for `topsoil`. The audit's §2, and a `view` phase's to
+  fix; the light fix does not touch it.
+
+- **`src/rules/player.js:319` `rowBand` can now be deleted in favour of
+  `model/world.js#bandSpans`.** `boxSolid`, `boxClimb` and their siblings walk
+  world rows to get the seam split right, which is the same fact `bandSpans`
+  returns as a per-band tile box. Not touched here — `rules/player.js` is
+  outside this phase's ownership, and section 8h's motion claims are what
+  would have to re-prove the refactor.
