@@ -43,6 +43,18 @@ const shot = (page, name) => expect(page.locator('#stage')).toHaveScreenshot(nam
 const settle = async (page, seed = 1337) =>
   page.evaluate(s => { __mf.newRun(s); __mf.clock.t = 10; __mf.frames(2); }, seed);
 
+/* PAST THE ALTAR'S ARRIVAL. Tutorial beat 4 releases cycle 1's altar (D17-G)
+   and `view/scene.js` then gives it a rise and a shaft of light for
+   `altarRiseSecs`, 1.6 s, which is 192 substeps at the fixed 1/120 s step.
+   241 is that plus the placing frame plus room over.
+
+   A scene that jumps the beat to get past the tutorial callout and then
+   photographs a drivetrain, a growing seed or a panel would otherwise be shot
+   under that light. Waiting it out is the same move these scenes already make
+   for the title card and the callout -- the subject of the picture wins. */
+const ARRIVAL_SUBSTEPS = 241;
+const pastArrival = page => page.evaluate(n => __mf.frames(n), ARRIVAL_SUBSTEPS);
+
 /* TEST-ONLY QUICKBAR SETUP. The quickbar is `run.inv`'s own tail, so putting
    a pair into a SPECIFIC cell means collecting it and then moving it from
    wherever `write.collect` put it (docs/SPEC.md section 24: the quickbar's
@@ -4504,7 +4516,7 @@ const CRANKS = (tx, tyTop, tyBottom) => {
 };
 
 async function driveScene(page, spec) {
-  return page.evaluate(async (spec) => {
+  return page.evaluate(async ({ spec, arrival }) => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { M } = await import('/src/data/machines.js');
@@ -4563,6 +4575,12 @@ async function driveScene(page, spec) {
     clearLink();
     __mf.cmd.hasMouse = false;
 
+    /* The beat jump above releases the altar, so its arrival is waited out
+       here -- after the player is parked in the shaft, so the 2 s of idle
+       simulation cannot sweep up the stock pickaxe at spawn. See
+       `ARRIVAL_SUBSTEPS`. */
+    __mf.frames(arrival);
+
     /* Anything that has to happen BEFORE the motion is measured -- lighting a
        brazier, mostly, which takes seconds of simulation the carrier would
        spend sliding to the bottom of its cable. */
@@ -4614,7 +4632,7 @@ async function driveScene(page, spec) {
       turning: machines.filter(m => m.turn > 0).length,
       driven: machines.filter(m => m.torque > 0).length
     };
-  }, spec);
+  }, { spec, arrival: ARRIVAL_SUBSTEPS });
 }
 
 const MOTION_SHAFT = { tx0: 40, ty0: 24, w: 12, h: 23, sky: true };
@@ -5236,6 +5254,7 @@ test('17e: all four stat rows are reachable in the Character tab, at the desktop
     const { write: rw, run } = await import('/src/model/run.js');
     while (run.tutorialBeat < 4) rw.advanceBeat();
   });
+  await pastArrival(page);
   await page.keyboard.press('e');
   await page.evaluate(() => __mf.frames(1));
   await quietHud(page);
@@ -6195,6 +6214,9 @@ async function sproutScene(page) {
     banner.fade = 0;
   }, SPROUT);
   await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(2); });
+  /* The beat jump above releases the altar and it stands in frame here.
+     See `ARRIVAL_SUBSTEPS`. */
+  await pastArrival(page);
 }
 
 /* Centre the sprout in whatever viewport is current and render ONCE.
@@ -6652,7 +6674,16 @@ const SCENES = {
     });
   },
 
-  'the draft modal': async page => { await payTrial(page, 3); }
+  'the draft modal': async page => { await payTrial(page, 3); },
+
+  /* The arrival is the one draw path that animates off `run.t` and a
+     positional hash, so it is the one most likely to reach for `rand()`.
+     Frozen mid-presentation, since `draw()` advances no clock. See
+     `altarArrives`. */
+  'the altar arriving': async page => {
+    await altarArrives(page);
+    await page.evaluate(n => __mf.frames(n), MID_ARRIVAL);
+  }
 };
 
 for (const [name, setup] of Object.entries(SCENES)) {
@@ -6708,3 +6739,92 @@ test('op stream: the draft modal is drawn, and closing it removes those ops', as
   expect(open.length - closed.length).toBeGreaterThan(100);
 });
 
+
+/* ============================================================
+   PHASE 17f2 -- THE ALTAR'S ARRIVAL
+   ============================================================ */
+
+/* Beat 4 is `rules/cycles.js#ALTAR_BEAT`, the climbed-back-up beat that
+   releases cycle 1's altar (D17-G). Jumped rather than played, because the
+   dig and the climb that fire it for real are other tests' subject. The
+   `frames(1)` is what gives the director a frame to place anything in --
+   a scene that jumps the beat and draws without stepping gets no altar at
+   all (docs/REVIEW-wave5-17f1.md D2). */
+async function altarArrives(page) {
+  await page.evaluate(async () => {
+    const { write: rw, run } = await import('/src/model/run.js');
+    while (run.tutorialBeat < 4) rw.advanceBeat();
+    /* The opening title card is still up two substeps into a run and it sits
+       straight across the altar. Cleared the same way `ratedCycle` above
+       clears it. */
+    (await import('/src/view/fx.js')).banner.fade = 0;
+    __mf.frames(1);
+  });
+}
+
+/* The arrival's own rectangle in SCREEN px, grown by a margin that takes in
+   the base flare and still leaves the idling player out -- they spawn 6
+   tiles away, and a crop that reached them would answer for their blink
+   rather than for the altar. */
+const arrivalCrop = page => page.evaluate(() => {
+  const a = __mf.run.arrival;
+  const m = __mf.machines.find(mm => mm.box.x === a.x && mm.box.y === a.y);
+  const pad = 12;
+  return {
+    x: Math.max(0, (a.x - __mf.cam.x - pad) | 0),
+    y: Math.max(0, (a.y - __mf.cam.y - pad) | 0),
+    w: m.box.w + pad * 2,
+    h: m.box.h + pad * 2
+  };
+});
+
+/* 29 substeps past placement is p = 0.151 of `altarRiseSecs`, which is 8 of
+   the altar's 16 px still underground and the shaft at full strength. */
+const MID_ARRIVAL = 29;
+
+test('17f2: the altar rises out of the ground under a shaft of light', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await altarArrives(page);
+  await page.evaluate(n => __mf.frames(n), MID_ARRIVAL);
+  await shot(page, 'altar-arrival.png');
+});
+
+test('17f2: the arrival is not vacuous -- the same altar with the window closed is a different picture', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await altarArrives(page);
+
+  await page.evaluate(n => __mf.frames(n), MID_ARRIVAL);
+  const crop = await arrivalCrop(page);
+  const mid = await canvasHash(page, crop);
+  const midOps = await recordOps(page, () => page.evaluate(() => __mf.draw()));
+  const pinned = await page.evaluate(() => ({ t: __mf.clock.t, x: __mf.cam.x, y: __mf.cam.y }));
+
+  /* Two seconds of simulated time, which is past `altarRiseSecs` at 1.6 s.
+     The altar has not moved and the stamp is still on `run`; only the window
+     has closed.
+
+     THE RENDER CLOCK AND THE CAMERA ARE BOTH PUT BACK before the second
+     draw, and the hash assertion below is worthless without both. The
+     altar's halo pulses off `clock.t`, and `updateCamera` is still easing
+     onto the player over those 2 s, so a crop taken later differs whether or
+     not there is a presentation -- measured, with `arrivalOf` stubbed to
+     return null, once for each. Pinned, `run.t` is the only thing inside the
+     crop that has moved, and `run.t` reaches the renderer through the
+     arrival and nothing else. */
+  await page.evaluate(() => __mf.frames(240));
+  expect(await page.evaluate(() => __mf.run.arrival !== null)).toBe(true);
+  await shot(page, 'altar-arrival-over.png');
+
+  await page.evaluate(p => {
+    __mf.clock.t = p.t; __mf.cam.x = p.x; __mf.cam.y = p.y; __mf.draw();
+  }, pinned);
+  const done = await canvasHash(page, crop);
+  const doneOps = await recordOps(page, () => page.evaluate(() => __mf.draw()));
+
+  expect(mid).not.toBe(done);
+  /* The shaft is a scanline per screen row plus 36 motes, so it cannot cost
+     a handful of ops. */
+  expect(midOps.length - doneOps.length).toBeGreaterThan(100);
+});

@@ -210,7 +210,25 @@ export const RUN_SCHEMA = Object.freeze({
      `brandLeft` above are: it resets with everything else (invariant 8) for
      free, and a beat sheet surviving a restart is exactly the determinism
      bug that invariant names. */
-  tutorialBeat: 0
+  tutorialBeat: 0,
+
+  /* WHERE AND WHEN THE DIRECTOR LAST PUT A MACHINE DOWN ON THE PLAYER'S
+     BEHALF, or `null` until it has. `{ x, y, t }` -- world px of the
+     machine's box top-left, and `run.t` at the moment it appeared, so
+     simulated seconds at the fixed 1/120 s substep and never `Date.now()`
+     (invariant 10).
+
+     It exists so `view/scene.js` can tell how far through an arrival is
+     without knowing which machine arrived. The renderer matches the record
+     against `m.box.x`/`m.box.y` and draws the rise and the shaft of light
+     for whatever it finds there, so no machine NAME reaches `view`
+     (ARCHITECTURE section 3). Written by `rules/cycles.js` and read by
+     nothing else.
+
+     A POSITION AND NOT A MACHINE REFERENCE: `run` is plain-serialisable
+     everywhere else, and a live record holding a band holding typed arrays
+     would be the one field that is not. */
+  arrival: null
 });
 
 export const META_SCHEMA = Object.freeze({
@@ -431,7 +449,12 @@ export const write = {
      `RUN_SCHEMA.tutorialBeat`), and a writer that cannot be handed a number
      cannot be handed a smaller one. The DECISION about whether a beat's
      condition holds is `rules/tutorial.js`'s; this is only the increment. */
-  advanceBeat() { run.tutorialBeat++; bump(); }
+  advanceBeat() { run.tutorialBeat++; bump(); },
+
+  /* Stamp a director placement for the renderer. `x`/`y` are the machine
+     box's world-px top-left; the instant is taken from `run.t` here rather
+     than passed in, so no caller can stamp one in the past. */
+  arrival(x, y) { run.arrival = { x, y, t: run.t }; bump(); }
 };
 
 /* ---- queries ---- */

@@ -77,7 +77,13 @@ const INK = {
   seed:   colour('woodD'),
   stem:   colour('vdC'),
   leaf:   colour('vdB'),
-  leafHi: colour('vdA')
+  leafHi: colour('vdA'),
+  /* The arrival's shaft of light. `ichor` is the divine tone the altar's own
+     `look.halo` already names, read from the palette rather than off the row
+     so no machine reaches this file. The white is the hot centre of the
+     shaft and the dust falling down it. See `drawArrival`. */
+  shaft:  colour('ichor'),
+  shaftHi: colour('cloudA')
 };
 
 export const stats = { chunksDrawn: 0, bandsDrawn: 0 };
@@ -118,8 +124,15 @@ export function render(g, f) {
      as they do the rock it sits on. */
   drawLiveTiles(g, f);
 
-  for (const m of machines)
-    paintMachine(g, m, (m.box.x - cam.x) | 0, (m.box.y - cam.y) | 0, f.t);
+  /* Read once and used twice, in two passes that must agree about which
+     machine is arriving and how far through it is. */
+  const arriving = arrivalOf();
+
+  for (const m of machines) {
+    const sx = (m.box.x - cam.x) | 0, sy = (m.box.y - cam.y) | 0;
+    if (arriving && arriving.m === m) rising(g, m, sx, sy, f, arriving.p);
+    else paintMachine(g, m, sx, sy, f.t);
+  }
 
   drawItems(g, f);
   drawPlayer(g, f);
@@ -128,6 +141,10 @@ export function render(g, f) {
   drawDarkness(g, f);
   drawFog(g, f);
   atmosphere(g, f);
+  /* AFTER `atmosphere`, for the reason the machine halo inside it is: a shaft
+     of light dimmed by the depth tint and the vignette it is supposed to cut
+     through reads as a grey smear. */
+  if (arriving) drawArrival(g, f, arriving);
 
   if (f.flags.showGrid)   overlay(g, cam, W, H, player.band?.tile ?? 8, INK.grid, 0.16);
   if (f.flags.showChunks) overlay(g, cam, W, H, player.band ? chunkPx(player.band) : 128, INK.chunk, 0.5);
@@ -799,6 +816,101 @@ function atmosphere(g, f) {
     glow(g, m.box.x + m.box.w / 2 - cam.x, m.box.y + m.box.h - 2 - cam.y,
          12 + m.fire * 8, INK.heat, 0.4 * m.fire);
   }
+}
+
+/* ---------- the arrival ----------
+   `rules/cycles.js` stamps `run.arrival` with the world position and the
+   instant the director put a machine down for the player. Both passes below
+   read that stamp, so neither knows WHICH machine arrived and no machine
+   name reaches this file (ARCHITECTURE section 3).
+
+   TIME COMES FROM `run.t`, the fixed 1/120 s accumulator the stamp itself is
+   taken from, so the presentation runs the same length at 30 fps and at
+   144 fps and it ENDS. Variety comes from `hash2` of the arrival's own world
+   position. Nothing here touches `rand()` (invariant 7).
+
+   The presentation is gated on the arrival being on screen, so an altar
+   reaching the surface while the player is 200 m down darkens nothing. */
+
+const MOTES = 36;
+
+/* The machine is out of the ground by 70% of the window, so the light
+   outlives the motion and has something to fade over. */
+const RISE_FRAC = 0.7;
+
+/* Fast out of the floor, slow into place. */
+const easeOut = p => 1 - (1 - p) ** 3;
+
+function arrivalOf() {
+  const a = run.arrival;
+  if (!a) return null;
+  const secs = eff('altarRiseSecs');
+  const p = secs > 0 ? (run.t - a.t) / secs : 1;
+  if (!(p >= 0) || p >= 1) return null;
+  const m = machines.find(mm => mm.box.x === a.x && mm.box.y === a.y);
+  return m ? { m, p } : null;
+}
+
+/* The machine climbing out of its own footprint, drawn in the machines pass
+   in place of the ordinary `paintMachine` call. Clipped to its own base --
+   which stands on the band floor -- so the part still underground is hidden
+   by the ground instead of drawn in front of it. `save`/`restore` balance
+   across the one painted call. */
+function rising(g, m, sx, sy, f, p) {
+  const drop = Math.round((1 - easeOut(Math.min(1, p / RISE_FRAC))) * m.box.h);
+  if (drop <= 0) { paintMachine(g, m, sx, sy, f.t); return; }
+  g.save();
+  g.beginPath();
+  g.rect(0, 0, f.W, Math.max(0, sy + m.box.h));
+  g.clip();
+  paintMachine(g, m, sx, sy + drop, f.t);
+  g.restore();
+}
+
+/* The sky darkening a notch, a shaft of light down onto the machine, dust
+   falling through it, and a flare where it lands (docs/SPEC.md section 5).
+   Screen px throughout; entered with `globalAlpha` at 1 and left at 1. */
+function drawArrival(g, f, { m, p }) {
+  const { cam, W, H } = f;
+  const base = (m.box.y + m.box.h - cam.y) | 0;
+  const cx = (m.box.x + m.box.w / 2 - cam.x) | 0;
+  /* Half-widths at the top of the viewport and at the machine's base. */
+  const hi = Math.max(2, (m.box.w * 0.4) | 0), lo = Math.max(3, m.box.w);
+  if (base <= 0 || cx + lo < 0 || cx - lo >= W) return;
+
+  /* In over the first eighth, hold, then out. */
+  const env = p < 0.12 ? p / 0.12 : p > 0.65 ? (1 - p) / 0.35 : 1;
+  const bot = Math.min(base, H);
+
+  g.globalAlpha = env * 0.22;
+  R(g, 0, 0, W, H, INK.void);
+
+  for (let y = 0; y < bot; y++) {
+    const u = y / base;
+    const hw = (hi + (lo - hi) * u) | 0;
+    g.globalAlpha = env * (0.06 + 0.2 * u);
+    R(g, cx - hw, y, hw * 2, 1, INK.shaft);
+  }
+
+  g.globalAlpha = env * 0.45;
+  R(g, cx - 1, 0, 3, bot, INK.shaftHi);
+
+  /* Dust falling with the light. `seed` is the arrival's own world position,
+     so two arrivals in different places scatter differently and the same
+     arrival scatters the same way on every repaint. */
+  const seed = m.box.x * 7 + m.box.y;
+  for (let k = 0; k < MOTES; k++) {
+    const y = (((hash2(seed, k) + p * 1.7) % 1) * base) | 0;
+    if (y < 0 || y >= bot) continue;
+    const hw = (hi + (lo - hi) * (y / base)) | 0;
+    const x = (cx + (hash2(k, seed) * 2 - 1) * hw) | 0;
+    if (x < 0 || x >= W) continue;
+    g.globalAlpha = env * (0.35 + 0.5 * hash2(k, seed + 1));
+    R(g, x, y, 1, 1, INK.shaftHi);
+  }
+
+  g.globalAlpha = 1;
+  glow(g, cx, base, 8 + 26 * env, INK.shaft, 0.5 * env);
 }
 
 function overlay(g, cam, W, H, pitch, col, alpha) {

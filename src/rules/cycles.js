@@ -180,7 +180,11 @@ function ensureAltarPlaced() {
   if (machines.some(m => m.def === M.altar)) return;
   const band = bandOf(SPAWN_BAND);
   const def = MACH[M.altar];
-  mw.place(band, M.altar, band.cfg.spawnTx - def.tw - SPAWN_GAP, band.cfg.floorTy - def.th);
+  const m = mw.place(band, M.altar, band.cfg.spawnTx - def.tw - SPAWN_GAP, band.cfg.floorTy - def.th);
+  /* The instant and the place, for `view/scene.js` to draw the rise and the
+     shaft of light against. A position rather than the machine, so the
+     renderer never learns a machine name -- see `RUN_SCHEMA.arrival`. */
+  rw.arrival(m.box.x, m.box.y);
 }
 
 /* ONLY THE LIVE CYCLE'S OWN RECEIVER PAYS IT (Phase 13d, docs/SPEC.md

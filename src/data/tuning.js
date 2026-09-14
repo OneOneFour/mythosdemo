@@ -159,6 +159,19 @@ export const TUNABLES = [
   { id:'altarGraceSecs', kind:'value', base:80, unit:'s',
     note:'the altar arrives this long into a run whatever the tutorial beat says; the beat sheet puts it at 1:20' },
 
+  /* How long the arrival is still happening. `view/scene.js` measures
+     `run.t - run.arrival.t` against this and draws nothing once it is past,
+     so the presentation ends on simulated seconds rather than on frames.
+
+     1.6 S IS TWO BEATS AT THE GAME'S OWN WALKING TEMPO. Long enough to look
+     up at, short enough that a player already walking toward the altar
+     arrives after it has settled -- `SPAWN_GAP`'s 4 tiles plus the altar's
+     own 2 is 48 px, which `walk` above covers in 0.8 s, so the light is
+     still on when they set off and gone before they can feed it. Read only
+     by `view/scene.js`. */
+  { id:'altarRiseSecs', kind:'value', base:1.6, unit:'s',
+    note:'how long the altar takes to rise and its shaft of light to fade' },
+
   /* ---- the HUD's one urgency threshold (docs/SPEC.md section 20.6). Every
      countdown `view/hud.js` draws flashes under the same number of seconds:
      a boon's remaining time and the tribute deadline. 5 s is what the boon

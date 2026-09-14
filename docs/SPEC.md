@@ -124,6 +124,24 @@ wall-clock time, so the grace is the same length of *game* at every framerate.
 `tools/check.mjs` section 7a proves both routes, and proves the grace-placed
 altar can still be fed cycle 1's ten ore and pay the trial.
 
+**And it arrives with a presentation.** The fifth row's sky, light and rise are
+drawn by `view/scene.js`, over `altarRiseSecs` = **1.6 s**:
+
+| element | what it does |
+|---|---|
+| sky | the whole viewport dims by up to 0.22 and releases |
+| shaft | a tapering column of `ichor` from the top of the viewport down to the altar's base, brightest where it lands |
+| dust | 36 motes falling down the shaft, scattered by `hash2` of the altar's own world position |
+| rise | the altar climbs out of its own footprint, clipped to the band floor, and is fully up by 70% of the window |
+| flare | a `glow` at the base, growing and fading with the shaft |
+
+`rules/cycles.js` stamps `run.arrival` with the machine box's world-px
+top-left and `run.t` at placement; the renderer matches that position against
+the machines it is drawing, so no machine name reaches `view`. Progress is
+`run.t` against `altarRiseSecs`, so the presentation lasts the same length of
+game at every framerate and it **ends**. Nothing in it consumes `rand()`
+(invariant 7), and it draws nothing at all while the altar is off screen.
+
 ## 6. Carried over from the mockup unchanged
 
 - `core/` in full — palette, 5x7 bitmap font, mulberry/hash RNG, integer-pixel
