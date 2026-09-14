@@ -75,13 +75,17 @@ cargo are parked in `FUTURE_IDEAS.md`.
 Gentle by design. The refinement quotas escalate from cycle 2 onward; cycle 1
 only has to teach that the gods ask and the player answers.
 
-**A throughput quota is a second clause on a demand, and cycle 4 carries the
-only one.** A cycle row may add `rate:{ sub, form, n, secs }` beside its
-`demand`, which asks for `n` of that pair inside any window of `secs` seconds
-of simulated time. §18.10 holds the shape, the arithmetic and the numbers.
-Cycle 1 carries neither a `rate` nor a `deadlineSecs`, so it measures nothing
-but the answer. The furnace arrives as the cycle-1 reward, which means minute
-two ends on "gods give machines" rather than on a timer.
+**Throughput quotas are still NOT IMPLEMENTED, and a batch clause is not
+one.** A cycle row may add `batch:{ sub, form, n, secs }` beside its `demand`,
+which asks for `n` of that pair to *arrive* inside any window of `secs`
+seconds of simulated time. That constrains how tightly deliveries are bunched
+and says nothing about how fast the player produces, because a credit is
+stamped when cargo reaches the receiver — a stockpile hauled up in one trip
+credits in one instant. §18.10 holds the shape, the numbers and why arrivals
+cannot be made to measure production. Cycle 1 carries neither a `batch` nor a
+`deadlineSecs`, so it measures nothing but the answer. The furnace arrives as
+the cycle-1 reward, which means minute two ends on "gods give machines" rather
+than on a timer.
 
 ## 5. First two minutes — beat sheet
 
@@ -1550,7 +1554,7 @@ column applies §8's compression ratios; `granite/gravel` has no ratio of its
 own there (§8 only prices the refined tiers), so it is counted as raw mined
 units, gated by `tile.tier` rather than by compression.
 
-| # | god | at | demand | ore-equiv. | deadline | rate (§18.10) | reward | punishment |
+| # | god | at | demand | ore-equiv. | deadline | batch (§18.10) | reward | punishment |
 |---|---|---|---|---|---|---|---|---|
 | 1 | hephaestus | `altar` | 10 `copper/ore` | 10 | **none** | — | +1 favour; grant `furnace` + `cloud_dock`; chart `astral` | — (cannot be missed) |
 | 2 | hephaestus | `cloud_dock` | 3 `copper/plate` | 36 (+12 fuel across the two compression steps) | 480 s | — | +2 favour; chart `topsoil`; draft `grant` (2 of 2, the tier's whole roster, §18.8) | 1 heart, −1 favour |
@@ -1569,10 +1573,11 @@ never asks**: the asker set is `{hephaestus, athena, poseidon}` — `ares`
 stays the shipped trap god (§14) and `hades` is untouched, reserved for
 `docs/DESIGN.md`'s Hades act, where his being the first god to address the
 player in person is the whole reveal. **Cycle 4 also carries the table's only
-rate clause**, and it lands there because cycle 4's plate half is the one ask
+batch clause**, and it lands there because cycle 4's plate half is the one ask
 in the table that otherwise teaches nothing new — the third plate demand in a
 row, after cycle 2 has already taught compression. The tier gate is about the
-pick; the rate clause is what makes the same cycle about the factory.
+pick; the batch clause is about how you ship. §18.10 records that on these
+numbers it does not bite a single-trip haul.
 
 ### 18.5 The ledger
 
@@ -1585,7 +1590,7 @@ run.tribute   { id, have, left, credits } | null. REPLACED WHOLE, never
               patched in place -- a demand and its own deadline can never be
               observed half-applied. `have` is keyed the model/items.js#keyOf
               way, the same convention m.buf and run.inv already use.
-              `credits` is the rate clause's own ledger, section 18.10.
+              `credits` is the batch clause's own ledger, section 18.10.
 run.favour    { [godId]: int }, run-scoped
 run.charted   [bandId], KNOWLEDGE and not access -- there is no band lock
 run.misses    count of expired deadlines
@@ -1799,21 +1804,33 @@ modal so its restart button stays reachable, which would otherwise leave the
 real: `complete()` writes `run.offer` inside a substep and `raiseOffer()`
 opens the panel once per frame, so the rest of that frame still simulates.
 
-### 18.10 The rate clause (Phase 17d)
+### 18.10 The batch clause (Phase 17d)
 
-`docs/PLAN-wave5-closeout.md` D17-C. A cycle row may carry one optional
-`rate` block beside its `demand`:
+`docs/PLAN-wave5-closeout.md` D17-C, as renamed by its own review. A cycle
+row may carry one optional `batch` block beside its `demand`:
 
 ```
-rate:{ sub, form, n, secs }   deliver n of that CONCRETE PAIR to the cycle's
+batch:{ sub, form, n, secs }  deliver n of that CONCRETE PAIR to the cycle's
                               own receiver inside ANY window of `secs`
                               seconds. One block per row at most.
 ```
 
 **Both clauses must hold.** `model/run.js#tributeMet()` stays the single
-completion predicate and gains a second term, so a rate clause constrains a
-flat count and never replaces one. A row with no `rate` key is unchanged in
-every respect, and `rateMet()` reads `true` for it.
+completion predicate and gains a second term, so a batch clause constrains a
+flat count and never replaces one. A row with no `batch` key is unchanged in
+every respect, and `batchMet()` reads `true` for it.
+
+**It is not a throughput quota, and one cannot be built this way.** A credit
+is stamped in `rules/cycles.js#creditTribute`, which runs when a receiver's
+buffer is drained, so four plates hauled up together are one credit of four
+at one instant. The mechanism never sees production at all. A player who
+stockpiles for ten minutes and then makes two trips satisfies a window whose
+nominal rate is 2 plates a minute while producing at 0.8. What the clause
+really measures is how tightly arrivals are bunched, which is worth having —
+it forbids the dribble of one unit per trip — but it is a different quantity
+and this spec calls it by its own name. §4's older claim of a throughput
+quota is withdrawn. A real one needs either credits stamped at production or
+demands too large for one load, both recorded in `FUTURE_IDEAS.md`.
 
 **Simulated time only.** The window is measured against `run.t`, which
 `model/run.js#write.tick` advances by the fixed 1/120 s substep. Nothing in
@@ -1822,29 +1839,35 @@ at 30 fps and at 144 fps.
 
 **The ledger.** `run.tribute.credits` is an array of `{ t, n }`, appended by
 `rules/cycles.js#creditTribute` in nondecreasing `t` order, holding only
-credits of the rated pair. A credit counts while `run.t - c.t <= secs`.
+credits of the batched pair. A credit counts while `run.t - c.t <= secs`.
 `model/run.js#write.tribute` prunes on every write, twice: it drops credits
 older than the window, then drops the oldest of what is left while the
 remaining sum still reaches `n`. Each surviving entry carries at least 1, so
-the array is bounded by `rate.n` entries and not by the length of the run.
+the array is bounded by `batch.n` entries and not by the length of the run.
 Dropping an older entry once the newer suffix already reaches `n` can never
 change a later answer, because the answer is a threshold on that suffix.
+`batchHave()` therefore saturates near `batch.n` and is not a count of what
+was delivered.
 
-**The numbers, and the margin.** Cycle 4 carries the only clause in the
-shipped table: **4 `copper/plate` inside 120 s**, against a bill of 8 plates
-and a 360 s deadline.
+**The numbers, and what they do and do not do.** Cycle 4 carries the only
+clause in the shipped table: **4 `copper/plate` inside 120 s**, against a
+bill of 8 plates and a 360 s deadline.
 
 - Refining is not the constraint. One plate is 3 ingots and 1 fuel through
   `press` (8.0 s), each ingot 4 ore and 1 fuel through `smelt` (4.0 s), so a
   furnace feeding a press produces one plate per 12 s of furnace time and 4
   plates cost 48 s of the 120 s window.
-- The haul is not the constraint either, because a credit is stamped when
-  cargo reaches the receiver and not while it is climbing. Four plates weigh
-  9.6 T, which one carrier lifts and one player carries, so the whole 8-plate
-  bill pays the clause in two hauls of four however long each haul takes.
-- What the clause forbids is the dribble — one plate per trip, eight trips,
-  which is the naive play against §18.2's 240 px of relay and is what makes
-  every demand in the game a pile today.
+- The haul is not the constraint either. Eight `copper/plate` weigh 19.2 T
+  (`massOfPair` = copper's 1.0 × `plate.massK` 2.4) against `burden` 40 T and
+  `burdenSoft` 30 T, so the whole bill rides up in one climb at no speed
+  penalty and credits in one instant.
+- **So on these numbers the clause does not bite the natural single-trip
+  play.** It bites only a player who chooses four or more separate trips
+  spaced more than 40 s apart. Making it bind would need `n × 2.4 > 40`, i.e.
+  seventeen plates or more, which is triple this trial's cost on a cycle
+  nobody has played end to end. The balance change is not worth buying the
+  word, so the numbers stand and this paragraph is the honest record of what
+  they buy.
 
 ## 19. Deposits, rubble and the packed block (Phase 14a)
 

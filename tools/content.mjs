@@ -787,9 +787,9 @@ export function checkContent({ quiet = false } = {}) {
                `not be able to give it away`);
       }
 
-      /* THE RATE CLAUSE IS A CRASH GUARD, NOT A LINT (Phase 17d,
+      /* THE BATCH CLAUSE IS A CRASH GUARD, NOT A LINT (Phase 17d,
          docs/SPEC.md section 18.10). `rules/cycles.js#creditTribute` calls
-         `keyOf(S[rate.sub], F[rate.form])` on every delivery to a rated
+         `keyOf(S[batch.sub], F[batch.form])` on every delivery to a batched
          cycle's receiver, and `model/items.js#keyOf` reads `SUB[sub].id`, so
          a typo'd `sub` or `form` throws a TypeError mid-substep on the first
          delivery of ANY pair to that receiver -- it does not quietly leave a
@@ -797,27 +797,27 @@ export function checkContent({ quiet = false } = {}) {
          (`granite/plate`) is the quiet case, and `holdable` is what catches
          it. `secs` must be positive for the same reason `deadlineSecs` may
          not be zero: a window of no width is one nothing can land inside. */
-      if (c.rate !== undefined) {
-        const r = c.rate;
-        const rsub = S[r?.sub], rform = F[r?.form];
+      if (c.batch !== undefined) {
+        const b = c.batch;
+        const bsub = S[b?.sub], bform = F[b?.form];
         checks++;
-        if (rsub === undefined || rform === undefined || !holdable(rsub, rform)) {
-          fail(`cycle "${c.id}": rate names ${r?.sub}/${r?.form}, which is not a holdable pair -- ` +
+        if (bsub === undefined || bform === undefined || !holdable(bsub, bform)) {
+          fail(`cycle "${c.id}": batch names ${b?.sub}/${b?.form}, which is not a holdable pair -- ` +
                `rules/cycles.js#creditTribute keys the window on it through model/items.js#keyOf, ` +
                `which throws a TypeError on the first delivery to this cycle's receiver`);
         } else {
           checks++;
-          if (expand(`${r.sub}/${r.form}`).length === 0)
-            fail(`cycle "${c.id}": the rate selector ${r.sub}/${r.form} expands to nothing -- see ` +
+          if (expand(`${b.sub}/${b.form}`).length === 0)
+            fail(`cycle "${c.id}": the batch selector ${b.sub}/${b.form} expands to nothing -- see ` +
                  `data/forms.js#expand, which exists for exactly this`);
         }
         checks++;
-        if (!(Number.isInteger(r?.n) && r.n > 0))
-          fail(`cycle "${c.id}": rate.n is ${JSON.stringify(r?.n)}; it is a positive integer of ` +
+        if (!(Number.isInteger(b?.n) && b.n > 0))
+          fail(`cycle "${c.id}": batch.n is ${JSON.stringify(b?.n)}; it is a positive integer of ` +
                `delivered units, and model/run.js#prunedCredits bounds the ledger by it`);
         checks++;
-        if (!(Number.isFinite(r?.secs) && r.secs > 0))
-          fail(`cycle "${c.id}": rate.secs is ${JSON.stringify(r?.secs)}; it is a finite positive ` +
+        if (!(Number.isFinite(b?.secs) && b.secs > 0))
+          fail(`cycle "${c.id}": batch.secs is ${JSON.stringify(b?.secs)}; it is a finite positive ` +
                `number of simulated seconds -- zero is a window nothing can land inside, so the ` +
                `trial would be unpayable for ever`);
       }

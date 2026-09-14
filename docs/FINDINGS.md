@@ -2382,30 +2382,31 @@ also what gives it its first execution.
   the MENU row's three labels cost 171 px against 188 px at the floor, so it
   never wraps and its pixels did not move.
 
-## Phase 17d (the rolling-window rate demand)
+## Phase 17d (the rolling-window batch clause)
 
 - **Out of FILE OWNERSHIP, taken anyway because this phase would otherwise
   ship a red `npm run check`: `tools/check.mjs:5369`'s WIN STATE loop.** The
   probe stubs a delivery by writing `have` straight onto `run.tribute`, which
   is the one path that skips `rules/cycles.js#creditTribute` and therefore
-  never stamps a rate credit. Cycle 4 now carries a rate clause, so
+  never stamps a batch credit. Cycle 4 now carries a batch clause, so
   `tributeMet()` stayed false there and the win boundary never arrived. The
   repair fills the window the same way a real credit does, two lines inside
   the existing probe's setup, and adds no assertion. Nothing else in `tools/`
   writes `have` for cycle 4.
 
-- **CORRECTED, AND CLOSED. A typo'd rated pair crashes the game; it does not
-  fail quietly.** The first version of this entry said a typo in
-  `src/data/cycles.js:153`'s `rate:{ sub, form, n, secs }` would leave "a
-  clause nothing can ever satisfy and nothing would throw". That is wrong.
-  `rules/cycles.js#creditTribute` calls `keyOf(S[rate.sub], F[rate.form])`,
-  and `model/items.js#keyOf:32` reads `SUB[sub].id`, so a bad `sub` evaluates
-  `SUB[undefined].id` and raises a `TypeError` mid-substep — on the first
-  delivery of ANY pair to that cycle's receiver, not only of the rated one.
-  The `rate &&` guard does not short-circuit it, because `rate` is truthy. A
-  one-character content error takes the run down mid-trial. Only a pair that
-  is valid but unholdable, say `granite/plate`, is the quiet case the old
-  entry described. `tools/content.mjs` assertion 19 now validates `rate` the
+- **CORRECTED, AND CLOSED. A typo'd batched pair crashes the game; it does
+  not fail quietly.** The first version of this entry said a typo in
+  `src/data/cycles.js`'s `batch:{ sub, form, n, secs }` (then named `rate`)
+  would leave "a clause nothing can ever satisfy and nothing would throw".
+  That is wrong. `rules/cycles.js#creditTribute` calls
+  `keyOf(S[batch.sub], F[batch.form])` and `model/items.js#keyOf:32` reads
+  `SUB[sub].id`, so a bad `sub` evaluates `SUB[undefined].id` and raises a
+  `TypeError` mid-substep — on the first delivery of ANY pair to that cycle's
+  receiver, not only of the batched one. The `batch &&` guard does not
+  short-circuit it, because `batch` is truthy. A one-character content error
+  takes the run down mid-trial. Only a pair that is valid but unholdable, say
+  `granite/plate`, is the quiet case the old entry described.
+  `tools/content.mjs` assertion 19 now validates `batch` the
   way it validates a `demand` row — `holdable()`, `expand()`, `n > 0` and
   `secs > 0` — and says in the failure text that it is guarding a throw.
   Closed here rather than parked, because no phase left in
@@ -2414,11 +2415,11 @@ also what gives it its first execution.
 
 - **The TRIBUTE panel reads 100% on an unpaid cycle 4, knowingly, until
   17e.** `src/view/hud.js:305-309`'s `aggFrac` sums `Math.min(have, d.n)`
-  over the demand rows and knows nothing about the rate clause, so a player
+  over the demand rows and knows nothing about the batch clause, so a player
   who fills both demand rows slowly sees `8 / 8`, `8 / 8` and `100%` while
   `tributeMet()` is false and the clock runs out into a 2-heart miss with
   nothing on screen naming the reason. `src/view/` is not in 17d's ownership
-  block and drawing the rate row is 17e brief item 1, so this is a transient
+  block and drawing the batch row is 17e brief item 1, so this is a transient
   by design — recorded because a reader of the repo between the two commits
   would otherwise have no note saying the HUD is wrong on one cycle.
 
@@ -2432,12 +2433,37 @@ also what gives it its first execution.
   1. **The slow feed does not pay.** Eight `copper/plate` handed over one
      every 45 s, plus all eight `granite/gravel`, leaves `run.cycle` at 4 and
      `tributeMet()` false at `run.t` 315 s with both demand rows full —
-     `rateHave()` reads 3 against `rate.n` 4, at 30 fps and at 144 fps alike.
+     `batchHave()` reads 3 against `batch.n` 4, at 30 fps and at 144 fps
+     alike.
   2. **The fast feed does pay.** Four more plates back to back complete the
      trial within two substeps, at both framerates.
   3. **The ledger is bounded.** Twelve plates handed over one per frame never
-     grew `run.tribute.credits` past 4 entries, which is `rate.n`.
+     grew `run.tribute.credits` past 4 entries, which is `batch.n`.
 
   A fixed-dt harness cannot see (1) or (2) — the window is the first quantity
   in the game measured over hundreds of simulated seconds, and CLAUDE.md
   records three framerate bugs that passed green for exactly that reason.
+
+- **FOR 17h: a genuine throughput quota is still unbuilt, and punch-list #14
+  closes as "mechanism shipped, promise reworded".** `docs/DESIGN.md`'s
+  "refinement, not volume" argument wants a demand that measures production
+  speed. The batch clause does not, and cannot: `rules/cycles.js#creditTribute`
+  stamps a credit when a receiver's buffer is drained, so a stockpile hauled
+  up in one trip credits in one instant and the window never sees the ten
+  minutes of mining behind it. `docs/SPEC.md` §4 and §18.10 now say this
+  outright, but the ambition and a mechanism that superficially resembles it
+  are now sitting next to each other, which is the most confusing state for a
+  later reader. 17h should park it in `FUTURE_IDEAS.md` with both routes
+  named:
+
+  1. **Stamp credits at production.** A second write path, and a new question
+     about where production is observed — at the machine that makes the unit,
+     or at the carrier it boards.
+  2. **Make the demand exceed one load.** Cheaper, and pure content: on cycle
+     4's numbers the whole 8-plate bill weighs 19.2 T against a 30 T soft cap,
+     so the batch clause binds only above `n × 2.4 > 40`, i.e. seventeen
+     plates. That is triple the trial's current cost and a real rebalance.
+
+  **17h must not write #14 up as a kept throughput promise.** The mechanism
+  shipped and the promise was reworded; those are different claims and the
+  project has already had to correct that exact paragraph once.

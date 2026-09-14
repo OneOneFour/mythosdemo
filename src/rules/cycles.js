@@ -43,7 +43,7 @@
    BUILD list gains the row the same frame the trial pays.
 
    NO `rand()` outside the drop roll (invariant 7). The deadline accumulates
-   from `dt` alone and a rate credit is stamped with `run.t`, never with
+   from `dt` alone and a batch credit is stamped with `run.t`, never with
    `Date.now()` (invariant 10) -- see `RUN_SCHEMA.tribute`'s own comment in
    `model/run.js`. */
 
@@ -211,20 +211,26 @@ function drainReceivers() {
 
 /* A CREDIT IS STAMPED WITH `run.t`, which is simulated time at the fixed
    1/120 s substep and never `Date.now()` (invariant 10, docs/SPEC.md section
-   18.10). Only the rated pair is stamped; every other pair moves `have` and
+   18.10). Only the batched pair is stamped; every other pair moves `have` and
    nothing else.
+
+   ON ARRIVAL, WHICH IS WHY THE CLAUSE IS CALLED `batch` AND NOT `rate`. This
+   function runs when a receiver's buffer is drained, so a haul of four
+   plates is one credit of four at one instant however long it took to make
+   or to climb. That measures how tightly deliveries are bunched and cannot
+   be made to measure production (docs/SPEC.md section 18.10).
 
    THE LEDGER IS REBUILT PER CREDIT rather than pushed into, because
    `run.tribute` is replaced whole and never patched in place -- the same
    discipline the rest of this file holds to, stated on the field itself in
    `model/run.js`. Hand-feeding is one unit per substep, so that is one fresh
-   array per unit; `model/run.js#prunedCredits` caps the array at `rate.n`
+   array per unit; `model/run.js#prunedCredits` caps the array at `batch.n`
    entries, so that copy stays four elements long rather than growing with the
    run. */
 function creditTribute(k, n) {
   const have = { ...run.tribute.have, [k]: (run.tribute.have[k] || 0) + n };
-  const rate = CYCLE[run.tribute.id]?.rate;
-  const credits = rate && k === keyOf(S[rate.sub], F[rate.form])
+  const batch = CYCLE[run.tribute.id]?.batch;
+  const credits = batch && k === keyOf(S[batch.sub], F[batch.form])
     ? [...(run.tribute.credits ?? []), { t: run.t, n }]
     : run.tribute.credits;
   rw.tribute({ ...run.tribute, have, credits });

@@ -59,11 +59,11 @@ export const RUN_SCHEMA = Object.freeze({
      remaining, or `null` for a cycle with no
      clock.
 
-     `credits` IS THE RATE CLAUSE'S OWN LEDGER (docs/SPEC.md section 18.10),
+     `credits` IS THE BATCH CLAUSE'S OWN LEDGER (docs/SPEC.md section 18.10),
      an array of `{ t, n }` in nondecreasing `t` order holding only credits of
-     the cycle's rated pair. Empty on a row with no `rate` block, which is
+     the cycle's batched pair. Empty on a row with no `batch` block, which is
      every shipped row but cycle 4. `write.tribute` below prunes it on every
-     write, so it is bounded by `rate.n` entries rather than by the length of
+     write, so it is bounded by `batch.n` entries rather than by the length of
      the run.
 
      `left` IS AN ACCUMULATOR ON `run` AND NOT A MODULE SCALAR, and that is
@@ -222,26 +222,26 @@ export const META_SCHEMA = Object.freeze({
 export const run  = {};
 export const meta = {};
 
-/* Drop what the rate clause can no longer use. Credits are appended at
+/* Drop what the batch clause can no longer use. Credits are appended at
    `run.t`, which only increases, so the array is sorted by `t` and a prefix
    drop is enough. Two passes -- what has aged out of the window, then the
-   oldest of what is left while the newer suffix still reaches `rate.n`. The
-   second pass is what bounds the array at `rate.n` entries, since every entry
-   carries at least 1; it cannot change a later answer, because `rateMet`
-   below is a threshold on that same suffix and the entries it drops are
-   already surplus to it.
+   oldest of what is left while the newer suffix still reaches `batch.n`. The
+   second pass is what bounds the array at `batch.n` entries, since every
+   entry carries at least 1; it cannot change a later answer, because
+   `batchMet` below is a threshold on that same suffix and the entries it
+   drops are already surplus to it.
 
    Returns the array unchanged when nothing is dropped, so ticking a deadline
    allocates nothing. */
 function prunedCredits(t) {
   const cs = t.credits;
-  const rate = CYCLE[t.id]?.rate;
-  if (!cs || !cs.length || !rate) return cs;
+  const batch = CYCLE[t.id]?.batch;
+  if (!cs || !cs.length || !batch) return cs;
   let i = 0;
-  while (i < cs.length && run.t - cs[i].t > rate.secs) i++;
+  while (i < cs.length && run.t - cs[i].t > batch.secs) i++;
   let sum = 0;
   for (let j = i; j < cs.length; j++) sum += cs[j].n;
-  while (i < cs.length && sum - cs[i].n >= rate.n) { sum -= cs[i].n; i++; }
+  while (i < cs.length && sum - cs[i].n >= batch.n) { sum -= cs[i].n; i++; }
   return i === 0 ? cs : cs.slice(i);
 }
 
@@ -369,7 +369,7 @@ export const write = {
      `tribute` sets or clears the WHOLE live-demand record, so a demand and its
      own deadline can never be observed half-applied -- the same reason
      `craft` below writes its pair together. `rules/cycles.js` is the only
-     caller of any of these. It also PRUNES the rate ledger, which is what
+     caller of any of these. It also PRUNES the batch ledger, which is what
      keeps `credits` bounded no matter which caller built the record.
 
      `favour` and `chart` are both IDEMPOTENT-SAFE in the way their field
@@ -649,8 +649,8 @@ export function cycleRow() {
 export const tributeHave = (sub, form) =>
   (run.tribute?.have?.[keyOf(S[sub], F[form])] ?? 0);
 
-/* Is the LIVE cycle paid? Every demand row satisfied AND the rate clause with
-   it (docs/SPEC.md section 18.10) -- one predicate with two clauses, so the
+/* Is the LIVE cycle paid? Every demand row satisfied AND the batch clause
+   with it (docs/SPEC.md section 18.10) -- one predicate with two clauses, so the
    director and the TRIBUTE panel cannot disagree about which half is short.
    False with nothing armed -- an unarmed ledger is not a met one, and a
    director that read `true` there would complete a trial nobody had been
@@ -662,38 +662,38 @@ export const tributeHave = (sub, form) =>
 export function tributeMet() {
   const row = run.tribute ? CYCLE[run.tribute.id] : null;
   if (!row) return false;
-  return row.demand.every(d => tributeHave(d.sub, d.form) >= d.n) && rateMet();
+  return row.demand.every(d => tributeHave(d.sub, d.form) >= d.n) && batchMet();
 }
 
-/* Progress towards the rate clause, summed over `run.tribute.credits` against
-   `run.t` -- simulated time at the fixed 1/120 s substep, never `Date.now()`
-   (invariant 10). A credit counts while it is at most `rate.secs` old, so the
-   boundary is inclusive. 0 when no rate clause is armed. The shared query
-   behind both the predicate below and the TRIBUTE panel's bar, for the reason
-   `tributeHave` above exists.
+/* Progress towards the batch clause, summed over `run.tribute.credits`
+   against `run.t` -- simulated time at the fixed 1/120 s substep, never
+   `Date.now()` (invariant 10). A credit counts while it is at most
+   `batch.secs` old, so the boundary is inclusive. 0 when no batch clause is
+   armed. The shared query behind both the predicate below and the TRIBUTE
+   panel's bar, for the reason `tributeHave` above exists.
 
-   SATURATES NEAR `rate.n` AND IS NOT A DELIVERY COUNT. `prunedCredits` drops
+   SATURATES NEAR `batch.n` AND IS NOT A DELIVERY COUNT. `prunedCredits` drops
    entries the clause no longer needs, so this reads at most a little over
-   `rate.n` however many units really landed in the window. It is exact for a
-   bar clamped at `rate.n`, which is what it is for. A raw "X delivered in the
-   last N seconds" readout would under-report and must come from somewhere
+   `batch.n` however many units really landed in the window. It is exact for a
+   bar clamped at `batch.n`, which is what it is for. A raw "X delivered in
+   the last N seconds" readout would under-report and must come from somewhere
    else. */
-export function rateHave() {
-  const rate = run.tribute ? CYCLE[run.tribute.id]?.rate : null;
-  if (!rate) return 0;
+export function batchHave() {
+  const batch = run.tribute ? CYCLE[run.tribute.id]?.batch : null;
+  if (!batch) return 0;
   let sum = 0;
   for (const c of run.tribute.credits ?? [])
-    if (run.t - c.t <= rate.secs) sum += c.n;
+    if (run.t - c.t <= batch.secs) sum += c.n;
   return sum;
 }
 
-/* Is the live cycle's rate clause satisfied? VACUOUSLY TRUE on a row that
-   carries no `rate` block, which is every shipped row but cycle 4, so
+/* Is the live cycle's batch clause satisfied? VACUOUSLY TRUE on a row that
+   carries no `batch` block, which is every shipped row but cycle 4, so
    `tributeMet` above can `&&` it with no branch and a future row adding a
    clause needs no edit here. */
-export function rateMet() {
-  const rate = run.tribute ? CYCLE[run.tribute.id]?.rate : null;
-  return !rate || rateHave() >= rate.n;
+export function batchMet() {
+  const batch = run.tribute ? CYCLE[run.tribute.id]?.batch : null;
+  return !batch || batchHave() >= batch.n;
 }
 
 /* ---- the standing draft offer (D17-B/D17-F) ----
