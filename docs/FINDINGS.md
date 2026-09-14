@@ -1411,29 +1411,40 @@ neighbourhood around every sample in every band, which is both shorter than the
 buggy version and impossible to mis-size.
 
 **13. The burden bar's label appears to overlap the bar when the value string is
-wide — EYEBALLED, not measured, and not mine to fix.** Visible in
-`drive-reversing-overcap.png` (45.0 / 40 T, over cap) against
-`drive-descending-loaded.png` (0.0 / 40 T): the numeric label seems to start at a
-fixed x rather than after the measured bar, so a wide value runs into it. If
-real, this is exactly the class of defect `CLAUDE.md` D8 exists to prevent
-("panels are positioned by an anchored layout pass over measured text, never by
-hardcoded pixel origins") and the fix belongs to whoever next owns
-`src/view/hud.js`. Phase 8g owns `tests/`, not `view/`, so this is parked rather
-than fixed; the two shots above are the repro and the comparison, already
-committed.
+wide — CLOSED, and not as reported.** The overlap was eyeballed off
+`drive-reversing-overcap.png` (45.0 / 40 T) against
+`drive-descending-loaded.png` (0.0 / 40 T) and was never real on that widget.
+The HUD burden bar passes no `label` (`view/hud.js:225-231`), so
+`view/ui/bar.js:70`'s `Math.max(w, label ? textWidth(label) : 0)` collapses to
+`w` for it and the value has always started at `x + w + 3`. Nothing could have
+moved those two screenshots.
+
+The real instance of the class was on a different mount and is fixed: the
+TRIBUTE demand rows do pass a `label`, and `TRIBUTE_BAR_W` is 50 against a
+71 px "COPPER PLATE". `view/ui/bar.js:58-74` now measures `max(bar, label)`
+before placing the value. That is a genuine D8 compliance win.
+
+One residual, unverified by screenshot: `bar.js:72`'s clamp
+(`Math.min(startX, Math.max(x, vw - vtw - 2))`) can pull a value string left,
+back over its own bar, at a sufficiently narrow `vw`. At the 200 px floor the
+burden bar's `startX` is 59 against a clamp ceiling of ~133, so it does not
+fire today.
 
 **14. `winch-unlit` / `winch-lit` failed once in a full parallel visual run and
 passed in isolation and on the next full run, with no source change in
-between — PARKED, not diagnosed.** Observed twice during Phase 9 (164 px and a
-similar small diff). Both are the last two tests in the file and both are
-light-dependent, which makes `rules/light.js`'s flood the obvious first suspect;
-what makes it worth writing down is that these baselines are `maxDiffPixels: 0`
-BY DESIGN, on the argument that the renderer is deterministic by construction. A
-screenshot that can fail intermittently either breaks that argument or hides a
-real nondeterminism behind "just re-run it", and the CLAUDE.md rule about not
-raising the threshold to make a test pass applies with full force. Phase 9 owns
-`view/overview.js`, not the light rule or the visual spec, so this is parked with
-the repro conditions: run the whole suite with default parallelism, not `-g`.
+between — NOT REPRODUCED, and the evidence is in the Phase 17g2 section
+below.** Observed twice during Phase 9 (164 px and a similar small diff). Both
+baselines are `maxDiffPixels: 0` BY DESIGN, on the argument that the renderer
+is deterministic by construction. A screenshot that can fail intermittently
+either breaks that argument or hides a real nondeterminism behind "just re-run
+it", and the CLAUDE.md rule about not raising the threshold to make a test
+pass applies with full force.
+
+52 full-suite runs since this was written, 43 at `threshold: 0`, have not
+produced it. The run counts, what they rule out, and the one surviving
+hypothesis are recorded once in the Phase 17g2 section rather than twice —
+a fact recorded in two places will drift. Re-open with the repro conditions:
+the whole suite at default parallelism, never `-g`.
 
 **15. A visualisation is a test, and Phase 9's map proved it.**
 `view/ui/mainPanel.js#machineState` classified every hub, crank, gear and axle as
@@ -2004,19 +2015,17 @@ Consequences, in the order they bite:
    stale recommendations are. Named here so a future reader who greps
    `"feed key"` finds the reason instead of a fourth bug.
 
-3. **PARKED — the Character tab has no vertical budget, and this phase spent
-   the last of it.** `view/ui/mainPanel.js#drawMainPanel` fixes the panel at
-   `h = min(vh - 8, 176)` and `drawCharacterTab` already clips its STATS
-   block to `body.bottom` (`if (ry > body.bottom - 8) break`), so of four
-   declared stat rows the desktop buffer showed exactly **one**. A stacked
-   AUTO FEED row cost 11 px and took that one away, leaving a `STATS`
-   heading with nothing under it — which is precisely the mockup overflow
-   bug CLAUDE.md D8 says not to copy. Fixed here the cheap way: the two
-   toggles share one measured row when both fit (they do at 232 px and at
-   the 200 px phone floor's 188 px), and stack otherwise. The REAL issue is
-   untouched: this tab wants a scroll region or a taller panel, and three of
-   four stat rows are still invisible at every viewport. Phase 16c owns
-   `src/view/` and is the right place.
+3. **CLOSED — the Character tab's stat block scrolls.** The panel is still
+   capped (`view/ui/mainPanel.js#drawMainPanel`) and the STATS block still
+   clips to `body.bottom`, but the block is now a scroll region rather than a
+   truncation: `drawCharacterTab` reports it through the ordinary grid path
+   and `shell/ui.js#scrollBy` keys the offset under `main:stats`, the same
+   mechanism `main:inv` already used (`view/ui/mainPanel.js:314-343`). All
+   four stat rows are reachable at the desktop buffer and at the 200 px
+   floor, asserted by driving real wheel events against the drawn rect rather
+   than by recomputing the layout. A fourth tab was measured and rejected:
+   `CHARACTER`/`CRAFTING`/`LOGISTICS` cost 171 px of the floor's 188, so
+   `view/ui/tabs.js` would have dropped the new tab silently.
 
 4. **PARKED — `handFeed`'s automatic path is now dead weight for content, and
    that is deliberate.** D16-C explicitly rejected deleting it this wave (a
@@ -2536,14 +2545,17 @@ also what gives it its first execution.
   for `webServer.reuseExistingServer`, and it should not be read as
   nondeterministic rendering: no run has ever produced a pixel diff.
 
-- **Fifty-nine baselines now hold a surface with no altar on it, and the
-  presentation half of 17f will move them again.** `rules/cycles.js:179`
-  withholds the altar until beat 4 or `altarGraceSecs`, and most scenes
-  neither dig nor step 80 s, so the 2x2 sprite left every near-spawn shot.
-  Several scenes set `run.tutorialBeat` and draw without running a frame
-  (`tests/visual.spec.js:4811`), so even a scene whose subject is cycle 1's
-  TRIBUTE panel has no altar behind it; one `__mf.frames(1)` after the beat
-  jump would bring it back where a scene wants it.
+- **Some near-spawn baselines hold a surface with no altar on it, and that is
+  correct for most of them.** `rules/cycles.js#ensureAltarPlaced` withholds the
+  altar until tutorial beat 4 or `altarGraceSecs`, so a scene that neither digs
+  nor steps 80 s has none. 17f2 re-accepted the twelve that step, because they
+  now wait the 1.6 s arrival out. What remained was the scenes that set
+  `run.tutorialBeat` and draw without running a frame: the director never gets
+  a frame in which to place anything. 17g2 fixed `tribute-cycle1-armed`, the
+  case where the picture contradicted its own name, and left the five other
+  `tribute-*` scenes alone with the reason written above each — three of them
+  are armed at the dock and must not step at all, because a stepped frame with
+  the ledger already full completes the trial out from under the picture.
 
 ## Phase 17g2 (the draft and batch sections, and five audited assertions)
 
@@ -2658,3 +2670,27 @@ also what gives it its first execution.
   burden bar, and the three cycle-4 scenes must not step at all, because a
   stepped frame with the ledger already full completes the trial out from
   under the picture.
+
+- **`view/hud.js#panel` drew its top bevel at full opacity regardless of the
+  alpha it was handed — fixed.** The body used `a`, then `globalAlpha` went
+  back to 1 before the bevel line, so a panel fading in showed a hard 1 px
+  line over nothing. Only `bottomLine` passes a varying alpha, so the callout
+  was the only visible instance, and it was the *entire* diff in
+  `ore-against-pale-stone` and five other baselines — each of which had been
+  recording the artifact as correct. `panel()` now takes a separate `fade` that
+  scales both, defaulting to 1 so every static caller is bit-identical.
+  `tests/visual.spec.js` "17k: a callout at the start of its fade draws
+  nothing, bevel included" hashes the same strip at beats 2 and 3, whose rows
+  are different widths, and asserts the two match.
+
+- **Eight of the nine `data/callouts.js` rows overran the 200 px base buffer,
+  and the tutorial lost words off the right edge — fixed.** `bottomLine`
+  clamped its panel to `W - 4` and then drew text at `x + 6` with no clip, so
+  at `core/canvas.js#BASE_W_MIN` a player read
+  `CLICK YOUR ORE, THEN THE ALTAR -` and never saw `10 COPPER`. Only
+  `TAKE THE PICKAXE` fitted. Wrapping was chosen over a `short` variant per
+  row so no instruction loses content on the viewport where guidance matters
+  most; `core/font.js#wrap` sits beside `textWidth`, the only authority on how
+  wide a string is. `tools/check.mjs` section 8n asserts every row fits when
+  wrapped and that at least one would overflow unwrapped, so the wrap is
+  proven load-bearing rather than assumed.

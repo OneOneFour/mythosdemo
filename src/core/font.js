@@ -35,6 +35,25 @@ for (let code = FONT5X7_FIRST; code <= FONT5X7_LAST; code++) {
    the offset would move every panel that shadows any of its text. */
 export function textWidth(s, sc = 1, tr = 1) { return s.length * (5 * sc + tr) - tr; }
 
+/* Break `s` on spaces so no line measures wider than `budget` px. Lives here
+   rather than in a caller because `textWidth` above is the only authority on
+   how wide a string is, and a wrapper that guessed would drift from it.
+
+   A single word wider than `budget` is returned long rather than cut: a cut
+   word reads as a rendering fault, an overhanging one reads as a long word.
+   Callers that cannot afford the overhang must check the result. */
+export function wrap(s, budget, sc = 1, tr = 1) {
+  const lines = [];
+  let line = '';
+  for (const word of s.split(' ')) {
+    const next = line ? line + ' ' + word : word;
+    if (line && textWidth(next, sc, tr) > budget) { lines.push(line); line = word; }
+    else line = next;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
 /* `shadow` (docs/PLAN-phase13.md 2.4c) is a colour string or `null`. When set,
    the WHOLE STRING is rasterised once at (x+sc, y+sc) in the shadow tone and
    then once at (x, y) in `col`.

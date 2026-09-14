@@ -36,7 +36,7 @@
    `model/epoch.js#bump`.
    ============================================================================ */
 
-import { drawText, textWidth } from '../core/font.js';
+import { drawText, textWidth, wrap } from '../core/font.js';
 import { R, lineTo } from '../core/pixels.js';
 import { mix } from '../core/palette.js';
 import { AIR, byHudOrder, F, FORM, labelOf, shortLabelOf } from '../data/forms.js';
@@ -1045,13 +1045,35 @@ function calloutLine(g, f, W, H) {
              Math.min(1, Math.max(0, (f.t - calloutFade.since) / CALLOUT_FADE_SECS)));
 }
 
+/* WRAPPED, BECAUSE THE PANEL CLAMPS AND `drawText` DOES NOT CLIP. The width
+   below is capped at `W - 4`, but text drawn at `x + 6` runs as far as it
+   likes, so a row wider than the viewport used to spill off the right edge.
+   At the 200 px base buffer that was 8 of the 9 rows in `data/callouts.js`,
+   which is how 'CLICK YOUR ORE, THEN THE ALTAR -- 10 COPPER' reached a
+   player as '... THEN THE ALTAR -' with the quantity gone.
+
+   `LINE_PITCH * n + 4` is 12 for one line, which is the single-row height
+   this panel has always had, so nothing moves at the desktop buffer where
+   every row already fits. */
+const LINE_PITCH = 8;
+const CALLOUT_PAD = 12;
+
+/* Exported so `tools/check.mjs` section 8n can assert every
+   `data/callouts.js` row fits at `core/canvas.js#BASE_W_MIN` using the same
+   budget the renderer uses, rather than a second copy of these two numbers. */
+export const calloutLines = (text, W) => wrap(text, W - 4 - CALLOUT_PAD);
+
 function bottomLine(g, f, W, H, text, fadeAlpha) {
-  const w = Math.min(textWidth(text) + 12, W - 4);
+  const lines = calloutLines(text, W);
+  let widest = 0;
+  for (const l of lines) widest = Math.max(widest, textWidth(l));
+  const w = Math.min(widest + CALLOUT_PAD, W - 4);
+  const h = lines.length * LINE_PITCH + 4;
   const x = Math.max(2, (W - w) >> 1);
-  const y = Math.max(2, calloutBottom(H, x, w) - CALLOUT_H);
-  panel(g, x, y, w, CALLOUT_H, 0.78 * fadeAlpha);
+  const y = Math.max(2, calloutBottom(H, x, w) - h);
+  panel(g, x, y, w, h, 0.78, fadeAlpha);
   g.globalAlpha = fadeAlpha;
-  drawText(g, text, x + 6, y + 3, UI.ink, 1, 1);
+  lines.forEach((l, i) => drawText(g, l, x + 6, y + 3 + i * LINE_PITCH, UI.ink, 1, 1));
   g.globalAlpha = 1;
 }
 
@@ -1061,13 +1083,14 @@ function bottomLine(g, f, W, H, text, fadeAlpha) {
    the desktop buffer. Both neighbours' rectangles are read back out of
    `view/ui/state.js#drawn` (`drawQuickbar` runs earlier in `drawHUD`), never
    re-derived, and the callout lifts only where it actually overlaps one in
-   x, so a scene with room keeps the bottom row it has always had.
+   x. A scene with room sits at `H - 4`; the widget grew downward from the
+   old `H - 16` centre line when it stopped being a bare line of text, so
+   every callout moved once and none moves again for want of clearance.
 
    The reserve above the quickbar's own rect is `view/ui/quickbar.js`'s
    `HAND_GAP` of 10 px plus 2 px of air: the IN HAND line lives in that gap
    and is not part of the grid's rectangle. Held whether or not a pair is
    armed, so the callout does not hop when one is. */
-const CALLOUT_H = 12;
 const QUICKBAR_RESERVE = 12;
 
 function calloutBottom(H, x, w) {
@@ -1215,9 +1238,15 @@ function title(g, W, H) {
   g.globalAlpha = 1;
 }
 
-function panel(g, x, y, w, h, a = 0.72) {
-  g.globalAlpha = a; R(g, x, y, w, h, UI.back); g.globalAlpha = 1;
-  R(g, x, y, w, 1, mix(UI.back, UI.dim, 0.6));
+/* `fade` scales BOTH the body and the top bevel. Without it the bevel was
+   drawn after `globalAlpha` went back to 1, so a panel fading in showed a
+   fully opaque 1 px line over nothing -- visible as the callout's only
+   pixels at the start of `CALLOUT_FADE_SECS`. Every static caller leaves
+   `fade` at 1 and is unaffected. */
+function panel(g, x, y, w, h, a = 0.72, fade = 1) {
+  g.globalAlpha = a * fade; R(g, x, y, w, h, UI.back);
+  g.globalAlpha = fade; R(g, x, y, w, 1, mix(UI.back, UI.dim, 0.6));
+  g.globalAlpha = 1;
 }
 
 /* Exported so a future tribute panel and the pocket strip cannot drift apart on

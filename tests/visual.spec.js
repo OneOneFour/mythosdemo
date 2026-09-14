@@ -6860,3 +6860,70 @@ test('17f2: the arrival is not vacuous -- the same altar with the window closed 
      a handful of ops. */
   expect(midOps.length - doneOps.length).toBeGreaterThan(100);
 });
+
+/* ============================================================
+   PHASE 17k -- THE CALLOUT FITS, AND ITS FADE IS HONEST
+   ============================================================ */
+
+/* Two crops of the bottom of the frame: the strip `view/hud.js#bottomLine`
+   draws into, and a control strip immediately above it. Both stop short of
+   the quickbar on the right and the KEYS toggle on the left, so only the
+   callout and plain world are inside them. Device px, so they scale with
+   whatever `core/canvas.js#resize` chose. */
+const calloutCrops = page => page.evaluate(async () => {
+  const { VIEW } = await import('/src/core/canvas.js');
+  const c = document.getElementById('stage');
+  const sc = c.height / VIEW.h;
+  const x = Math.round(c.width * 0.25), w = Math.round(c.width * 0.5);
+  return {
+    strip:   { x, y: Math.round(c.height - 30 * sc), w, h: Math.round(28 * sc) },
+    control: { x, y: Math.round(c.height - 62 * sc), w, h: Math.round(26 * sc) }
+  };
+});
+
+/* Advance `run.tutorialBeat` to `want` and draw once. The draw is what makes
+   `calloutFade` notice the beat changed, so it leaves the fade at 0 -- the
+   first instant of `CALLOUT_FADE_SECS`, with `clock.t` not yet moved. */
+const beatAtFadeZero = (page, want) => page.evaluate(async b => {
+  const { write: rw, run } = await import('/src/model/run.js');
+  while (run.tutorialBeat < b) rw.advanceBeat();
+  (await import('/src/view/fx.js')).banner.fade = 0;
+  __mf.draw();
+}, want);
+
+test('17k: a callout at the start of its fade draws nothing, bevel included', async ({ page }) => {
+  const errors = await boot(page);
+  await settle(page);
+  const { strip, control } = await calloutCrops(page);
+
+  /* Beats 2 and 3 are the two widest rows in `data/callouts.js` and they are
+     different widths, so a panel that leaked any pixel at fade 0 would leak
+     a different number of them for each. `view/hud.js:1036` is the only
+     reader of `beat(run)` in all of `view/`, so nothing else in the frame
+     moves between these two draws. */
+  await beatAtFadeZero(page, 2);
+  const two = await canvasHash(page, strip);
+
+  await beatAtFadeZero(page, 3);
+  const three = await canvasHash(page, strip);
+
+  /* THE ASSERTION THIS TEST EXISTS FOR. `panel()` used to draw its top bevel
+     after putting `globalAlpha` back to 1, so a fading callout showed a
+     fully opaque 1 px line over nothing. That line was the only callout
+     pixel in six baselines, and it was the whole of the diff in
+     `ore-against-pale-stone`. */
+  expect(two).toBe(three);
+
+  /* NOT VACUOUS. The same beat one full fade later must differ, and the
+     control strip just above must not -- so the difference is the callout
+     appearing and not `clock.t` moving something else nearby. */
+  const controlBefore = await canvasHash(page, control);
+  await page.evaluate(() => { __mf.clock.t += 0.4; __mf.draw(); });
+  const lit = await canvasHash(page, strip);
+  const controlAfter = await canvasHash(page, control);
+
+  expect(lit).not.toBe(three);
+  expect(controlAfter).toBe(controlBefore);
+
+  expect(errors).toEqual([]);
+});

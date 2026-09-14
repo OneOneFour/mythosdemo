@@ -7484,6 +7484,59 @@ console.log('\n8m. THE BATCH CLAUSE: a rolling window on simulated time (Phase 1
   if (bad) fail('BATCH CLAUSE: the rolling window does not hold');
 }
 
+/* ============================================================================
+   8n. EVERY CALLOUT FITS THE NARROWEST BUFFER
+
+   `view/hud.js#bottomLine` clamps its panel to the viewport and then draws
+   text inside it with no clip, so a row wider than the panel spilled off the
+   right edge. At `core/canvas.js#BASE_W_MIN` that was 8 of the 9 rows in
+   `data/callouts.js`, and the one that mattered most lost its quantity: a
+   player read 'CLICK YOUR ORE, THEN THE ALTAR -' and never saw '10 COPPER'.
+
+   The budget comes from `view/hud.js#calloutLines`, the renderer's own
+   wrapper, so this cannot drift from what is actually drawn. The second
+   claim is what keeps the first from being vacuous: at least one row must
+   still be too wide UNWRAPPED, or the wrap is doing no work and the
+   assertion would pass on any content.
+   ============================================================================ */
+console.log('\n8n. EVERY CALLOUT FITS THE NARROWEST BUFFER (view/hud.js#bottomLine)');
+{
+  const { CALLOUTS } = await import('../src/data/callouts.js');
+  const { calloutLines } = await import('../src/view/hud.js');
+  const { BASE_W_MIN } = await import('../src/core/canvas.js');
+  const { textWidth } = await import('../src/core/font.js');
+
+  const inner = BASE_W_MIN - 4 - 12;
+  const rows = CALLOUTS.map((t, i) => ({ i, t })).filter(r => r.t);
+  const over = [];
+  const wouldOverflow = [];
+  let widest = 0;
+
+  for (const r of rows) {
+    if (textWidth(r.t) > inner) wouldOverflow.push(r.i);
+    for (const line of calloutLines(r.t, BASE_W_MIN)) {
+      const w = textWidth(line);
+      if (w > widest) widest = w;
+      if (w > inner) over.push(`${r.i} '${line}' ${w}px`);
+    }
+  }
+
+  console.log(`  ..  ${rows.length} rows, widest wrapped line ${widest}px against a ` +
+              `${inner}px budget at ${BASE_W_MIN}px; ${wouldOverflow.length} would overflow unwrapped`);
+
+  if (over.length)
+    fail(`CALLOUT FIT: ${over.length} line(s) exceed the ${inner}px budget at ` +
+         `${BASE_W_MIN}px and would be drawn off the right edge -- ${over.join(', ')}`);
+  else if (!wouldOverflow.length)
+    fail(`CALLOUT FIT: every row already fits unwrapped at ${BASE_W_MIN}px, so this ` +
+         `assertion proves nothing about the wrap. Either the content shrank or ` +
+         `view/hud.js#calloutLines is no longer the budget the renderer uses`);
+  else
+    ok(`CALLOUT FIT: all ${rows.length} data/callouts.js rows wrap inside ${inner}px at the ` +
+       `${BASE_W_MIN}px floor (widest line ${widest}px), and ${wouldOverflow.length} of them ` +
+       `overflow it unwrapped -- so the wrap is load-bearing`);
+}
+
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +
             `journal ${journal.peek ? journal.peek().length : 0} undrained`);

@@ -26,11 +26,17 @@ export function attach(cv) {
   return stage.ctx;
 }
 
+/* The narrowest base buffer any widget must stay legible at. Every HUD panel
+   clamps to `VIEW.w`, so this is the width that decides whether a layout
+   fits at all -- `view/hud.js#calloutLines` wraps against it and
+   `tools/check.mjs` section 8n asserts the content still fits. */
+export const BASE_W_MIN = 200;
+
 export function resize(iw, ih) {
   iw = iw || (typeof window !== 'undefined' ? window.innerWidth  : 0) || 1600;
   ih = ih || (typeof window !== 'undefined' ? window.innerHeight : 0) || 900;
   VIEW.scale = Math.max(2, Math.min(6, Math.round(ih / 400)));
-  VIEW.w = Math.max(200, Math.ceil(iw / VIEW.scale));
+  VIEW.w = Math.max(BASE_W_MIN, Math.ceil(iw / VIEW.scale));
   VIEW.h = Math.max(180, Math.ceil(ih / VIEW.scale));
   const { cv, ctx } = stage;
   if (!cv || !ctx) return VIEW;
