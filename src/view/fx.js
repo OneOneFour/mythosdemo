@@ -21,8 +21,11 @@ import { R } from '../core/pixels.js';
 const MAX_CHIPS = 600;
 const CHIP_GRAV = 340;
 
-/* Private stream. Deliberately NOT `rand()` — see the header. */
-const spark = mulberry(0x5EEDCAFE);
+/* Private stream. Deliberately NOT `rand()` — see the header. Rewound by
+   `reset()` below, so a chip's scatter depends on the run rather than on how
+   many chips the page has ever emitted. */
+const SPARK_SEED = 0x5EEDCAFE;
+let spark = mulberry(SPARK_SEED);
 
 export const chips = [];
 export const toasts = [];
@@ -71,8 +74,10 @@ export function step(dt) {
 }
 
 /* Cleared by `shell/boot.js` on a new run, for the same reason the chunk cache
-   is: a chip from the previous world is a lie. */
+   is: a chip from the previous world is a lie. The generator is rewound with
+   them, or two runs of the same seed would scatter their chips differently. */
 export function reset() {
+  spark = mulberry(SPARK_SEED);
   chips.length = 0;
   toasts.length = 0;
   banner.text = ''; banner.sub = ''; banner.fade = 0;

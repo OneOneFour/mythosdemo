@@ -4929,6 +4929,401 @@ test('the win screen: every shipped trial paid', async ({ page }) => {
 });
 
 /* ============================================================
+   PHASE 17e -- THE BATCH ROW AND THE HUD CLOSEOUT
+   ============================================================ */
+
+/* A hash of the whole canvas, or of one rectangle of it. The "not vacuous"
+   probe this file already uses for the relic halo and the cable ghost,
+   pulled out here because four of the tests below need it and two of them
+   need it over a crop -- a flashing clock is 30 pixels on a 640x400 frame,
+   and a whole-canvas hash would also answer for anything else that moves. */
+async function canvasHash(page, rect = null) {
+  return page.evaluate(r => {
+    const c = document.getElementById('stage');
+    const g = c.getContext('2d');
+    const d = r ? g.getImageData(r.x, r.y, r.w, r.h).data
+                : g.getImageData(0, 0, c.width, c.height).data;
+    let h = 2166136261;
+    for (let i = 0; i < d.length; i += 4) {
+      h ^= d[i] | (d[i + 1] << 8) | (d[i + 2] << 16);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  }, rect);
+}
+
+/* Cycle 4 armed with both demand rows already full, and a batch ledger built
+   to order. Written directly through `rw.tribute` for the same reason the
+   cycle-3 scene above is: reaching cycle 4 for real means the whole astral
+   chain. `credits` is a list of unit counts, all stamped at the current
+   `run.t`, which is the shape `rules/cycles.js#creditTribute` produces and
+   `model/run.js#prunedCredits` then bounds. */
+async function ratedCycle(page, { credits = [], left = 200 } = {}) {
+  await page.evaluate(async ({ credits, left }) => {
+    const { write: rw, run } = await import('/src/model/run.js');
+    const { keyOf } = await import('/src/model/items.js');
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    while (run.tutorialBeat < 10) rw.advanceBeat();
+    rw.cycle(4);
+    rw.favour('hephaestus', 3);
+    rw.favour('athena', 2);
+    const have = {};
+    have[keyOf(S.copper, F.plate)] = 8;
+    have[keyOf(S.granite, F.gravel)] = 8;
+    rw.tribute({ id: 'salt-tribute', have, left, credits: credits.map(n => ({ t: run.t, n })) });
+    /* The opening title card is still up two substeps into a run and this
+       scene's subject is the panel underneath it. Cleared directly rather
+       than stepped past, because stepping 240 substeps with cycle 4 armed
+       and paid would let `rules/cycles.js` complete the trial. */
+    (await import('/src/view/fx.js')).banner.fade = 0;
+    __mf.draw();
+  }, { credits, left });
+}
+
+const tributeBars = page => page.evaluate(async () => {
+  const { tributeMet } = await import('/src/model/run.js');
+  const by = {};
+  for (const b of __mf.ui.bars) by[b.id] = { valueText: b.valueText, frac: b.frac, label: b.label };
+  return { met: tributeMet(), bars: by };
+});
+
+/* ---- 1. the batch row, and an aggregate that cannot read 100% unpaid ----
+   `docs/REVIEW-wave5-17d.md` D2: the panel used to sum the demand rows
+   alone, so a cycle 4 with both piles full and an empty window drew 8/8,
+   8/8 and 100% while the trial refused to pay and the clock ran out. */
+test('17e: a rated cycle 4 reads honestly at every stage of its batch window', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+
+  await ratedCycle(page, { credits: [] });
+  const empty = await tributeBars(page);
+  expect(empty.met).toBe(false);
+  expect(Object.keys(empty.bars)).toContain('tribute-batch');
+  expect(empty.bars['tribute-batch'].valueText).toBe('0 / 4');
+  expect(empty.bars['tribute-batch'].label).toBe('COPPER PLATE IN 2:00');
+  /* And the same row abbreviates rather than running under FAVOUR when the
+     column cannot hold the full name (D8). */
+  await phoneFloor(page);
+  const floor = await tributeBars(page);
+  expect(floor.bars['tribute-batch'].label).toBe('CU PLT IN 2:00');
+  await page.evaluate(() => { __mf.resize(1280, 800); __mf.draw(); });
+  expect(empty.bars['tribute-progress'].valueText).not.toBe('100%');
+  expect(empty.bars['tribute-progress'].valueText).toBe('80%');
+  await shot(page, 'tribute-cycle4-batch-empty.png');
+
+  await ratedCycle(page, { credits: [1, 2] });
+  const part = await tributeBars(page);
+  expect(part.met).toBe(false);
+  expect(part.bars['tribute-batch'].valueText).toBe('3 / 4');
+  expect(part.bars['tribute-progress'].valueText).not.toBe('100%');
+
+  await ratedCycle(page, { credits: [4] });
+  const full = await tributeBars(page);
+  expect(full.met).toBe(true);
+  expect(full.bars['tribute-batch'].valueText).toBe('4 / 4');
+  expect(full.bars['tribute-progress'].valueText).toBe('100%');
+  await shot(page, 'tribute-cycle4-batch-full.png');
+  await phoneFloor(page);
+  await shot(page, 'tribute-cycle4-batch-full-phone.png');
+});
+
+/* `model/run.js#batchHave` saturates near `batch.n` rather than counting
+   deliveries, and its own doc says a raw readout would under-report. A
+   single credit of six is the case that proves the bar is clamped rather
+   than merely reading the query: `prunedCredits` keeps that entry whole, so
+   the query answers 6 against a demand for 4. */
+test('17e: the batch bar is clamped at batch.n, not a raw delivery count', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await ratedCycle(page, { credits: [6] });
+  const over = await tributeBars(page);
+  const raw = await page.evaluate(async () => {
+    const { batchHave } = await import('/src/model/run.js');
+    return batchHave();
+  });
+  expect(raw).toBe(6);
+  expect(over.bars['tribute-batch'].valueText).toBe('4 / 4');
+  expect(over.bars['tribute-batch'].frac).toBe(1);
+  expect(over.bars['tribute-progress'].valueText).toBe('100%');
+});
+
+/* ---- 2. the miss tally (punch-list #11) ----
+   `run.misses` was drawn on the win screen and nowhere else, so a player
+   one miss from the end of the run had no way to know it. Nothing about a
+   miss changes the world, so the canvas hash is the whole assertion: the
+   two frames differ only if something drew the count. */
+test('17e: the miss tally is not vacuous -- one expired deadline changes the TRIBUTE column', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await ratedCycle(page, { credits: [4] });
+  const clean = await canvasHash(page);
+
+  await page.evaluate(async () => {
+    const { write: rw } = await import('/src/model/run.js');
+    rw.miss();
+    __mf.draw();
+  });
+  const missed = await canvasHash(page);
+  expect(missed).not.toBe(clean);
+
+  await shot(page, 'tribute-cycle4-missed-once.png');
+  await phoneFloor(page);
+  await shot(page, 'tribute-cycle4-missed-once-phone.png');
+});
+
+/* ---- 3. the deadline's urgency treatment (punch-list #15) ----
+   The boon stack has flashed under `eff('urgentSecs')` since Phase 4 and
+   the deadline did not. The flash is `((t * 6) | 0) % 2`, which flips either
+   side of a sixth of a second, so the two times below straddle 10.0 s by a
+   tenth of a millisecond: `view/scene.js`'s clouds drift on the same
+   `clock.t` and the TRIBUTE column sits over open sky, and 0.0002 s of
+   drift cannot move a cloud by a whole pixel. The CROP is the column's own
+   clock row, read off the aggregate bar's real rectangle.
+
+   BOTH HALVES MATTER. A deadline that flashed at every value would pass the
+   first expectation and fail the second, and a clock that never flashed
+   would do the reverse. */
+const clockCrop = page => page.evaluate(() => {
+  const agg = __mf.ui.bars.find(b => b.id === 'tribute-progress');
+  return { x: Math.max(0, agg.x - 2), y: agg.y + agg.h, w: 60, h: 10 };
+});
+
+async function clockAt(page, t) {
+  await page.evaluate(v => { __mf.clock.t = v; __mf.draw(); }, t);
+  return canvasHash(page, await clockCrop(page));
+}
+
+test('17e: the deadline flashes inside the urgency threshold and holds steady outside it', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+
+  await ratedCycle(page, { credits: [], left: 200 });
+  const calmA = await clockAt(page, 9.9999);
+  const calmB = await clockAt(page, 10.0001);
+  expect(calmB).toBe(calmA);
+
+  await ratedCycle(page, { credits: [], left: 3 });
+  const hotA = await clockAt(page, 9.9999);
+  const hotB = await clockAt(page, 10.0001);
+  expect(hotB).not.toBe(hotA);
+
+  await shot(page, 'tribute-deadline-urgent.png');
+});
+
+/* ---- 4. the death screen's tally (punch-list #16) ----
+   Both end screens go through `view/hud.js#endScreen`, and the death half
+   used to print only the depth. Two deaths whose runs went differently must
+   not render the same tally, and the CROP is the two rows directly above the
+   restart button -- the wash is translucent, so a whole-canvas hash would
+   also answer for the FAVOUR bars showing through it. */
+async function deathScene(page) {
+  await page.evaluate(async () => {
+    const { write: rw, run } = await import('/src/model/run.js');
+    while (run.tutorialBeat < 10) rw.advanceBeat();
+    rw.tribute(null);
+    rw.hurt(run.hearts, 'A FALL FROM THE LEDGE');
+    __mf.draw();
+  });
+}
+
+/* The run's tally, written onto the SAME dead run. A second `newRun` would
+   be a second world behind the translucent wash, and `view/paint.js`
+   repaints at most `REPAINT_BUDGET` chunks a frame, so the two frames would
+   differ for reasons that have nothing to do with the lines under test. */
+async function tallyTheDeath(page) {
+  await page.evaluate(async () => {
+    const { write: rw } = await import('/src/model/run.js');
+    rw.cycle(3);
+    rw.favour('hephaestus', 3);
+    rw.favour('athena', 2);
+    rw.miss();
+    __mf.draw();
+  });
+}
+
+test('17e: the death screen carries the same tally the win screen does', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  /* Two 8 px rows and their leading, measured up from the button
+     `endScreen` records rather than counted down from the headline. */
+  const tallyCrop = page => page.evaluate(() => {
+    const btn = __mf.ui.panels.find(p => p.id === 'death-restart');
+    return { x: 0, y: btn.y - 26, w: document.getElementById('stage').width, h: 26 };
+  });
+
+  await deathScene(page);
+  const bare = await canvasHash(page, await tallyCrop(page));
+
+  await tallyTheDeath(page);
+  const told = await canvasHash(page, await tallyCrop(page));
+  /* Before the shots, so a screen that stopped reporting the tally goes red
+     on the claim rather than on a stale reference image. */
+  expect(told).not.toBe(bare);
+
+  await shot(page, 'death-screen-tallied.png');
+  await phoneFloor(page);
+  await shot(page, 'death-screen-tallied-phone.png');
+});
+
+/* ---- 5. the Character tab's stat block scrolls (FINDINGS 16b.3) ----
+   Three of four stat rows were clipped at `body.bottom` at every viewport.
+   The region reuses the inventory grid's own mechanism, so this drives a
+   REAL wheel over it and reads back the lines that were actually drawn --
+   a rect recorded with the right `rows` but drawing the wrong slice would
+   pass a count assertion and fail this one. */
+const STAT_LABELS = ['WALK', 'CLIMB', 'PICK POWER', 'FURNACE RATE'];
+
+/* Everything the HUD draws OVER the main panel, put away so a shot of the
+   panel is a shot of the panel: the title card, the last toast, and the
+   world tooltip the pointer leaves behind wherever the wheel parked it.
+   `pointerleave` is the real event `shell/input.js` listens for. */
+const quietHud = page => page.evaluate(async () => {
+  const fx = await import('/src/view/fx.js');
+  fx.banner.fade = 0;
+  fx.toasts.length = 0;
+  document.getElementById('stage').dispatchEvent(new PointerEvent('pointerleave'));
+  __mf.draw();
+});
+
+async function realWheel(page, sx, sy, notches) {
+  const { x, y } = await toClient(page, sx, sy);
+  await page.mouse.move(x, y);
+  for (let i = 0; i < Math.abs(notches); i++) {
+    await page.mouse.wheel(0, Math.sign(notches) * 120);
+    await page.evaluate(() => __mf.frames(1));
+  }
+}
+
+const statRegion = page => page.evaluate(() => {
+  const g = __mf.ui.grids.find(gr => gr.id === 'stats');
+  return g ? { x: g.x, y: g.y, w: g.w, h: g.h, rows: g.rows, lines: g.lines } : null;
+});
+
+/* Down one real wheel notch at a time, collecting every line drawn on the
+   way. The offset is zeroed through `shell/ui.js#scrollSet` first rather
+   than wheeled back up: `scrollBy` stores the raw value and only the draw
+   clamps it, so a pass at a wider viewport leaves an offset past the end,
+   and Chromium coalesces a run of upward wheel events into one. The
+   direction under test is down, and every notch of it is a real event. */
+async function statLinesSeen(page, notches) {
+  await page.evaluate(async () => {
+    const { scrollSet } = await import('/src/shell/ui.js');
+    scrollSet('main', 'stats', 0);
+    __mf.draw();
+  });
+  const region = await statRegion(page);
+  expect(region).not.toBeNull();
+  const cx = region.x + (region.w >> 1), cy = region.y + 2;
+
+  const seen = new Set(region.lines);
+  for (let n = 1; n <= notches; n++) {
+    await realWheel(page, cx, cy, 1);
+    for (const l of (await statRegion(page)).lines) seen.add(l);
+  }
+  return { region, seen: [...seen] };
+}
+
+test('17e: all four stat rows are reachable in the Character tab, at the desktop buffer and at the 200 px floor', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  /* Beat 4 is the one index `data/callouts.js` leaves null. The callout, a
+     toast and the title card all draw OVER the main panel by design
+     (`view/hud.js#drawHUD` puts a toast above the window so a refusal fired
+     from inside the panel is not hidden by it), and all three would sit on
+     the rows this scene exists to show. */
+  await page.evaluate(async () => {
+    const { write: rw, run } = await import('/src/model/run.js');
+    while (run.tutorialBeat < 4) rw.advanceBeat();
+  });
+  await page.keyboard.press('e');
+  await page.evaluate(() => __mf.frames(1));
+  await quietHud(page);
+
+  const desk = await statLinesSeen(page, 6);
+  for (const label of STAT_LABELS)
+    expect(desk.seen.some(l => l.startsWith(label + ' '))).toBe(true);
+  expect(desk.seen).toContain('STATS');
+  await quietHud(page);
+  await shot(page, 'ui-character-stats-scrolled.png');
+
+  await phoneFloor(page);
+  await page.evaluate(() => __mf.frames(1));
+  const floor = await statLinesSeen(page, 6);
+  for (const label of STAT_LABELS)
+    expect(floor.seen.some(l => l.startsWith(label + ' '))).toBe(true);
+  await quietHud(page);
+  await shot(page, 'ui-character-stats-scrolled-phone.png');
+});
+
+/* ---- 6. the bottom callout clears the quickbar (17i, FINDINGS) ----
+   `view/hud.js#hint` centred the callout at `H - 16` without reserving the
+   strip's rectangle, so at the 200 px floor 'TAKE THE PICKAXE' ran under
+   cells 1-5. Beat 4 is the one index `data/callouts.js` leaves null, so the
+   same scene at beat 0 and at beat 4 differs ONLY by the callout -- and if
+   the callout clears the strip, the pixels inside the strip's own recorded
+   rectangle are identical in both. */
+test('17e: the bottom callout does not paint over the quickbar at the 200 px floor', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await putInQuickbar(page, 0, 'copper', 'ore', 3);
+  await phoneFloor(page);
+
+  const strip = await page.evaluate(() => {
+    const g = __mf.ui.grids.find(gr => gr.id === 'quickbar');
+    return { x: g.x, y: g.y, w: g.w, h: g.h };
+  });
+  const callout = await page.evaluate(async () => {
+    const { CALLOUTS } = await import('/src/data/callouts.js');
+    const { beat } = await import('/src/model/tutorial.js');
+    const { run } = await import('/src/model/run.js');
+    return CALLOUTS[beat(run)];
+  });
+  expect(callout).toBeTruthy();
+  const withCallout = await canvasHash(page, strip);
+
+  await page.evaluate(async () => {
+    const { write: rw, run } = await import('/src/model/run.js');
+    while (run.tutorialBeat < 4) rw.advanceBeat();
+    __mf.draw();
+  });
+  const silent = await page.evaluate(async () => {
+    const { CALLOUTS } = await import('/src/data/callouts.js');
+    const { beat } = await import('/src/model/tutorial.js');
+    const { run } = await import('/src/model/run.js');
+    return CALLOUTS[beat(run)] ?? null;
+  });
+  expect(silent).toBeNull();
+  const withoutCallout = await canvasHash(page, strip);
+
+  expect(withCallout).toBe(withoutCallout);
+});
+
+/* ---- 7. `view/fx.js#reset()` rewinds the chip stream ----
+   `spark` is a module-scope generator seeded from a constant, and `reset()`
+   used to clear the chips without rewinding it, so a chip's scatter depended
+   on how many chips the page had ever emitted. Playwright gives every test a
+   fresh page, so this could not move a baseline -- it is a latent hole, and
+   this is the assertion that keeps it closed. */
+test('17e: view/fx.js#reset rewinds the chip stream, so two runs scatter alike', async ({ page }) => {
+  await boot(page);
+  const [first, second] = await page.evaluate(async () => {
+    const fx = await import('/src/view/fx.js');
+    const take = () => {
+      fx.reset();
+      fx.burst(0, 0, 6, '#ffffff');
+      return fx.chips.map(c => [c.vx, c.vy, c.life]);
+    };
+    const a = take();
+    fx.burst(0, 0, 40, '#ffffff');        // advance the stream between runs
+    const b = take();
+    fx.reset();
+    return [a, b];
+  });
+  expect(second).toEqual(first);
+});
+
+/* ============================================================
    PHASE 11 TIER 3 -- THE VISUAL SNAPSHOT MATRIX, docs/BUILD_PLAN.md's own
    list. Added incrementally against the sixteen baselines already above:
    a soil/stone contact zone, an ore blob against pale rock, a tree crossing

@@ -39,8 +39,9 @@
 import { drawText, textWidth } from '../core/font.js';
 import { R, lineTo } from '../core/pixels.js';
 import { mix } from '../core/palette.js';
-import { AIR, byHudOrder, F, FORM, labelOf } from '../data/forms.js';
+import { AIR, byHudOrder, F, FORM, labelOf, shortLabelOf } from '../data/forms.js';
 import { M, MACH } from '../data/machines.js';
+import { godName } from '../data/gods.js';
 import { colour } from '../data/palette.js';
 import { SPAWN_BAND } from '../data/world.js';
 import { TRINKET } from '../data/trinkets.js';
@@ -54,8 +55,8 @@ import { items } from '../model/items.js';
 import { PH, player, playerCentre } from '../model/player.js';
 import { defOf, feedCheck, feedTarget, machineAt } from '../model/machines.js';
 import {
-  burdenFrac, burdenOf, cycleRow, hasPick, machineIdFor, placementCheck, run,
-  tributeHave
+  batchHave, burdenFrac, burdenOf, cycleRow, hasPick, machineIdFor,
+  placementCheck, run, tributeHave
 } from '../model/run.js';
 import { linkCheck, reachOf } from '../model/segments.js';
 import { beat } from '../model/tutorial.js';
@@ -132,7 +133,7 @@ export function drawHUD(g, f) {
      to hang under (D8). Captured now, the same way `boonStack` below has
      always handed its own bottom to `hudRuler`/`debug`. */
   const burdenBottom = burden(g, 6, 14, W);
-  tribute(g, 6, burdenBottom, W);
+  tribute(g, f, 6, burdenBottom, W);
   depth(g, W, 6);
   /* The timed-boon stack: BELOW the depth gauge just drawn
      (y 6). FAVOUR is inserted directly under it, in the SAME
@@ -152,13 +153,17 @@ export function drawHUD(g, f) {
      `view/ui/state.js#drawn` to know where to stop -- and BEFORE the main panel,
      which is a window over the permanent HUD and must cover it. */
   hudRuler(g, f, W, H, favourBottom);
-  /* THE MAIN PANEL DRAWS LAST, ON TOP OF EVERYTHING ELSE THIS FUNCTION
-     PAINTS -- it is a window sitting over the permanent HUD, not a member of
-     it, and it PAUSES NOTHING: the world above it keeps stepping every frame
-     it is open. `view/ui/mainPanel.js` no-ops when `main` is not on the
-     panel stack. */
+  /* THE CALLOUT GOES UNDER THE WINDOW AND THE TOAST GOES OVER IT. Standing
+     guidance loses to a window the player opened on purpose; a fact that
+     just happened does not, or a refusal raised BY a click inside the panel
+     would be hidden by the panel that raised it. */
+  calloutLine(g, f, W, H);
+  /* THE MAIN PANEL DRAWS OVER EVERY PERMANENT HUD ELEMENT ABOVE -- it is a
+     window sitting over the HUD, not a member of it, and it PAUSES NOTHING:
+     the world above it keeps stepping every frame it is open.
+     `view/ui/mainPanel.js` no-ops when `main` is not on the panel stack. */
   drawMainPanel(g, f);
-  hint(g, f, W, H);
+  toastLine(g, f, W, H);
   if (f.flags.showDebug) debug(g, f, W, favourBottom);
   /* DEATH OUTRANKS THE WIN, and it is a real ordering rather than a
      defensive one: `shell/main.js#step` stops stepping the moment `run.won`
@@ -233,6 +238,22 @@ function burden(g, x, y, W) {
   return by + 2;
 }
 
+/* m:ss. Every countdown this file prints uses it -- the tribute deadline, the
+   batch window's own length and a boon's remaining time. */
+function mmss(secs) {
+  const s = Math.max(0, Math.ceil(secs));
+  return ((s / 60) | 0) + ':' + String(s % 60).padStart(2, '0');
+}
+
+/* Is a countdown flashing this instant? ONE rule, two readers -- the boon
+   stack and the tribute deadline -- so the HUD cannot come to mean two
+   different things by "nearly out". Derived from `f.t` (== `clock.t`) and
+   the seconds left, never `rand()` and never a frame counter. 3 Hz, which is
+   fast enough to catch the eye and slow enough to stay readable. */
+function urgentFlash(left, t) {
+  return left > 0 && left <= eff('urgentSecs') && ((t * 6) | 0) % 2 === 0;
+}
+
 /* ---------- TRIBUTE, Phase 10c / docs/SPEC.md section 18 / D8, D-F ----------
    Left column, anchored at `burden()`'s own returned bottom just above --
    the value that call site used to discard. Reads `run.tribute`
@@ -271,52 +292,119 @@ const TRIBUTE_BAR_W = 50;
    caught by eye once actually drawn rather than by the arithmetic alone. */
 const TRIBUTE_ROW_GAP = 4;
 
-function tribute(g, x, y, W) {
-  if (!run.tribute) return y;
-  const cyc = cycleRow();
-  if (!cyc) return y;
+function tribute(g, f, x, y, W) {
+  let ry = y;
+  const cyc = run.tribute ? cycleRow() : null;
 
-  drawText(g, 'TRIBUTE ' + roman(run.cycle - 1), x, y, UI.ink, 1, 1, UI.shade);
-  let ry = y + 8;
+  if (cyc) {
+    drawText(g, 'TRIBUTE ' + roman(run.cycle - 1), x, ry, UI.ink, 1, 1, UI.shade);
+    ry += 8;
 
-  const rows = cyc.demand
-    .map(d => ({ ...d, so: S[d.sub], fo: F[d.form] }))
-    .sort((a, b) => byHudOrder({ sub: a.so, form: a.fo }, { sub: b.so, form: b.fo }));
+    const rows = cyc.demand
+      .map(d => ({ ...d, so: S[d.sub], fo: F[d.form] }))
+      .sort((a, b) => byHudOrder({ sub: a.so, form: a.fo }, { sub: b.so, form: b.fo }));
 
-  /* The aggregate below is clamped PER ROW (`Math.min(have, d.n)`) even
-     though the ledger itself is not (`model/run.js#tributeMet`'s own
-     comment: over-delivery is accepted, invariant 5's "material that falls
-     in is free" applied to a receiver) -- a display fraction that could
-     exceed 1 across several over-filled rows would read as "more than
-     done", which is not a state this trial has. */
-  let have = 0, need = 0;
-  for (const d of rows) {
-    const h = tributeHave(d.sub, d.form);
-    have += Math.min(h, d.n);
-    need += d.n;
-    const bar = drawBar(g, {
-      id: 'tribute-' + d.sub + '-' + d.form, x, y: ry, w: TRIBUTE_BAR_W, h: 3,
-      frac: d.n > 0 ? h / d.n : 1, vw: W,
-      label: labelOf(d.so, d.fo), valueText: `${h} / ${d.n}`, shadow: UI.shade
+    /* The aggregate below is clamped PER ROW (`Math.min(have, d.n)`) even
+       though the ledger itself is not (`model/run.js#tributeMet`'s own
+       comment: over-delivery is accepted, invariant 5's "material that falls
+       in is free" applied to a receiver) -- a display fraction that could
+       exceed 1 across several over-filled rows would read as "more than
+       done", which is not a state this trial has. */
+    let have = 0, need = 0;
+    for (const d of rows) {
+      const h = tributeHave(d.sub, d.form);
+      have += Math.min(h, d.n);
+      need += d.n;
+      const bar = drawBar(g, {
+        id: 'tribute-' + d.sub + '-' + d.form, x, y: ry, w: TRIBUTE_BAR_W, h: 3,
+        frac: d.n > 0 ? h / d.n : 1, vw: W,
+        label: labelOf(d.so, d.fo), valueText: `${h} / ${d.n}`, shadow: UI.shade
+      });
+      ry = bar.y + bar.h + TRIBUTE_ROW_GAP;
+    }
+
+    /* THE BATCH CLAUSE IS A DEMAND ROW, AND IT COUNTS TOWARDS THE AGGREGATE.
+       `model/run.js#tributeMet` is every demand row AND this clause, so an
+       aggregate summed over the demand rows alone read 100% on an unpaid
+       cycle 4 while the clock ran out (docs/SPEC.md section 18.10).
+
+       CLAMPED AT `batch.n`, and that is not cosmetic: `batchHave()` saturates
+       near that value because `prunedCredits` discards surplus entries, so a
+       raw "X delivered" readout would print a number smaller than the player
+       handed over. The clamped fraction is exact. */
+    const batch = cyc.batch;
+    if (batch) {
+      const h = Math.min(batchHave(), batch.n);
+      have += h;
+      need += batch.n;
+      const bar = drawBar(g, {
+        id: 'tribute-batch', x, y: ry, w: TRIBUTE_BAR_W, h: 3,
+        frac: batch.n > 0 ? h / batch.n : 1, vw: W,
+        label: batchLabel(batch, `${h} / ${batch.n}`, x, W),
+        valueText: `${h} / ${batch.n}`, shadow: UI.shade
+      });
+      ry = bar.y + bar.h + TRIBUTE_ROW_GAP;
+    }
+
+    /* 99% IS THE CEILING SHORT OF DONE. `Math.round` alone reaches 100 from
+       a fraction under 1 as soon as a trial asks for more than 200 units,
+       and "100% and still refused" is the exact lie this row was fixed for. */
+    const aggFrac = need > 0 ? have / need : 0;
+    const pct = aggFrac >= 1 ? 100 : Math.min(99, Math.round(aggFrac * 100));
+    const agg = drawBar(g, {
+      id: 'tribute-progress', x, y: ry, w: TRIBUTE_BAR_W, h: 3, frac: aggFrac, vw: W,
+      valueText: pct + '%', shadow: UI.shade
     });
-    ry = bar.y + bar.h + TRIBUTE_ROW_GAP;
+    ry = agg.y + agg.h + TRIBUTE_ROW_GAP;
+
+    if (run.tribute.left !== null) {
+      const flash = urgentFlash(run.tribute.left, f.t);
+      drawText(g, mmss(run.tribute.left), x, ry, flash ? UI.heart : UI.ink2, 1, 1, UI.shade);
+      ry += 9;
+    }
   }
 
-  const aggFrac = need > 0 ? have / need : 0;
-  const agg = drawBar(g, {
-    id: 'tribute-progress', x, y: ry, w: TRIBUTE_BAR_W, h: 3, frac: aggFrac, vw: W,
-    valueText: Math.round(aggFrac * 100) + '%', shadow: UI.shade
-  });
-  ry = agg.y + agg.h + TRIBUTE_ROW_GAP;
+  ry = missTally(g, x, ry, W);
+  return ry === y ? y : ry + 2;
+}
 
-  if (run.tribute.left !== null) {
-    const secs = Math.max(0, Math.ceil(run.tribute.left));
-    drawText(g, ((secs / 60) | 0) + ':' + String(secs % 60).padStart(2, '0'), x, ry,
-             UI.ink2, 1, 1, UI.shade);
+/* THE BATCH ROW'S LABEL, MEASURED AGAINST THE COLUMN IT HAS (D8). It is the
+   widest row TRIBUTE draws, because it names a pair AND a window, and at the
+   200 px floor the full name ran its value text under the FAVOUR bars.
+   FAVOUR's own x cannot be read here -- `favour()` draws after this -- so the
+   budget is the left half of the viewport, which is the split the right-hand
+   stack has always been anchored to. Over budget it falls back to
+   `data/forms.js#shortLabelOf`, the abbreviation the boon stack already uses
+   for exactly this, rather than to a runtime truncation. */
+function batchLabel(batch, valueText, x, W) {
+  const span = ' IN ' + mmss(batch.secs);
+  const full = labelOf(S[batch.sub], F[batch.form]) + span;
+  const rowW = Math.max(TRIBUTE_BAR_W, textWidth(full)) + 3 + textWidth(valueText);
+  return rowW <= (W >> 1) - x ? full : shortLabelOf(S[batch.sub], F[batch.form]) + span;
+}
+
+/* HOW CLOSE THE RUN IS TO ENDING ON THE CALENDAR RATHER THAN ON HEARTS.
+   Drawn only once a deadline has actually expired, at the foot of the
+   TRIBUTE column and in the heart colour, because the second miss tops the
+   bar off to zero outright (`rules/cycles.js#miss`). It stays up between
+   trials, so the frame `run.tribute` is null does not blink it away.
+
+   ONE LINE OR TWO, measured against the same left-half budget the batch
+   row uses and for the same reason: at the 200 px floor the warning on one
+   line reaches the FAVOUR bars, and the warning is the half that matters. */
+function missTally(g, x, y, W) {
+  if (!run.misses) return y;
+  const count = 'MISSED ' + run.misses;
+  const warn = run.misses === 1 ? 'ONE MORE ENDS THIS' : null;
+  const joined = warn ? count + ' -- ' + warn : count;
+  const rows = !warn || textWidth(joined) <= (W >> 1) - x ? [joined] : [count, warn];
+
+  let ry = y;
+  for (const r of rows) {
+    drawText(g, r, Math.max(2, Math.min(x, W - textWidth(r) - 2)), ry, UI.heart, 1, 1, UI.shade);
     ry += 9;
   }
-
-  return ry + 2;
+  return ry;
 }
 
 /* The tooltip itself. `resolveHover` does the actual hit-testing and content
@@ -435,16 +523,14 @@ function boonStack(g, f, W, startY) {
     const b = BOON[a.id];
     if (!b) continue;
     const frac = Math.max(0, Math.min(1, a.left / b.secs));
-    const flashing = a.left > 0 && a.left <= 5;
-    const flash = flashing && ((f.t * 6) | 0) % 2 === 0;
+    const flash = urgentFlash(a.left, f.t);
 
     /* POLISH: the SHORT name here -- the boon timer stack is the exact
        fixed-width, right-anchored row named as clipping-prone ("FORGE OF
        HEPHAESTUS"). Falls back to the full name for a boon with no `short`
        given yet, same as `shortLabelOf` does for a substance/form pair. */
     const label = b.short || b.name;
-    const secs = Math.max(0, Math.ceil(a.left));
-    const timeStr = ((secs / 60) | 0) + ':' + String(secs % 60).padStart(2, '0');
+    const timeStr = mmss(a.left);
     const barW = 24;
     const w = 6 + textWidth(label) + 4 + barW + 4 + textWidth(timeStr) + 4;
     const x = Math.max(2, W - w - 6);
@@ -476,10 +562,10 @@ function boonStack(g, f, W, startY) {
 
    One `drawBar` per god in `data/cycles.js#ASKERS` (the closed set this
    table lets ask for anything, derived rather than listed there so a fifth
-   cycle by a fourth god needs no edit here either). No display-name table
-   existed anywhere before this -- `data/boons.js`/`data/trinkets.js` key a
-   god by id and never had to print one in English -- so `GOD_NAME` below is
-   presentation, not content, and lives in this file for that reason.
+   cycle by a fourth god needs no edit here either). The display name comes
+   from `data/gods.js#godName`, the same reader `view/ui/draft.js` uses, so
+   a god named on a card and a god named on a bar cannot drift apart -- and
+   a god with no row still reads as the id uppercased rather than blank.
 
    MASKED WITH THE SAME PREDICATE THE RULER OWNS (`view/ui/ruler.js#masked`,
    the ONE place CLAUDE.md D8 says that predicate may live), not a second
@@ -497,7 +583,6 @@ function boonStack(g, f, W, startY) {
    never imply a ceiling the content does not actually have. Negative
    favour (a missed trial's punishment) clamps the BAR to empty without
    hiding the real number, which is still drawn as `valueText`. */
-const GOD_NAME = { hephaestus: 'HEPHAESTUS', athena: 'ATHENA', poseidon: 'POSEIDON' };
 const FAVOUR_MAX = CYCLES.reduce((s, c) => s + (c.reward.favour || 0), 0);
 const FAVOUR_ROW_GAP = 2;
 
@@ -509,7 +594,7 @@ function favour(g, W, startY) {
     const n = run.favour[god] ?? 0;
     return {
       god, known,
-      label: masked(GOD_NAME[god] || god.toUpperCase(), known),
+      label: masked(godName(god), known),
       valueText: known ? String(n) : '',
       frac: Math.max(0, Math.min(1, n / FAVOUR_MAX))
     };
@@ -925,41 +1010,75 @@ function buildGhost(g, f) {
   }
 }
 
-/* A transient toast (`toasts`, drained out of the journal by
+/* ---------- the bottom line ----------
+   A transient toast (`toasts`, drained out of the journal by
    `shell/notify.js`) always wins -- it is a fact that just happened and it
-   is more urgent than standing guidance. With none showing, this falls back
-   to whichever SPEC §5 beat the player has not finished yet
-   (`model/tutorial.js#beat`, a read-only query, and
+   is more urgent than standing guidance. With none showing, the callout
+   falls back to whichever SPEC section 5 beat the player has not finished
+   yet (`model/tutorial.js#beat`, a read-only query, and
    `data/callouts.js#CALLOUTS`, indexed by it). Two indices are `null` and
    simply show nothing: 4 (beat 5 fires a frame later with no action in
    between) and 10 (cycle 2 paid -- the sheet is genuinely over there, see
-   that file's own header). */
+   that file's own header).
+
+   The two draw either side of the main panel; `drawHUD`'s own call site
+   says why. */
 const CALLOUT_FADE_SECS = 0.4;
 const calloutFade = { beat: -1, since: 0 };
 
-function hint(g, f, W, H) {
+function toastLine(g, f, W, H) {
   const last = toasts[toasts.length - 1];
-  let text, fadeAlpha = 1;
-  if (last) {
-    text = last.text;
-  } else {
-    const b = beat(run);
-    text = CALLOUTS[b];
-    if (!text) return;
-    /* Queued, not overlapping: only one line is ever drawn, so a beat change
-       cannot show two instructions at once. The fade is purely cosmetic --
-       derived from `f.t` (== `clock.t`) plus the beat it last changed at,
-       never a frame counter or `rand()` (CLAUDE.md invariant 7). */
-    if (b !== calloutFade.beat) { calloutFade.beat = b; calloutFade.since = f.t; }
-    fadeAlpha = Math.min(1, Math.max(0, (f.t - calloutFade.since) / CALLOUT_FADE_SECS));
-  }
+  if (last) bottomLine(g, f, W, H, last.text, 1);
+}
+
+function calloutLine(g, f, W, H) {
+  if (toasts.length) return;
+  const b = beat(run);
+  const text = CALLOUTS[b];
+  if (!text) return;
+  /* Queued, not overlapping: only one line is ever drawn, so a beat change
+     cannot show two instructions at once. The fade is purely cosmetic --
+     derived from `f.t` (== `clock.t`) plus the beat it last changed at,
+     never a frame counter or `rand()` (CLAUDE.md invariant 7). */
+  if (b !== calloutFade.beat) { calloutFade.beat = b; calloutFade.since = f.t; }
+  bottomLine(g, f, W, H, text,
+             Math.min(1, Math.max(0, (f.t - calloutFade.since) / CALLOUT_FADE_SECS)));
+}
+
+function bottomLine(g, f, W, H, text, fadeAlpha) {
   const w = Math.min(textWidth(text) + 12, W - 4);
   const x = Math.max(2, (W - w) >> 1);
-  const y = H - 16;
-  panel(g, x, y, w, 12, 0.78 * fadeAlpha);
+  const y = Math.max(2, calloutBottom(H, x, w) - CALLOUT_H);
+  panel(g, x, y, w, CALLOUT_H, 0.78 * fadeAlpha);
   g.globalAlpha = fadeAlpha;
   drawText(g, text, x + 6, y + 3, UI.ink, 1, 1);
   g.globalAlpha = 1;
+}
+
+/* HOW FAR DOWN THE CALLOUT MAY REACH (D8). It is centred and the quickbar is
+   pinned right, so the two only meet when the text is wide enough to run
+   under the strip -- which is what happens at the 200 px floor and not at
+   the desktop buffer. Both neighbours' rectangles are read back out of
+   `view/ui/state.js#drawn` (`drawQuickbar` runs earlier in `drawHUD`), never
+   re-derived, and the callout lifts only where it actually overlaps one in
+   x, so a scene with room keeps the bottom row it has always had.
+
+   The reserve above the quickbar's own rect is `view/ui/quickbar.js`'s
+   `HAND_GAP` of 10 px plus 2 px of air: the IN HAND line lives in that gap
+   and is not part of the grid's rectangle. Held whether or not a pair is
+   armed, so the callout does not hop when one is. */
+const CALLOUT_H = 12;
+const QUICKBAR_RESERVE = 12;
+
+function calloutBottom(H, x, w) {
+  let bottom = H - 4;
+  const qb = uiDrawn.grids.find(gr => gr.id === 'quickbar');
+  if (qb && x < qb.x + qb.w && x + w > qb.x)
+    bottom = Math.min(bottom, qb.y - QUICKBAR_RESERVE);
+  const keys = uiDrawn.panels.find(p => p.id === 'hints-toggle');
+  if (keys && x < keys.x + keys.w && x + w > keys.x)
+    bottom = Math.min(bottom, keys.y - 2);
+  return bottom;
 }
 
 function debug(g, f, W, top = 22) {
@@ -1031,6 +1150,24 @@ function depthReached() {
   return Math.max(0, Math.round((run.deepest - datum) / tile));
 }
 
+/* THE TWO LINES BOTH ENDINGS PRINT, WRITTEN ONCE. A run is worth the same
+   three facts whichever way it ended -- how many trials were paid, what the
+   gods think of you, and what it cost -- and the death screen used to carry
+   only the last of them. `run.cycle - 1` is trials PAID, and a win leaves
+   `run.cycle` one past the last shipped row, so the same expression reads
+   `CYCLES.length` there and the win screen's own pixels do not move.
+
+   `ink2` on the second row, not `dim`: it encodes nothing and only wants to
+   sit quieter than the row above. No shadow on either, because the
+   full-screen wash is the backing. */
+function tallyLines() {
+  const favourTotal = Object.values(run.favour ?? {}).reduce((a, b) => a + b, 0);
+  return [
+    [Math.max(0, run.cycle - 1) + ' TRIALS PAID -- ' + favourTotal + ' FAVOUR', UI.ink, 1],
+    ['MISSES ' + run.misses + ' -- DEPTH REACHED ' + depthReached() + 'M', UI.ink2, 1]
+  ];
+}
+
 function deathScreen(g, W, H) {
   endScreen(g, W, H, {
     wash: '#0a0206',
@@ -1038,11 +1175,7 @@ function deathScreen(g, W, H) {
     lines: [
       ['THE EAGLE COMES', UI.heart, 2],
       [run.deathCause || 'UNKNOWN', UI.ink, 1],
-      /* `ink2`, not `dim`: this row encodes nothing -- it is the third line of
-         a three-line stack and only wanted to sit quieter than the cause above
-         it. No shadow, because the full-screen wash two lines up is the
-         backing. */
-      ['DEPTH REACHED ' + depthReached() + 'M', UI.ink2, 1]
+      ...tallyLines()
     ]
   });
 }
@@ -1055,13 +1188,9 @@ function deathScreen(g, W, H) {
 
    NOT A SECOND UI MECHANISM: it is `endScreen` above with a different wash,
    different lines and the id `'win-restart'`, and `shell/input.js` hit-tests
-   it through the same `drawn.panels` lookup the death button uses.
-   The two totals it prints are read straight off `run` (`favour`
-   summed across gods, `misses`), which is also the first time either number
-   has been shown anywhere outside the FAVOUR panel -- FINDINGS' "the player
-   never learns their miss count" is narrowed, not closed, by that. */
+   it through the same `drawn.panels` lookup the death button uses. Its two
+   totals come from `tallyLines` above, which the death screen also draws. */
 function winScreen(g, W, H) {
-  const favourTotal = Object.values(run.favour ?? {}).reduce((a, b) => a + b, 0);
   endScreen(g, W, H, {
     /* A pale gold wash rather than the death screen's near-black red: the two
        endings must not be mistakable for each other at a glance. */
@@ -1069,8 +1198,7 @@ function winScreen(g, W, H) {
     id: 'win-restart',
     lines: [
       ['THE GODS ARE ANSWERED', UI.good, 2],
-      [CYCLES.length + ' TRIALS PAID -- ' + favourTotal + ' FAVOUR', UI.ink, 1],
-      ['MISSES ' + run.misses + ' -- DEPTH REACHED ' + depthReached() + 'M', UI.ink2, 1]
+      ...tallyLines()
     ]
   });
 }

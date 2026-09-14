@@ -1847,7 +1847,7 @@ the array is bounded by `batch.n` entries and not by the length of the run.
 Dropping an older entry once the newer suffix already reaches `n` can never
 change a later answer, because the answer is a threshold on that suffix.
 `batchHave()` therefore saturates near `batch.n` and is not a count of what
-was delivered.
+was delivered. §26.1 is what the TRIBUTE panel draws from it.
 
 **The numbers, and what they do and do not do.** Cycle 4 carries the only
 clause in the shipped table: **4 `copper/plate` inside 120 s**, against a
@@ -2274,7 +2274,8 @@ screen.
 **There is one restart button, drawn twice.** `endScreen` owns the layout, the
 measured button and the `drawn.panels` registration; the two screens differ
 only in wash, lines and the id they record. The id is what makes them
-hit-testable apart.
+hit-testable apart. Since Phase 17e they also share their two tally rows;
+§26.4 has them.
 
 ### 20.3 The reward-grant bridge
 
@@ -2816,3 +2817,111 @@ the row runs one line on a desktop and two on a phone.
 next line and returns `h` as `TAB_H` per line used. A tab too wide for a line
 of its own is still dropped rather than truncated, since drawn text is never
 clipped.
+
+## 26. The HUD closeout (Phase 17e)
+
+`docs/PLAN-wave5-closeout.md` §8. Five readouts and one tunable. Nothing
+here changes a mechanic; every number is drawn from a `model` query that
+already existed.
+
+### 26.1 The TRIBUTE panel's batch row, and an aggregate that cannot lie
+
+A cycle carrying a `batch` block (§18.10) draws one extra `view/ui/bar.js`
+row under its demand rows, and that row counts towards the aggregate below
+them.
+
+| | |
+|---|---|
+| bar id | `tribute-batch` |
+| value | `min(batchHave(), batch.n) / batch.n` |
+| label | `<PAIR> IN m:ss`, abbreviated through `data/forms.js#shortLabelOf` when the full name plus its value would pass the viewport's midpoint |
+| aggregate | `Σ min(have, n)` over the demand rows **plus** the clamped batch term, over `Σ n` plus `batch.n` |
+
+**Clamped at `batch.n`, deliberately.** `batchHave()` saturates near that
+value because `prunedCredits` discards surplus entries (§18.10), so a raw
+"X delivered" readout would print a number smaller than the player handed
+over. The clamped fraction is exact.
+
+**The aggregate reads 100% only when `tributeMet()` is true.** Summing the
+demand rows alone drew `100%` on an unpaid cycle 4 while the clock ran out
+(`docs/REVIEW-wave5-17d.md` D2). The printed percentage is also floored at
+99 short of completion, because `Math.round` reaches 100 from a fraction
+under 1 once a trial asks for more than 200 units.
+
+### 26.2 The miss tally
+
+`run.misses` was drawn on the win screen and nowhere else. It now sits at the
+foot of the TRIBUTE column, in the heart colour, **only once it is non-zero**,
+and it survives the frame between trials where `run.tribute` is null. At one
+miss it reads `MISSED 1 -- ONE MORE ENDS THIS`, because two misses end the run
+(§18.6, `rules/cycles.js#miss`); it wraps to two lines where one would reach
+the FAVOUR bars.
+
+### 26.3 One urgency threshold, shared
+
+| tunable | base | unit | read by |
+|---|---|---|---|
+| `urgentSecs` | 5 | s | `view/hud.js#urgentFlash`, the only reader |
+
+A countdown flashes at 3 Hz — `((clock.t * 6) | 0) % 2` — while it has
+`eff('urgentSecs')` or fewer seconds left. The boon stack has flashed on that
+rule since Phase 4 and the tribute deadline now reads the same one, so the
+HUD cannot come to mean two things by "nearly out". Derived from `clock.t`
+and the seconds left; no `rand()` (invariant 7) and no frame counter.
+
+### 26.4 Both end screens carry the same tally
+
+`view/hud.js#tallyLines` builds two rows and `endScreen` draws them for the
+win and the death alike:
+
+```
+<N> TRIALS PAID -- <F> FAVOUR
+MISSES <M> -- DEPTH REACHED <D>M
+```
+
+`N` is `max(0, run.cycle - 1)`. A win leaves `run.cycle` one past the last
+shipped row, so the same expression reads `CYCLES.length` there and §20.2's
+win screen is unchanged pixel for pixel. `F` sums `run.favour` across gods;
+`D` is `depthReached()`, the §12 datum both the gauge and placement legality
+already use.
+
+### 26.5 The Character tab's stat block scrolls
+
+Of four declared stat rows the desktop buffer drew one and clipped the rest
+at the panel's edge (`docs/FINDINGS.md` 16b.3). The equipped-trinket delta
+lines and the stat rows are now one scroll region.
+
+- **The mechanism is the inventory grid's, not a second one.** The region's
+  rectangle goes into `view/ui/state.js#drawn.grids` under the id `stats`,
+  which is what `shell/main.js#applyUiIntents` hit-tests a wheel notch
+  against, and the offset lands in `f.ui.scroll['main:stats']`.
+- **It records no slots.** There is nothing to click, drag or arm, and every
+  click path in that dispatcher is keyed on a slot.
+- **A 2 px thumb** marks the region whenever a line is off either end.
+- **A fourth tab was the rejected alternative.** `CHARACTER`/`CRAFTING`/
+  `LOGISTICS` cost 171 px of the 200 px floor's 188 px of content width, and
+  `view/ui/tabs.js` drops a tab it cannot fit rather than truncating it, so
+  the feature would be absent at the floor with nothing to say so.
+- **The tab's content stops above the quickbar.** The panel covers the strip
+  at the floor, and `shell/main.js#uiHitGrid` scans `drawn.grids` in draw
+  order, so a grid reaching into the strip's rectangle would hand its wheel
+  notches to a widget the player cannot see. The clamp is measured off the
+  rectangle the quickbar drew and only bites where the two overlap in x.
+
+### 26.6 The bottom line: a callout under the window, a toast over it
+
+`view/hud.js` draws one line at the bottom of the screen — the newest toast,
+or the SPEC §5 beat's callout when there is none.
+
+- **It reserves its neighbours' rectangles.** The callout is centred and the
+  quickbar is pinned right, so the two met only where the text was wide
+  enough to run under the strip, which is the 200 px floor. Both the
+  quickbar's grid rect and the `hints-toggle` panel rect are read back out of
+  `drawn`, and the line lifts only where it actually overlaps one in x. The
+  reserve above the quickbar is `view/ui/quickbar.js#HAND_GAP` (10 px) plus
+  2 px of air, held whether or not a pair is armed, because the IN HAND line
+  lives in that gap and is not part of the grid's rectangle.
+- **A toast draws over the main panel and a callout under it.** Standing
+  guidance loses to a window the player opened; a fact that just happened
+  does not, or a refusal raised by a click inside the panel would be hidden
+  by the panel that raised it.

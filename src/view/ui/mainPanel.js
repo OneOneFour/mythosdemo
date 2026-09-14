@@ -20,6 +20,7 @@
 
 import { drawText, textWidth } from '../../core/font.js';
 import { mix } from '../../core/palette.js';
+import { R } from '../../core/pixels.js';
 import { expand, F, FORM } from '../../data/forms.js';
 import { MACH } from '../../data/machines.js';
 import { colour } from '../../data/palette.js';
@@ -56,6 +57,9 @@ import { drawTooltip } from './tooltip.js';
 const INK = colour('ui'), INK2 = colour('uiInk2'), DIM = colour('uiDim'), BACK = colour('uiBack');
 const GOOD = colour('uiGood'), AMBER = colour('uiAmber'), HEART = colour('uiHeart');
 const RELIC = colour('ichor');
+/* The scroll thumb's track, the same mix `view/ui/bar.js` paints a bar's
+   own track with, so the two read as one material. */
+const TRACK = mix(BACK, DIM, 0.3);
 
 const MAIN_TABS = [
   { id: 'char',  label: 'CHARACTER' },
@@ -153,6 +157,7 @@ export function drawMainPanel(g, f) {
    See docs/DEVELOPER_GUIDE.md#buffers-and-pockets */
 function drawCharacterTab(g, f, body) {
   const { x, y, w, vw, vh } = body;
+  const bottom = contentBottom(body);
   const cap = eff('burden'), frac = burdenFrac();
   const col = frac >= 1 ? HEART : frac >= eff('burdenSoft') ? AMBER : GOOD;
   const label = frac >= 1 ? 'BURDEN -- TOO HEAVY TO CLIMB' : 'BURDEN';
@@ -221,7 +226,12 @@ function drawCharacterTab(g, f, body) {
        to the placeholder identity glyph rather than no glyph at all. */
     glyph: FORM[slot.form].tile ? '#' : glyphOf(slot.sub)
   });
-  const invRows = Math.min(3, Math.max(1, Math.floor((body.bottom - ry - 22) / (SLOT_SIZE + 1))));
+  /* The 22 px is the TRINKETS heading plus its own row of slots; `STAT_MIN_H`
+     is what the scroll region below needs to show anything at all. Both come
+     out of the inventory grid's budget rather than off the bottom of the
+     panel, because the inventory already scrolls and the tail did not. */
+  const invRows = Math.min(3, Math.max(1,
+    Math.floor((bottom - ry - 22 - STAT_MIN_H) / (SLOT_SIZE + 1))));
   const grid = drawGrid(g, {
     id: 'inv', x, y: ry, h: invRows * (SLOT_SIZE + 1) - 1, vw, vh,
     cols: Math.max(1, Math.floor((w + 1) / (SLOT_SIZE + 1))),
@@ -245,34 +255,93 @@ function drawCharacterTab(g, f, body) {
 
   /* Each equipped trinket's own rows, RESOLVED through `model/mods.js#explain`
      -- the same query the debug overlay reads to answer "why is my walk
-     speed 71" -- rather than the raw `{key,mul,add}` a content row carries. */
+     speed 71" -- rather than the raw `{key,mul,add}` a content row carries.
+     They share the scroll region below with the stat rows, because a run
+     with three trinkets equipped pushes the stats off the panel on its own. */
+  const lines = [];
   for (const t of Object.values(TRINKET)) {
     if (!run.equipped.includes(S[t.id])) continue;
-    for (const line of trinketDeltaLines(t)) {
-      if (ry > body.bottom - 8) break;
-      drawText(g, line, x + 2, ry, GOOD, 1, 1);
-      ry += 8;
-    }
+    for (const line of trinketDeltaLines(t)) lines.push({ s: line, col: GOOD, ind: 2 });
   }
+  lines.push({ s: 'STATS', col: INK, ind: 0 });
+  for (const st of STAT_ROWS)
+    lines.push({ s: `${st.label} ${fmtNum(eff(st.id, st.scope))}${unitOf(st.id)}`, col: INK2, ind: 2 });
 
-  ry += 2;
-  /* Stat readout: the numbers a player can actually bend, so a trinket or a
-     boon's effect is legible rather than inferred from feel. */
-  const stats = [
-    { id: 'walk', label: 'WALK' }, { id: 'climb', label: 'CLIMB' },
-    { id: 'pickPower', label: 'PICK POWER' },
-    { id: 'rate', scope: 'furnace', label: 'FURNACE RATE' }
-  ];
-  if (ry <= body.bottom - 8) drawText(g, 'STATS', x, ry, INK, 1, 1);
-  ry += 8;
-  for (const s of stats) {
-    if (ry > body.bottom - 8) break;
-    const v = eff(s.id, s.scope);
-    drawText(g, `${s.label} ${fmtNum(v)}${unitOf(s.id)}`, x + 2, ry, INK2, 1, 1);
-    ry += 8;
-  }
+  statList(g, f, { x, y: ry + 2, w, bottom, lines });
 
   drawCharacterTooltip(g, f, grid, eqGrid);
+}
+
+/* The numbers a player can actually bend, so a trinket or a boon's effect is
+   legible rather than inferred from feel. */
+const STAT_ROWS = [
+  { id: 'walk', label: 'WALK' }, { id: 'climb', label: 'CLIMB' },
+  { id: 'pickPower', label: 'PICK POWER' },
+  { id: 'rate', scope: 'furnace', label: 'FURNACE RATE' }
+];
+
+const STAT_LINE_H = 8;
+const STAT_MIN_H = 3 * STAT_LINE_H;
+
+/* WHERE THIS TAB'S CONTENT HAS TO STOP. The panel is drawn over the quickbar
+   and covers it, but `shell/main.js#uiHitGrid` scans `drawn.grids` in draw
+   order and the quickbar is recorded first, so a grid of this tab's that
+   reached into the strip's rectangle would hand its wheel notches to a strip
+   the player cannot even see. At the 200 px floor the panel is 172 px of a
+   180 px buffer and that is exactly what happens.
+
+   Measured off the rectangle the quickbar actually drew (D8), and only where
+   the two overlap in x, so the desktop buffer -- where the strip is 95 px
+   below the panel -- keeps every pixel it had. */
+function contentBottom(body) {
+  const qb = drawn.grids.find(gr => gr.id === 'quickbar');
+  if (!qb || qb.y >= body.bottom) return body.bottom;
+  if (body.x >= qb.x + qb.w || body.x + body.w <= qb.x) return body.bottom;
+  return Math.max(body.y + STAT_MIN_H, qb.y - 2);
+}
+
+/* THE TAB'S LAST BLOCK SCROLLS, because it has never fitted: of four stat
+   rows the desktop buffer drew one and the rest were clipped at
+   `body.bottom` (docs/FINDINGS.md 16b.3). A fourth tab was the other route
+   and does not fit -- `CHARACTER`/`CRAFTING`/`LOGISTICS` cost 171 px of the
+   200 px floor's 188 px of content width, and `view/ui/tabs.js` DROPS a tab
+   it cannot fit rather than truncating it, so the feature would be absent
+   at the floor with nothing on screen to say so.
+
+   IT REUSES THE MECHANISM THE INVENTORY GRID ALREADY HAS rather than a
+   second one. The rectangle goes into `./state.js#drawn.grids`, which is
+   what `shell/main.js#applyUiIntents` hit-tests a wheel notch against, and
+   the offset it stores under `main:stats` comes back through
+   `f.ui.scroll`. `slots` is empty deliberately: there is nothing here to
+   click, drag or arm, and every click path in that dispatcher is keyed on a
+   slot, so an empty list makes the region wheel-only without a guard
+   anywhere. `lines` is what was actually drawn, recorded for the same
+   read-back reason every other rectangle in this project carries its own
+   contents.
+   See docs/DEVELOPER_GUIDE.md#record-what-you-drew */
+function statList(g, f, { x, y, w, bottom, lines }) {
+  const visible = Math.floor((bottom - y) / STAT_LINE_H);
+  if (visible < 1) return;
+
+  const first = Math.max(0, Math.min(f.ui.scroll['main:stats'] || 0, lines.length - visible));
+  const shown = lines.slice(first, first + visible);
+  shown.forEach((l, i) => drawText(g, l.s, x + l.ind, y + i * STAT_LINE_H, l.col, 1, 1));
+
+  /* A 2 px thumb against the region's right edge, drawn only when something
+     is off one of the ends -- a scroll region with no affordance is a region
+     nobody finds. */
+  const trackH = visible * STAT_LINE_H;
+  if (lines.length > visible) {
+    const thumbH = Math.max(2, Math.round(trackH * visible / lines.length));
+    const thumbY = y + Math.round((trackH - thumbH) * first / (lines.length - visible));
+    R(g, x + w - 2, y, 2, trackH, TRACK);
+    R(g, x + w - 2, thumbY, 2, thumbH, INK2);
+  }
+
+  drawn.grids.push({
+    id: 'stats', x, y, w, h: trackH, cols: 1, rows: lines.length,
+    scroll: first, cell: STAT_LINE_H, slots: [], lines: shown.map(l => l.s)
+  });
 }
 
 /* `data/tuning.js` may only ever be imported by `model/mods.js`, so this file

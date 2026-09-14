@@ -146,6 +146,15 @@ export const TUNABLES = [
   { id:'offerSize',  kind:'value', base:3, unit:'cards',  note:'cards in one draft offer; fewer candidates offer fewer' },
   { id:'rerollCost', kind:'value', base:2, unit:'favour', note:'favour spent with the asking god to re-pick the offer' },
 
+  /* ---- the HUD's one urgency threshold (docs/SPEC.md section 20.6). Every
+     countdown `view/hud.js` draws flashes under the same number of seconds:
+     a boon's remaining time and the tribute deadline. 5 s is what the boon
+     stack has always used, and it is about two beats of the 3 Hz flash --
+     long enough to notice and short enough that it means now. Read only by
+     `view/hud.js`, so a boon that widened it would widen both readouts at
+     once, which is the point of it being one row. */
+  { id:'urgentSecs', kind:'value', base:5, unit:'s', note:'seconds left at which a HUD countdown starts flashing' },
+
   /* ---- inventory (Phase 12c, docs/PLAN-phase12.md D-G/D-H). `invSlots` is
      `run.mainSlots` at reset; `quickbarSlots` is the tail of `run.inv` past
      it -- the same "a slot count is content, read through eff()" precedent

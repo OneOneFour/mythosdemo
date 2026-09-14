@@ -2467,3 +2467,71 @@ also what gives it its first execution.
   **17h must not write #14 up as a kept throughput promise.** The mechanism
   shipped and the promise was reworded; those are different claims and the
   project has already had to correct that exact paragraph once.
+
+## Phase 17e (the batch row and the HUD closeout)
+
+- **`shell/main.js#uiHitGrid` (`:529`) scans `drawn.grids` FORWARD, so where
+  two grids overlap the FIRST-DRAWN one wins — the opposite of
+  `uiHitPanel` (`:515`), which scans backwards so the topmost panel wins.**
+  At the 200 px floor the main panel is 172 px of a 180 px buffer and covers
+  the quickbar, which `drawQuickbar` recorded first, so any grid of the
+  panel's that reaches into the strip's rectangle hands its wheel notches to
+  a widget the player cannot see. This phase worked around it inside its own
+  ownership (`view/ui/mainPanel.js#contentBottom` stops the Character tab
+  above the strip), but the CRAFTING tab's `recipes` grid has the same
+  overlap at the floor today and nothing stops it. One line — iterating
+  `drawn.grids` backwards — would close the class, and `uiHitPanel` is
+  already the precedent for it. Outside this block.
+
+- **`tools/check.mjs:4126` says `view/hud.js`'s only exports are
+  `hoverInfo`, `drawHUD` and `pairLabel`.** Still true after this phase, and
+  worth leaving here because the parenthetical is an enumeration that will go
+  stale the first time anything is exported for a test to read. Nothing
+  depends on it.
+
+- **The bottom callout still draws through the main panel, faintly, at the
+  200 px floor.** `view/ui/panel.js` backs a panel translucently, and the
+  callout is now drawn UNDER the window rather than over it (`docs/SPEC.md`
+  §26.6), so at the floor — where the panel covers nearly the whole buffer —
+  the callout's own band shows through the panel's back. It is legible
+  underneath rather than painted on top, which is the improvement this phase
+  was after, and closing it properly means either an opaque panel back or a
+  callout that yields entirely while a window is open. Neither is a HUD
+  anchoring question.
+
+- **The two-miss limit is now stated in two places.** `rules/cycles.js:309`
+  owns the decision (`run.misses >= 2` tops the hearts off) and
+  `view/hud.js#missTally` now says `ONE MORE ENDS THIS` at one miss, which
+  restates it. A `model/run.js#missesLeft()` query would make it one fact
+  with two readers, the same shape `tributeMet` already has. `model/` is
+  outside this block, and the string is the whole of the duplication.
+
+- **Chromium coalesces a run of upward wheel events and Playwright's
+  `mouse.wheel` does not wait it out.** Seven consecutive `wheel(0, -120)`
+  calls, each followed by `__mf.frames(1)`, moved
+  `shell/ui.js#ui.scroll['main:stats']` exactly once; seven downward ones
+  moved it seven times. Measured while writing the Character-tab scroll test,
+  which now zeroes the offset through `scrollSet` and drives only the
+  downward direction with real events. Worth knowing before believing a
+  scroll-up test.
+
+- **`shell/main.js#applyUiIntents` calls `scrollBy` with no `maxRow`, so a
+  grid's stored offset grows without bound past the end of its list.**
+  `view/ui/grid.js` clamps only for drawing, so a viewport change that
+  shortens a list leaves the offset parked past the end and the player has to
+  wheel back through the slack. It predates this phase — the `inv` and
+  `recipes` grids have always behaved this way — and the new `stats` region
+  inherits it. `shell/` is outside this block; the fix is to pass
+  `rows - visible` from the rect the grid just returned.
+
+- **A full parallel visual run stalls in `boot()` roughly one time in six on
+  this machine, and it is not a pixel failure.** Measured across twelve full
+  runs of the suite at `threshold: 0`: ten finished in 15-19 s and green; two
+  ran for 1.8 and 15.3 minutes and lost one and six tests. The captured
+  failure is `page.waitForFunction: Test timeout of 30000ms exceeded` inside
+  `boot()` — the page never reached `__mf.ready` — on `overview with a broken
+  lift chain`, a scene with nothing to do with this phase. That same test run
+  alone 25 times in a row failed 0 times. It is a boot or server stall that
+  lands on whichever worker is unlucky, the same class 17g1 already records
+  for `webServer.reuseExistingServer`, and it should not be read as
+  nondeterministic rendering: no run has ever produced a pixel diff.
