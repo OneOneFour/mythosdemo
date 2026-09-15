@@ -27,7 +27,7 @@ export const TUNABLES = [
   /* ---- the player. Ported unchanged from the previous `sim/player.js`. ---- */
   { id:'walk',      kind:'value', base:60,   unit:'px/s',   note:'ground speed; 7.5 tiles/s' },
   { id:'hop',       kind:'value', base:92,   unit:'px/s',   note:'launch; ~1 tile + margin, deliberately not enough to escape a 5-tile hole' },
-  { id:'climb',     kind:'value', base:30,   unit:'px/s',   note:'half walk, on purpose. Up is expensive.' },
+  { id:'climb',     kind:'value', base:30,   unit:'px/s',   note:'half walk. Measured too fast to tax an ascent at all (docs/PLAYTEST.md finding 1); 10 is the intended value and docs/FINDINGS.md phase 6t holds what blocks it.' },
   { id:'coyote',    kind:'value', base:0.09, unit:'s',      note:'grace after leaving the ground' },
   { id:'reach',     kind:'value', base:25.6, unit:'px',     note:'3.2 tiles from the player centre' },
   { id:'pickPower', kind:'value', base:1.0,  unit:'x',      note:'seconds of dig credited per second held' },
@@ -67,12 +67,18 @@ export const TUNABLES = [
      it at length: it is what makes sharing one crank between two segments slow
      both rather than stop both.
 
-     THESE REPLACED `liftUp`/`liftDown`, which carried the same bases (11 and
-     26) and were deleted with the staged winch. Two live readers
-     of one number is exactly the drift CLAUDE.md warns about, which is why
-     they never coexisted for long. ---- */
-  { id:'segUp',     kind:'value', base:11,    unit:'px/s',       note:'carrier ascent at full surplus and full drive. The retired winch deck ascended at this exact number: a carrier is not faster than what it replaces.' },
-  { id:'segDown',   kind:'value', base:26,    unit:'px/s',       note:'free descent on a VERTICAL segment, scaled by slope. 2.4x ascent, and free. Also the retired deck\'s own number.' },
+     `segUp` AND `segDown` ARE THE SAME NUMBER, AND THAT IS THE RULE, NOT A
+     COINCIDENCE. Nothing on a cable rises faster than it falls, so a fed
+     drivetrain at most matches what gravity gives back for free. What makes up
+     expensive is that it happens only while a player stands at a crank holding
+     a key, and that is now the whole of the cost. `segUp` used to be 11
+     because it was pinned to the retired winch deck's own ascent rate; that
+     deck is gone, and docs/PLAYTEST.md finding 2 measured what the pin bought
+     -- a three-segment chain moved cargo 14x slower than the player's own
+     legs, so no rational player built one. A measurement of the shipped game
+     outranks a constraint inherited from a deleted module. ---- */
+  { id:'segUp',     kind:'value', base:26,    unit:'px/s',       note:'carrier ascent at full surplus and full drive. Equal to segDown by construction -- a carrier never rises faster than it sinks.' },
+  { id:'segDown',   kind:'value', base:26,    unit:'px/s',       note:'free descent on a VERTICAL segment, scaled by slope. The ceiling segUp is held to, and free. Also the retired deck\'s own number.' },
   { id:'segBase',   kind:'value', base:1.0,   unit:'drive',      note:'drive needed to raise an EMPTY carrier at full speed. The unit crank.torque is denominated in.' },
   { id:'segLoad',   kind:'value', base:0.025, unit:'drive/talent', note:'added drive per talent aboard, at full slope. 40 T -- the whole burden cap -- doubles the requirement.' },
   { id:'riderMass', kind:'value', base:8,     unit:'talents',    note:"the player's own body on a carrier, before their pockets. Boarding is never refused (D4 as amended); this is the load that makes it physics instead." },
@@ -128,9 +134,19 @@ export const TUNABLES = [
      where climb speed begins to fall off; `burdenClimbFloor` is the climb
      multiplier AT the hard cap, the tick before ladder-up/hop are refused
      outright. Walking on level ground and every downward movement are never
-     scaled by any of these three -- enforced in rules/player.js. */
+     scaled by any of these three -- enforced in rules/player.js.
+
+     `burdenSoft` IS `riderMass / burden`, so the falloff starts the moment
+     your pockets weigh as much as your own body does (8 T of 40). It was 0.75
+     and docs/PLAYTEST.md finding 1 measured what that cost -- the knee sat at
+     30 T while a cycle-2 tribute load is 7.2 T, so D4's whole curve was off
+     the critical path and a full-height climb took 7.5 s at every load a
+     player actually carried. The curve is linear from 1.0 at the knee to
+     `burdenClimbFloor` at the cap, so it stays shallow near the knee and only
+     bites past half a cap, and docs/FINDINGS.md's phase 6t entry records what
+     a knee that bites earlier would cost. */
   { id:'burden',           kind:'value', base:40,   unit:'talents', note:'hard carry cap; a pickup or a climb over this is refused' },
-  { id:'burdenSoft',       kind:'value', base:0.75, unit:'x',       note:'fraction of burden where climb-speed falloff starts' },
+  { id:'burdenSoft',       kind:'value', base:0.20, unit:'x',       note:'fraction of burden where climb-speed falloff starts; riderMass / burden' },
   { id:'burdenClimbFloor', kind:'value', base:0.40, unit:'x',       note:'climb-speed multiplier at the hard cap, the tick before lockout' },
 
   /* ---- trinkets. See docs/DEVELOPER_GUIDE.md#the-four-gift-tiers ---- */

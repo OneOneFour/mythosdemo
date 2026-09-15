@@ -4646,14 +4646,19 @@ async function driveScene(page, spec) {
 
 const MOTION_SHAFT = { tx0: 40, ty0: 24, w: 12, h: 23, sky: true };
 
-/* ---------- 1. mid-ascent, with a rider aboard ---------- */
+/* ---------- 1. mid-ascent, with a rider aboard ----------
+   `frames` IS CALIBRATED TO `eff('segUp')`. The crank stack drives this span
+   at the full ascent rate, so 170 substeps put the carrier near half way up an
+   80 px cable and the assertions below hold it there. A retune of `segUp`
+   moves this number -- at 26 px/s the old 400 substeps overran the top and the
+   scene photographed a parked carrier. */
 test('drive: a carrier mid-ascent with a rider aboard', async ({ page }) => {
   await boot(page);
   await settle(page);
   const r = await driveScene(page, {
     rooms: [MOTION_SHAFT],
     machines: [['hub', 44, 43], ['hub', 44, 33], ...CRANKS(43, 33, 43)],
-    links: [[0, 1]], start: [[0, 0.05]], ride: 0, turn: true, frames: 400,
+    links: [[0, 1]], start: [[0, 0.05]], ride: 0, turn: true, frames: 170,
     player: [47, 43], centreOn: 0
   });
   expect(r.segments).toBe(1);

@@ -3123,3 +3123,108 @@ also what gives it its first execution.
   baselines unless the port is changed or the server is killed first. Both
   images are re-accepted in this phase's own commit, for the recipe order and
   not for `086f25e`'s sky.
+
+## Wave 6, phase 6t (ascent stops being free — two of four numbers landed)
+
+The phase shipped `segUp` 11 -> 26 and `burdenSoft` 0.75 -> 0.20. `climb` and
+`segLoad` are both blocked by hardcoded constants in `tools/check.mjs`, which
+is outside this phase's FILE OWNERSHIP block, so neither moved. Both blockers
+were confirmed by applying the value and running `npm run check`; the failure
+text below is quoted from those runs.
+
+1. **`climb` 30 -> 10 fails two BAND SEAM probes, because each spends a fixed
+   260 substeps climbing.** `tools/check.mjs:6523` (BAND SEAM (climb)) and
+   `tools/check.mjs:6612` (BAND SEAM (astral, up)) both call
+   `seamRun(260, -1, { up: true })`, and 260 substeps is 2.167 s — exactly the
+   time a 30 px/s climb needs to cover the 64 px each probe requires. At
+   10 px/s the climber covers 21.7 px and never reaches the seam:
+
+   ```
+   FAIL: BAND SEAM (climb): after 260 substeps of climbing the player is in
+   "topsoil" at y 786.33 — expected surface, above 744. A ladder that cannot
+   leave the band it starts in is the same seam bug from underneath
+   FAIL: BAND SEAM (astral, up): climbing surface -> astral ended in "surface"
+   at y 330.33 with 0 band change(s) and 0.000 px of slip — expected astral,
+   1 change, 0 slip.
+   ```
+
+   Neither probe is wrong about the game; both are calibrated against a
+   tunable. The fix is to derive the budget from the distance and the rate —
+   `Math.ceil((dist / eff('climb')) * 120) + margin` — rather than to raise 260
+   to a second literal, so the next retune does not reopen this. It is not a
+   one-line edit and it changes what the probes measure (both assert
+   `worstBack === 0` over the whole run, and a longer run reaches the ceiling
+   bonk at the top of the shaft), which is why this phase did not take it.
+   **Whoever owns `tools/check.mjs` next should land it together with `climb`
+   10, `docs/SPEC.md` §2's own note and the two sentences below.** Measured in
+   a scratchpad harness at `climb` 10, the 224 px ladder costs 22.41 s at 0 T,
+   23.27 s at 10 T, 36.95 s at 29 T and 51.21 s at 38 T.
+
+2. **`segLoad` 0.025 -> 0.0125 fails WEIGHT REVERSES IT, which hardcodes the
+   stall boundary as a pocket load.** `tools/check.mjs:1931-1932` states the
+   two rows as `['holds still', at(115, 0), 12, 0]` and
+   `['runs backwards', at(105, 1), 30, -1]` — 12 T and 30 T of pockets, chosen
+   because `riderMass` 8 puts them at 20 T and 38 T aboard, which is where the
+   stall and the reversal sit at `segLoad` 0.025. Halving the row moves the
+   stall to 40 T (the burden cap, which is the reason to want it) and both rows
+   then climb:
+
+   ```
+   FAIL: WEIGHT: rider mass 20 T, one crank HELD for 5 s -- net carrier
+   displacement 17.875 px (sign 1), expected sign 0
+   FAIL: WEIGHT: rider mass 38 T on one crank -- docs/SPEC.md 17.8 gives
+   0.6500 px/s, the first powered substep produced 0.0000
+   FAIL: WEIGHT: a crank held on a reversing carrier pushed no
+   'TOO HEAVY TO LIFT' journal row -- the one state D4 says must be said out
+   loud is silent
+   ```
+
+   Six failures in total. The two burdens should be derived from
+   `(crank.torque - eff('segBase')) / eff('segLoad') - eff('riderMass')` and
+   one step past it, and `docs/SPEC.md` §17.4's "break-even is 20 T" and
+   §17.8's table move with them.
+
+3. **`docs/SPEC.md:2116` (§18.4) now states a stale number, and this commit is
+   what made it stale.** It reads "`burdenSoft` 30 T, so the whole bill rides
+   up in one climb at no speed penalty" while arguing that cycle 4's 120 s
+   batch clause does not bite single-trip play. The knee is 8 T now, so the
+   19.2 T bill climbs at 0.79x rather than 1.0x. **The paragraph's conclusion
+   survives** — 19.2 T is still one trip under a 40 T cap and still credits in
+   one instant — so the repair is the two stale figures, not the argument.
+   §18 is not in this phase's ownership block.
+
+4. **The burden falloff is linear to a 0.40 floor, so it cannot tax a light
+   load however low the knee goes.** `rules/player.js:119-121` lerps from 1.0
+   at `burdenSoft` to `burdenClimbFloor` at the cap. At the knee this phase
+   shipped, a 10 T load pays 4% and the cycle-2 tribute load of 7.2 T pays
+   nothing, because 7.2 T sits just under the 8 T knee. A knee low enough to
+   bite a three-plate load would have to be about 0.05, and even there the tax
+   is 6%. The levers that would actually make a light haul a decision are
+   `burdenClimbFloor` (a fifth number this phase was not given) or a convex
+   ramp in place of the `lerp`, which is a `rules/player.js` change. Neither is
+   designed here.
+
+5. **One crank can never exceed half `segUp`, so the minimum rig is priced at
+   parity with the player's legs rather than above them.** `crank.torque` is
+   1.5 and `segBase` is 1.0, so `min(1, surplus / segBase)` is at most 0.5 for
+   a single crank and a loaded one is well under that. With `segUp` 26 and
+   `climb` at its intended 10, a one-crank chain moves 10 T of cargo 236 px in
+   48.8 s against 23.3 s of climbing, and a two-crank chain does it in 9.1 s.
+   So the preference inverts on the second crank and not on the first. That may
+   be the right shape — torque is the upgrade, and a second crank is 3 logs and
+   3 gravel — but it is a design call nobody has made. The lever if it is
+   wrong is `crank.torque` in `data/machines.js`, not a tuning row.
+
+6. **`tests/visual.spec.js:4661`'s frame budget was also calibrated to
+   `segUp`, and this phase changed it despite the file not being named in its
+   ownership block.** The mid-ascent scene parked its carrier at `t = 0.05` and
+   ran 400 substeps, which is 36.7 px of an 80 px cable at 11 px/s. At 26 px/s
+   the same budget overran the top, so `expect(r.seg[0].dir).toBe(-1)` read 0
+   and the scene photographed a parked carrier rather than an ascending one.
+   That is an assertion failure, not a baseline to re-accept, and leaving it
+   would have meant shipping `segUp` with a red suite. The edit is one integer
+   — `frames: 400` -> `frames: 170`, which lands the carrier at `t = 0.51`, the
+   same place on the cable the old budget left it — plus a comment saying the
+   number is calibrated. Every assertion in the scene then re-proves its own
+   intent. Recorded here because the block did not name the file; `tools/**`
+   was named as forbidden and `tests/**` was not.
