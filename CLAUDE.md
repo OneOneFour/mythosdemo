@@ -323,9 +323,19 @@ Irreversible technical decisions go in docs/adr/. Never inline.
   when the real name is `flags.showGrid`, so they baselined a scene with the
   overlays off and passed. If a test asserts a feature is visible, prove the
   pixels differ with it off.
-- **Hardcoded click coordinates break at other viewports.** A test clicking at
-  (400, 300) fails on the phone project, where the base buffer is 200x422. Drive
-  input through the keyboard or through the model, not through geometry.
+- **Hardcoded click coordinates break, and not for the reason this bullet used
+  to give.** It cited a "phone project where the base buffer is 200x422".
+  There has never been a phone project — `playwright.config.js` declares
+  exactly one, `desktop` — and the buffer floor is 200x180, not 200x422. The
+  real hazards are both live: the buffer floor *is* reachable on desktop
+  (`core/canvas.js#resize` clamps to `max(BASE_W_MIN, ...)` by `max(180, ...)`
+  at `scale = max(2, min(6, round(ih / 400)))`, so any window near 400x360
+  lands on it), and a click resolved against a **still-easing camera** hits a
+  different tile than the one drawn — which is exactly what broke
+  `tests/visual.spec.js`'s `realClick` during wave 6's worldgen change, since
+  it writes `cmd.mx/my` against the live `cam` while the dispatcher recovers
+  the point against `drawCam`. Drive input through the keyboard, through the
+  model, or through `__mf.ui`'s record of what was actually drawn.
 - **Testing honestly.** Run `npm run check` and `npm run test:visual` and report
   what they actually say. Screenshots prove appearance has not *changed*; they
   do not prove it is good. That still needs a human.

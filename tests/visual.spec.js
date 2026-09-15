@@ -1551,9 +1551,10 @@ test('the Character tab', async ({ page }) => {
    proven, without a screenshot, by the "REAL DRAG" test below); and the
    quickbar fully populated with `eff('quickbarSlots')` distinct pairs,
    proving there is no ordinal past the last real cell and nothing scrolls or
-   truncates. Each at the desktop viewport and the 200 px phone floor, per
-   this file's own precedent (`phoneFloor`, defined below at its
-   original point of use but hoisted, so it is callable here too). */
+   truncates. At the desktop viewport only: the narrow-floor variant of each
+   was a `*-phone.png` baseline and was deleted in wave 6. `narrowFloor` is
+   still hoisted and still called by the four tests that ASSERT against the
+   200 px buffer rather than photograph it. */
 
 test('the Character tab on a fresh run: eff(invSlots) mostly-empty cells, not a packed list', async ({ page }) => {
   await boot(page);
@@ -1568,8 +1569,6 @@ test('the Character tab on a fresh run: eff(invSlots) mostly-empty cells, not a 
     __mf.frames(2);
   });
   await shot(page, 'ui-character-fresh.png');
-  await phoneFloor(page);
-  await shot(page, 'ui-character-fresh-phone.png');
 });
 
 test('dragging one occupied inventory slot onto another swaps them in place', async ({ page }) => {
@@ -1608,8 +1607,6 @@ test('dragging one occupied inventory slot onto another swaps them in place', as
   expect(after.b).toEqual(before.a);
 
   await shot(page, 'ui-character-swap.png');
-  await phoneFloor(page);
-  await shot(page, 'ui-character-swap-phone.png');
 });
 
 test('the quickbar draws exactly eff(quickbarSlots) cells, fully populated, with no scrollbar or truncation', async ({ page }) => {
@@ -1649,8 +1646,6 @@ test('the quickbar draws exactly eff(quickbarSlots) cells, fully populated, with
   expect(grid.rows).toBe(1);            // one row of eight, never a second
 
   await shot(page, 'ui-quickbar-full.png');
-  await phoneFloor(page);
-  await shot(page, 'ui-quickbar-full-phone.png');
 });
 
 /* `DIGITS` is ten glyphs long and the strip is eight cells, so '9' and '0'
@@ -1743,8 +1738,7 @@ test('the crafting category row wraps at the 200 px floor, so all six categories
     banner.fade = 0;
     __mf.frames(1);
   });
-  await phoneFloor(page);
-  await shot(page, 'ui-crafting-phone.png');
+  await narrowFloor(page);
 
   const row = await page.evaluate(() => __mf.ui.tabs.find(t => t.id === 'main-craft-cat'));
   expect(row.hits.map(h => h.id)).toEqual(['all', 'raw', 'refined', 'tools', 'placeables', 'divine']);
@@ -4807,10 +4801,12 @@ test('drive: a carrier at a band seam', async ({ page }) => {
 /* ============================================================
    PHASE 10c: TRIBUTE AND FAVOUR
 
-   Three scenes, each at the desktop viewport AND the 200 px phone floor
-   (`core/canvas.js#resize`'s own `Math.max(200, ...)` clamp). There is no
-   second Playwright project for a narrow viewport (`playwright.config.js`
-   declares one, `desktop`) -- `__mf.resize` is exposed on the test hook
+   Three scenes at the desktop viewport. Each used to carry a narrow-floor
+   twin as a `*-phone.png` baseline; wave 6 deleted all 18 of those, because
+   the game is keyboard-and-mouse only and the images cost re-accepting
+   without testing input. There is no second Playwright project for a narrow
+   viewport and there never was (`playwright.config.js` declares exactly one,
+   `desktop`) -- `__mf.resize` is exposed on the test hook
    precisely so a scene can reach any viewport directly, the same way every
    other test in this file drives state through the model rather than
    through a hardcoded click coordinate (CLAUDE.md). `__mf.resize(200, 180)`
@@ -4839,7 +4835,16 @@ test('drive: a carrier at a band seam', async ({ page }) => {
    the trial out from under the picture. Scene 1's subject IS the first
    trial, so it is the one that needs its receiver behind it. */
 
-const phoneFloor = page => page.evaluate(() => { __mf.resize(200, 180); __mf.draw(); });
+/* THE NARROW LAYOUT FLOOR, and it is a DESKTOP condition, not a phone one.
+   `core/canvas.js#resize` clamps the buffer to `Math.max(BASE_W_MIN, ...)` by
+   `Math.max(180, ...)` at a scale of `max(2, min(6, round(ih / 400)))`, so any
+   browser window around 400x360 renders at exactly this buffer. All four
+   callers ASSERT against it -- tab wrap, label abbreviation, stat visibility,
+   callout-versus-quickbar -- rather than photograph it. The 18 `*-phone.png`
+   baselines that used to pair with them were deleted in wave 6: the game is
+   keyboard-and-mouse only, there has never been a second Playwright project,
+   and `playwright.config.js` declares exactly one, `desktop`. */
+const narrowFloor = page => page.evaluate(() => { __mf.resize(200, 180); __mf.draw(); });
 
 /* Exactly one altar stands, and it lies inside the buffer being
    photographed. A scene whose subject is the first trial has to have the
@@ -4873,13 +4878,6 @@ test('tribute: cycle 1 armed, no clock', async ({ page }) => {
   await pastArrival(page);
   expect(await altarOnScreen(page)).toEqual({ standing: 1, onScreen: true });
   await shot(page, 'tribute-cycle1-armed.png');
-  /* `phoneFloor` shrinks the buffer and redraws without stepping, so the
-     camera stays where the desktop frame left it and the 200 px crop cuts
-     the altar off its right edge. The phone variant's subject is the panel
-     column at the floor; the altar claim above is the desktop's. */
-  await phoneFloor(page);
-  expect((await altarOnScreen(page)).standing).toBe(1);
-  await shot(page, 'tribute-cycle1-armed-phone.png');
 });
 
 /* ---- 2. mid-cycle-3, a running deadline, two of three gods known, AND a
@@ -4922,8 +4920,6 @@ test('tribute and favour: mid-cycle-3, two of three gods known, a boon active', 
     __mf.draw();
   });
   await shot(page, 'tribute-favour-cycle3.png');
-  await phoneFloor(page);
-  await shot(page, 'tribute-favour-cycle3-phone.png');
 });
 
 /* ---- 3. the over-cap burden bar, with TRIBUTE drawn beneath it ----
@@ -4945,8 +4941,6 @@ test('tribute: the over-cap burden scene', async ({ page }) => {
     __mf.draw();
   });
   await shot(page, 'tribute-overcap-burden.png');
-  await phoneFloor(page);
-  await shot(page, 'tribute-overcap-burden-phone.png');
 });
 
 /* ---- 4. THE WIN SCREEN (Phase 13d, docs/SPEC.md §20.2) ----
@@ -4989,8 +4983,6 @@ test('the win screen: every shipped trial paid', async ({ page }) => {
   });
   expect(won).toBe(true);
   await shot(page, 'win-screen.png');
-  await phoneFloor(page);
-  await shot(page, 'win-screen-phone.png');
 });
 
 /* ============================================================
@@ -5069,7 +5061,7 @@ test('17e: a rated cycle 4 reads honestly at every stage of its batch window', a
   expect(empty.bars['tribute-batch'].label).toBe('COPPER PLATE IN 2:00');
   /* And the same row abbreviates rather than running under FAVOUR when the
      column cannot hold the full name (D8). */
-  await phoneFloor(page);
+  await narrowFloor(page);
   const floor = await tributeBars(page);
   expect(floor.bars['tribute-batch'].label).toBe('CU PLT IN 2:00');
   await page.evaluate(() => { __mf.resize(1280, 800); __mf.draw(); });
@@ -5089,8 +5081,6 @@ test('17e: a rated cycle 4 reads honestly at every stage of its batch window', a
   expect(full.bars['tribute-batch'].valueText).toBe('4 / 4');
   expect(full.bars['tribute-progress'].valueText).toBe('100%');
   await shot(page, 'tribute-cycle4-batch-full.png');
-  await phoneFloor(page);
-  await shot(page, 'tribute-cycle4-batch-full-phone.png');
 });
 
 /* `model/run.js#batchHave` saturates near `batch.n` rather than counting
@@ -5133,8 +5123,6 @@ test('17e: the miss tally is not vacuous -- one expired deadline changes the TRI
   expect(missed).not.toBe(clean);
 
   await shot(page, 'tribute-cycle4-missed-once.png');
-  await phoneFloor(page);
-  await shot(page, 'tribute-cycle4-missed-once-phone.png');
 });
 
 /* ---- 3. the deadline's urgency treatment (punch-list #15) ----
@@ -5227,8 +5215,6 @@ test('17e: the death screen carries the same tally the win screen does', async (
   expect(told).not.toBe(bare);
 
   await shot(page, 'death-screen-tallied.png');
-  await phoneFloor(page);
-  await shot(page, 'death-screen-tallied-phone.png');
 });
 
 /* ---- 5. the Character tab's stat block scrolls (FINDINGS 16b.3) ----
@@ -5313,13 +5299,11 @@ test('17e: all four stat rows are reachable in the Character tab, at the desktop
   await quietHud(page);
   await shot(page, 'ui-character-stats-scrolled.png');
 
-  await phoneFloor(page);
+  await narrowFloor(page);
   await page.evaluate(() => __mf.frames(1));
   const floor = await statLinesSeen(page, 6);
   for (const label of STAT_LABELS)
     expect(floor.seen.some(l => l.startsWith(label + ' '))).toBe(true);
-  await quietHud(page);
-  await shot(page, 'ui-character-stats-scrolled-phone.png');
 });
 
 /* ---- 6. the bottom callout clears the quickbar (17i, FINDINGS) ----
@@ -5333,7 +5317,7 @@ test('17e: the bottom callout does not paint over the quickbar at the 200 px flo
   await boot(page);
   await settle(page);
   await putInQuickbar(page, 0, 'copper', 'ore', 3);
-  await phoneFloor(page);
+  await narrowFloor(page);
 
   const strip = await page.evaluate(() => {
     const g = __mf.ui.grids.find(gr => gr.id === 'quickbar');
@@ -5481,7 +5465,7 @@ test('a soil/stone contact zone at full frame', async ({ page }) => {
    centred in it (tx 106), so both walls -- copper to the west, granite one
    tile past the east wall -- land in `view/scene.js#drawDarkness`'s middle
    bucket (`lightAt` ~5, `DARK_ALPHA[1]` 0.55) rather than one side blazing
-   and the other unreadable. Framed at the phone floor's tighter 200x180
+   and the other unreadable. Framed at the narrow floor's tighter 200x180
    (`core/canvas.js#resize`) so the boundary fills the frame instead of
    getting lost in 640x400 of mostly unlit rock. */
 test('an ore blob against pale stone', async ({ page }) => {
@@ -5862,11 +5846,12 @@ test('the Cloud Dock', async ({ page }) => {
     /* The dock's own footprint is 2x1 tiles (16x8 world px) -- tiny against
        the 640x400 desktop view, and its marble body reads close to white
        against astral's own bright sky, so a wide shot leaves it a pale
-       sliver easy to miss. The phone floor (`core/canvas.js#resize`'s own
-       200x180 clamp, the same one the tribute/favour scenes above reach
-       for) is used here for the opposite of its usual reason: not to prove
-       narrow-viewport layout, but to make a small machine fill enough of
-       the frame that its trim actually reads. */
+       sliver easy to miss. The narrow floor (`core/canvas.js#resize`'s own
+       200x180 clamp) is used here for the opposite of its usual reason: not
+       to prove narrow-viewport layout, but to make a small machine fill
+       enough of the frame that its trim actually reads. This is why the
+       clamp outlived the `*-phone.png` baselines wave 6 deleted -- it is a
+       framing tool as much as a layout assertion. */
     __mf.resize(200, 180);
     __mf.cam.x = Math.round(dock.box.x + dock.box.w / 2 - VIEW.w / 2);
     __mf.cam.y = Math.round(dock.box.y + dock.box.h / 2 - VIEW.h / 2);
@@ -5887,9 +5872,10 @@ test('the Cloud Dock', async ({ page }) => {
    record states twice, once for `seen` and once for `light`.
 
    THREE TESTS, AND THE THIRD IS THE ONE THAT MATTERS. Two are baselines --
-   a fresh vein and the same vein part-spent, each at the desktop viewport
-   and the 200 px phone floor -- and a screenshot pair only proves the two
-   scenes are not identical to each OTHER. CLAUDE.md records two tests that
+   a fresh vein and the same vein part-spent, at the desktop viewport (their
+   narrow-floor twins were `*-phone.png` and went in wave 6) -- and a
+   screenshot pair only proves the two scenes are not identical to each
+   OTHER. CLAUDE.md records two tests that
    baselined a scene with the overlay flag misspelled and passed anyway, so
    the third test renders one scene twice, with nothing changing between the
    two draws except accumulated pick time, and counts the pixels that moved
@@ -5971,10 +5957,6 @@ test('a fresh copper vein', async ({ page }) => {
   await veinScene(page);
   await frameVein(page);
   await shot(page, 'vein-fresh.png');
-
-  await page.evaluate(() => __mf.resize(200, 180));
-  await frameVein(page);
-  await shot(page, 'vein-fresh-phone.png');
 });
 
 test('the same copper vein, one tile 3 of 4 spent and its neighbour 1 of 4', async ({ page }) => {
@@ -5991,10 +5973,6 @@ test('the same copper vein, one tile 3 of 4 spent and its neighbour 1 of 4', asy
   await spendUnits(page, [{ tx: VEIN.tx0 + 2, units: 3 }, { tx: VEIN.tx0 + 3, units: 1 }]);
   await frameVein(page);
   await shot(page, 'vein-depleted.png');
-
-  await page.evaluate(() => __mf.resize(200, 180));
-  await frameVein(page);
-  await shot(page, 'vein-depleted-phone.png');
 });
 
 /* THE PROOF THAT THE OVERLAY IS DOING SOMETHING, and the reason it is a
@@ -6159,10 +6137,6 @@ test('a placed ladder column in an unlit shaft', async ({ page }) => {
   await ladderShaft(page);
   await frameLadder(page);
   await shot(page, 'ladder-unlit.png');
-
-  await page.evaluate(() => __mf.resize(200, 180));
-  await frameLadder(page);
-  await shot(page, 'ladder-unlit-phone.png');
 });
 
 test('the same ladder column lit by a brazier', async ({ page }) => {
@@ -6182,10 +6156,6 @@ test('the same ladder column lit by a brazier', async ({ page }) => {
   }, LADDER);
   await frameLadder(page);
   await shot(page, 'ladder-lit.png');
-
-  await page.evaluate(() => __mf.resize(200, 180));
-  await frameLadder(page);
-  await shot(page, 'ladder-lit-phone.png');
 });
 
 /* ============================================================
@@ -6304,10 +6274,6 @@ test('a planted seed part-way grown', async ({ page }) => {
   await growTo(page, 0.4);
   await frameSprout(page);
   await shot(page, 'seedling.png');
-
-  await page.evaluate(() => __mf.resize(200, 180));
-  await frameSprout(page);
-  await shot(page, 'seedling-phone.png');
 });
 
 /* THE SAME TILE, ONCE IT IS A TREE. One real substep past the full grow time
@@ -6341,10 +6307,6 @@ test('the same tile once the seed has become a tree', async ({ page }) => {
 
   await frameSprout(page);
   await shot(page, 'grown-tree.png');
-
-  await page.evaluate(() => __mf.resize(200, 180));
-  await frameSprout(page);
-  await shot(page, 'grown-tree-phone.png');
 });
 
 /* THE PROOF THAT THE GROWTH OVERLAY IS DOING SOMETHING, and the reason it is

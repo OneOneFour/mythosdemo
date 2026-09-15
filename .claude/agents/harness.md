@@ -30,9 +30,12 @@ THE RULES THAT ARE NOT NEGOTIABLE
   harness cannot see framerate bugs, and this repo shipped three of them green
   for exactly that reason. Anything claiming to be framerate-independent is
   asserted at several framerates, not one.
-- **Never a hardcoded click coordinate.** A click at (400, 300) fails at the
-  200x422 phone buffer. Drive input through the keyboard, through the model, or
-  through `__mf.ui()`'s record of what was actually drawn.
+- **Never a hardcoded click coordinate.** Not because of a phone — there has
+  never been a phone project, and `playwright.config.js` declares exactly one,
+  `desktop`. Because the buffer floor (200x180) is reachable by resizing a
+  desktop window, and because a click resolved against a still-easing camera
+  hits a different tile than the one drawn. Drive input through the keyboard,
+  through the model, or through `__mf.ui`'s record of what was actually drawn.
 - **`maxDiffPixels` is 0 and stays 0.** A nonzero diff is a regression or an
   intended change. If intended, re-accept with `npm run test:visual:update` and
   say why the pixels moved. Raising the threshold is never the answer.

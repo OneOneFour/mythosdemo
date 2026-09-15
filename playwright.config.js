@@ -36,6 +36,14 @@ export default defineConfig({
       scale: 'css'
     }
   },
+  /* ONE PROJECT, DELIBERATELY. The game is keyboard-and-mouse only — there is
+     no touch handling anywhere in `src/` — so a second device project would
+     re-photograph every scene without testing a single input path. Wave 6
+     deleted the 18 `*-phone.png` baselines that used to pair with these; what
+     they actually exercised was the 200x180 buffer floor, which is a DESKTOP
+     condition (`core/canvas.js#resize`), and the four tests that care about it
+     now assert against it through `narrowFloor` instead of photographing it.
+     Do not add a device project without an input path that needs one. */
   projects: [
     { name: 'desktop', use: { viewport: { width: 1280, height: 800 } } }
   ]
