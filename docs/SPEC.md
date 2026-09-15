@@ -2539,13 +2539,29 @@ own run. This section is the way back.
 | id | kind | base | unit | meaning |
 |---|---|---|---|---|
 | `treeGrowSecs` | value | **180** | s | accumulated *simulation* seconds a planted seed takes to become a tree |
-| `seedYield` | value | **1** | units | seeds dropped when the last remaining trunk tile of a tree is felled |
+| `seedYield` | value | **2** | units | seeds dropped when the last remaining trunk tile of a tree is felled |
 
 **180 s and not 90.** `brandSecs` is 90 and is the game's existing unit of
 "one long errand" (§11). A tree ought to cost more than one errand, and 180 s
-is about a quarter of a cycle-2 deadline (`deadlineSecs` 480). It is a guess
-and is marked as one: it is one row, and the acceptance walkthrough in
-`docs/PLAN-phase15-trees.md` §5 is the measurement.
+is three eighths of a cycle-2 deadline (`deadlineSecs` 480), 3/7 of cycle 3's
+420 and half of cycle 4's 360. So a seed planted in the first third of any
+trial pays back inside that same trial, and planting mid-trial stays a real
+move rather than a decorative one. It is still one row: if a grove turns out
+to be built entirely between trials, the lever is here.
+
+**`seedYield` is 2, and 2 is the smallest integer that compounds.** At 1 a fell
+returns exactly the tree it took, so a grove can be sustained and never grown.
+At 2 the rule reads in one sentence — fell one, plant two — and the grove
+doubles every `treeGrowSecs` until the player's own hands are the limit. Where
+that limit sits is arithmetic rather than taste: a tree is 3–5 trunk tiles at
+`hard` 0.35 s each, so one fell-and-replant cycle costs about 6 s of attention
+(1.4 s of swings at mean height 4, plus travel at `trees` `chance` 0.06 — one
+tree per 16.7 columns — plus the pickups and the plants). A grove of G trees
+therefore needs 6G seconds of attention per 180 s of growth, and saturates at
+**G ≈ 30**. Raising the yield to 3 overshoots that ceiling in a single
+generation and the surplus seeds simply sit in the player's pockets, which is
+a bigger number meaning nothing. The ceiling is attention, not seeds, so
+yielding 2 changes how fast the grove is *reached* and never where it *ends*.
 
 **`seedYield` is a value, not a `chance`, and there is deliberately no
 `seedChance` beside it.** A regrowth mechanic that sometimes gives you nothing
@@ -2573,7 +2589,7 @@ bug one level up.
 | key | value | why |
 |---|---|---|
 | `subTags` | `['organic']` | timber is the only substance that crosses, exactly the restriction `log`, `rung` and `brand` already use. `timber/seed` is the real pair; no substance row was spent (§15) |
-| `massK` | `0.1` → **0.035 T** | the lightest thing in the game. Mass conservation is not engaged: no recipe produces a seed, so there is no input to conserve against |
+| `massK` | `0.1` → **0.08 T** | the lightest thing in the game (`timber`'s `item.mass` 0.8 × `massK` 0.1). Mass conservation is not engaged: no recipe produces a seed, so there is no input to conserve against. Two seeds at `seedYield` 2 weigh 0.16 T against a `burden` of 40 |
 | `solid` | `false` | you walk through a seedling. One that blocked movement would be a trap you planted for yourself |
 | `climb` | `false` | one that could be climbed would be a free ladder rung at a tenth of a rung's mass |
 | `hardK` | `0.05` → **0.0175 s** | near-instant, so a misplaced seed costs nothing to recover. `model/tiles.js#dropOf` gives the pair itself back for any placed form, so digging up a seedling returns the seed with no code |
@@ -2595,8 +2611,9 @@ terrain substance must be *inserted* below ordinal 17.
 
 ### 22.3 The drop condition
 
-When a **NATIVE** `timber` tile breaks, `rules/mining.js` drops one seed iff
-neither the tile above nor the tile below is now a NATIVE `timber` tile.
+When a **NATIVE** `timber` tile breaks, `rules/mining.js` drops
+`eff('seedYield')` seeds iff neither the tile above nor the tile below is now
+a NATIVE `timber` tile.
 
 A trunk is a contiguous vertical run felled one tile at a time from either end
 or from the middle outward, so the last tile standing is by definition the one
@@ -2620,6 +2637,11 @@ every felling order.
   seed produces downstream of the first tree felled in a run, which adding any
   new spawn to that branch must; invariant 7 requires that `newRun(s)` twice
   still match, and it does.
+- **The yield is a draw count.** Each spawned seed consumes two `rand()`
+  draws for its toss, so `seedYield` 2 consumes four where `seedYield` 1
+  consumed two. Changing the row therefore changes the stream downstream of
+  the first tree felled in a run, and a seed shared across the change does
+  not replay. Nothing else about the ordering moves.
 
 ### 22.4 `tile.roots`: the plant verb
 

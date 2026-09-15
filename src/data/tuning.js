@@ -250,23 +250,43 @@ export const TUNABLES = [
      `treeGrowSecs` IS 180 AND NOT 90, and 90 is the number it was measured
      against: `brandSecs` above is 90 and is this game's existing unit of "one
      long errand". A tree ought to cost more than one errand, and 180 s is
-     about a quarter of a cycle-2 deadline (`deadlineSecs` 480). It is a
-     guess and is marked as one -- it is one row, and the acceptance
-     walkthrough in docs/PLAN-phase15-trees.md section 5 is the measurement.
-     Read ONLY through `eff('treeGrowSecs')` in `rules/growth.js`, which
-     accumulates the `dt` it is handed at the fixed 1/120 s substep and never
-     `Date.now()` (invariant 10; a timed transition is exactly the class of
-     thing that silently breaks framerate independence, so `tools/check.mjs`
-     section 8g asserts it at all 8 framerates the hardness table sweeps).
+     three eighths of a cycle-2 deadline (`data/cycles.js#first-delivery`,
+     `deadlineSecs` 480), 3/7 of cycle 3's 420 and half of cycle 4's 360 --
+     so a seed planted in the first third of any trial still pays back inside
+     that trial, and planting mid-trial is a real move rather than a
+     decorative one. Read ONLY through `eff('treeGrowSecs')` in
+     `rules/growth.js`, which accumulates the `dt` it is handed at the fixed
+     1/120 s substep and never `Date.now()` (invariant 10; a timed transition
+     is exactly the class of thing that silently breaks framerate
+     independence, so `tools/check.mjs` section 8g asserts it at all 8
+     framerates the hardness table sweeps).
 
-     `seedYield` IS 1 AND IS NOT A `chance`. A regrowth mechanic that
+     `seedYield` IS 2 AND IS NOT A `chance`. It is 2 because 2 is the
+     smallest integer that compounds: at 1 a fell returns exactly the tree it
+     took, so a grove can be sustained and never grown. At 2 the rule reads
+     in one sentence -- fell one, plant two -- and the grove doubles every
+     `treeGrowSecs` until the player's own hands are the limit. That limit is
+     arithmetic: a tree is 3-5 tiles at `timber`'s `hard` 0.35 s each, so one
+     fell-and-replant cycle costs about 6 s of attention, a grove of G trees
+     needs 6G seconds per 180 s of growth, and it saturates around G = 30. A
+     yield of 3 clears that ceiling in one generation and the surplus seeds
+     just sit in the player's pockets. docs/SPEC.md section 22.1 holds the
+     whole derivation.
+
+     It stays a VALUE and not a `chance` because a regrowth mechanic that
      sometimes gives you nothing is a mechanic that sometimes silently ends
-     the timber economy. If scarcity is ever wanted, the lever is the growth
-     TIME above, not the drop odds -- which is why this is a value row and
-     there is no `seedChance` beside it. */
+     the timber economy -- `log` is the only fuel a player can mine. If
+     scarcity is ever wanted, the lever is the growth TIME above, not the
+     drop odds, which is why there is no `seedChance` beside this.
+
+     RAISING THIS CHANGES THE `rand()` STREAM. `rules/mining.js` spends two
+     draws per seed on the toss, so a fell now consumes four where it
+     consumed two, and a seed shared across the change does not replay past
+     the first tree felled (invariant 7 requires only that `newRun(s)` twice
+     match, and it does). */
   { id:'treeGrowSecs', kind:'value', base:180, unit:'s',
     note:'accumulated simulation seconds a planted timber/seed takes to become a tree' },
-  { id:'seedYield',    kind:'value', base:1,   unit:'units',
+  { id:'seedYield',    kind:'value', base:2,   unit:'units',
     note:'seeds dropped when the LAST remaining trunk tile of a tree is felled' },
 
   { id:'tossUp',     kind:'value', base:50, unit:'px/s', note:'upward toss on a newly dropped item; drop verb only, see docs/FINDINGS.md' },

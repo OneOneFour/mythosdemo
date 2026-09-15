@@ -2983,3 +2983,41 @@ also what gives it its first execution.
   tunnel driven sideways into the hilltop at column 76 is still a cavity. A
   phase that wants a quarry open to the sky needs `model` to remember the
   generated ground row per column; nothing needs that today.
+
+## Wave 6, phase 6k (tree farming compounds)
+
+- **THE ONE-LINE EXCEPTION THIS PHASE TOOK.** `tools/check.mjs:6076` asserted
+  `seeds !== 1` with the message "eff('seedYield') is 1", so the harness pinned
+  the very tunable this phase exists to raise and `npm run check` failed on a
+  correct `seedYield` of 2. It now reads
+  `wantSeeds = Math.max(0, Math.round(mods.eff('seedYield')))`, which is the
+  same arithmetic `rules/mining.js:297` does, and the passing message prints
+  the value instead of the word ONE. `tools/` belongs to phase 6p; this is the
+  repo's one allowed zero-risk fix, because the phase cannot meet its own
+  definition of done without it. The probe's other two assertions — three
+  tiles came down, and nothing dropped before the last one — are untouched.
+
+- **`src/data/forms.js:346` says a seed is 0.035 T. It is 0.08 T.**
+  `model/items.js:44#massOfPair` is `SUB.timber.item.mass` 0.8 ×
+  `FORM.seed.massK` 0.1. The 0.035 figure is `timber`'s `tile.hard` 0.35 read
+  in place of its item mass. `docs/SPEC.md` §22.2 carried the same number and
+  is corrected in this commit; `data/forms.js` is outside this phase's
+  ownership block. Nothing computes from the comment, so no behaviour moves.
+
+- **`docs/PLAN-phase15-trees.md` §D15-E is now stale in two ways.** Line 336
+  still tables `seedYield` at 1, and line 368 calls 180 s "about two cycle-2
+  deadlines' worth of an eighth" — a quarter of 480, where the ratio is three
+  eighths. `docs/SPEC.md` §22.1 holds both corrected. A plan document
+  describing what a phase intended is allowed to age, but the arithmetic error
+  was copied forward into `data/tuning.js`'s own note, which is the reason to
+  record it.
+
+- **After 6e widens the bands to 1,024 columns, wild trees alone clear the
+  attention ceiling.** `data/world.js`'s `trees` row at `chance:0.06` put 12,
+  6 and 5 trees on the 128-column surface band at seeds 1337, 7 and 424242, so
+  1,024 columns implies roughly 40–96. §22.1 derives the grove a player can
+  actually keep felled and replanted at about 30 trees. So at the new width the
+  compounding `seedYield` 2 buys is no longer what gets a player their first
+  grove — it is what gets them a grove *where they want one*, next to the
+  furnace rather than wherever worldgen put a tree. Worth a look from whoever
+  re-tunes `chance` at the new width; nothing is broken today.

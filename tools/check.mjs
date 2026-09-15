@@ -6074,10 +6074,11 @@ function trunkHeight(band, tx, ty) {
          `never actually felled the tree, so nothing below it means anything`);
     bad++;
   }
-  if (seeds !== 1) {
-    fail(`FELLING: a 3-tile trunk felled completely dropped ${seeds} seed(s), want exactly 1 -- ` +
-         `eff('seedYield') is 1 and the condition is "no NATIVE timber above or below the tile just ` +
-         `cleared" (D15-A)`);
+  const wantSeeds = Math.max(0, Math.round(mods.eff('seedYield')));
+  if (seeds !== wantSeeds) {
+    fail(`FELLING: a 3-tile trunk felled completely dropped ${seeds} seed(s), want exactly ` +
+         `${wantSeeds} -- that is eff('seedYield'), and the condition is "no NATIVE timber above ` +
+         `or below the tile just cleared" (D15-A)`);
     bad++;
   }
   if (seedsAfter[0] !== 0 || seedsAfter[1] !== 0) {
@@ -6140,8 +6141,9 @@ function trunkHeight(band, tx, ty) {
   }
 
   if (!bad)
-    ok(`FELLING: a 3-tile native trunk felled top-down drops exactly ONE timber/seed, and only on ` +
-       `the last tile (${JSON.stringify(seedsAfter)}); a placed timber/rung mined out drops none`);
+    ok(`FELLING: a 3-tile native trunk felled top-down drops exactly eff('seedYield') = ` +
+       `${wantSeeds} timber/seed, and only on the last tile (${JSON.stringify(seedsAfter)}); ` +
+       `a placed timber/rung mined out drops none`);
 }
 
 /* --- CLAIM 6: `tile.roots` CHANGED NOTHING FOR ANY OTHER FORM (D15-C).
