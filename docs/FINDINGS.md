@@ -2842,3 +2842,58 @@ also what gives it its first execution.
   file is invisible to both gates. Phase 6h proved the module by executing it
   in a real browser through a throwaway Playwright script; phase 6p owns the
   committed test.
+
+## Wave 6, phase 6j (named debug scenarios)
+
+- **`src/model/items.js:83` — `itemsIn(r)` never re-tests the rect, so every
+  catch box, carrier and belt reaches up to 32 px further than it claims.**
+  `model/space.js#query`'s own header states the contract: "May visit an
+  occupant whose exact position is outside `r`; callers that care re-test."
+  `itemsIn` is the only caller and it does not re-test — it pushes every
+  occupant of every 32 px bucket the rect overlaps. So `BUCKET` (32 px, four
+  tiles), not the rect, is the real reach of `rules/machines.js#catchFalling`,
+  `model/segments.js#carrierBox` and `rules/belts.js#groundBox` alike.
+  Measured, this phase's `winch` scenario: a haul released at the top of an
+  88 px segment comes to rest 6 px below the carrier's own box (which is 10 px
+  tall, `CARRIER_GRAB` either side of a 4 px deck) — 1 px outside it — and is
+  re-grabbed as cargo on the next frame because both sit in the same bucket, so
+  releasing the crank carries the delivered ore back down the shaft. The fix is
+  one rect test inside `itemsIn`, but it narrows every catch box in the game at
+  once and would move the numbers `docs/SPEC.md` §17 and §18.3 lock (the dock's
+  `catchBox.slack` of 6 is derived to 4.5 px of margin, which a real rect test
+  would start enforcing). Not this phase's file and not a one-line change in
+  consequence, so it is parked whole.
+
+- **`npm run test:visual` could not be given a clean reading for this phase,
+  and the reason is a shared working tree.** Phase 6c's terrain rewrite was
+  mid-flight in the same checkout throughout: `src/rules/generate.js`,
+  `src/data/world.js` and `src/view/paint.js` modified, `tests/visual.spec.js`
+  and 113 baseline PNGs re-accepted partway through. Successive full runs
+  reported 83, 82 and then 2 failures as that work landed, and the failing set
+  changed between two consecutive runs with no edit of this phase's in between.
+  Phase 6j is pixel-neutral by construction rather than by measurement: nothing
+  anywhere in `src/` imports either of its two modules
+  (`grep -rn scenarios src/` finds only the two files themselves), so neither
+  reaches the shipped module graph and neither can be in the built artifact at
+  all until phase 6o wires them. A sampled pixel diff was byte-identical
+  (180,224 px on `surface hills`) with and without them. No baseline was
+  updated here.
+
+- **`src/rules/scenarios.js` is not in `tools/check.mjs`'s import list**, which
+  is hand-written — the same gap phase 6h recorded for `src/shell/save.js`.
+  With `no-undef` off (see the Phase 17 note above), a typo'd identifier inside
+  a function in either file is invisible to both gates. This phase proved the
+  module by applying and driving all five scenarios through the real `step()`
+  loop in a throwaway script; phase 6p owns the committed test.
+
+- **The one-line exception 6c took, declared.** `tests/visual.spec.js:2818`'s
+  `click-to-arm` test hit a 16 px inventory slot with a 1 px margin, and any
+  change to the `rand()` stream moved it out. `realClick` writes `cmd.mx/my`
+  against the live `cam`, `shell/main.js#applyUiIntents:560` recovers the
+  screen point against `drawCam` (the camera as of the last draw), and this
+  scene's two teleports leave `cam.y` 300 px from its target and travelling 7
+  to 14 px per substep. The fix is one `__mf.frames(240)` before the click, and
+  it is neutral on the pre-6c generator (the test passes with and without 6c's
+  changes). The test takes no screenshot, so it cost no baseline. A harness
+  phase should consider whether `realClick` ought to write `cmd.mx/my` after
+  the draw rather than before it, which would retire the whole class.

@@ -53,6 +53,7 @@ example; do not re-derive the pattern.
 - [Run state and RUN_SCHEMA](#run-state-and-run_schema)
 - [Layer rules that will fail your build](#layer-rules-that-will-fail-your-build)
 - [Checkers: what each one proves](#checkers-what-each-one-proves)
+- [Debug mode and named scenarios](#debug-mode-and-named-scenarios)
 - [Writing tests](#writing-tests)
 - [The test hook](#the-test-hook)
 
@@ -1736,6 +1737,107 @@ Two things to reuse rather than reinvent when adding a check:
 **What none of them can do:** they check direction and names, not sense. They
 will not notice an unreachable recipe path a human would spot, a machine with no
 way to be fed, a wrong number, or a hand-recipe priority collision.
+
+---
+
+## Debug mode and named scenarios
+
+### Debug mode already exists, and this is where it is written down
+
+Press **`h`**. That flips `shell/input.js#flags.showDebug`, `view/hud.js#debug()`
+draws the overlay, and five keys that do nothing the rest of the time come
+alive:
+
+| key | while `showDebug` |
+|---|---|
+| `t` | raise a **trinket** draft offer |
+| `b` | raise a **boon** draft offer |
+| `k` | raise a **machine grant** draft offer |
+| `y` | raise a **miracle** draft offer |
+| `p` | toggle the chunk-boundary overlay |
+
+The four draft keys set `wants.draft = <tier>` and `shell/main.js` dispatches to
+that tier's own `draftable()`, so a debug draft lays out the same 1-of-3 offer a
+completed trial does — with `run.offer.god` null, because nobody asked, which is
+also why it can never be rerolled. See [the draft offer](#the-draft-offer).
+
+Two more overlays are not gated at all: **`g`** toggles the tile grid and **`o`**
+the full-world overview.
+
+Anything that spawns a tier from nothing lives behind this one flag and nowhere
+else. `rules/miracles.js#grant` is the pattern: the phial falls at the player's
+feet as a real item, never a direct pocket credit, so the debug path and the
+drafted path produce the same world.
+
+### A scenario is a diorama, not a savegame
+
+There is no persistence to hang a savegame off before `shell/save.js`, and a
+save is a *run you were having* rather than a *situation you want to test*. So
+the fixtures are `src/data/scenarios.js` — a frozen table of named dioramas,
+each applied by `rules/scenarios.js#apply(id)` immediately **after**
+`newRun()`. `docs/SPEC.md` §29 holds the schema and the measured numbers.
+
+```
+newRun(seed);
+apply('winch');        // carve, place, link, fill, arm
+```
+
+`winch` stands up a working segment with its drivetrain and four ore in the
+carrier; `belt-line` a fuelled belt feeding a sunk furnace; `cycle2` and
+`cycle3` arm those trials with the demand already in the pockets; `ascent`
+builds the whole three-segment chain to the Cloud Dock. Every row's `note` says
+what it is for.
+
+### Adding one
+
+Add a row. Do not add code.
+
+1. Pick coordinates. `dx` is tiles right of the **spawn** band's `spawnTx`, `dy`
+   tiles below the **named** band's `floorTy`, so `dy:0` is the first solid row.
+   Keep surface columns inside `dx` -9..+9 — that is
+   `rules/generate.js#SHELF`'s guaranteed-flat shelf and the only place
+   `floorTy` really is the ground.
+2. `carve` what has to be air, `tiles` what has to be solid or climbable,
+   `machines` the footprints, `segments` the cables, `items` the cargo, `give`
+   the pockets.
+3. Run `npm run check`. Assertion 27 of `tools/content.mjs` proves every id
+   resolves, every pair is holdable, every buffer entry is consumed by a recipe
+   on that machine, every machine clears its own band and `minDepth` gate, and
+   every segment is inside the smaller hub's own `hub.reach`.
+4. **Then drive it.** The lint cannot see footing or the clear path between two
+   hubs, because both are questions about the live tiles your own `carve` just
+   produced. Apply the scenario and play it.
+
+### The `write.place` gap, and why this table accepts it
+
+`rules/scenarios.js` may not import `rules/placement.js` — `rules` siblings do
+not import one another — so machines go in through
+`model/machines.js#write.place`, the director route
+`rules/cycles.js#ensureAltarPlaced` already uses. That call asks nothing about
+footing, grants or held items, which is the same gap
+[Writing tests](#writing-tests) records masking a real boundary-sampling bug in
+`model/segments.js`. Two things stand in for `placementCheck` here: the build
+assertion above for the gates that are computable from a row, and actually
+driving each scenario for the ones that are not. A row you have not driven is a
+row you have not verified.
+
+`linkCheck` is the exception that stays at runtime. It is the one decision about
+whether a cable may exist (see
+[one decision, two readers](#one-decision-two-readers)) and its clear-path sweep
+reads live tiles, so `rules/scenarios.js` calls it and turns a refusal into a
+journal row rather than leaving a diorama with two hubs and no cable.
+
+### Three geometry facts that cost a measurement each
+
+- **A drivetrain goes on the spawn side of a shaft.** With the crank past the
+  mouth, the walk to it crosses the hole and the player falls in before they
+  ever turn it.
+- **A haul is released at the `x` it was loaded at.** Cargo loaded in a
+  headframe's open column is carried to the top and falls straight back down it.
+- **`itemsIn` is bucket-granular** (`model/space.js#BUCKET`, 32 px), so a catch
+  box, a carrier and a belt all reach further than their own rect. Space a
+  diorama's parts four tiles apart when you do not want them to interact.
+  `docs/FINDINGS.md` has the arithmetic.
 
 ---
 

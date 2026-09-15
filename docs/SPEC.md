@@ -3175,3 +3175,114 @@ returning null, so every call goes through a guarded helper and a failure reads
 as "no save" rather than breaking the run. `save()` writes the body before the
 header, so a refused write never leaves a header pointing at a half-written
 body, and it returns false with whatever was already stored intact.
+
+## 29. Named debug scenarios (Phase 6j)
+
+Locked with `docs/PLAN-wave6.md` U6. A **scenario** is a named diorama applied
+**after** `newRun()`: it carves tiles, places machines, links segments, fills
+buffers and pockets and arms a cycle, on a world already generated from its
+seed. `src/data/scenarios.js` is the frozen table; `src/rules/scenarios.js`
+applies one. The debug mode the scenarios make legible is documented in
+`docs/DEVELOPER_GUIDE.md`, not here — this section owns the schema and the
+numbers.
+
+### 29.1 The one rule the whole section rests on
+
+**A scenario is applied on top of a clean run, never instead of one**
+(invariant 8). `apply(id)` is one call, immediately after `newRun()`, and there
+is no second code path through boot. A scenario consumes no `rand()` draws
+either (invariant 7): every coordinate is derived from `spawnTx` and `floorTy`,
+so the same seed still produces the same terrain under the same diorama.
+
+### 29.2 The row schema
+
+| key | shape | meaning |
+|---|---|---|
+| `id` | string | `?scenario=<id>` and the menu's debug list both name it |
+| `name` | string | what the menu draws |
+| `note` | string | one line saying what the scenario is **for** |
+| `band` | band id | the band every coordinate below defaults to |
+| `cycle` | 1..`CYCLES.length` | written to `run.cycle`, live tribute cleared |
+| `grant` | [machine id] | appended to `run.granted` |
+| `chart` | [band id] | appended to `run.charted` |
+| `favour` | `{ [godId]: int }` | added to `run.favour` |
+| `carve` | `[{ dx, dy, w, h, band? }]` | tile rects set to AIR |
+| `tiles` | `[{ dx, dy, w, h, sub, form, band? }]` | tile rects set to a packed pair |
+| `machines` | `[{ id, dx, dy, band?, buf?, charges? }]` | `dx`/`dy` is the footprint's top-left tile |
+| `segments` | `[[i, j]]` | indices into this row's own `machines` |
+| `items` | `[{ sub, form, n, dx, dy, band? }]` | `n` falling items at that tile's centre |
+| `give` | `[{ sub, form, n }]` | straight into `run.inv` |
+
+**The coordinate datum.** `dx` is tiles right of the **spawn** band's own
+`spawnTx`; `dy` is tiles below the **named** band's own `floorTy`, so `dy:0` is
+that band's first solid row and `dy:-1` the air above it. One column datum
+serves all three bands because all three carry `tile:8` (§18.2), which
+`tools/content.mjs` asserts rather than assumes — so a cross-band chain is
+vertical by construction.
+
+**Surface columns stay inside `dx` -9..+9.** That is `rules/generate.js#SHELF`'s
+guaranteed-flat spawn shelf and the only stretch where `floorTy` really is the
+ground row.
+
+**Every row carries a pick.** A fixture that needs the developer to remember
+the one lying at spawn is a fixture that wastes the first ten seconds of every
+use, and `belt-line`'s own belt drags that pick into the furnace pit.
+
+### 29.3 Why the writes are `model` writes
+
+`rules/scenarios.js` imports no other `rules` module — the sibling ban, section
+0 of `npm run check`. So machines go in through `model/machines.js#write.place`,
+the director route `rules/cycles.js#ensureAltarPlaced` already uses, and tiles
+through `model/tiles.js#write.set`/`#clear`.
+
+**The cost, and where it is paid.** `model/run.js#placementCheck` never runs, so
+a row could stand a machine where a player could not build it. The band gate and
+the `minDepth` gate are therefore re-derived at build time by
+`tools/content.mjs` assertion 27, which also proves every id resolves, every
+pair is holdable, every buffer entry is consumed by some recipe on that row, and
+every segment is inside the smaller hub's own `hub.reach`. Footing and the
+clear-path sweep are questions about live tiles after the carve, so they are
+not linted: `model/segments.js#linkCheck` asks the path question at apply time
+and journals its refusal, and footing is proved by driving each scenario.
+
+### 29.4 The shipped table
+
+| id | what it stands up | verified by |
+|---|---|---|
+| `winch` | one 88 px vertical segment, two hubs, a gear, a crank, 4 `copper/ore` in the carrier | 10 s at the crank lifts the carrier 34 px; by 30 s it is at `t = 1` and the haul is released |
+| `belt-line` | a fuelled belt on the flat feeding a furnace sunk in a 2-row pit | 4 ore leave the belt in 1 s, 4 charges spent; 8 ore + 2 logs become 2 `copper/ingot` in the pit |
+| `cycle2` | cycle 2 armed, cycle 1's rewards paid, 3 `copper/plate` + 2 hubs + crank + gear held (33.7 T of a 40 T cap) | `run.tribute.id` is `first-delivery` with 480 s on the clock |
+| `cycle3` | cycle 3 armed, both halves of the demand held (26.5 T) | `run.tribute.id` is `grey-eyed-tithe` |
+| `ascent` | the whole three-segment chain to the Cloud Dock, with a crank at each stage and a rung ladder beside it | all three carriers rise; 3 plates delivered at the dock pay cycle 2 and advance `run.cycle` to 3 |
+
+**`winch`'s two measured geometry facts**, both of which read as arbitrary and
+are not:
+
+- **the drivetrain stands on the spawn side of the hub.** With the crank past
+  the shaft, the walk to it crosses the open mouth and the player falls in
+  before they ever turn it.
+- **the cargo loads in the left column.** An arriving haul is released at the
+  `x` it was loaded at, and the right column is the open mouth — cargo loaded
+  there is carried to the top and falls straight back down the hole.
+
+**`winch`'s climb rate is 3.4 px/s under its 4 T of ore**, measured, which is
+4.5 px/s empty by the same arithmetic: one crank through one gear is
+`1.5 x (1 - 0.06) = 1.41` drive against a vertical carrier's `segBase` of 1.0
+(§17.8). That is the cost of ascension, not a stall.
+
+### 29.5 The ascent, stage by stage
+
+Anchors are footprint centres (§17.5). The span is 240 px from the surface
+ground line (world y 480) to the astral ground line (world y 240), of which the
+middle 80 px is astral's own 10-row stone slab.
+
+| stage | from | to | px | through |
+|---|---|---|---|---|
+| 1 | surface ground, y 472 | y 384 | 88 | open air, upper hub on a placed `stone/block` platform |
+| 2 | y 384 | astral y 296 | 88 | the slab, into a carved pocket |
+| 3 | astral y 296 | the dock, y 236 | 60 | astral air |
+
+**Each stage's high anchor is the next stage's low anchor**, so a haul released
+at the top of one stage lands inside the next carrier's own box and the chain
+hands off with no code that knows about chains. Astral row 39 is carved because
+it is the one slab row no headframe exemption covers (§17.6).

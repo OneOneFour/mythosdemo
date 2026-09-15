@@ -25,6 +25,8 @@ import { BOONS, BOON } from '../src/data/boons.js';
 import { MIRACLES } from '../src/data/miracles.js';
 import { DROPS } from '../src/data/drops.js';
 import { CYCLES } from '../src/data/cycles.js';
+import { GODS } from '../src/data/gods.js';
+import { SCENARIOS } from '../src/data/scenarios.js';
 import { BANDS, SPAWN_BAND } from '../src/data/world.js';
 import { hasColour } from '../src/data/palette.js';
 import { TREAT } from '../src/view/treatments.js';
@@ -1289,6 +1291,288 @@ export function checkContent({ quiet = false } = {}) {
       if (!(Number.isInteger(e.radius) && e.radius >= 0))
         fail(`miracle "${m.id}": effect.radius is ${JSON.stringify(e.radius)} -- a tile-editing kind needs ` +
              `a whole non-negative radius, and rules/miracles.js loops it directly`);
+    }
+  }
+
+
+  /* ---- 27. EVERY DEBUG SCENARIO IS BUILDABLE (Phase 6j, docs/SPEC.md
+     section 29). Modelled on assertion 19: one existence check per reference,
+     closed vocabularies hardcoded here rather than learned from the rows being
+     linted, and the two selector checks (`holdable` and `expand`) kept
+     separate because they catch different mistakes.
+
+     WHY THIS ASSERTION HAS TO EXIST AT ALL. `rules/scenarios.js` places
+     machines through `model/machines.js#write.place` -- the director route
+     `rules/cycles.js#ensureAltarPlaced` already uses, and the only one
+     available, since a `rules` sibling may not be imported. That route asks
+     nothing about band, depth, grants or held items, so `placementCheck`'s
+     refusals never run and a scenario naming an astral-only machine on the
+     surface, or a `minDepth` machine above its gate, would apply without a
+     word and behave like nothing at all. The gates are therefore re-derived
+     here from the raw `data/world.js` rows, exactly as `depthOfTy` above
+     already re-derives `model/world.js#worldY` and for the same reason: this
+     tool runs before anything is booted, so there is no live band to ask.
+
+     THE REACH CHECK IS THE ONE THAT WOULD OTHERWISE BE FOUND BY EYE. A
+     segment whose two anchors are more than `hub.reach` apart is refused by
+     `model/segments.js#linkCheck` at apply time, leaving a diorama with a
+     visible pair of hubs and no cable -- which reads as a broken mechanic
+     rather than as a bad row. The anchor is the footprint's own centre
+     (docs/SPEC.md section 17.5), so the distance is computable from the row.
+     `eff('segReach')` cannot be read here, so this is the BASE reach: a row
+     inside it is inside it under any modifier that only ever widens.
+
+     WHAT IS DELIBERATELY NOT CHECKED: footing, and whether the path between
+     two hubs is clear. Both are questions about live tiles after the carve
+     rects have been applied, and re-deriving the generated world in a lint
+     would be a second worldgen. `linkCheck` asks the path question at apply
+     time and journals its refusal; footing is proved by driving each
+     scenario, which is what this phase's acceptance step did. ---- */
+  {
+    const spawnCfg = BANDS.find(b => b.id === SPAWN_BAND);
+    const datum = worldYOf(spawnCfg, spawnCfg.floorTy ?? 0);
+    const spawnTx = spawnCfg.spawnTx ?? (spawnCfg.tw >> 1);
+    const BAND_CFG = Object.freeze(Object.fromEntries(BANDS.map(b => [b.id, b])));
+    const GOD_IDS = new Set(GODS.map(g => g.id));
+    const ids = new Set();
+
+    /* The same two expressions `rules/scenarios.js#txOf`/`#tyOf` use: `dx` is
+       tiles right of the SPAWN band's own column, `dy` tiles below the target
+       band's own ground line. */
+    const txAt = spec => spawnTx + spec.dx;
+    const tyAt = (cfg, spec) => (cfg.floorTy ?? 0) + spec.dy;
+
+    for (const sc of SCENARIOS) {
+      checks++;
+      if (!sc.id || ids.has(sc.id))
+        fail(`scenario "${sc.id}": id is missing or duplicated -- \`?scenario=<id>\` and the menu's ` +
+             `debug list both name it, so it is part of the interface`);
+      ids.add(sc.id);
+
+      checks++;
+      if (!sc.name || !sc.note)
+        fail(`scenario "${sc.id}": needs both a \`name\` (the menu draws it) and a one-line \`note\` ` +
+             `saying what it is FOR -- a fixture nobody can tell the purpose of is a fixture nobody uses`);
+
+      checks++;
+      const home = BAND_CFG[sc.band];
+      if (!home) {
+        fail(`scenario "${sc.id}": band "${sc.band}" is not a data/world.js row`);
+        continue;
+      }
+
+      /* Every coordinate is `dx` off ONE column datum, whatever band it lands
+         in, which is only sound while every band shares a tile size. Asserted
+         rather than assumed: a band with a finer grid would silently shear
+         every cross-band diorama sideways. */
+      checks++;
+      if (home.tile !== spawnCfg.tile)
+        fail(`scenario "${sc.id}": band "${sc.band}" has tile ${home.tile} against the spawn band's ` +
+             `${spawnCfg.tile}, so \`dx\` no longer names the same world column in both -- see ` +
+             `data/scenarios.js's coordinate datum`);
+
+      const bandOfSpec = spec => BAND_CFG[spec.band ?? sc.band];
+
+      for (const kind of ['carve', 'tiles']) {
+        for (const r of sc[kind] || []) {
+          const cfg = bandOfSpec(r);
+          checks++;
+          if (!cfg) {
+            fail(`scenario "${sc.id}": ${kind} rect names band "${r.band}", which is not a ` +
+                 `data/world.js row`);
+            continue;
+          }
+          checks++;
+          if (!(Number.isInteger(r.dx) && Number.isInteger(r.dy) &&
+                Number.isInteger(r.w) && r.w > 0 && Number.isInteger(r.h) && r.h > 0))
+            fail(`scenario "${sc.id}": ${kind} rect ${JSON.stringify(r)} needs whole \`dx\`/\`dy\` and ` +
+                 `a positive whole \`w\`/\`h\` -- rules/scenarios.js loops them directly`);
+          const tx = txAt(r), ty = tyAt(cfg, r);
+          checks++;
+          if (tx < 0 || tx + r.w > cfg.tw || ty < 0 || ty + r.h > cfg.th)
+            fail(`scenario "${sc.id}": ${kind} rect ${JSON.stringify(r)} resolves to tiles ` +
+                 `${tx},${ty}..${tx + r.w - 1},${ty + r.h - 1} in "${cfg.id}", outside its ` +
+                 `${cfg.tw}x${cfg.th} grid -- rules/scenarios.js skips out-of-bounds tiles, so the ` +
+                 `diorama would come out partly missing and nothing would say so`);
+          if (kind !== 'tiles') continue;
+          checks++;
+          const sub = S[r.sub], form = F[r.form];
+          if (sub === undefined || form === undefined) {
+            fail(`scenario "${sc.id}": tiles rect names ${r.sub}/${r.form}, and one of those is not a ` +
+                 `data/substances.js or data/forms.js row`);
+            continue;
+          }
+          checks++;
+          if (!FORM[form].tile)
+            fail(`scenario "${sc.id}": tiles rect writes form "${r.form}", which carries no \`tile\` ` +
+                 `block -- only rung/stair/block/seed may become terrain (CLAUDE.md D12)`);
+          checks++;
+          if (!crossable(sub, form))
+            fail(`scenario "${sc.id}": ${r.sub}/${r.form} is not a legal crossing, so the pair cannot ` +
+                 `exist as a tile (see data/forms.js subTags)`);
+          checks++;
+          if (!packable(sub))
+            fail(`scenario "${sc.id}": tiles rect names substance "${r.sub}", which ` +
+                 `data/forms.js#packable rejects -- packing it overflows the tile byte and WRAPS to an ` +
+                 `unrelated pair, exactly as a transmute miracle would (assertion 26)`);
+        }
+      }
+
+      const specs = sc.machines || [];
+      for (const spec of specs) {
+        checks++;
+        const def = MACH.find(m => m.id === spec.id);
+        if (!def) {
+          fail(`scenario "${sc.id}": places "${spec.id}", which is not a data/machines.js id`);
+          continue;
+        }
+        const cfg = bandOfSpec(spec);
+        checks++;
+        if (!cfg) {
+          fail(`scenario "${sc.id}": machine "${spec.id}" names band "${spec.band}", which is not a ` +
+               `data/world.js row`);
+          continue;
+        }
+        const tx = txAt(spec), ty = tyAt(cfg, spec);
+        checks++;
+        if (tx < 0 || tx + def.tw > cfg.tw || ty < 0 || ty + def.th > cfg.th)
+          fail(`scenario "${sc.id}": machine "${spec.id}" footprint resolves to ` +
+               `${tx},${ty}..${tx + def.tw - 1},${ty + def.th - 1} in "${cfg.id}", outside its grid`);
+
+        /* THE TWO PLACEMENT GATES `write.place` DOES NOT ENFORCE. Both refuse
+           in `model/run.js#placementCheck` for a player and pass silently for
+           a director, so both are the scenario table's own responsibility. */
+        checks++;
+        if (def.band && def.band !== cfg.id)
+          fail(`scenario "${sc.id}": machine "${spec.id}" declares band "${def.band}" and the row ` +
+               `places it in "${cfg.id}" -- a player could never build it there (docs/SPEC.md 20.1), ` +
+               `so the diorama states a rule the game does not have`);
+        checks++;
+        if (def.minDepth && depthOfTy(cfg, ty, spawnCfg, datum) < def.minDepth)
+          fail(`scenario "${sc.id}": machine "${spec.id}" has minDepth ${def.minDepth} and the row ` +
+               `places it at ${depthOfTy(cfg, ty, spawnCfg, datum)} M -- placementCheck would refuse ` +
+               `it as 'TOO SHALLOW' for a player`);
+
+        for (const e of spec.buf || []) {
+          checks++;
+          const sub = S[e.sub], form = F[e.form];
+          if (sub === undefined || form === undefined || !holdable(sub, form)) {
+            fail(`scenario "${sc.id}": fills "${spec.id}" with ${e.sub}/${e.form}, which is not a ` +
+                 `holdable pair -- model/machines.js#write.take keys the buffer through ` +
+                 `model/items.js#keyOf, which reads SUB[sub].id`);
+            continue;
+          }
+          checks++;
+          if (expand(`${e.sub}/${e.form}`).length === 0)
+            fail(`scenario "${sc.id}": the buffer selector ${e.sub}/${e.form} expands to nothing -- ` +
+                 `see data/forms.js#expand, which exists for exactly this`);
+          checks++;
+          if (!(Number.isInteger(e.n) && e.n > 0))
+            fail(`scenario "${sc.id}": fills "${spec.id}" with ${JSON.stringify(e.n)} of ` +
+                 `${e.sub}/${e.form}; a buffer count is a positive integer of units`);
+          checks++;
+          if (!recipesOf(def).some(r => Object.keys(r.in || {}).some(sel => matches(sel, sub, form))))
+            fail(`scenario "${sc.id}": fills "${spec.id}" with ${e.sub}/${e.form}, which no recipe on ` +
+                 `that machine consumes -- the units would sit in the buffer for the whole run and the ` +
+                 `machine would look fed and do nothing`);
+        }
+
+        if (spec.charges !== undefined) {
+          checks++;
+          if (!(Number.isInteger(spec.charges) && spec.charges > 0))
+            fail(`scenario "${sc.id}": machine "${spec.id}" banks ${JSON.stringify(spec.charges)} ` +
+                 `charges; it is a positive whole number of units of work`);
+          checks++;
+          if (!recipesOf(def).some(r => (r.out || []).length === 0))
+            fail(`scenario "${sc.id}": machine "${spec.id}" banks charges and has no honest-fuel ` +
+                 `recipe (one with \`out:[]\`), so nothing on that row ever spends one -- see ` +
+                 `docs/DEVELOPER_GUIDE.md#charges-and-honest-fuel`);
+        }
+      }
+
+      for (const pair of sc.segments || []) {
+        checks++;
+        if (!Array.isArray(pair) || pair.length !== 2 ||
+            !pair.every(i => Number.isInteger(i) && i >= 0 && i < specs.length)) {
+          fail(`scenario "${sc.id}": segment ${JSON.stringify(pair)} is not a pair of indices into ` +
+               `this row's own \`machines\` list (${specs.length} entries)`);
+          continue;
+        }
+        const ends = pair.map(i => {
+          const spec = specs[i];
+          const cfg = bandOfSpec(spec);
+          const def = MACH.find(m => m.id === spec.id);
+          const tile = cfg.tile;
+          return {
+            spec, def,
+            x: cfg.origin.x + txAt(spec) * tile + (def.tw * tile) / 2,
+            y: worldYOf(cfg, tyAt(cfg, spec)) + (def.th * tile) / 2
+          };
+        });
+        checks++;
+        const notHub = ends.find(e => !e.def.hub);
+        if (notHub) {
+          fail(`scenario "${sc.id}": segment ${JSON.stringify(pair)} anchors on "${notHub.spec.id}", ` +
+               `which carries no \`hub:{}\` block -- linkCheck answers 'NOT A HUB' and the diorama ` +
+               `comes out with no cable`);
+          continue;
+        }
+        checks++;
+        const len = Math.hypot(ends[1].x - ends[0].x, ends[1].y - ends[0].y);
+        const reach = Math.min(...ends.map(e => e.def.hub.reach));
+        if (len > reach)
+          fail(`scenario "${sc.id}": segment ${JSON.stringify(pair)} spans ${len.toFixed(1)} px ` +
+               `between anchors, past the smaller hub's own reach of ${reach} -- linkCheck answers ` +
+               `'TOO FAR APART'. Reaching further is another hub and another segment ` +
+               `(CLAUDE.md invariant 4)`);
+      }
+
+      for (const kind of ['items', 'give']) {
+        for (const g of sc[kind] || []) {
+          checks++;
+          const sub = S[g.sub], form = F[g.form];
+          if (sub === undefined || form === undefined || !holdable(sub, form)) {
+            fail(`scenario "${sc.id}": ${kind} names ${g.sub}/${g.form}, which is not a holdable ` +
+                 `pair -- the element needs an item block in data/substances.js and the crossing must ` +
+                 `be legal for the form's subTags`);
+            continue;
+          }
+          checks++;
+          if (expand(`${g.sub}/${g.form}`).length === 0)
+            fail(`scenario "${sc.id}": the ${kind} selector ${g.sub}/${g.form} expands to nothing -- ` +
+                 `see data/forms.js#expand, which exists for exactly this`);
+          checks++;
+          if (!(Number.isInteger(g.n) && g.n > 0))
+            fail(`scenario "${sc.id}": ${kind} names ${JSON.stringify(g.n)} of ${g.sub}/${g.form}; ` +
+                 `a count is a positive integer of units`);
+        }
+      }
+
+      for (const mid of sc.grant || []) {
+        checks++;
+        if (!MACH.some(m => m.id === mid))
+          fail(`scenario "${sc.id}": grants "${mid}", which is not a machine id -- ` +
+               `model/run.js#canPlace would refuse it forever`);
+      }
+      for (const bid of sc.chart || []) {
+        checks++;
+        if (!BANDS.some(b => b.id === bid))
+          fail(`scenario "${sc.id}": charts "${bid}", which is not a band id`);
+      }
+      for (const god of Object.keys(sc.favour || {})) {
+        checks++;
+        if (!GOD_IDS.has(god))
+          fail(`scenario "${sc.id}": grants favour to "${god}", which is not a data/gods.js id -- ` +
+               `the FAVOUR panel draws no row for it, so the favour would be invisible`);
+      }
+
+      if (sc.cycle !== undefined) {
+        checks++;
+        if (!(Number.isInteger(sc.cycle) && sc.cycle >= 1 && sc.cycle <= CYCLES.length))
+          fail(`scenario "${sc.id}": cycle is ${JSON.stringify(sc.cycle)}; it is a 1-based row of ` +
+               `data/cycles.js, of which there are ${CYCLES.length}. rules/scenarios.js ignores ` +
+               `anything else, so the scenario would silently arm cycle 1`);
+      }
     }
   }
 
