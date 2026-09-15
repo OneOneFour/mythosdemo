@@ -3013,3 +3013,165 @@ or the SPEC §5 beat's callout when there is none.
   guidance loses to a window the player opened; a fact that just happened
   does not, or a refusal raised by a click inside the panel would be hidden
   by the panel that raised it.
+
+## 27. The save slot (Phase 6h)
+
+`src/shell/save.js` exports `save()`, `load(newRun)`, `hasSave()` and
+`clearSave()`. It wires no input and draws nothing. Wave 6 U1 retires
+`CLAUDE.md`'s no-`localStorage` convention for it, accepting that the game may
+fail in a sandboxed embed.
+
+### 27.1 The payload is the seed plus what the player changed
+
+Wave 6 U2. A run is bit-reproducible from its seed (invariant 7), so the
+terrain is not stored. `load()` regenerates the world from the seed and replays
+the edits over it. Serialising the three bands' `mat` arrays instead is ~1.3 MB
+raw and was rejected.
+
+Two `localStorage` keys, one slot.
+
+| key | holds |
+|---|---|
+| `mythos-factory/save-head` | `{ v, world, content, seed }`, ~58 bytes |
+| `mythos-factory/save` | the header's four fields plus everything below |
+
+| field | shape | restored through |
+|---|---|---|
+| `run` | the whole plain record | one `model/run.js#write` call per field |
+| `player` | position, velocity and the nine presentation flags, band as an id | `player.js#write.band` / `move` / `vel` / `set` |
+| `bands[]` | per band `{ id, gen, edits, work, seen }` | see 27.4 |
+| `growth[]` | `{ band, tx, ty, secs }` | `growth.js#write.plant` then `add` |
+| `items[]` | `{ band, x, y, vx, vy, sub, form }` | `items.js#write.spawn` |
+| `machines[]` | `{ band, id, tx, ty, buf, prog, made, charges, fire, running, torque, turn }` | `machines.js#write.place` and its per-field writers |
+| `segments[]` | `{ a, b, t, dir, load }`, hubs by index into `machines[]` | `segments.js#write.link` / `carrier` / `load` |
+| `boons[]` | `{ id, left }` | `boons.js#write.grant` |
+
+`edits` is a flat `[tx, ty, byte, ...]` per band and `work` is a flat
+`[tx, ty, secs, ...]`. `seen` is one bit per tile, base64 over the packed
+bitset, indexed by `model/world.js#idx`.
+
+**The edit set is a diff, not a journal.** Nothing records which tiles the
+player changed, so `save()` regenerates the band from the seed and compares.
+The measured cost is 25 ms at the three shipped bands (53,248 tiles), against
+permanent per-write bookkeeping and a hook in `model/tiles.js#write.setByte`
+for the alternative. A diff cannot drift from the world it describes.
+
+Two things must not leak out of that regeneration, and both are held and put
+back in a `finally`.
+
+- **The RNG cursor.** `seedRng` replaces the stream, so `rng.next` is saved and
+  restored. Without it a save rewinds the run's randomness to boot.
+- **The modifier store.** `shell/boot.js#newRun` clears `model/mods.js` before
+  it generates and `rules/generate.js` reads `eff('hollowOre')`, so the
+  baseline is taken with mods cleared and the rows are re-added by source
+  afterwards.
+
+The scratch band records carry `ord + 64`, because `generate` writes through
+`model/tiles.js#write.setByte`, which addresses the dig and growth ledgers by a
+key prefixed with the band ordinal. Every other field is shared with the live
+band, which is safe because `generate` writes `mat` and `ver` and nothing else.
+
+### 27.2 What is deliberately not stored
+
+| state | why |
+|---|---|
+| band `mat` arrays | U2. Regenerated from the seed. |
+| band `light` | `rules/light.js` recomputes it within a frame. |
+| `model/fields.js` heat | Decays by default and is re-established by a running machine. |
+| `model/mods.js` rows | `rules/trinkets.js` and `rules/boons.js` rebuild them from `run.equipped` and `boons.active` every step, so storing them would double them for one frame. |
+| `run.mainSlots`, `run.maxHearts`, `run.known` | No writer can set them and `write.reset` already produces the same value. `known` is seeded from every `HAND_RECIPES` id and nothing in `src/` adds to it. A recipe-unlock source would need a `write.learn` and a line here. |
+| `run.invuln` | Bounded by `invulnSecs` and expires unobserved. |
+| item `rest` and `age` | Both are re-established by the first `rules/items.js` step. Support is a tile query re-asked every frame and `age` only gates the pickup magnet delay. |
+| `meta` | Page-scoped, not run-scoped. `newRun()` does not reset it, so a load does not disturb it, and `model/run.js#RUN_SCHEMA.favour` already records that `meta` has no save. |
+| `shell/ui.js` session state | Open panels, the armed pair, AUTO COLLECT and AUTO FEED. `newRun()` resets all of it (D13-A), and the save follows. |
+| `clock.t` and the camera | `shell/main.js` owns both. A caller that boots straight into a loaded run re-clamps the camera itself. |
+
+### 27.3 Four versions, and the last two cover the generator
+
+| field | is | checked in | catches |
+|---|---|---|---|
+| `v` | a literal, 1 | `hasSave()` | the payload shape changing |
+| `world` | FNV-1a of `JSON.stringify(BANDS)` | `hasSave()` | a band dimension, origin or strata change, which invalidates every stored tile coordinate |
+| `content` | FNV-1a of the `SUB`, `FORM` and `MACH` id lists | `hasSave()` | an ordinal coming to mean another row |
+| `gen` | FNV-1a of each band's freshly generated `mat` | `load()`, after `newRun()` | `rules/generate.js` itself changing |
+
+`gen` needs a world to exist, so it is the one check `hasSave()` cannot make.
+`load()` calls `newRun(seed)` first and checks it then. A mismatch discards the
+save and returns false, which leaves a clean run of the same seed rather than
+edits replayed onto ground that moved.
+
+Every id string in the payload that would throw downstream is resolved before
+`newRun()` runs — machine ids through `data/machines.js#M` and boon ids through
+`data/boons.js#BOON`. A payload naming content that no longer exists is refused
+rather than applied and then thrown on.
+
+**`hasSave()` is cheap enough for a menu to ask every frame.** It parses the
+~58-byte header key and never reads the body. Both signatures are computed once
+at import, since both tables are frozen.
+
+### 27.4 The round-trip contract
+
+`load(newRun)` calls `newRun` itself, so a payload can never be applied to a
+world it did not generate and invariant 8 still holds with persistence in the
+game. `newRun` is an argument rather than an import, which keeps `shell/save.js`
+importing no other `shell` module and leaves `shell/boot.js` and
+`shell/main.js` free to import it without a cycle. Pass
+`shell/boot.js#newRun`.
+
+Order within `load()`:
+
+1. `newRun(seed)`, then the `gen` check per band.
+2. Per band, the tile edits, then the dig ledger, then the fog bitset.
+   **The ledgers come after the edits**, because `write.setByte` clears the dig
+   entry and plants the growth entry for every coordinate it writes.
+3. The growth ledger, after every band's edits for the same reason. `plant`
+   then `add` restores the saved total exactly.
+4. Items. The list is cleared first, because `newRun` plants the starting pick
+   and the stored list already says whether it is still lying there.
+5. Machines, then segments, which name their hubs by index into the machine
+   list. `charges` and `made` are restored by adding the lifetime total through
+   `write.charge` and spending the difference back down through
+   `write.spendCharge`, since `charge` raises both together.
+6. Boons, then `run`, then the player.
+
+Within `run`, `write.arrival` runs before `write.tick`, so a director placement
+from earlier in the run stamps `t = 0` and reads as long finished rather than
+replaying its rise and its shaft of light. `write.tick` runs before
+`write.tribute`, so the batch ledger prunes against the right `run.t`.
+`write.hurt` is the only writer of `hearts` and it sets `dead` and `deathCause`
+too, so a stored 0 restores the death with it.
+
+`run.inv` is position-significant and `write.collect` picks the slot by its own
+fill order, so each stack is collected and then swapped into the slot it was
+saved in. Working upward, the slots below the target already hold their final
+pair, so `collect` cannot have taken one of them and the swap can only displace
+an empty slot or one still to be filled.
+
+### 27.5 Measured
+
+One run at the three shipped bands, seed 1337, a 19-tile shaft, 3 part-worked
+tiles, a planted seed, 3 dropped items, 2 hubs, 1 segment, 1 boon, 1 trinket
+equipped.
+
+| quantity | value |
+|---|---|
+| body | 11,267 bytes |
+| header | 58 bytes |
+| fog bitsets | 8,886 bytes, 79% of the body |
+| tile edits | 158 bytes for 19 edits |
+| dig ledger | 83 bytes for 3 tiles |
+| `run` | 944 bytes |
+| `save()` | 23.8 ms, of which 25 ms is the baseline regenerate |
+| `load()` | 16.3 ms |
+
+The fog bitsets are the whole growth curve. They are one bit per tile, so
+1,024-wide bands (wave 6 U3) take them to 53 KB packed and ~71 KB base64, and
+the baseline regenerate to roughly 200 ms.
+
+### 27.6 Storage is allowed to fail
+
+`localStorage` throws in private-mode and sandboxed contexts rather than
+returning null, so every call goes through a guarded helper and a failure reads
+as "no save" rather than breaking the run. `save()` writes the body before the
+header, so a refused write never leaves a header pointing at a half-written
+body, and it returns false with whatever was already stored intact.

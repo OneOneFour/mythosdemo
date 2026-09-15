@@ -2812,3 +2812,33 @@ also what gives it its first execution.
   `process` in `tools/check.mjs`, so the narrower form does not work. The cost
   of the flat form is that a bare `process` in `src/` would go unreported,
   which is a far smaller hole than any typo anywhere going unreported.
+
+## Wave 6, phase 6h (save and load)
+
+- **`src/model/mining.js` has no inverse for its ledger key, so `shell/save.js`
+  scans every tile instead.** `model/growth.js:79` already records the problem
+  in its own header — walking a `Map` of packed `ord * 0x1000000 + idx` keys
+  back to (band, tx, ty) means re-implementing the packing at the reader, which
+  is wrong the first day a band's `tw` changes. `growth.js` solved it by
+  carrying `ord`/`tx`/`ty` on the record and exporting `planted()`.
+  `mining.js:47` stores a bare float, so the save asks `workAt(b, tx, ty)` once
+  per tile in the traversal it already makes for the tile diff — 3 ms at the
+  three shipped bands, and roughly 25 ms at wave 6 U3's 1,024-wide bands. An
+  `entries()` query beside `growth.js#planted()` would let the save walk the
+  sparse map directly and would keep one implementation of the key. Not added
+  here; `model/mining.js` is only in this phase's ownership for a missing
+  `write` path, and no write was missing.
+
+- **`run.known` and `run.maxHearts` have no writer, so the save reproduces them
+  rather than restoring them** (`docs/SPEC.md` §27.2). `write.reset` seeds
+  `known` from every `HAND_RECIPES` id and nothing in `src/` adds to it. The
+  day a source reveals a recipe or raises the heart cap, that phase has to add
+  the writer *and* a line in `shell/save.js#applyRun`, or a loaded run silently
+  loses the unlock. Nothing enforces the pairing.
+
+- **`src/shell/save.js` is not in `tools/check.mjs`'s import list**, which is
+  hand-written (`tools/check.mjs:93-127`). Combined with `no-undef` being off
+  (see the Phase 17 note above), a typo'd identifier inside a function in that
+  file is invisible to both gates. Phase 6h proved the module by executing it
+  in a real browser through a throwaway Playwright script; phase 6p owns the
+  committed test.

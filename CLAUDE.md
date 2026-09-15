@@ -182,7 +182,15 @@ them good.
 - **`vendor/` is for single-file, MIT-or-similar drop-ins**, copied in with
   provenance and any local edits documented inline. `vendor/zzfx.micro.js` is
   the model. This is not an npm install and must not become one.
-- **No `localStorage` / `sessionStorage`.** They fail in some embed contexts.
+- **`localStorage` is allowed, for the save slot only.** This bullet used to
+  forbid it outright, because it fails in some embed contexts. Wave 6 retired
+  that rule deliberately (`docs/PLAN-wave6.md` U1) so the main menu can offer
+  CONTINUE, and the accepted cost is that a sandboxed or private-mode embed
+  gets no save at all. `src/shell/save.js` is the only file that may touch it,
+  every call is guarded because it *throws* in those contexts rather than
+  returning null, and a storage failure degrades to "no save" instead of
+  breaking the run (`docs/SPEC.md` §27). `sessionStorage` is still unused and
+  has no reason to appear.
 - **Palette lives in `core/palette.js`.** Add named entries rather than
   inlining hex.
 - **ES module bindings are read-only for importers.** Any scalar written in one
