@@ -35,6 +35,7 @@ import { AIR, F, NATIVE } from '../data/forms.js';
 import { S, SUB } from '../data/substances.js';
 import { DROPS } from '../data/drops.js';
 import { aim, write as aw } from '../model/aim.js';
+import { activeCount as markCount, nearestWithin, write as qw } from '../model/digqueue.js';
 import { push } from '../model/journal.js';
 import { unitsCrossed, write as digw, workAt } from '../model/mining.js';
 import { write as iw } from '../model/items.js';
@@ -145,15 +146,58 @@ function resolve(px, py) {
 const trunkAt = (b, tx, ty) =>
   subAt(b, tx, ty) === S.timber && formAt(b, tx, ty) === NATIVE;
 
-/* ---------- the step ---------- */
+/* ---------- the step ----------
+   TWO SOURCES OF A TARGET, AND THE HAND ALWAYS WINS. A held dig key swings at
+   the reticle; with nothing held, the dig queue supplies the nearest marked
+   tile inside `eff('reach')` (docs/SPEC.md section 28). Both routes go
+   through the one `swing` below, so a queued tile costs exactly the seconds a
+   hand-swung one costs at any framerate -- there is no second progress store
+   and no second rate (invariant 10). */
 export function step(dt, cmd) {
-  const b = aim.band;
-  if (run.dead || !hasPick() || !cmd.dig || !aim.valid || !b) return;
+  /* Stale marks are collected HERE, once per substep, and not inside the
+     queries that notice them: `view` reads those queries and `view` may not
+     write to `model` (`model/digqueue.js`'s header). Ahead of every gate
+     below, because none of them is a reason to keep a mark on a tile that is
+     no longer that tile: a hand dig must stop the mark spending cap the frame
+     it breaks, and a restart's marks must go even though the fresh run has not
+     found its pick yet (invariant 8). */
+  if (markCount() > 0) qw.prune();
 
-  const byte = tileAt(b, aim.tx, aim.ty);
-  if (byte === AIR) return;
+  if (run.dead || !hasPick()) return;
 
-  const sub = subAt(b, aim.tx, aim.ty);
+  if (cmd.dig) {
+    if (aim.valid && aim.band) swing(dt, aim.band, aim.tx, aim.ty);
+    return;                          // the hand is the intent; the queue waits
+  }
+
+  /* NO PATHFINDING AND NO AUTO-WALK. Reach is measured from where the
+     player is STANDING, so clearing a marked seam means positioning yourself
+     for it -- which is the whole reason the queue does not make mining
+     something you watch.
+
+     A TILE THIS PICK CANNOT BREAK LOSES ITS MARK, and that is the only thing
+     the queue does that a hand swing does not. `swing` returns false for a
+     tier-gated or unmineable tile, and the alternative -- leaving the mark --
+     makes the nearest query hand back the same impossible tile every substep
+     forever, which is both a stalled queue and a mark that reads as merely
+     deferred wherever the HUD draws it. The refusal row is `swing`'s own and
+     is rate-limited by `TIER_REFUSAL_GAP`, so a granite drag says TOO HARD FOR
+     THIS PICK once and then empties rather than 256 times. */
+  if (markCount() === 0) return;
+  const c = playerCentre();
+  const m = nearestWithin(c.x, c.y, eff('reach'));
+  if (!m) return;             // every mark is out of reach; they all persist
+  if (!swing(dt, m.b, m.tx, m.ty)) qw.unmark(m.b, m.tx, m.ty);
+}
+
+/* One dig substep against one tile. Returns false when this pick can never
+   break it -- a tier gate, bedrock, an unmineable substance or bare air -- and
+   true when work was credited or the tile broke. */
+function swing(dt, b, tx, ty) {
+  const byte = tileAt(b, tx, ty);
+  if (byte === AIR) return false;
+
+  const sub = subAt(b, tx, ty);
 
   /* TOOL TIER GATE, on top of hardness, not a second hardness. A silent no-op
      on a wall you are actively swinging at is unreadable (CLAUDE.md), so a
@@ -165,15 +209,15 @@ export function step(dt, cmd) {
     if (tileTier > allowedTier) {
       if (run.t - lastTierRefusal >= TIER_REFUSAL_GAP) {
         lastTierRefusal = run.t;
-        push('refused', { x: worldX(b, aim.tx), y: worldY(b, aim.ty) },
+        push('refused', { x: worldX(b, tx), y: worldY(b, ty) },
              { sub, why: 'TOO HARD FOR THIS PICK' });
       }
-      return;
+      return false;
     }
   }
 
-  const hard = baseHardAt(b, aim.tx, aim.ty) * (sub < 0 ? 1 : eff('hard', SUB[sub].id));
-  if (!(hard > 0) || !Number.isFinite(hard)) return;      // bedrock, or unmineable
+  const hard = baseHardAt(b, tx, ty) * (sub < 0 ? 1 : eff('hard', SUB[sub].id));
+  if (!(hard > 0) || !Number.isFinite(hard)) return false;   // bedrock, or unmineable
 
   /* DEPLETION, and the whole of it (Phase 14b, D14-D). A `deposit` substance's
      tile yields `charge` units before it is gone, each unit costing a full
@@ -185,12 +229,12 @@ export function step(dt, cmd) {
      so a boon that enriches a vein cannot be read around. Floored at 1
      because a tile that yields nothing is an unbreakable tile. */
   const charge = sub < 0 ? 1
-    : Math.max(1, Math.round(baseChargeAt(b, aim.tx, aim.ty) * eff('richness', SUB[sub].id)));
+    : Math.max(1, Math.round(baseChargeAt(b, tx, ty) * eff('richness', SUB[sub].id)));
   const total = hard * charge;
 
-  const at = { x: worldX(b, aim.tx), y: worldY(b, aim.ty) };
-  const before = workAt(b, aim.tx, aim.ty);
-  const work = digw.add(b, aim.tx, aim.ty, dt * eff('pickPower') * (tool ? tool.power : 1));
+  const at = { x: worldX(b, tx), y: worldY(b, ty) };
+  const before = workAt(b, tx, ty);
+  const work = digw.add(b, tx, ty, dt * eff('pickPower') * (tool ? tool.power : 1));
 
   /* A strike that did not break anything is still a fact worth reporting: it is
      what gives the swing weight. `shell` rate-limits it from `data/sfx.js`.
@@ -207,7 +251,7 @@ export function step(dt, cmd) {
      unit is the break branch's drop and a tile never yields charge + 1. ---- */
   const crossed = unitsCrossed(before, work, hard, charge);
   if (crossed > 0) {
-    const unit = dropAt(b, aim.tx, aim.ty);
+    const unit = dropAt(b, tx, ty);
     if (unit) for (let i = 0; i < crossed; i++) {
       /* YIELD QUALITY (`eff('dropChance', ...)`, `data/tuning.js`). Rolled
          unconditionally, ore included, so this draw's position in the
@@ -221,13 +265,13 @@ export function step(dt, cmd) {
       if (dropped) push('drop', at, { sub: unit.sub, form: unit.form });
     }
   }
-  if (work < total) return;
+  if (work < total) return true;
 
   /* ---- broken. Read the drop BEFORE clearing the tile. ---- */
-  const drop = dropAt(b, aim.tx, aim.ty);
+  const drop = dropAt(b, tx, ty);
   const dropRoll = rand();
-  digw.clear(b, aim.tx, aim.ty);
-  tw.clear(b, aim.tx, aim.ty);
+  digw.clear(b, tx, ty);
+  tw.clear(b, tx, ty);
   push(hard > HARD_BREAK ? 'breakHard' : 'breakSoft', at, { sub });
 
   /* ARCHITECTURE invariant 5: mined material becomes a FALLING ITEM, never a
@@ -239,8 +283,8 @@ export function step(dt, cmd) {
      of outcome, is what makes soil and bare stone poor: most swings at
      them come up empty. A real ore's `dropChance` is 1.0, so the roll
      always passes and nothing changes for it. */
-  if (!drop) return;
-  if (formOf(byte) === NATIVE && sub >= 0 && dropRoll >= eff('dropChance', SUB[sub].id)) return;
+  if (!drop) return true;
+  if (formOf(byte) === NATIVE && sub >= 0 && dropRoll >= eff('dropChance', SUB[sub].id)) return true;
   const it = iw.spawn(b, at.x + b.tile / 2, at.y + b.tile / 2,
                       drop.sub, drop.form, (rand() - 0.5) * 24, -30 - rand() * 20);
   if (it) push('drop', at, { sub: drop.sub, form: drop.form });
@@ -293,7 +337,7 @@ export function step(dt, cmd) {
      invariant 7 requires is that `newRun(s)` twice still match, and it
      does. ---- */
   if (sub === S.timber && formOf(byte) === NATIVE
-      && !trunkAt(b, aim.tx, aim.ty - 1) && !trunkAt(b, aim.tx, aim.ty + 1)) {
+      && !trunkAt(b, tx, ty - 1) && !trunkAt(b, tx, ty + 1)) {
     const n = Math.max(0, Math.round(eff('seedYield')));
     for (let i = 0; i < n; i++) {
       const seed = iw.spawn(b, at.x + b.tile / 2, at.y + b.tile / 2,
@@ -323,4 +367,5 @@ export function step(dt, cmd) {
       push('relic', dropAt, { sub: giveSub, form: F.relic });
     }
   }
+  return true;
 }

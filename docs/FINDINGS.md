@@ -3356,3 +3356,56 @@ this phase found and did not own.
   `grassCap` the resolved rock tones off `paint.js#look` (a swatch, per the
   no-substance-names rule) and it repaints turf the same function just
   painted, which is why this phase stopped at the silhouette.
+
+## Phase 6i — the dig queue (`docs/PLAN-wave6.md` §4, U5)
+
+Four items, three of them work phase 6o owes the queue and one measurement
+worth having before 6n draws anything. Nothing was fixed outside the ownership
+block.
+
+- **`src/shell/boot.js#newRun` must call `digqueue.write.clearAll()`**, beside
+  `digw.clearAll()` and `growthw.clearAll()` at `boot.js:81-83`. Invariant 8,
+  and it is 6o's line because `boot.js` is 6o's file. The gap is currently
+  unobservable rather than absent: a mark carries its band RECORD and `newRun`
+  replaces every record, so every mark of a previous run is stale by
+  construction and `rules/mining.js` prunes it on the first substep
+  (`docs/SPEC.md` §28.4, proved by the phase probe). The explicit clear is
+  still the right call — the identity test is what makes the missing one safe,
+  not a substitute for it.
+
+- **`src/shell/input.js`'s drag gesture owes the cap its refusal.**
+  `model/digqueue.js#write.mark` returns `'full'` at `eff('digQueueMax')`, and
+  no `model` module imports `model/journal.js`, so the caller reports it. Every
+  other refusal in this game is a journal row; this one wants
+  `push('refused', at, { why: 'DIG QUEUE FULL' })`, matching
+  `rules/items.js`'s `INVENTORY FULL`.
+
+- **`shell/main.js#installTestHook` has no dig-queue projection**, so phase 6p
+  cannot assert on the marked set through `__mf` alone. This phase's probe
+  reached the live module by `import('/src/model/digqueue.js')` inside
+  `page.evaluate` — the dev server serves untransformed ES modules, so that
+  URL resolves to the same registry entry `rules/mining.js` holds. It works,
+  but a committed test should not have to know that. `activeCount()`,
+  `isFull()` and a `[{ord, tx, ty}]` list of live marks are the three reads
+  worth exposing; the map's values hold live band records and cannot cross
+  `page.evaluate`'s structured clone.
+
+- **The four acceptance cases are not committed tests, because `tests/` is
+  6p's.** All four pass under the scratchpad probe: a 3x3 block inside reach
+  breaks with no button held and yields 36 falling items with `run.inv`
+  unchanged; a ten-tile run breaks 3 and defers 7 with the player never moving
+  itself, and walking right through `cmd` clears all ten; no mark is observable
+  after `newRun(1337)` with the same seed; and a queued swing at granite pushes
+  the same `TOO HARD FOR THIS PICK` row a manual swing does and then drops the
+  mark. A fifth probe measured the queue at 20/30/60/90/120/144/240 fps and got
+  stone's 1.6 s within one substep at every rate (invariant 10).
+
+- **A player crossing marked tiles at full walk speed finishes none of them,
+  and the number is small enough to matter to 6n.** The queue digs the NEAREST
+  in-reach mark, so at 60 px/s a given column is the nearest for about 8 px of
+  travel — 0.13 s against soil's 0.50 s hardness. Nothing is lost (the partial
+  work stays in `model/mining.js`'s ledger and the mark persists), and this is
+  arguably the feature working: standing still is what clears ground. But it
+  means a player who paints a seam and then runs along it sees almost nothing
+  happen, so whatever 6n draws for a mark should read as "queued, not yet
+  touched" rather than as "being worked".

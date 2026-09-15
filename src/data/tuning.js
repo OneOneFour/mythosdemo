@@ -40,6 +40,15 @@ export const TUNABLES = [
   { id:'pickPower', kind:'value', base:1.0,  unit:'x',      note:'seconds of dig credited per second held' },
   { id:'pickupR',   kind:'value', base:10,   unit:'px',     note:'radius at which a resting item is pocketed' },
 
+  /* THE DIG QUEUE'S ONLY NUMBER (docs/SPEC.md section 28). A drag marks tiles
+     and the player then mines the marked ones inside `reach` with no button
+     held, so the cap answers two questions at once: it bounds the O(n) nearest
+     query `rules/mining.js` runs once per substep, and it bounds "did I mean to
+     paint the whole screen". 256 is a 16x16 block -- eight times the ~32 tiles
+     `reach` covers at any one moment, so marking well past where you stand is
+     the normal use and hitting the cap is not. */
+  { id:'digQueueMax', kind:'value', base:256, unit:'tiles',  note:'marks the dig queue holds; a further mark is refused' },
+
   /* ---- falling. The table is locked in docs/SPEC.md section 3:
             safe   =  5 tiles  ( 40 px) -> 160 px/s -> 0 hearts
             lethal = 20 tiles  (160 px) -> 320 px/s -> 5 hearts

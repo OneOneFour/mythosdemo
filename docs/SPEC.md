@@ -3565,6 +3565,134 @@ Only `WORLD MOVED` discards a valid save, and it discards one that describes
 ground that no longer exists. The player is left standing in a clean run of the
 same seed.
 
+## 28. The dig queue (Phase 6i)
+
+Locked with `docs/PLAN-wave6.md` U5. Holding the dig button and sweeping
+already mined continuously — `cmd.mouse` latches at `pointerdown` and `aim`
+follows the pointer every frame — so what the queue adds is **not having to
+hold it**. A drag marks tiles; the player then mines marked tiles inside
+`eff('reach')`, nearest first, with no button held.
+
+**There is no pathfinding and no auto-walk.** A mark out of reach persists and
+resumes when the player walks into range, and the player does the walking. That
+is the premise at player scale: the currency is standing presence and
+attention, the same thing D10 says about the crank. A queue that fetched the
+player to the ore would make mining something you watch.
+
+`src/model/digqueue.js` owns the marked set and the queries;
+`src/rules/mining.js` owns the decision to swing.
+
+### 28.1 The one number
+
+| tunable | base | unit | what it bounds |
+|---|---|---|---|
+| `digQueueMax` | 256 | tiles | marks the set holds at once |
+
+256 is a 16x16 block, about eight times the ~32 tiles `eff('reach')` covers
+from one standing position, so marking well past where you stand is the normal
+use and hitting the cap is not. It bounds two things at once: the O(n) nearest
+query `rules/mining.js` runs once per substep, and the answer to "did I mean to
+paint the whole screen".
+
+`eff('reach')` (25.6 px, 3.2 tiles) is the gate on what gets mined, unchanged
+and not a second number. Distance is measured **centre to centre** — the
+player's centre against the tile's own middle — so the queue reaches exactly as
+far as hand aim does.
+
+### 28.2 What the model owns
+
+| call | answers |
+|---|---|
+| `write.mark(b, tx, ty)` | `'ok'`, `'full'` at the cap, `'nothing'` for air, the world edge or an already-marked tile |
+| `write.unmark(b, tx, ty)` | drops one mark |
+| `write.prune()` | drops every stale mark; returns how many |
+| `write.clearAll()` | drops all of them |
+| `markedAt(b, tx, ty)` | is there a live mark here |
+| `nearestWithin(px, py, reach)` | the nearest live mark within `reach` of a world point, or null |
+| `queued()` | the live map, for `view` to draw |
+| `activeCount()`, `isFull()` | size, and whether the cap is reached |
+
+Marks are keyed the way `model/mining.js` and `model/growth.js` key theirs:
+the band ordinal prefixing the band-local tile index, because two bands may be
+marked at once. A mark record carries its band, its tile coordinates and **the
+byte it was marked on**.
+
+**A stale mark is collected lazily, not cleared from
+`model/tiles.js#write.setByte`.** That funnel is where `model/mining.js` and
+`model/growth.js` both hang their clears, and the argument D14-E makes there
+holds here too — a mark whose tile changed is not about anything any more. It
+is not used here because the change a mark cares about is overwhelmingly the
+queue's own success: a marked tile becoming air is the normal outcome rather
+than an anomaly, so the funnel would fire on the one case that needs no repair.
+The byte on the record answers the same question locally. Reads skip a stale
+mark and `write.prune` collects it, called once per substep from
+`rules/mining.js#step`.
+
+**Reads never mutate.** `view` draws the marks, `view` may not write to
+`model`, and the epoch assertion in `npm run check` proves it — so pruning is a
+`write` and is never folded into the query that notices the staleness.
+
+**Ties in `nearestWithin` break on the key, ascending**, which makes the answer
+a function of the marked set rather than of the order it was painted in.
+
+### 28.3 What the rules own
+
+- **A hand-aimed swing always wins.** While the dig button is held,
+  `rules/mining.js` swings at the reticle and the queue waits, even if the
+  reticle is on air. The queue is what happens when nothing else is asking.
+- **Both routes go through one `swing`**, so a queued tile costs exactly the
+  seconds a hand-swung one costs at any framerate (invariant 10). There is no
+  second progress store and no second rate; `model/mining.js`'s float-seconds
+  ledger is still the only one.
+- **Mined material becomes a falling item** (invariant 5), by the same line.
+  Nothing is credited to the pockets.
+- **A tile this pick cannot break loses its mark.** A tier-gated or unmineable
+  tile pushes the same rate-limited `'refused'` journal row
+  (`TOO HARD FOR THIS PICK`, `TIER_REFUSAL_GAP` 1.0 s) a manual swing pushes,
+  and the mark is then dropped. Leaving it would make the nearest query hand
+  back the same impossible tile every substep forever — a stalled queue, and a
+  mark that reads as merely deferred when the HUD draws it. A 256-tile drag
+  across granite therefore says it once and empties, rather than 256 times.
+- **The queue does not move the reticle.** `model/aim.js` is where the player
+  is pointing; a queued swing leaves it alone.
+
+There is **no separate queue step** in `src/shell/schedule.js`. Choosing a
+target and swinging at it are one decision, and a sibling `rules` module would
+need `rules/mining.js#swing`, which siblings may not import. The pair the queue
+rests on is `player before mining`, argued there: reach is measured from this
+frame's position, so a player who walks into range of a deferred mark starts
+breaking it on the frame they arrive.
+
+### 28.4 A mark does not survive a restart
+
+Invariant 8. Two mechanisms, and the first is the belt:
+
+1. `write.clearAll()` is what `shell/boot.js#newRun` must call, beside
+   `digw.clearAll()` and `growthw.clearAll()`.
+2. A mark holds its **band record**, and `newRun` replaces every band record
+   (`model/world.js#write.clear`, then `allocate` per row). So a mark of a
+   previous run fails `bands[ord] === m.band` and is stale by construction,
+   and `rules/mining.js` collects it on the first substep of the new run.
+
+The second exists because the first is not enough on its own reasoning: the
+same seed regenerates the same bytes at the same coordinates, so a byte test
+alone would find every mark of the previous run perfectly valid. That is the
+determinism bug `docs/FINDINGS.md` (8d, #2) records happening to `segments`.
+
+### 28.5 What is not wired yet
+
+Phase 6i lands the model and the rules only (`docs/PLAN-wave6.md` §3, S2).
+**Until phase 6o wires input, no player gesture can mark a tile**, and phase 6n
+draws nothing. Two things 6o owes this section:
+
+- the drag-paint gesture on LMB, which must not disturb §23.2's four-rule
+  pointerdown dispatch: a drag that starts on rule 4 paints, a drag that starts
+  on rules 1–3 does not.
+- a `'refused'` journal row carrying `DIG QUEUE FULL` when `write.mark`
+  returns `'full'`. No `model` module imports `model/journal.js`, so the cap's
+  refusal is the caller's to report, and every other refusal in this game is a
+  journal row.
+
 ## 29. Named debug scenarios (Phase 6j)
 
 Locked with `docs/PLAN-wave6.md` U6. A **scenario** is a named diorama applied

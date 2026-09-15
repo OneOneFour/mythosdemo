@@ -10,7 +10,18 @@
      aim before player     the reticle is resolved against where the player IS,
                            so the tile you were pointing at is the tile you dig.
      player before mining   moving first means reach is measured from this
-                           frame's position, not the last one's.
+                           frame's position, not the last one's. THE DIG QUEUE
+                           RESTS ON THIS PAIR TWICE OVER (docs/SPEC.md section
+                           28): with no dig key held, `rules/mining.js` asks
+                           `model/digqueue.js` for the nearest marked tile
+                           within `eff('reach')` of `playerCentre()`, so a
+                           player who walks into range of a deferred mark
+                           starts breaking it on the frame they arrive rather
+                           than one later. There is deliberately NO SEPARATE
+                           QUEUE STEP in this array: choosing a target and
+                           swinging at it are one decision, and a sibling
+                           module would need `rules/mining.js#swing` -- which
+                           siblings may not import.
      mining before light    a tile broken this frame can open a new path for
                            light THIS frame -- a wall that just came down
                            between the player and a lit corridor should not
