@@ -3021,3 +3021,46 @@ also what gives it its first execution.
   grove — it is what gets them a grove *where they want one*, next to the
   furnace rather than wherever worldgen put a tree. Worth a look from whoever
   re-tunes `chance` at the new width; nothing is broken today.
+
+## Phase 6u (a hand-craft makes the recipe the player clicked)
+
+- **Two visual baselines are already stale at HEAD, and not by this phase.**
+  `tests/visual.spec.js-snapshots/ui-crafting-desktop-darwin.png` (1,748 px)
+  and `furnace-lifecycle-1-crafting-ui-desktop-darwin.png` (1,732 px) fail in a
+  clean `git worktree` at `a2eca3e` with nothing of this phase in it, and fail
+  by the identical pixel counts with this phase's three source files copied in
+  — so the change is pixel-neutral and the baselines moved earlier. Both were
+  last re-accepted at `8a4a47d`; `086f25e` (the sky reaching the skyline)
+  landed after, and both scenes show sky behind a panel. `tests/` is Phase 6p's.
+
+- **`shell/ui.js:32`'s `craftQueue` header is now half a description.** "The
+  queue re-asserts the SAME one intent every frame it is non-empty" is still
+  what happens, but the head is no longer only an intent — it NAMES the recipe,
+  and `shell/main.js#step` folds it onto `cmd.craftId` rather than setting
+  `cmd.craft` on the shared command object. A later phase owns that file.
+
+- **`tools/check.mjs` cannot name a craft target.** `CMD_FIELDS` (`:182`) omits
+  `craftId`, so every probe drives the untargeted hold; the PACK probe
+  (`:5325`) depends on that path and on `pack` being declared last. `:164`'s
+  comment still calls the fold "the craft-queue re-assertion". A probe for the
+  targeted path belongs with the harness phase, not here.
+
+- **`docs/DEVELOPER_GUIDE.md#input-intents` does not list `cmd.craftId`.** It
+  enumerates which `cmd` fields are holds and which are edges; `craftId` is a
+  hold that travels with `craft`. That section is outside this phase's block
+  (only `#adding-a-recipe` and `#hand-recipe-declaration-order` are in it).
+
+- **`docs/SPEC.md` §10 (`:224`) and §13 (`:743`) still explain declaration
+  order as `rules/crafting.js#choose`'s first-match rule with no mention that a
+  click now names the row.** Neither sentence is false — both describe the
+  untargeted hold correctly — but a reader lands on them before §25.1. §13 is
+  Phase 6v's section and §10 nobody's in this wave.
+
+- **Phase 6v's parked item about `docs/DEVELOPER_GUIDE.md`'s hand-recipe
+  section is addressed here**, since that section is in this phase's ownership
+  block: the collision table and its stale `recipes.js:NNN` references are
+  gone, replaced by a pointer to the rows' own comments, and the false
+  "**Nothing checks this automatically.**" claim is deleted in favour of
+  `tools/content.mjs` assertion 23. **The three-brand figure is NOT fixed**: it
+  is at `docs/DEVELOPER_GUIDE.md:172`, inside `#adding-a-form`, which is not in
+  this phase's block.

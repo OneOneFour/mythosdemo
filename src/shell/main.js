@@ -104,15 +104,6 @@ export function step(dt) {
      point. */
   if (pausesRun()) return;
 
-  /* THE CRAFT QUEUE RE-ASSERTS THE SAME ONE INTENT, every substep it is
-     non-empty -- see `shell/ui.js#ui.craftQueue`'s own header for why this is
-     a convenience over `rules/crafting.js`'s one-pair-of-hands scalar rather
-     than a change to it. `rules/crafting.js` cannot tell this apart from the
-     'u' key being held, which is the point: there is exactly one hand-craft
-     intent in this game, and the queue is a second way to hold it down.
-     See docs/DEVELOPER_GUIDE.md#adding-a-recipe */
-  if (ui.craftQueue.length) cmd.craft = true;
-
   clock.dt = dt;
   clock.t += dt;
   clock.frame++;
@@ -120,9 +111,22 @@ export function step(dt) {
   /* Left mouse and X are the same intent. Resolved here because which DEVICE
      asked is a shell question. */
   const digging = cmd.dig || cmd.mouse;
+  /* THE CRAFT QUEUE HOLDS THE ONE CRAFT INTENT DOWN, AND ITS HEAD NAMES THE
+     RECIPE. The queue is a second device for a hold no key binds, which is why
+     it is folded here and not read inside the rule -- `rules` may not import
+     `shell`, and which device asked is the shell question `digging` above
+     already answers for mining. What the head buys is the player's own click:
+     `rules/crafting.js` makes the row `craftId` names or nothing at all, so a
+     click on GEAR can no longer produce a furnace. A hold naming nothing still
+     makes the first affordable row (`rules/crafting.js#choose`), which is what
+     the two harnesses drive. See `shell/ui.js#ui.craftQueue` for why the queue
+     is a convenience over the one-pair-of-hands scalar rather than a change to
+     it, and docs/DEVELOPER_GUIDE.md#adding-a-recipe */
+  const craftId = ui.craftQueue[0] ?? cmd.craftId ?? null;
   const c = {
     left: cmd.left, right: cmd.right, up: cmd.up, down: cmd.down,
-    hop: cmd.hop, dig: digging, place: cmd.place, craft: cmd.craft,
+    hop: cmd.hop, dig: digging, place: cmd.place,
+    craft: cmd.craft || craftId !== null, craftId,
     /* `action` is a HOLD, like `craft` and `dig` above: `rules/drive.js` reads
        it every substep and supplies torque for exactly the substeps it is
        down. It has to be on THIS object and not read off `cmd` inside the
@@ -598,16 +602,15 @@ function applyUiIntents() {
         if (id) {
           if (slotHit.gridId === 'craft-queue') cancelQueued(slotHit.slot.index);
           else {
-            /* BUG FIX (Bug 4): a click used to queue a recipe unconditionally,
-               even one the player cannot currently afford --
-               `rules/crafting.js#choose()` only ever runs the first
-               HAND_RECIPES row it can fully pay for, so an unaffordable
-               queued entry never spends anything (no bypass) but also never
-               completes: it just sits there forever, indistinguishable from
-               one actually progressing. Refuse the click outright instead,
-               with the SAME `'refused'` journal row `rules/placement.js`
-               already uses for a one-line reason, so the toast reads
-               identically to every other refusal in the game. */
+            /* A CLICK THE PLAYER CANNOT PAY FOR IS REFUSED AT THE CLICK, with
+               the SAME `'refused'` journal row `rules/placement.js` uses, so
+               the toast reads identically to every other refusal in the game.
+               This is the immediate half of one answer: a queued entry spends
+               nothing until its `secs` is reached, so an unaffordable one
+               never bypasses anything -- it simply never completes, and a
+               queue that sits still is indistinguishable from one making
+               progress. `tickCraftQueue` says the same thing for a head that
+               becomes unaffordable after it was queued. */
             const r = RECIPES[id];
             const known = r && isKnown(id);
             if (known && canCraft(r.in)) queueCraft(id, cmd.uiCtrl ? 99 : cmd.uiShift ? 5 : 1);
@@ -738,14 +741,33 @@ function applyUiIntents() {
    `'produce'` row (`{ def, made }`, no `sub`). `model/journal.js#peek()` is
    the NON-DESTRUCTIVE read that exists for precisely this: `shell/notify.js`
    still drains the same rows for sound and text afterward, undisturbed.
-   See docs/DEVELOPER_GUIDE.md#notification-and-the-journal */
+   See docs/DEVELOPER_GUIDE.md#notification-and-the-journal
+
+   AND A HEAD THE POCKETS CANNOT PAY FOR SAYS SO, ONCE. The head is what
+   `step()` above hands `rules/crafting.js` as its target, so an unaffordable
+   one now makes nothing at all -- a stall indistinguishable from progress,
+   which is the same complaint the click-time refusal in `applyUiIntents`
+   answers
+   for a click that has not been queued yet. The entry is KEPT rather than
+   dropped: the answer is to go and mine, and a click on the queue slot
+   already cancels. `refusedHead` is the id a row was pushed for, so a stall
+   lasting a minute is one journal line and not 3,600 -- and it clears itself
+   whenever the queue empties, so a restart cannot leave it stale. */
+let refusedHead = null;
+
 function tickCraftQueue() {
-  if (!ui.craftQueue.length) return;
+  if (!ui.craftQueue.length) { refusedHead = null; return; }
   for (const row of journalPeek()) {
     if (row.kind === 'produce' && row.data && row.data.sub !== undefined && row.data.def === undefined)
       cancelQueued(0);
     if (!ui.craftQueue.length) break;
   }
+  const head = ui.craftQueue[0] ?? null;
+  const r = head === null ? null : RECIPES[head];
+  if (r && !canCraft(r.in)) {
+    if (refusedHead !== head) journalPush('refused', null, { why: 'CANNOT AFFORD' });
+    refusedHead = head;
+  } else refusedHead = null;
 }
 
 /* ---------- camera ----------

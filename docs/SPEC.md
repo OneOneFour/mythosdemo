@@ -2152,8 +2152,10 @@ the overlap instead: declared first, a player holding 5+ rubble — nearly
 always — could not hand-build a `brazier`, `crank`, `gear` or `belt_r`;
 declared last, a player holding 2+ plate has to put the plate down to pack
 earth. Starving four machine builds is worse than starving one utility craft.
-The residual wart is the known one (`docs/FINDINGS.md` 8d #4: the craft queue
-cannot choose a recipe), and a real menu is its fix.
+The residual wart was the known one (`docs/FINDINGS.md` 8d #4: the craft queue
+could not choose a recipe). Phase 6u closed it — a click names the row
+`rules/crafting.js` makes (§25.1) — so `pack`'s position now decides only an
+untargeted craft hold.
 
 ### 19.5 What §19.1–§19.4 do NOT change
 
@@ -2989,6 +2991,32 @@ the row runs one line on a desktop and two on a phone.
 next line and returns `h` as `TAB_H` per line used. A tab too wide for a line
 of its own is still dropped rather than truncated, since drawn text is never
 clipped.
+
+### 25.1 The click decides the recipe (Phase 6u)
+
+**A click on a recipe row queues its id, and `rules/crafting.js` makes THAT
+row.** One field carries it: `shell/main.js#step` folds
+`shell/ui.js#ui.craftQueue[0]` onto `cmd.craftId`, beside the `craft` hold it
+already folds, the same way it folds a key and a preference into `dig` and
+`collect`. `rules` reads an id as data and never imports `shell`.
+
+| case | what happens |
+|---|---|
+| the head names an affordable row | that row, at its own `secs` |
+| the head names an unaffordable row | nothing is made, the entry is kept, and `shell/main.js#tickCraftQueue` pushes ONE `'refused'` / `CANNOT AFFORD` journal row per stall |
+| the head changes mid-craft | the bar restarts at 0 on the new row. Nothing is spent before `secs` is reached, so nothing is lost but the seconds |
+| `craft` held with no id | the first affordable `HAND_RECIPES` row (`#choose`). No key binds this; the two harnesses drive it |
+
+**Measured, before and after**, on `docs/PLAYTEST.md` finding 4's own case:
+seed 1337, 12 `copper/ore` + 9 `timber/log` + 6 `stone/gravel` in the pockets,
+a real click on the GEAR row. Before: one `furnace/rig` after **8.008 s**,
+spending 12 ore and 6 logs. After: one `gear/rig` after **2.175 s**, spending
+2 logs and 1 gravel, the ore untouched.
+
+Declaration order in `data/recipes.js` no longer decides what a click produces.
+It still decides the untargeted hold, and `tools/content.mjs` assertion 23
+still proves no row shadows a later one —
+docs/DEVELOPER_GUIDE.md#hand-recipe-declaration-order.
 
 ## 26. The HUD closeout (Phase 17e)
 

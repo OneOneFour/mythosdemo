@@ -244,9 +244,19 @@ break that promise the first time someone tuned one and forgot the other. Two
 checks assert the object identity: `tools/content.mjs` assertion 7 statically,
 `tools/check.mjs:693` live.
 
-`HAND_RECIPES` is derived once at the bottom of `recipes.js` so
-`view/hud.js`'s CRAFT list and `rules/crafting.js#choose` cannot disagree about
-which rows have the flag.
+`HAND_RECIPES` is derived once at the bottom of `recipes.js` so the CRAFTING
+tab's list and `rules/crafting.js` cannot disagree about which rows have the
+flag.
+
+**A hand-craft makes the row the player clicked.** The click queues an id onto
+`shell/ui.js#ui.craftQueue`, `shell/main.js#step` folds the head onto
+`cmd.craftId` beside the `craft` hold, and `rules/crafting.js` resolves that id
+through `HAND_RECIPES` and makes that row or nothing — resolving through
+`HAND_RECIPES` rather than `RECIPES` is what keeps a machine-only row
+uncraftable by hand. A head the pockets cannot pay for makes nothing and gets
+one `'refused'` journal row from `shell/main.js#tickCraftQueue`, instead of a
+queue that looks like it is working. A craft hold that names nothing still
+makes the first affordable row; the next section is what that costs.
 
 **Machine-build recipes** additionally gate on the grant tier: `model/run.js:380`
 derives "is this recipe known" from the recipe's own `out` clause — a literal
@@ -258,35 +268,33 @@ there.
 
 ## Hand-recipe declaration order
 
-**`rules/crafting.js#choose` fires the first `HAND_RECIPES` row whose inputs are
-fully held. First match wins; there is no menu.** So wherever a bigger bill's
-condition holds, a smaller bill sharing the same materials is trivially also
-satisfied — and the smaller one, if declared first, starves the bigger one
-forever.
+**A click decides the recipe; declaration order does not.** The CRAFTING
+panel's queue head names the row, `rules/crafting.js` makes that row, and a
+bill contained inside another bill is therefore no longer unreachable by hand.
+See the previous section for the channel.
 
-The rule: **declare the stronger (larger, more specific) bill first; the weakest
-bill in the file must be last.**
+Order still decides two things:
 
-The worked collisions, all recorded at their own rows:
+- **A craft hold that names no recipe.** `rules/crafting.js#choose` fires the
+  first `HAND_RECIPES` row whose inputs are fully held. No key binds such a
+  hold — `tools/check.mjs#stepReal` and `__mf.hold({ craft: 1 })` are what
+  drive it, and both harnesses read as "make whatever the hands can make".
+- **Display order.** `HAND_RECIPES` is table order, and the CRAFTING tab lists
+  each category in it.
 
-| pair | resolution |
-|---|---|
-| `peg_rungs` / `kindle` — both fire off `timber/log` alone | `peg_rungs` requires **2** logs (not the planned 1) and is declared first. Holding 1 log falls through to `kindle`. (`recipes.js:197`) |
-| `daedalan` / `auger` — identical input keys, 4 vs 1 logs | `daedalan` declared first. Holding 4+ yields a stair; 1-3 falls through to the auger. (`recipes.js:255`) |
-| machine bills ⊃ ordinary recipes | the whole machine-build block is declared **before** `smelt`/`press`/`peg_rungs`/`kindle`/`daedalan`/`auger`, with a pairwise containment table at `recipes.js:52` |
-| `hearth` (2 plate) ⊂ every other plate recipe | declared after every plate row, after even `auger` (`recipes.js:279`) |
-| `pack` (5 `#bulk/gravel`) — no containment either way | declared **absolute last**, after `hearth`. Position is not forced by containment but by who loses the overlap: declared early it would starve `brazier`/`crank`/`gear`/`belt_r` for any player carrying 5+ rubble. See the row's own derivation. |
+The rule for a new row is unchanged, so that the untargeted hold and the click
+agree about what a full pocket makes: **declare the stronger (larger, more
+specific) bill first; the weakest bill in the file must be last.** Every row
+argues its own position in its own comment, and `tools/content.mjs`
+assertion 23 proves mechanically that no row's bill is implied by a later
+row's — so a collision fails the build rather than the click. Read the rows,
+not a second copy of their numbers here; two of them moved in Phase 6v alone.
 
-A tie that cannot be broken by quantity cannot be shipped at all: `kiln_divine`
-has no build recipe precisely because its bill would be bit-identical to
-`furnace`'s, and `choose()` would deterministically always produce the furnace
-(`substances.js:333`). This is also why `belt_r`/`belt_l` share one substance
+A tie that quantity cannot break is still not shippable: `kiln_divine` has no
+build recipe because its bill would be bit-identical to `furnace`'s, which
+`choose()` cannot separate and a click should not have to
+(`data/substances.js`). This is also why `belt_r`/`belt_l` share one substance
 rather than getting two identical bills.
-
-**Nothing checks this automatically.** `tools/content.mjs` is a content-graph
-lint, not a hand-craft-priority one. When you add a `hand:true` row, check it
-pairwise against every other one for input containment, and record the result in
-the row's comment the way the existing rows do.
 
 ---
 

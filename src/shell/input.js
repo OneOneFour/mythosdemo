@@ -38,10 +38,19 @@ import {
 /* The command set the rules read. One object, mutated by property, per
    docs/DEVELOPER_GUIDE.md#cross-module-mutable-state. `craft` is a HOLD, like
    `dig`, not an edge -- `rules/crafting.js` accumulates while it is true and
-   forgets the bar the instant it is not. */
+   forgets the bar the instant it is not.
+
+   `craftId` is WHICH recipe that hold is on: a `data/recipes.js` id, or null
+   for "whatever the hands can make". It travels with `craft` and is therefore
+   a HOLD too, absent from `clearEdges()` and released with the other holds on
+   blur. No key writes it -- the CRAFTING panel's queue is the live source and
+   `shell/main.js#step` folds its head in, the same way that function folds a
+   device and a preference into `dig` and `collect`. It is declared here
+   anyway, because this object is the whole of what `rules` may see of the
+   input and a test naming a target needs somewhere to write it. */
 export const cmd = {
   left: false, right: false, up: false, down: false,
-  hop: false, dig: false, place: false, craft: false, drop: false,
+  hop: false, dig: false, place: false, craft: false, craftId: null, drop: false,
   deconstruct: false, link: false, action: false, collect: false,
   /* THE FEED VERB (Phase 16a, docs/SPEC.md section 23.3). EDGE-TRIGGERED, the
      same shape as `place` beside it and for the same reason this file's own
@@ -471,6 +480,7 @@ export function installInput() {
   addEventListener('blur', () => {
     for (const k of ['left', 'right', 'up', 'down', 'dig', 'place', 'feed', 'craft', 'action', 'collect', 'mouse', 'uiClick', 'uiRight', 'uiDown'])
       cmd[k] = false;
+    cmd.craftId = null;
     cmd.uiCtrl = false; cmd.uiShift = false; cmd.uiWheel = 0;
     hopHeld = false; dropHeld = false; deconHeld = false; linkHeld = false;
     mapDragEnd();
