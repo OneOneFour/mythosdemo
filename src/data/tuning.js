@@ -24,10 +24,17 @@
 
 export const TUNABLES = [
 
-  /* ---- the player. Ported unchanged from the previous `sim/player.js`. ---- */
+  /* ---- the player. ---- */
   { id:'walk',      kind:'value', base:60,   unit:'px/s',   note:'ground speed; 7.5 tiles/s' },
   { id:'hop',       kind:'value', base:92,   unit:'px/s',   note:'launch; ~1 tile + margin, deliberately not enough to escape a 5-tile hole' },
-  { id:'climb',     kind:'value', base:30,   unit:'px/s',   note:'half walk. Measured too fast to tax an ascent at all (docs/PLAYTEST.md finding 1); 10 is the intended value and docs/FINDINGS.md phase 6t holds what blocks it.' },
+  /* A SIXTH OF WALK, NOT HALF OF IT, and the sentence that used to say "half
+     walk, on purpose" described the old 30. Half walk measured as no tax at
+     all: docs/PLAYTEST.md finding 1 climbed the whole world in 7.5 s against a
+     480 s clock at every load a player carried, so ascent was free and the
+     premise never fired. At 10 the same climb costs 22.4 s and the carrier
+     chain the game is named around can beat it. This number is what makes up
+     expensive for the PLAYER; `segUp` below is the same question for cargo. */
+  { id:'climb',     kind:'value', base:10,   unit:'px/s',   note:'ladder speed. A sixth of walk, and the whole of what an unaided ascent costs.' },
   { id:'coyote',    kind:'value', base:0.09, unit:'s',      note:'grace after leaving the ground' },
   { id:'reach',     kind:'value', base:25.6, unit:'px',     note:'3.2 tiles from the player centre' },
   { id:'pickPower', kind:'value', base:1.0,  unit:'x',      note:'seconds of dig credited per second held' },
@@ -76,11 +83,20 @@ export const TUNABLES = [
      deck is gone, and docs/PLAYTEST.md finding 2 measured what the pin bought
      -- a three-segment chain moved cargo 14x slower than the player's own
      legs, so no rational player built one. A measurement of the shipped game
-     outranks a constraint inherited from a deleted module. ---- */
+     outranks a constraint inherited from a deleted module.
+
+     `segLoad` PUTS ONE CRANK'S STALL EXACTLY ON THE BURDEN CAP. At 0.0125 a
+     vertical segment needs `1.0 + 0.0125 x 40 = 1.5` drive to lift 40 T, which
+     is precisely `crank.torque` -- so one crank raises anything a player's
+     pockets could hold and stops dead at the boundary, and a player riding
+     with full pockets (48 T with their body) runs backwards. That stall has to
+     stay reachable: a carrier strong enough that load stops mattering is the
+     free ladder again, from the other side, and `tools/check.mjs`'s WEIGHT
+     REVERSES IT probe fails outright if the burden cap ever climbs. ---- */
   { id:'segUp',     kind:'value', base:26,    unit:'px/s',       note:'carrier ascent at full surplus and full drive. Equal to segDown by construction -- a carrier never rises faster than it sinks.' },
   { id:'segDown',   kind:'value', base:26,    unit:'px/s',       note:'free descent on a VERTICAL segment, scaled by slope. The ceiling segUp is held to, and free. Also the retired deck\'s own number.' },
   { id:'segBase',   kind:'value', base:1.0,   unit:'drive',      note:'drive needed to raise an EMPTY carrier at full speed. The unit crank.torque is denominated in.' },
-  { id:'segLoad',   kind:'value', base:0.025, unit:'drive/talent', note:'added drive per talent aboard, at full slope. 40 T -- the whole burden cap -- doubles the requirement.' },
+  { id:'segLoad',   kind:'value', base:0.0125, unit:'drive/talent', note:'added drive per talent aboard, at full slope. 40 T -- the whole burden cap -- is exactly where one crank stalls.' },
   { id:'riderMass', kind:'value', base:8,     unit:'talents',    note:"the player's own body on a carrier, before their pockets. Boarding is never refused (D4 as amended); this is the load that makes it physics instead." },
 
   /* Three scales, scope `machine`, so a better hub tier or a strength boon is

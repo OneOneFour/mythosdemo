@@ -3228,3 +3228,41 @@ text below is quoted from those runs.
    number is calibrated. Every assertion in the scene then re-proves its own
    intent. Recorded here because the block did not name the file; `tools/**`
    was named as forbidden and `tests/**` was not.
+
+## Wave 6, phase 6t-2 (the last two numbers landed; three things left outside the block)
+
+`climb` 30 -> 10 and `segLoad` 0.025 -> 0.0125 both shipped, and the probes 6t
+was blocked by now derive their budgets from `eff('climb')`, `eff('segLoad')`,
+`eff('riderMass')`, `eff('burden')` and `crank.torque`. `npm run check` passes
+and `npm run test:visual` is at 142. Three things this phase found and did not
+own.
+
+1. **The girdle's worked example is stale in two files, and the arithmetic
+   behind it is not.** `docs/SPEC.md:627` (§14) and `src/data/trinkets.js:40`
+   both read "50 T at 24 px/s delivers the identical talents-per-second up a
+   shaft as the base 40 T at 30 px/s". `climb` is 10, so those two figures are
+   8 px/s and 10 px/s. The trade still breaks even exactly — `1.25 x 0.8 = 1.0`
+   holds at any base — so the repair is the two numbers and not the paragraph.
+   §14 and `data/trinkets.js` are both outside this phase's block.
+
+2. **`docs/SPEC.md` §18.4 is now stale twice over.** 6t's finding 3 recorded
+   that `burdenSoft` 0.20 moved cycle 4's 19.2 T bill from a 1.0x climb to
+   0.79x while §18.4 still says "`burdenSoft` 30 T, so the whole bill rides up
+   in one climb at no speed penalty". `climb` 10 makes the same climb five
+   times longer again, so the sentence is wrong about the knee and misleading
+   about the clock. The paragraph's conclusion survives — 19.2 T is one trip
+   under a 40 T cap and still credits in one instant — so the repair is the
+   figures. §18 is not in this phase's block.
+
+3. **One crank is still priced at parity with the player's legs, and the design
+   call now has numbers.** 6t's finding 5 said `crank.torque` 1.5 over
+   `segBase` 1.0 caps `min(1, surplus / segBase)` at 0.5, so a single crank can
+   never exceed half `segUp`. Driven with both retunes landed, over the 236 px
+   three-stage `ascent` chain with cycle 2's whole demand aboard (three copper
+   plates, 7.2 T): **23.6 s up the ladder, 27.8 s on one crank per stage
+   (0.85x), 9.1 s on two (2.60x)**. At 38 T aboard the spread widens to 54.0 s,
+   643 s and 9.1 s, and the ladder refuses 41 T outright. So the preference
+   inverts on the SECOND crank, and a player who builds the minimum rig is
+   worse off than one who walks. Whether that is the intended upgrade curve —
+   a second crank is 3 logs and 3 gravel — or `crank.torque` should rise is a
+   call nobody has made. The lever is `data/machines.js`, not a tuning row.

@@ -4537,6 +4537,7 @@ async function driveScene(page, spec) {
     const { write: segw, linkCheck, segments, carrierPos, carrierTop } =
       await import('/src/model/segments.js');
     const { bandOf, worldX, worldY, write: ww } = await import('/src/model/world.js');
+    const { eff } = await import('/src/model/mods.js');
     const { clearLink, setAutoCollect } = await import('/src/shell/ui.js');
     const { banner } = await import('/src/view/fx.js');
     const { VIEW } = await import('/src/core/canvas.js');
@@ -4617,8 +4618,16 @@ async function driveScene(page, spec) {
        from `cmd.turn` in Phase 12d (docs/PLAN-phase12.md §3 D-J) -- is the
        crank hold; `spec.turn` (this scene builder's own DSL field name) is
        unchanged, since it describes the SCENE's intent, not the input field. */
+    /* `riseTo` IS A CABLE PARAMETER AND `frames` IS A SUBSTEP COUNT, and a
+       scene that knows where it wants the carrier should say that instead. A
+       substep count is calibrated to `eff('segUp')`, so it goes stale the
+       moment that tunable moves -- which is how one scene came to assert a
+       parked carrier was ascending. Only sound on a SATURATED drivetrain,
+       where the carrier really does run at the full `segUp`. */
+    const frames = spec.frames ?? Math.round(
+      ((spec.riseTo - segments[0].t) * segments[0].len / eff('segUp')) * 120);
     __mf.cmd.action = !!spec.turn;
-    __mf.frames(spec.frames);
+    __mf.frames(frames);
     __mf.cmd.action = false;
 
     const centre = spec.centreOn
@@ -4647,18 +4656,18 @@ async function driveScene(page, spec) {
 const MOTION_SHAFT = { tx0: 40, ty0: 24, w: 12, h: 23, sky: true };
 
 /* ---------- 1. mid-ascent, with a rider aboard ----------
-   `frames` IS CALIBRATED TO `eff('segUp')`. The crank stack drives this span
-   at the full ascent rate, so 170 substeps put the carrier near half way up an
-   80 px cable and the assertions below hold it there. A retune of `segUp`
-   moves this number -- at 26 px/s the old 400 substeps overran the top and the
-   scene photographed a parked carrier. */
+   `riseTo` RATHER THAN `frames`: the crank stack saturates this span's
+   drivetrain, so the budget is the cable distance over `eff('segUp')` and the
+   scene stays half way up its 80 px cable through any retune of that tunable.
+   It was 400 substeps, calibrated to `segUp` 11, and at 26 px/s it overran the
+   top and asserted a parked carrier was ascending. */
 test('drive: a carrier mid-ascent with a rider aboard', async ({ page }) => {
   await boot(page);
   await settle(page);
   const r = await driveScene(page, {
     rooms: [MOTION_SHAFT],
     machines: [['hub', 44, 43], ['hub', 44, 33], ...CRANKS(43, 33, 43)],
-    links: [[0, 1]], start: [[0, 0.05]], ride: 0, turn: true, frames: 170,
+    links: [[0, 1]], start: [[0, 0.05]], ride: 0, turn: true, riseTo: 0.51,
     player: [47, 43], centreOn: 0
   });
   expect(r.segments).toBe(1);

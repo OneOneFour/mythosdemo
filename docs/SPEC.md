@@ -41,18 +41,22 @@ into chunks is a visual question only a human can answer.
 | death | permadeath; the run ends |
 
 Ascent of any real depth requires **crafted ladders**. Timber from the surface,
-placed as tiles, climbable at 30 px/s — half walk speed. Down is free, up is
-half speed and costs material.
+placed as tiles, climbable at 10 px/s — a sixth of walk speed. Down is free, up
+is slow and costs material.
 
-**30 px/s is measured not to tax anything, and it is still 30.**
-`docs/PLAYTEST.md` finding 1 drove the 224 px climb to the Heavens in 7.47 s at
-every load under the soft cap, which is 1.6% of cycle 2's 480 s deadline — half
-walk speed is a rounding error against a clock, not a price. The intended value
-is **10 px/s**, which makes the same climb 22.4 s. It is blocked, not rejected.
-`tools/check.mjs`'s BAND SEAM (climb) and BAND SEAM (astral, up) probes each
-spend a fixed 260 substeps climbing a seam, a budget calibrated to 30 px/s, so
-both fail at any lower value. `docs/FINDINGS.md`'s phase 6t entry holds the
-failure text and the fix.
+**`climb` was 30 px/s — half walk — until wave 6, and half walk taxed
+nothing.** `docs/PLAYTEST.md` finding 1 drove the 224 px climb to the Heavens
+in 7.47 s at every load under the soft cap, 1.6% of cycle 2's 480 s deadline.
+Half walk is a rounding error against a clock, not a price. At 10 px/s the same
+climb costs 22.41 s at 0 T, 23.27 s at 10 T and 51.21 s at 38 T, all driven,
+and the carrier chain in §17 can now beat it (§17.8). The legs had to be slower
+than the cable for anything to invert: `segUp` is 26 px/s, so at 30 px/s no
+retune of the transport side could ever have won.
+
+`tools/check.mjs`'s two climbing BAND SEAM probes derive their substep budget
+from the distance they need and `eff('climb')`. They used to spend a fixed 260
+substeps each, which is exactly what 30 px/s needed for 64 px, and that literal
+blocked this number for a wave.
 
 ## 3. Fall damage
 
@@ -231,21 +235,23 @@ knee is where your pockets weigh as much as your own body does — 8 T of the
 40 T cap. At 0.75 it sat at 30 T while a cycle-2 tribute load is 7.2 T, so the
 climb never left the flat part of the curve and `docs/PLAYTEST.md` finding 1
 measured 7.47 s up a 224 px ladder at every load a player carried. Driven on a
-224 px `timber/rung` ladder, before and after:
+224 px `timber/rung` ladder at the shipped `climb` of 10 px/s:
 
-| pockets | frac | climb multiplier | 224 px, before | 224 px, after |
+| pockets | frac | climb multiplier | 224 px | px/s |
 |---|---|---|---|---|
-| 0 T | 0.00 | 1.00 | 7.47 s | 7.47 s |
-| 10 T | 0.25 | 0.96 | 7.47 s | 7.76 s |
-| 29 T | 0.725 | 0.61 | 7.47 s | 12.32 s |
-| 38 T | 0.95 | 0.44 | 14.37 s | 17.07 s |
-| 41 T | 1.025 | — | refused | refused |
+| 0 T | 0.00 | 1.00 | 22.41 s | 10.00 |
+| 7.2 T (cycle 2's whole demand) | 0.18 | 1.00 | 22.41 s | 10.00 |
+| 10 T | 0.25 | 0.96 | 23.27 s | 9.62 |
+| 29 T | 0.725 | 0.61 | 36.95 s | 6.06 |
+| 38 T | 0.95 | 0.44 | 51.21 s | 4.37 |
+| 41 T | 1.025 | — | refused | — |
 
 The falloff is linear from 1.0 at the knee to `burdenClimbFloor` at the cap, so
-it is shallow near the knee whatever the knee is — at 10 T the tax is 4%. A
-curve that taxes a light load needs a lower floor or a convex ramp in
-`rules/player.js` rather than a lower knee. The hard cap does not move.
-`burden` is still 40 T, and ladder-up and hop are still refused at or over it.
+it is shallow near the knee whatever the knee is — at 10 T the tax is 4%, and
+cycle 2's own 7.2 T bill sits under the knee and pays nothing. A curve that
+taxes a light load needs a lower floor or a convex ramp in `rules/player.js`
+rather than a lower knee. The hard cap does not move. `burden` is still 40 T,
+and ladder-up and hop are still refused at or over it.
 
 New substance tiers (`tile.tier`, absent = 1): `granite` tier 2 (hard 2.4s),
 `adamant` tier 3 (hard 5.0s). Monotonic against `hard` — nothing at a higher
@@ -1258,7 +1264,7 @@ Eight rows in `data/tuning.js`, read only through `eff()`.
 | `segUp` | value | 26 | px/s | carrier ascent at full surplus and full drive |
 | `segDown` | value | 26 | px/s | free descent on a vertical segment, scaled by slope |
 | `segBase` | value | 1.0 | drive | the unit `crank.torque` is denominated in, and the divisor both speed ramps use |
-| `segLoad` | value | 0.025 | drive/talent | added drive per talent aboard, at full slope |
+| `segLoad` | value | 0.0125 | drive/talent | added drive per talent aboard, at full slope |
 | `riderMass` | value | 8 | talents | the player's own body on a carrier |
 | `segReach` | scale | 1.0 | x, scope `machine` | multiplies `hub.reach` (`linkCheck`) |
 | `crankTorque` | scale | 1.0 | x, scope `machine` | multiplies `crank.torque` |
@@ -1285,20 +1291,22 @@ the shipped game outranks a bound inherited from a deleted module. `segDown`
 keeps its own base of 26 and is unchanged, so the pair now states an ordering
 rather than a shared ancestry.
 
-At `segLoad` 0.025, the whole 40 T burden cap doubles the drive requirement on
-a vertical segment (`1.0 + 0.025 x 40 x 1.0 = 2.0`), which is the arithmetic
-that makes D4's "boarding is never refused" honest: an over-cap rider is load a
-single 1.5-torque crank cannot lift, so the carrier runs backwards under them
-and nothing had to say so. The break-even is **20 T aboard** — half the burden
-cap — which is the whole trade in one number. Ride up with half a load, or
-crank a full one up empty-handed.
+**`segLoad` was 0.025 until wave 6, and 0.0125 puts one crank's stall exactly
+on the burden cap.** A vertical segment needs `1.0 + 0.0125 x 40 x 1.0 = 1.5`
+drive to lift 40 T, which is precisely one `crank.torque`. So the break-even is
+**40 T aboard** — the whole burden cap — and one crank raises anything a
+player's pockets could hold and stops dead at the boundary. A player riding
+with full pockets weighs 48 T with their body, which is past it, so the carrier
+runs backwards under them and nothing had to say so. That is D4's "boarding is
+never refused" as arithmetic.
 
-**`segLoad` stays 0.025, and `docs/FINDINGS.md`'s phase 6t entry records why.**
-Halving it to 0.0125 would move the stall to exactly the burden cap, so one
-crank would lift precisely what one back can carry. `tools/check.mjs`'s WEIGHT
-REVERSES IT probe hardcodes the 20 T boundary as a pocket load of 12 T and the
-reversal as 30 T, so the row cannot move until those two are re-derived from
-`eff('segLoad')`.
+**The stall has to stay reachable.** A carrier strong enough that load stops
+mattering is the free ladder again from the other side, so
+`tools/check.mjs`'s WEIGHT REVERSES IT probe derives all three of its rows from
+`eff('segLoad')`, `eff('riderMass')` and `eff('burden')` and fails outright if
+the burden cap ever climbs. It used to state the boundary as a pocket load of
+12 T and the reversal as 30 T, and those two literals blocked this number for a
+wave.
 
 ### 17.5 The segment record
 
@@ -1511,31 +1519,45 @@ segment:
 
 | aboard | need | result |
 |---|---|---|
-| nothing | 1.00 | climbs at 13.0 px/s |
-| 4 T of ore | 1.10 | climbs at 10.4 px/s |
-| 20 T | 1.50 | **holds still** (the exact `surplus == 0` boundary) |
-| 38 T (8 T body + 30 T pockets) | 1.95 | runs backwards at 11.7 px/s |
-| 40 T (the burden cap) | 2.00 | runs backwards at 13 px/s |
+| nothing | 1.000 | climbs at 13.0 px/s |
+| 4 T of ore | 1.050 | climbs at 11.7 px/s |
+| 38 T | 1.475 | climbs at 0.65 px/s |
+| 40 T (the burden cap) | 1.500 | **holds still** (the exact `surplus == 0` boundary) |
+| 48 T (8 T body + the 40 T cap in pockets) | 1.600 | runs backwards at 2.6 px/s |
 
-Only the ascending rows moved with `segUp`. A descent is `segDown`, which did
-not change, so the reversal figures are the ones Phase 8f measured.
+The reversal is gentler than it was, and that follows from `segLoad` rather
+than from anything about descent: `min(1, -surplus / segBase)` needs a whole
+unit of deficit to reach the full `segDown`, and halving the load term halves
+how fast a given overload accumulates one. An unpowered carrier still sinks at
+the full 26 px/s at any load, which is the row above it in the table.
 
 **What one crank is worth, and what a second one is worth.** One crank supplies
 1.5 against a `segBase` of 1.0, so `min(1, surplus / segBase)` can never exceed
 0.5 and a single-crank carrier tops out at half `segUp`. A second crank inside
 the same 12 px reach doubles the supply, saturates the ramp and runs the
 carrier at the full `segUp` at any load up to 80 T. Driven on a vertical
-segment, 10 T aboard, before and after:
+segment, 10 T aboard, before wave 6's retune and after:
 
-| rig | before | after |
+| rig | `segUp` 11, `segLoad` 0.025 | `segUp` 26, `segLoad` 0.0125 |
 |---|---|---|
-| one crank, 96 px | 2.75 px/s, 34.9 s | 6.50 px/s, 14.8 s |
-| one crank, the 236 px three-stage `ascent` chain | 115.3 s of held crank | 48.8 s |
+| one crank, 96 px | 2.75 px/s, 34.9 s | 9.75 px/s, 9.8 s |
+| one crank, the 236 px three-stage `ascent` chain | 115.3 s of held crank | 30.6 s |
 | two cranks, 240 px | 11.0 px/s, 21.8 s | 26.0 px/s, 9.2 s |
 
 The chain is slower per pixel than one segment of the same length because a hub
 between two stages anchors both, so the idle stage above shares the crank's
 supply through `drive` (§17.9). That is the stated behaviour, not a loss.
+
+**The ladder is what all three are measured against, and the second crank is
+what inverts the preference.** Cycle 2's whole demand is three copper plates,
+7.2 T, and 236 px of that climb costs 23.6 s of held `up` (§9). The same haul
+on the `ascent` chain costs **27.8 s** with one crank per stage and **9.1 s**
+with two — 0.85x and 2.60x the ladder. A 38 T haul makes the gap wider still:
+54.0 s of climbing, 643 s on one crank per stage, 9.1 s on two, and refused
+outright at 41 T. So a chain beats legs from the second crank on, and a rig
+that has not been upgraded is priced at parity. Whether the second crank (3
+logs, 3 gravel) is the intended upgrade or `crank.torque` should rise is an
+open design call, stated in `docs/FINDINGS.md`'s phase 6t entry, finding 5.
 
 ### 17.9 The drivetrain solve *(Phase 8f)*
 
@@ -3240,10 +3262,10 @@ or the SPEC §5 beat's callout when there is none.
 
 ## 27. The save slot (Phase 6h)
 
-`src/shell/save.js` exports `save()`, `load(newRun)`, `hasSave()` and
-`clearSave()`. It wires no input and draws nothing. Wave 6 U1 retires
-`CLAUDE.md`'s no-`localStorage` convention for it, accepting that the game may
-fail in a sandboxed embed.
+`src/shell/save.js` exports `save()`, `load(newRun)`, `hasSave()`,
+`clearSave()` and `loadError`. It wires no input and draws nothing. Wave 6 U1
+retires `CLAUDE.md`'s no-`localStorage` convention for it, accepting that the
+game may fail in a sandboxed embed.
 
 ### 27.1 The payload is the seed plus what the player changed
 
@@ -3261,6 +3283,7 @@ Two `localStorage` keys, one slot.
 
 | field | shape | restored through |
 |---|---|---|
+| `cursor` | one int32, where the run's `rand()` stream stands | `core/rng.js#seedRng`, last of all |
 | `run` | the whole plain record | one `model/run.js#write` call per field |
 | `player` | position, velocity and the nine presentation flags, band as an id | `player.js#write.band` / `move` / `vel` / `set` |
 | `bands[]` | per band `{ id, gen, edits, work, seen }` | see 27.4 |
@@ -3284,7 +3307,8 @@ Two things must not leak out of that regeneration, and both are held and put
 back in a `finally`.
 
 - **The RNG cursor.** `seedRng` replaces the stream, so `rng.next` is saved and
-  restored. Without it a save rewinds the run's randomness to boot.
+  restored. Without it a save rewinds the run's randomness to boot. `save()`
+  reads `core/rng.js#cursor()` before the regenerate for the same reason.
 - **The modifier store.** `shell/boot.js#newRun` clears `model/mods.js` before
   it generates and `rules/generate.js` reads `eff('hollowOre')`, so the
   baseline is taken with mods cleared and the rows are re-added by source

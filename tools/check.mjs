@@ -1718,6 +1718,14 @@ function measureV(seg, secs, dt, want = { action: true }) {
 const crankTorque = () =>
   D_mach.MACH[D_mach.M.crank].crank.torque * mods.eff('crankTorque', 'crank');
 
+/* TALENTS ABOARD AT WHICH ONE CRANK'S SUPPLY EXACTLY MEETS `need` ON A
+   VERTICAL SEGMENT -- the `surplus == 0` boundary, inverted out of
+   `supply = segBase + segLoad * mass`. Two probes below stand a row on it, and
+   both used to state it as 20 T; that literal is what made a correct `segLoad`
+   retune read as six regressions (docs/FINDINGS.md phase 6t). Call it after a
+   rig is built, for the reason `crankTorque` above states. */
+const stallMass = () => (crankTorque() - mods.eff('segBase')) / mods.eff('segLoad');
+
 /* DOCS/SPEC.MD 17.8, TRANSCRIBED. A second implementation on purpose: the
    assertions below compare the simulation against THIS, so a change to
    `rules/drive.js` has to disagree with the spec to pass unnoticed. */
@@ -1849,24 +1857,40 @@ function predictV(supply, mass, slope, demand = null) {
   /* `cranks` is how many of the two placed cranks are within reach and
      therefore contributing; both are, so this only ever selects how many the
      rig PLACES. */
+  /* THE BOUNDARY ROWS ARE DERIVED, and the labels claim a SHAPE rather than a
+     figure -- every row prints its own `want` and `got` two lines down, so a
+     px/s in a string here is a second copy of a tunable waiting to go stale.
+     `newRun` first, because `eff()` reads whatever modifier rows the section
+     above left in `model/mods.js`. */
+  boot.newRun(8099);
+  const STALL = stallMass(), CAP = mods.eff('burden');
   const TABLE = [
-    ['vertical',   0, 1, 'SPEC 17.8: nothing aboard, climbs at 5.5'],
-    ['vertical',   4, 1, 'SPEC 17.8: 4 T of ore, climbs at 4.4'],
-    ['vertical',  20, 1, 'SPEC 17.8: the exact surplus == 0 boundary -- HOLDS STILL'],
-    ['vertical',  38, 1, 'SPEC 17.8: 38 T, runs backwards at 11.7'],
-    ['vertical',  40, 1, 'SPEC 17.8: the burden cap aboard, backwards at 13'],
-    ['vertical',   0, 0, 'unpowered: the full segDown'],
-    ['vertical',  40, 0, 'unpowered and loaded: still the full segDown'],
-    ['vertical',   0, 2, 'two cranks: capped at segUp, never past it'],
-    ['diagonal',   0, 1, '45 degrees, empty'],
-    ['diagonal',  40, 1, '45 degrees at the cap: slope scales the load term, so it reverses gently (-3.8, not -13)'],
-    ['diagonal',  40, 0, '45 degrees, unpowered: segDown x slope'],
-    ['horizontal', 0, 1, 'horizontal: no height, so no load term'],
-    ['horizontal', 40, 1, 'horizontal and loaded: the load term is slope-scaled to nothing'],
-    ['horizontal', 40, 0, 'horizontal, unpowered: segDown x 0 -- dead still']
+    ['vertical',   0,         1, 'nothing aboard: the whole surplus'],
+    ['vertical',   4,         1, 'a light load, 4 T of ore'],
+    ['vertical',   STALL - 2, 1, 'two talents under the boundary: still climbing'],
+    ['vertical',   STALL,     1, 'the exact surplus == 0 boundary -- HOLDS STILL'],
+    ['vertical',   STALL + 8, 1, 'past the boundary: runs backwards'],
+    ['vertical',   0,         0, 'unpowered: the full segDown'],
+    ['vertical',   CAP,       0, 'unpowered and loaded: still the full segDown'],
+    ['vertical',   0,         2, 'two cranks: capped at segUp, never past it'],
+    ['diagonal',   0,         1, '45 degrees, empty'],
+    ['diagonal',   CAP,       1, '45 degrees at the burden cap: slope scales the load term, so the same mass costs less'],
+    ['diagonal',   CAP,       0, '45 degrees, unpowered: segDown x slope'],
+    ['horizontal', 0,         1, 'horizontal: no height, so no load term'],
+    ['horizontal', CAP,       1, 'horizontal and loaded: the load term is slope-scaled to nothing'],
+    ['horizontal', CAP,       0, 'horizontal, unpowered: segDown x 0 -- dead still']
   ];
 
   let bad = 0;
+  /* Load is expressed as whole copper ores resting on the deck, so a derived
+     mass that is not a whole number of them is a row the rig cannot build. */
+  const ORE_T = items.massOfPair(D_sub.S.copper, D_form.F.ore);
+  for (const [, mass, , why] of TABLE)
+    if (!Number.isInteger(mass / ORE_T)) {
+      fail(`MOTION: the "${why}" row needs ${mass.toFixed(3)} T aboard, which is not a whole number of ` +
+           `${ORE_T} T copper ores -- the tunables it is derived from cannot be expressed as cargo`);
+      bad++;
+    }
   console.log('  ..  the motion expression (docs/SPEC.md 17.8), 1 s per row, measured px/s along the cable:');
   for (const [geomId, mass, cranks, why] of TABLE) {
     const g = GEOM[geomId];
@@ -1904,37 +1928,61 @@ function predictV(supply, mass, slope, demand = null) {
    stalls and then runs backwards under them. A refusal would be a permission;
    this is physics, and it gets its own named assertion.
 
-   Three rows on ONE crank, straddling the 20 T break-even docs/SPEC.md 17.4
-   locks -- and the rider's own body is 8 T of it, so the pockets straddle 12:
+   THE THREE POCKET LOADS ARE DERIVED, NEVER STATED. `stallMass()` inverts the
+   `surplus == 0` boundary out of the tunables, and the rider's own body is
+   `eff('riderMass')` of whatever rides, so the pockets are the remainder:
 
-     empty pockets   mass  8 T   climbs
-     12 T of ore     mass 20 T   HOLDS STILL, the exact boundary
-     30 T of ore     mass 38 T   RUNS BACKWARDS, over 5 s, net negative
+     empty pockets                     climbs
+     stallMass() - riderMass           HOLDS STILL, the exact boundary
+     the whole eff('burden') cap       RUNS BACKWARDS, over 5 s, net negative
+
+   The reversing row carries the burden cap rather than one ore past the
+   boundary, and that is an assertion in itself: the heaviest load the game
+   lets a player hold must still reverse a single crank. A rig that lifts it is
+   D4's failure from the other side -- load stops mattering and ascent is free
+   again -- so the guard below fails outright if the cap ever climbs. Stating
+   these three as 0, 12 and 30 T of ore is what made a correct `segLoad`
+   retune read as six regressions (docs/FINDINGS.md phase 6t).
 
    THE CRANK IS PROVABLY TURNING WHEN IT REVERSES, which is the whole claim:
    `m.torque` is the component's delivered `drive` and is nonzero only while a
    crank is in reach, so asserting it on the substep the reversal is measured
    rules out the trivial reading (that the carrier sank because nobody was
-   cranking). A crank's reach is 12 px and a rider descending at 11.7 px/s
-   leaves it inside two seconds, so the 5 s figure is measured with the crank
-   held THROUGHOUT and in reach for the first stretch only -- which makes the
-   net figure more negative, never less, and the fraction is printed rather
-   than hidden. --- */
+   cranking). A crank's reach is 12 px and a reversing rider leaves it within a
+   second or two, so the 5 s figure is measured with the crank held THROUGHOUT
+   and in reach for the first stretch only -- which makes the net figure more
+   negative, never less, and the fraction is printed rather than hidden. --- */
 {
   const at = (crankTy, carrierT) => ({
     room: { ty0: 100, h: 18 },
     machines: [['hub', 20, 115], ['hub', 20, 105], ['crank', 19, crankTy]],
     links: [[0, 1]], player: [18, 115], carriers: [[0, carrierT]], ride: 0
   });
+  boot.newRun(8290);                    // clears the modifier rows eff() reads
+  const RIDER = mods.eff('riderMass'), STALL = stallMass(), CAP = mods.eff('burden');
+  const ORE_T = items.massOfPair(D_sub.S.copper, D_form.F.ore);
   const ROWS = [
-    ['climbs',        at(115, 0), 0,  +1],
-    ['holds still',   at(115, 0), 12,  0],
-    ['runs backwards', at(105, 1), 30, -1]
+    ['climbs',         at(115, 0), 0,             +1],
+    ['holds still',    at(115, 0), STALL - RIDER,  0],
+    ['runs backwards', at(105, 1), CAP,           -1]
   ];
 
   let bad = 0;
-  for (const [name, spec, burden, wantSign] of ROWS) {
-    const r = driveRig({ ...spec, seed: 8200 + burden, burden });
+  if (!(CAP + RIDER > STALL)) {
+    fail(`WEIGHT: one crank stalls at ${STALL} T aboard, but a player at the ${CAP} T burden cap only ` +
+         `weighs ${CAP + RIDER} T aboard -- the heaviest load the game lets anyone hold no longer ` +
+         `reverses a single crank, so load has stopped mattering and D4's gate is gone`);
+    bad++;
+  }
+  for (const [name, , pockets] of ROWS)
+    if (!Number.isInteger(pockets / ORE_T)) {
+      fail(`WEIGHT: the "${name}" row needs ${pockets.toFixed(3)} T in the pockets, which is not a whole ` +
+           `number of ${ORE_T} T copper ores -- the boundary it is derived from cannot be expressed`);
+      bad++;
+    }
+  for (const [name, spec, pockets, wantSign] of ROWS) {
+    const burden = pockets / ORE_T;
+    const r = driveRig({ ...spec, seed: 8200 + Math.round(pockets), burden });
     const mass = mods.eff('riderMass') + run.burdenOf();
     const crank = r.placed[2];
 
@@ -1982,7 +2030,7 @@ function predictV(supply, mass, slope, demand = null) {
      down anyway. Re-run the reversing row alone and read the journal, which
      `stepReal` never drains. */
   {
-    driveRig({ ...at(105, 1), seed: 8299, burden: 30 });
+    driveRig({ ...at(105, 1), seed: 8299, burden: CAP / ORE_T });
     runReal(600, 1 / 120, { action: true, hasMouse: false });
     const rows = journal.peek().filter(j => j.kind === 'refused' && j.data?.why === 'TOO HEAVY TO LIFT');
     if (!rows.length) {
@@ -1996,7 +2044,7 @@ function predictV(supply, mass, slope, demand = null) {
     } else {
       /* And it must be SILENT when the crank is not being turned: an
          unpowered carrier sinking is not news, it is the premise. */
-      driveRig({ ...at(105, 1), seed: 8298, burden: 30 });
+      driveRig({ ...at(105, 1), seed: 8298, burden: CAP / ORE_T });
       runReal(600, 1 / 120, { hasMouse: false });
       const quiet = journal.peek().filter(j => j.kind === 'refused' && j.data?.why === 'TOO HEAVY TO LIFT');
       if (quiet.length) {
@@ -2007,8 +2055,9 @@ function predictV(supply, mass, slope, demand = null) {
     }
   }
 
-  if (!bad) ok(`WEIGHT REVERSES IT: 8 T climbs, 20 T holds at the exact break-even, 38 T runs backwards ` +
-               `with the crank provably turning -- and says 'TOO HEAVY TO LIFT' once a second, only then`);
+  if (!bad) ok(`WEIGHT REVERSES IT: ${RIDER} T climbs, ${STALL} T holds at the exact surplus == 0 ` +
+               `boundary and ${CAP + RIDER} T -- the burden cap aboard -- runs backwards with the crank ` +
+               `provably turning, and says 'TOO HEAVY TO LIFT' once a second, only then`);
 }
 
 /* --- NOTHING MAKES ASCENT CHEAP (CLAUDE.md invariant 4, and the premise the
@@ -2017,8 +2066,8 @@ function predictV(supply, mass, slope, demand = null) {
    substep at a time, asserting two things no combination may ever break:
 
      1. no triple ascends faster than `eff('segUp')` ALONG THE CABLE, and none
-        gains height faster than that in world y either. `segUp` is 11 px/s,
-        which is under half the 26 px/s a carrier falls at for free, and the
+        gains height faster than that in world y either. `segUp` is at most
+        `segDown`, so nothing rises faster than it falls for free, and the
         `min(1, surplus / segBase)` clamp and the `drive` fraction are what
         hold the line -- neither of which is obvious from the expression, and
         both of which a "helpful" simplification would remove.
@@ -6425,6 +6474,17 @@ function seamRun(steps, dir, want = {}) {
   return { flips, worstBack, y: p.y, band: p.band.id, ground: p.onGround, dead: run.run.dead };
 }
 
+/* SUBSTEPS ENOUGH TO CLIMB `dist` PX OF HEIGHT AT THE LIVE `eff('climb')`,
+   plus one tile of overshoot so the claim is about arriving rather than about
+   landing exactly on the boundary it names. Derived, because the two climb
+   claims below spent a fixed 260 substeps each -- 2.167 s, which is what
+   30 px/s needs for the 64 px they require -- and that literal blocked a
+   `climb` retune for a whole wave (docs/FINDINGS.md phase 6t). The overshoot
+   stays one tile on purpose: both claims assert `worstBack === 0` over the
+   WHOLE run, and a budget long enough to reach the rock above the shaft would
+   bill a legitimate ceiling bonk as a slip. */
+const climbSteps = dist => Math.ceil(((dist + 8) / mods.eff('climb')) * 120);
+
 /* --- CLAIM 1: A FREE FALL DOWN A CLEARED SHAFT CROSSES THE SURFACE/TOPSOIL
    SEAM WITHOUT ONCE MOVING UP.
 
@@ -6520,12 +6580,14 @@ function seamRun(steps, dir, want = {}) {
   seamLadder(top, TX, 0, 12);
 
   player.write.spawn(top, TX, 5);                  // box top at y 808, 7 tiles down
-  const r = seamRun(260, -1, { up: true });
+  const goal = seam - player.PH - 8;               // a whole tile clear of the seam, in surface
+  const steps = climbSteps(player.player.y - goal);
+  const r = seamRun(steps, -1, { up: true });
 
   if (!carved) fail('BAND SEAM (climb): the probe failed to carve its own shaft, so the claim is vacuous');
-  else if (r.band !== 'surface' || !(r.y < seam - player.PH - 8))
-    fail(`BAND SEAM (climb): after 260 substeps of climbing the player is in "${r.band}" at y ` +
-         `${r.y.toFixed(2)} — expected surface, above ${seam - player.PH - 8}. A ladder that cannot ` +
+  else if (r.band !== 'surface' || !(r.y < goal))
+    fail(`BAND SEAM (climb): after ${steps} substeps of climbing the player is in "${r.band}" at y ` +
+         `${r.y.toFixed(2)} — expected surface, above ${goal}. A ladder that cannot ` +
          `leave the band it starts in is the same seam bug from underneath`);
   else if (r.flips !== 1)
     fail(`BAND SEAM (climb): ${r.flips} band changes climbing across one seam, expected 1`);
@@ -6609,7 +6671,10 @@ function seamRun(steps, dir, want = {}) {
   seamLadder(sur, TX, 0, 12);
 
   player.write.spawn(sur, TX, 4);                  // box top at y 352, 4 tiles below
-  const up = seamRun(260, -1, { up: true });
+  /* The handoff is on the hitbox CENTRE (claim 2), so that is the height the
+     climb has to buy before the band can flip. */
+  const upSteps = climbSteps(player.player.y - (seam - player.PH / 2));
+  const up = seamRun(upSteps, -1, { up: true });
 
   boot.newRun(SEED);
   const ast2 = world.bandOf('astral'), sur2 = world.bandOf('surface');
@@ -6620,7 +6685,8 @@ function seamRun(steps, dir, want = {}) {
 
   if (!carved) fail('BAND SEAM (astral): the probe failed to carve its own shaft, so the claim is vacuous');
   else if (up.band !== 'astral' || up.flips !== 1 || up.worstBack !== 0)
-    fail(`BAND SEAM (astral, up): climbing surface -> astral ended in "${up.band}" at y ` +
+    fail(`BAND SEAM (astral, up): ${upSteps} substeps of climbing surface -> astral ended in ` +
+         `"${up.band}" at y ` +
          `${up.y.toFixed(2)} with ${up.flips} band change(s) and ${up.worstBack.toFixed(3)} px of slip ` +
          `— expected astral, 1 change, 0 slip. CLAUDE.md D5 puts the Cloud Dock at the top of this ` +
          `shaft; a seam that cannot be climbed is a destination that cannot be reached`);
