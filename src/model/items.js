@@ -78,11 +78,31 @@ export const write = {
   clear() { items.length = 0; clearGrid(grid); bump(); }
 };
 
-/* Items overlapping a rect, as records. A catch box mouth and a pickup radius
-   are both this call. */
+/* CLOSED on all four edges, and both edges of a span matter. A resting item's
+   `y` is exact tile arithmetic (`worldY(row) - size/2`) and every caller's rect
+   is derived from the same tile grid, so an edge landing exactly on an item is
+   the common case rather than the tie-break: a half-open test costs a furnace
+   the right-hand pixel of the mouth width `catchBox.slack` says it has, and
+   costs a belt the item its own `drag` parked at exactly `box.x + box.w`. */
+const inRect = (r, x, y) =>
+  x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+
+/* Items overlapping a rect, as records. A catch box mouth and a carrier's grab
+   window are both this call.
+
+   THE POSITION IS RE-TESTED HERE and nowhere else. `space.js#query` visits
+   whole 32 px buckets, so an unfiltered result is the four-tile bucket grid
+   rather than the rect a caller asked for, and every catch box, belt and
+   carrier in the game reaches through here. The test is an item's own POSITION
+   against the rect and not its 3-4 px sprite box: every margin in
+   docs/SPEC.md sections 17 and 18.3 is derived against the position, and a box
+   overlap would hand each of them back half a size in slop. */
 export function itemsIn(r) {
   const out = [];
-  query(grid, r, i => { if (items[i]) out.push(items[i]); });
+  query(grid, r, i => {
+    const it = items[i];
+    if (it && inRect(r, it.x, it.y)) out.push(it);
+  });
   return out;
 }
 

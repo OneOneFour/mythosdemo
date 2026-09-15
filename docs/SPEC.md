@@ -1543,6 +1543,19 @@ surplus == 0  ->  hold still
 surplus < 0   ->  descend at eff('segDown') * min(1, -surplus / segBase) * seg.slope
 ```
 
+**What is aboard is the carrier's own 10 px window and nothing wider (Phase
+6q).** `model/items.js#itemsIn` now re-tests each item's position against the
+rect it was handed, which `model/space.js#query` never did for it — that query
+visits whole 32 px buckets, so `carrierBox`, every `catchBox` and
+`rules/belts.js#groundBox` alike reached the four-tile bucket grid instead of
+the box they asked for. Measured on the `winch` scenario: the stock pickaxe
+lying on the ground at x 368, against a carrier box spanning x 379..389, was
+lifted 7 px off the floor and hauled up the shaft by a cable a tile and a half
+away from it. It now rests where it fell. The same test states the rule for
+load: an item is aboard when its own position is inside `carrierBox`, so
+`CARRIER_GRAB` either side of the 4 px deck is the whole of the grab, and
+`load` counts what a carrier is physically under rather than what is nearby.
+
 **There is no `descend()` and no charge gate.** Weighted descent is what the
 same expression produces at zero supply: `surplus` is then `-need`, which is at
 least `segBase`, so an unpowered vertical segment descends at the full
@@ -1837,6 +1850,30 @@ number with margin. Every other catch box in the machine table catches an
 item in flight through its top mouth, where 2 px is plenty — the dock is the
 one exception, because it is the one machine a haul is released *inside*
 rather than dropped onto.
+
+**And that derivation is enforced rather than asserted only as of Phase 6q.**
+`model/items.js#itemsIn` re-tests each item's position against the rect;
+before, it returned every occupant of every 32 px bucket the rect overlapped,
+so the real mouth of every receiver was the bucket grid. Measured, the
+`ascent` scenario paying cycle 2 through the real crank:
+
+| | before | after |
+|---|---|---|
+| where the dock swallows the haul | world y **255.98** — 16 px, two tiles, below its own catch box | world y **239.98**, the first frame the rising cargo enters the box |
+| the box | `y 224..240` (mouth `y-2..y+2`, slack 6) | unchanged |
+| cycle 2 | paid | paid, 52 substeps (0.43 s) later |
+
+So the dock catches a haul on the way *in* and the slack of 6 is what covers
+the released-inside case underneath it; a resting plate at `box.y + 6` is
+2 px inside the box, exactly the margin this row was chosen for. Every catch
+box in the table was measured the same way, by spawning one item per pixel of
+a 113x97 px grid around the mouth and stepping one frame: each one now
+swallows exactly its own `mouth ± slack` and nothing outside it, and a fall
+from 8, 40 or 200 px — at rest, at `terminal`, or launched upward — is still
+caught through the mouth at every offset inside it. The rect is CLOSED on all
+four edges, because a resting item's `y` is exact tile arithmetic and a
+half-open test would cost each mouth the right-hand and bottom pixel the
+`slack` above claims for it.
 
 **The altar has no substance and no recipe, and is placed by the director.**
 `model/run.js#machineHeldSub` resolves a machine id through `S[...]`, so a

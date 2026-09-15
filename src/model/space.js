@@ -1,10 +1,10 @@
 /* LAYER model — a uniform bucket grid. Knows nothing about items or machines.
    Imports nothing. May be imported by `model`, `rules`, `view`.
 
-   Generic on purpose but not speculative: it has two callers on day one --
-   `model/items.js` for falling material, and every machine catch box asking
-   "what is in my mouth" once a frame. A linear scan is O(machines x items),
-   and a catch box is checked every frame by design.
+   Generic on purpose but not speculative: `model/items.js` builds the one grid
+   there is, and every machine catch box, belt and carrier asks it "what is in
+   my mouth" once a frame through `itemsIn`. A linear scan is
+   O(machines x items), and a catch box is checked every frame by design.
 
    It stays in `model` rather than `core` because a bucket size in world pixels
    is a world fact, not arithmetic. */
@@ -29,8 +29,11 @@ export function insert(g, i, x, y) {
 }
 
 /* Visits the buckets overlapping `r` and calls `fn(index)` for each occupant.
-   May visit an occupant whose exact position is outside `r`; callers that care
-   re-test. */
+   BUCKET-GRANULAR, deliberately: `insert` keeps a bucket key and not the point
+   it was given, so an occupant up to `BUCKET` px outside `r` is visited too and
+   the exact test belongs to whoever owns the positions.
+   `model/items.js#itemsIn` is that owner and the only caller; a second caller
+   owes the same re-test. */
 export function query(g, r, fn) {
   const x0 = Math.floor(r.x / BUCKET), x1 = Math.floor((r.x + r.w) / BUCKET);
   const y0 = Math.floor(r.y / BUCKET), y1 = Math.floor((r.y + r.h) / BUCKET);

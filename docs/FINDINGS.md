@@ -3409,3 +3409,69 @@ block.
   means a player who paints a seam and then runs along it sees almost nothing
   happen, so whatever 6n draws for a mark should read as "queued, not yet
   touched" rather than as "being worked".
+
+## Wave 6, phase 6q (`itemsIn` re-tests the rect)
+
+Four things outside the block, all measured against the fix in place.
+
+- **`src/rules/drive.js:263` — a haul delivered to a DEAD-END hub still rides
+  back down the shaft, and the rect test does not fix it.** The re-grab 6j
+  reported has two independent halves and only one of them was the bucket. On
+  the `winch` scenario, driven through the real `cmd`: the four copper ore ride
+  up to the top hub, `arrived` sets `it.rest = 0`, and one substep later the
+  haul has fallen **0.02 px** — from 476.02 to 476.04 against a carrier box of
+  `467..477` — so `haul()` re-takes it, sets `rest = 1` and carries it back to
+  564.04 when the crank is released. The release cannot escape the grab window
+  it is released inside: at `grav` 320 px/s² an item needs 0.081 s to reach the
+  26 px/s the carrier itself descends at, by which time the carrier has moved
+  2.1 px and the item 1.06 px. The `cloud_dock` is not affected because
+  `shell/schedule.js` puts `machines` before `drive`, so its catch box banks
+  the haul before the same frame's grab can look at it — which means a receiver
+  at the top is what makes delivery stick, and the journal row
+  `'THE CHAIN ENDS HERE -- NOTHING WAITS TO CARRY IT ON'` already fires on
+  exactly the case that fails. The fix belongs to whoever owns `rules/drive.js`
+  or `model/segments.js#carrierBox`: either release the haul at its own resting
+  position (`box.y + 8 - size/2`, clear of the window) or give an arrived haul
+  one grab-free substep.
+
+- **`src/rules/belts.js:76-86` — a belt whose lip stands over solid ground
+  spends a charge every other frame, forever, on one item.** `drag` treats
+  `it.x >= edge` as a delivery every time it sees it: the item is set
+  `rest = 0`, a charge is spent, `rules/items.js` lands it again on the tile
+  beyond the lip at the same x, and the next frame charges it again. Measured
+  with one ore on a `belt_r` whose right edge abuts rock: 3 banked charges
+  drained in 240 substeps with the item never moving. Unchanged by this phase —
+  the same drain is there before the fix — and it is invisible in the
+  `belt-line` scenario because that belt delivers into a furnace pit. The
+  honest test is "did this item's x actually change", not "is it at the edge".
+
+- **`src/view/hover.js:102` — the item tooltip is now as tight as it always
+  said it was, and that is a feel change nobody chose.** `nearestItem` asks for
+  `band.tile * 0.6` of slack (4.8 px) and then takes the nearest result with no
+  distance bound, so with the bucket query it would name an item up to ~45 px
+  from the pointer. It now needs the pointer within 4.8 px of the item's centre
+  in both axes, against a 3-4 px sprite. That is the declared number and it is
+  defensible, but `0.6` is a literal in `view` rather than a tunable, and the
+  phase that next opens `view/hover.js` should decide whether a hover radius
+  belongs in `data/tuning.js`.
+
+- **A placed miner's drop is `sub/gravel`, which no smelter accepts, so §12's
+  automated line cannot feed a furnace today.** Measured: a fuelled
+  `talos_head` chewing a `copper` deposit pushes 112 `drop` rows in 60 s and a
+  `furnace` two tiles under its out-mouth accepts **0** of them, before the fix
+  and after it. `data/machines.js`'s smelters accept `*/#ore` and `*/#fuel`,
+  and §19.1's rubble is neither; only the two receivers name `*/gravel`. So the
+  only automated line that works is miner -> receiver, or miner -> ground ->
+  hand -> `pack`. Not a regression and not this phase's file — `data/drops.js`
+  and the machine rows are a content decision — but §12 reads as though the
+  line exists.
+
+- **Nothing needed a wider margin, and one measurement argues against ever
+  widening one.** A miner ejects its drop with `vx = (rand() - 0.5) * 24`, so
+  at the extremes of that spread a drop drifts off the column it left. Measured
+  against a 1-tile `brazier` directly below, ±12 px/s misses at a gap of 8 and
+  16 tiles and every other sampled `vx` lands; a 3-tile `furnace` catches all
+  seven sampled velocities at every gap up to 16 tiles. Growing `catchBox.slack`
+  to recover the extremes would be re-buying the magnetism this phase removed,
+  and a drop that lands beside a machine is invariant 5 working ("material that
+  FALLS IN is free"), so no tuning row moved.
