@@ -1052,19 +1052,15 @@ export function checkContent({ quiet = false } = {}) {
      Sound rather than complete: it can miss a shadowing (two clauses of `j`
      answered by one pair), never invent one.
 
-     THREE KNOWN, PRE-EXISTING VIOLATIONS, ALLOWLISTED BY NAME rather than
-     silently tolerated. docs/FINDINGS.md (Phase 8d, #5, and the Phase 14e
-     entry) records them: `peg_rungs {2 log}` and `kindle {1 log}` are strict
-     subsets of `daedalan {2 plate, 4 log}`, and `kindle` is a strict subset of
-     `auger {2 plate, 1 log}`, so `daedalan` and `auger` are unreachable by
-     hand for any player holding a log. Fixing them means moving `daedalan` and
-     `auger` above `peg_rungs`/`kindle`, which mechanically works (re-derived:
-     it introduces no new shadowing) but TRADES ONE UNREACHABLE RECIPE FOR
-     ANOTHER -- a player holding 2 plates and 4 logs would then get stairs
-     where they get rungs today. That is a gameplay change and does not belong
-     in a harness phase (this plan's section 6.5 says so in as many words), so
-     it is recorded, not made. Every pair NOT on this list fails the build,
-     which is what makes a twentieth recipe safe to add. ---- */
+     THERE IS NO ALLOWLIST. This assertion shipped with three named
+     exemptions -- `peg_rungs` and `kindle` both shadowing `daedalan`, and
+     `kindle` shadowing `auger` -- recorded because fixing them by reordering
+     alone would have traded one dead recipe for another. Phase 6v repriced
+     the two bills instead (`daedalan` to {3 plate, 1 log}, `kindle` moved
+     below both), so every one of the 19 rows is now craftable at its own
+     minimal bill and the exemption has nothing left to cover. Any shadowing
+     pair at all fails the build, which is what makes a twentieth recipe safe
+     to add. ---- */
   {
     /* `HAND_RECIPES` itself, not `recipes.filter(r => r.hand)`: the thing under
        test is DECLARATION ORDER, and that array is the one
@@ -1072,13 +1068,6 @@ export function checkContent({ quiet = false } = {}) {
        second implementation of "which rows have hand:true, in what order",
        which is the drift assertion 7 above already exists to prevent. */
     const HAND = HAND_RECIPES;
-    /* Ordered `before -> after`, i.e. "the earlier row that eats the later
-       one". docs/FINDINGS.md 8d #5. */
-    const KNOWN_SHADOWS = new Set([
-      'peg_rungs>daedalan',
-      'kindle>daedalan',
-      'kindle>auger'
-    ]);
 
     const pairSet = sel => new Set(expand(sel).map(p => keyOf(p.sub, p.form)));
     const covers = (outer, inner) => {                // every pair in inner is in outer
@@ -1096,7 +1085,6 @@ export function checkContent({ quiet = false } = {}) {
           return billB.some(([selB, nB]) => nB >= nA && covers(setA, pairSet(selB)));
         });
         if (!implied) continue;
-        if (KNOWN_SHADOWS.has(`${A.id}>${B.id}`)) continue;
         fail(`hand recipes: "${A.id}" (declared #${i}) is satisfied by EVERY pockets state that satisfies ` +
              `"${B.id}" (#${j}) -- ${JSON.stringify(A.in)} against ${JSON.stringify(B.in)}. ` +
              `rules/crafting.js#choose takes the first affordable row, so "${B.id}" can never be ` +

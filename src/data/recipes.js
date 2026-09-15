@@ -159,11 +159,12 @@ export const RECIPES = Object.freeze({
      this row.
 
      Checked against every other `hand:true` bill in this file, and these are
-     ALL the containments: it contains `hub` (handled above), `auger`
-     {2 plate, 1 log} and `peg_rungs` {2 log} (both declared later already),
-     and `hearth` {2 plate} (declared after every plate row, which covers it). It does
+     ALL the containments: it contains `hub` (handled above), `daedalan`
+     {3 plate, 1 log}, `auger` {2 plate, 1 log}, `peg_rungs` {2 log} and
+     `kindle` {1 log} (all declared later already), and `hearth` {2 plate}
+     (declared after every plate row, which covers it). It does
      NOT contain `press_machine` {4 plate, 2 ingot} -- one ingot short -- nor
-     `belt_r` {2 plate, 4 gravel} nor `daedalan` {2 plate, 4 log} nor `gear`
+     `belt_r` {2 plate, 4 gravel} nor `gear`
      {2 log, 1 gravel}, and nothing declared before it contains IT (`furnace`
      wants ore, `brazier` and `crank` want more logs than this). See
      docs/DEVELOPER_GUIDE.md#hand-recipe-declaration-order
@@ -265,27 +266,15 @@ export const RECIPES = Object.freeze({
   }),
 
   /* ---- peg_rungs: timber/log -> timber/rung, the cheap dedicated ladder.
-     NOT the plan's literal "1 timber/log -> 4 timber/rung", and
-     the reason is `rules/crafting.js#choose`'s own documented limitation:
-     "first match wins, a real menu would let you choose" (the menu is
-     unbuilt). `kindle`, directly below, ALSO fires off nothing but
-     `'timber/log':1` -- two hand-recipes with an IDENTICAL trigger set is a
-     tie `choose()` cannot see, and whichever is declared first always wins,
-     every time, forever. Shipping `peg_rungs` at the plan's literal 1-log
-     cost, in EITHER declaration order, makes one of the two permanently
-     unreachable by hand: kindle first starves peg_rungs outright; peg_rungs
-     first starves kindle, which needs to stay hand-reachable to restock the
-     one carried light source. Requiring 2 logs and declaring peg_rungs
-     BEFORE kindle breaks the tie without touching either recipe's own
-     table-order neighbour's numbers: holding exactly 1 log fails peg_rungs's
-     stronger requirement and falls through to kindle; holding 2 or more
-     satisfies peg_rungs first and it wins. Both stay reachable; a player
-     with a surplus of logs simply gets rungs until they spend down to one.
-     Not caught by `tools/content.mjs` (a content-graph check, not a
-     hand-craft-priority one) -- caught by this phase's own manual
-     verification, which is exactly what CLAUDE.md's own "a test that
-     measures the wrong thing" warning is for. See `forms.js#rung` for the
-     mass-conservation half of this same correction. */
+     NOT the plan's literal "1 timber/log -> 4 timber/rung", because `kindle`
+     also fires off nothing but one log, and two hand recipes with an
+     IDENTICAL trigger set is a tie `rules/crafting.js#choose` cannot see --
+     whichever is declared first wins every time, forever. Requiring 2 logs
+     and declaring this row above `kindle` breaks the tie without touching
+     either output: holding exactly 1 log fails this stronger requirement and
+     falls through to `kindle`, and holding 2 or more satisfies this row
+     first. See `forms.js#rung` for the mass-conservation half of the same
+     correction. */
   peg_rungs: Object.freeze({
     id:'peg_rungs', name:'PEG RUNGS',
     in:{ 'timber/log':2 },
@@ -294,55 +283,77 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* ---- kindle: timber/log -> timber/brand. THE FIRST RECIPE WHOSE OUTPUT
-     FORM IS NOT A COMPRESSION TIER -- smelt and press both compress toward
-     density; kindling does the opposite, one log splitting into three
-     lighter, burnable brands. hand:true because no machine performs it;
-     the player's first brand is planted near spawn regardless, and this
-     recipe is how they restock once it burns out. Declared AFTER
-     `peg_rungs` now -- see that row's comment for why the order is
-     load-bearing, not cosmetic. */
-  kindle: Object.freeze({
-    id:'kindle', name:'KINDLE',
-    in:{ 'timber/log':1 },
-    out:[ { sub:'timber', form:'brand', n:3 } ],
-    secs:1.5,
-    hand:true
-  }),
+  /* ---- daedalan: 3 copper/plate + 1 timber/log -> 2 copper/stair, the
+     tier-2 ladder. Vertical throughput as an upgradeable axis: see
+     `forms.js#stair`'s `climbK`. hand:true for the same reason `peg_rungs`
+     is -- no machine builds a ladder, ever.
 
-  /* ---- daedalan: 2 copper/plate + 4 timber/log -> 2 copper/stair, the
-     tier-2 ladder. Vertical throughput as an upgradeable axis:
-     see `forms.js#stair`'s `climbK`. hand:true for the same reason
-     `peg_rungs` is -- no machine builds a ladder, ever. */
+     THREE PLATE AND ONE LOG, NOT TWO PLATE AND FOUR LOGS, AND THE CHANGE IS
+     WHAT MAKES THIS ROW REACHABLE AT ALL. `peg_rungs` {2 log} and `kindle`
+     {1 log} are both strict subsets of the four-log bill, so every pockets
+     state that could afford a stair could also afford rungs or a brand, and
+     `rules/crafting.js#choose` handed out the cheaper timber row forever --
+     measured in a real run, at every inventory (docs/PLAYTEST.md finding 4).
+     One log is under `peg_rungs`'s two, which breaks the containment in the
+     one direction that matters.
+
+     Mass is unchanged at 8.0 consumed against 6.0 produced (3 x plate's 2.4
+     plus log's 0.8, at copper mass 1.0), so `forms.js#stair`'s own massK
+     headroom derivation still reads as written. The 12 extra ore against 3
+     fewer logs is the direction `data/cycles.js`'s header asks for --
+     escalation in refinement, not in volume -- and timber is the scarcer
+     material by a wide margin. */
   daedalan: Object.freeze({
     id:'daedalan', name:'DAEDALAN STAIR',
-    in:{ 'copper/plate':2, 'timber/log':4 },
+    in:{ 'copper/plate':3, 'timber/log':1 },
     out:[ { sub:'copper', form:'stair', n:2 } ],
     secs:6.0,
     hand:true
   }),
 
-  /* ---- auger: the T2 hand tool. hand:true with no machine ever
-     naming it -- same shape as `peg_rungs`/`daedalan` above, nothing builds a
-     tool but a pair of hands.
+  /* ---- auger: the T2 hand tool. hand:true with no machine ever naming it
+     -- same shape as `peg_rungs`/`daedalan` above, nothing builds a tool but
+     a pair of hands.
 
-     DECLARED LAST, AFTER `daedalan`, AND THE ORDER IS LOAD-BEARING -- the
-     identical collision `peg_rungs`/`kindle` already had. `daedalan` and this
-     row share the EXACT SAME input keys (`copper/plate`, `timber/log`) at the
-     same plate count (2) and different log counts (4 vs 1), so
-     `rules/crafting.js#choose`'s "first HAND_RECIPES row whose inputs are
-     fully satisfied wins" cannot see both as available and pick the one you
-     meant -- holding 4+ logs satisfies both. Declaring the STRONGER recipe
-     (`daedalan`, needing more logs) first, the same fix `peg_rungs` used
-     against `kindle`: holding 4 or more logs (and 2+ plate) always yields a
-     stair; holding 1-3 satisfies only this row and falls through to it. A
-     player who wants the auger keeps their log stock under 4 when crafting
-     it. See `docs/FINDINGS.md`. */
+     DECLARED AFTER `daedalan` AND BEFORE `kindle`, AND BOTH HALVES ARE
+     LOAD-BEARING. `daedalan` {3 plate, 1 log} asks one more plate at the same
+     log count, so it is the stronger bill and is tried first: 3 plate and a
+     log yields a stair, 2 plate and a log yields the auger. `kindle`
+     {1 log} is a strict subset of this bill and used to be declared above
+     it, which made the auger -- `docs/SPEC.md` section 12's answer to the
+     granite gate -- unobtainable in every run at every inventory, because
+     any pockets that could afford it produced brands instead. */
   auger: Object.freeze({
     id:'auger', name:'ADAMANT AUGER',
     in:{ 'copper/plate':2, 'timber/log':1 },
     out:[ { sub:'auger', form:'relic', n:1 } ],
     secs:8.0,
+    hand:true
+  }),
+
+  /* ---- kindle: timber/log -> timber/brand. THE ONLY ROW WHOSE OUTPUT FORM
+     IS NOT A COMPRESSION TIER -- smelt and press both compress toward
+     density; kindling does the opposite, one log splitting into lighter,
+     burnable brands. hand:true because no machine performs it; this is how
+     the player restocks the one carried light source.
+
+     TWO BRANDS PER LOG, NOT THREE. A log and a brand are each ONE unit to a
+     star-slash-hash-fuel selector (spelled in words for the reason
+     `forms.js`'s grammar block gives), so this count IS the fuel exchange
+     rate: at three, every fuel bill in the game silently cost a third of a
+     log and burning a log directly was never rational. Two still pays for
+     the 1.5 s -- a brand is 0.3 massK against a log's 1.0 and is the only
+     carried light there is -- and leaves 40% of the log as waste.
+     `docs/SPEC.md` section 8 holds the ratio.
+
+     DECLARED AFTER `daedalan` AND `auger`. This is the weakest log bill in
+     the file, and the weakest bill must be tried last, exactly as `hearth`
+     {2 plate} sits after every other plate row. */
+  kindle: Object.freeze({
+    id:'kindle', name:'KINDLE',
+    in:{ 'timber/log':1 },
+    out:[ { sub:'timber', form:'brand', n:2 } ],
+    secs:1.5,
     hand:true
   }),
 

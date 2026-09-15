@@ -3022,6 +3022,48 @@ also what gives it its first execution.
   furnace rather than wherever worldgen put a tree. Worth a look from whoever
   re-tunes `chance` at the new width; nothing is broken today.
 
+## Wave 6, phase 6v (every recipe reachable, kindle stops multiplying fuel)
+
+- **The reachability fixpoint had no gap, and the check that owns the defect
+  had already found it.** `tools/content.mjs:175`'s fixpoint (shared by
+  assertions 4 and 5) asks whether a pair can ever *exist* in the content
+  graph, ignoring quantities and declaration order, and it answers `daedalan`
+  and `auger` correctly: `copper/plate` and `timber/log` are both reachable, so
+  `copper/stair` and `auger/relic` are reachable. What made the two rows
+  uncraftable is declaration order, which is assertion 23's question, and
+  assertion 23 caught both — then allowlisted them by name because fixing them
+  by reordering alone would have traded one dead recipe for another. This phase
+  repriced instead and deleted the allowlist, so a re-introduction now fails
+  the build.
+
+- **`src/data/forms.js:173` says `kindle` turns one log into THREE brands.**
+  It turns one into two. The mass arithmetic the comment exists for is still
+  correct as an upper bound (3 × 0.3 under a log's 1.0), which is why nothing
+  computes wrongly; the sentence describing the recipe is stale.
+  `data/forms.js` carries an import-time tile-byte guard and is outside this
+  phase's ownership block.
+
+- **`docs/DEVELOPER_GUIDE.md:172` repeats the three-brand figure**, in a
+  worked example of the mass-conservation lint catching `brand` at
+  `massK:0.5`. The arithmetic it teaches is still right; the recipe it cites is
+  no longer what the recipe says. The rest of that file's hand-recipe material
+  was rewritten by phase 6u in this same tree and needs nothing from here.
+
+- **Ten of the 44 holdable pairs still have no source in play**, computed by
+  running the content fixpoint over every `holdable()` pair and then hand-
+  checking the fifteen it excludes: `pick/relic` comes from the starting kit
+  (`shell/boot.js:163`), `timber/seed` from the last-trunk mining drop, and
+  `bellows/relic`, `owl/relic` and `girdle/relic` from `data/drops.js` and the
+  cycle-4 trinket draft. The remaining ten are `copper/gravel`, `tin/gravel`,
+  `tin/stair`, `adamant/ore`, `adamant/ingot`, `adamant/plate`,
+  `adamant/stair`, `chasm/phial`, `tide/phial` and `lodestone/phial`. The three
+  phials are the whole **miracle tier**: no row in `data/cycles.js` rewards
+  `draft:'miracle'`, so a miracle can only be reached through the debug draft
+  key in `shell/main.js:375`. The adamant chain is blocked at its root —
+  `adamant`'s `tile.drops` is `gravel`, so `adamant/ore` never exists and
+  `smelt` can never carry adamant across. `docs/ICONS.md` names seven of the
+  ten and misses the three phials.
+
 ## Phase 6u (a hand-craft makes the recipe the player clicked)
 
 - **Two visual baselines are already stale at HEAD, and not by this phase.**
@@ -3064,3 +3106,20 @@ also what gives it its first execution.
   `tools/content.mjs` assertion 23. **The three-brand figure is NOT fixed**: it
   is at `docs/DEVELOPER_GUIDE.md:172`, inside `#adding-a-form`, which is not in
   this phase's block.
+
+## Wave 6, phase 6v (addendum, measured after 6u landed)
+
+- **The two stale crafting baselines are 6v's, and `docs/FINDINGS.md`'s Phase
+  6u entry attributes them wrongly.** At `764af09` a clean `git worktree` with
+  nothing copied in passes both `ui-crafting` and
+  `furnace-lifecycle-1-crafting-ui`. Copy in `src/data/recipes.js` alone and
+  they fail by exactly the 1,748 px and 1,732 px 6u reported, and the diff
+  images put every changed pixel in three cells of the recipe grid's second row
+  — `daedalan`, `auger` and `kindle`, the three rows this phase reordered. 6u's
+  measurement was taken in a tree that already held this phase's uncommitted
+  `recipes.js`, which `playwright.config.js`'s `reuseExistingServer: true`
+  makes easy: a `tools/serve.mjs` already running on :5173 serves the MAIN
+  tree, so a worktree run reads the main tree's modules against the worktree's
+  baselines unless the port is changed or the server is killed first. Both
+  images are re-accepted in this phase's own commit, for the recipe order and
+  not for `086f25e`'s sky.

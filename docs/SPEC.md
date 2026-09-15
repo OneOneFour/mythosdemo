@@ -178,6 +178,25 @@ Plate's ratio is expressed in ingot terms (3, not 12) because it is built
 12:1 against ore. If this disagrees with `data/recipes.js`, this file is
 stale; fix it here first.
 
+**`kindle` is the one ratio that runs the other way, and it is the game's
+fuel exchange rate.** 1 `timber/log` -> **2** `timber/brand`, 1.5 s,
+`hand:true`, no machine. A log and a brand are each **one unit** to any
+`*/#fuel` selector, so the output count is exactly what a log is worth as
+fuel:
+
+| | logs in | fuel units out | brazier/hearth seconds (1 fuel per 6.0 s) | carried light (`brandSecs` 90) |
+|---|---|---|---|---|
+| shipped before 6v | 1 | 3 | 18 s | 270 s |
+| **locked here (6v)** | 1 | **2** | **12 s** | **180 s** |
+
+At 3 the multiplier was accidental — it was the most `brand`'s `massK` of 0.3
+allowed against a log's 1.0 without tripping the content lint's
+mass-conservation check, not a number anyone set — and it priced every fuel
+bill in the game at a third of a log, so burning a log directly was never
+rational. At 2 a log is still worth splitting (a brand is 30% of the mass and
+the only carried light there is) and 40% of the log is waste. The furnace's
+own bills are unchanged; what changes is how many logs pay them.
+
 ## 9. Encumbrance, light and tool tiers
 
 Locked with Phase 1 of `docs/BUILD_PLAN.md`. `CLAUDE.md` §"Resolved
@@ -217,7 +236,7 @@ Recipes (`src/data/recipes.js`), both `hand:true`:
 | recipe | in | out | secs |
 |---|---|---|---|
 | `peg_rungs` | 2 `timber/log` | 4 `timber/rung` | 1.5 |
-| `daedalan` | 2 `copper/plate` + 4 `timber/log` | 2 `copper/stair` | 6.0 |
+| `daedalan` | 3 `copper/plate` + 1 `timber/log` | 2 `copper/stair` | 6.0 |
 
 `peg_rungs` reads **2** logs, not the 1 the phase's own prose named, and is
 declared **before** `kindle` in `RECIPES` (previously kindle came first) —
@@ -232,6 +251,22 @@ phase's original ~0.35) keeps `tools/content.mjs`'s mass-conservation check
 passing at the 1-log quantity; at 2 logs there was room to spare, but 0.3 was
 kept for consistency with `brand`'s own massK and its identical "split
 lighter, with real waste" shape.
+
+**`daedalan` reads 3 plate and 1 log, not the 2 plate and 4 logs it shipped
+with, and the change is a reachability fix (Phase 6v).** `peg_rungs` (2 logs)
+and `kindle` (1 log) are both strict subsets of a four-log bill, so every
+pockets state that could afford a stair could also afford rungs or a brand and
+`rules/crafting.js#choose` handed out the cheaper timber row at every
+inventory — driven and confirmed in `docs/PLAYTEST.md` finding 4, and
+allowlisted by name in the content lint until this phase. One log is under
+`peg_rungs`'s two, which breaks the containment in the one direction that
+matters, so the stair is now craftable from exactly its own bill. Mass is
+unchanged: 3 x 2.4 plate + 1 x 0.8 log = 8.0 consumed against 6.0 produced,
+which is the same 8.0 `forms.js#stair`'s `massK:3.0` headroom was derived
+against. The trade is 12 more ore for 3 fewer logs, which is the direction
+`data/cycles.js`'s header asks for — escalation in refinement, not volume —
+and timber is the scarcer material by a wide margin (`docs/PLAYTEST.md`
+finding 5).
 
 Encumbrance (D3/D4) gates ASCENT only: on a ladder, descending is always
 `eff('climb') x climbK`, at any burden. Ascending is that same speed, scaled
@@ -398,12 +433,19 @@ place the Maw on the approach, not only once standing in the vein.
 T2 auger CAN reach, not adamant: a machine that could only be built from the
 one material it alone can mine would have no way to ever get built.
 
-**Recipe-ordering collision, same shape as `peg_rungs`/`kindle` (Phase 2a).**
+**Recipe-ordering collision, same shape as `peg_rungs`/`kindle` (Phase 2a),
+and the auger was the recipe it killed (fixed in Phase 6v).**
 `data/recipes.js#auger` and `#daedalan` share identical input KEYS
-(`copper/plate`, `timber/log`) at the same plate count and different log
-counts (1 vs 4). `daedalan` is declared first (the stronger requirement), so
-holding 4+ logs always yields a stair; holding 1-3 falls through to the
-auger. See `docs/FINDINGS.md`.
+(`copper/plate`, `timber/log`) at the same log count and different plate
+counts (2 vs 3). `daedalan` is declared first (the stronger requirement), so
+holding 3+ plate and a log yields a stair and holding 2 falls through to the
+auger. What made the auger unobtainable in **every** run was neither of those
+two rows but `kindle` (1 log), declared above both: a strict subset of the
+auger's bill, so any pockets that could pay for an auger produced brands
+instead. `kindle` is now declared last of the log rows, the weakest bill
+tried last, exactly as `hearth` sits after every plate row. The content lint
+(`tools/content.mjs` assertion 23) proves every one of the 19 hand recipes is
+craftable at its own minimal bill, with no allowlist.
 
 **Engine cost, stated per ARCHITECTURE §3.** Two new interpreter keys:
 `mine` (`rules/machines.js`) and `minDepth` (`rules/placement.js`). No
@@ -701,7 +743,7 @@ manufacture more mass than it consumes (the content lint's own conservation
 check). `kiln_divine` has NO substance or recipe: its cost bill is
 BIT-IDENTICAL to `furnace`'s, and two hand-recipes with an identical trigger
 would starve one of them forever under `rules/crafting.js#choose`'s
-first-match rule — the exact tie class `daedalan`/`auger`'s differing log
+first-match rule — the exact tie class `daedalan`/`auger`'s differing plate
 counts exist specifically to avoid, with no quantity left to differentiate
 here since retuning would invent a number Phase 3 never set. It is therefore
 placeable by nobody, at any depth, and its grant row has been retired rather
@@ -2971,7 +3013,7 @@ the strip is eight cells and pressing them arms nothing.
 **DIVINE is empty, and the tool clause is why.** `categoryOf` tests
 `sub.item?.tool` (`view/ui/mainPanel.js:459`) before the relic tag
 (`:460`), and `auger` — the one output in all 19 hand recipes whose
-substance carries `tags:['relic']` (`data/recipes.js:344`) — also carries
+substance carries `tags:['relic']` (`data/recipes.js:329`) — also carries
 `item.tool`, so it lands in TOOLS. Reordering the two clauses empties TOOLS
 instead and is not the fix. The tab stays until a hand recipe makes a relic
 or a miracle that is not a tool.
