@@ -274,6 +274,67 @@ the precedent; extend `TREAT`, do not add a second paint pipeline.
 
 Spend `dip` in the same phase, once 6r has made it safe.
 
+### Wave 6.8 — acting on the playtest (added mid-wave, from 6b)
+
+`docs/PLAYTEST.md`'s verdict is that the game is not fun yet and that thin
+content is not the reason: **ascent is free, so the premise never fires.** A
+28-rung timber ladder turns the 240 px climb to the Heavens into 7.5 s of
+holding one key at any load under 30 T, and pays cycle 2 with 410 s left on a
+480 s clock without touching a hub, segment, carrier, crank or gear. The
+transport system the game is named around is strictly dominated by a ladder.
+
+U7 said the playtest reports and implements nothing. The user then read the
+report and authorised these five phases.
+
+**6t — the premise retune.** `systems`. After 6k (shares `data/tuning.js`).
+Owns `src/data/tuning.js`, `docs/SPEC.md` §2/§3/§9/§17.
+Both levers at once, per the user: nerf the ladder and buff the carrier.
+6b's numbers, to be re-derived rather than pasted: `climb` 30 -> 10 px/s,
+`burdenSoft` 0.75 -> 0.30 (so the 12 T knee actually bites a 7.2 T tribute
+load), `segUp` 11 -> 40, `segLoad` 0.025 -> 0.010. Note `climb`'s existing
+note already says "half walk, on purpose. Up is expensive." — the number
+never matched the sentence. **`segUp`'s note is the harder argument to
+answer:** it is 11 because "the retired winch deck ascended at this exact
+number: a carrier is not faster than what it replaces." Raising it to 40
+retires that constraint deliberately and the commit must say so. D10 is right
+that the crank's currency is the player's standing attention; 6b's measurement
+is that the exchange rate is wrong, and **the crank must not become passive.**
+Acceptance is a re-run of 6b's measurement, not a green test.
+
+**6u — a hand-craft makes the recipe the player clicked.** `systems`. Running.
+Owns `src/rules/crafting.js`, `src/shell/main.js`, `src/shell/input.js`.
+Not a bug fix: `shell/main.js:107-114` documents the one-intent design and
+`crafting.js:28` says "first match wins, a real menu would let you choose."
+Phase 17j built the menu; the simulation never caught up, so clicking GEAR
+while holding 12 ore and 9 logs produces a `furnace/rig`. The queued id rides
+on `cmd` (which `crafting.js#step(dt, cmd)` already takes) rather than `rules`
+reading `shell`.
+
+**6v — every recipe is reachable, and kindle stops multiplying fuel.**
+`systems`. Running. Owns `src/data/recipes.js`, `src/data/machines.js`,
+`tools/content.mjs`, `docs/SPEC.md` §8/§13.
+`daedalan` and `auger` are unobtainable at any inventory, and
+`tools/content.mjs` has a reachability fixpoint that does not catch them —
+establishing whether that is a harness gap is worth more than the content fix.
+`kindle` turns 1 log into 3 brands, on the game's binding constraint.
+
+**6w — the depth gauge measures the feet.** `ui`. View chain, after 6r.
+Owns `src/view/hud.js`.
+`view/hud.js:454` measures `player.y` against the datum, and `PH` is 16 on an
+8 px tile, so standing on the spawn floor reads **+2M** instead of 0M. One
+line, but it is the HUD's most-read number and D9 anchors `cyclops_maw`'s
+`minDepth:200` to the same datum — check whether placement legality reads the
+same expression before changing either.
+
+**6x — the cycle-1 reward is announced.** `ui`. View chain, after 6w.
+Owns `src/view/fx.js`.
+`view/fx.js:53` — the furnace grant, which is the entire point of the First
+Trial (`docs/SPEC.md` §4), is silently overwritten by the cloud dock toast, so
+the player may never learn they earned it. `banner`/`title` is a single slot
+with no queue.
+
+---
+
 ### Wave 6.7 — the catch-box reach bug (added mid-wave, from 6j)
 
 **6q — `itemsIn` re-tests the rect.** `systems`. Sequence after 6p.
