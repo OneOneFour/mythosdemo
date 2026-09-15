@@ -3891,3 +3891,115 @@ middle 80 px is astral's own 10-row stone slab.
 at the top of one stage lands inside the next carrier's own box and the chain
 hands off with no code that knows about chains. Astral row 39 is carved because
 it is the one slab row no headframe exemption covers (§17.6).
+
+## 30. The main menu (Phase 6l)
+
+`docs/PLAN-wave6.md` request 2. `src/view/ui/menu.js` draws it, canvas-drawn
+per `CLAUDE.md` D2: `R()`, the 5x7 bitmap font, integer pixels, no `fillText`,
+no DOM. It reports the rectangles it drew and hit-tests nothing. **Phase 6l
+wires no input** (`docs/PLAN-wave6.md` §3 S2), so until 6o lands the menu is
+reachable only through `shell/ui.js`'s accessors.
+
+### 30.1 Four pages
+
+| page | rows, in order | ids |
+|---|---|---|
+| `root` | NEW RUN, SEED, CONTINUE, CONTROLS, SETTINGS, DEBUG | `new`, `seed`, `continue`, `controls`, `settings`, `debug` |
+| `controls` | none; the shortcuts table, plus BACK | `back` |
+| `settings` | six toggles, plus BACK | `set-grid`, `set-chunks`, `set-debug`, `set-collect`, `set-feed`, `set-hints`, `back` |
+| `debug` | one row per `data/scenarios.js#SCENARIOS`, plus BACK | `scenario-<id>`, `back` |
+
+`root` carries the wordmark and the tagline; a sub-page spends those lines on
+content and takes its heading from the panel title. BACK is the **last** row
+index on every sub-page and is drawn in the footer, so the cursor reaches it by
+moving past the content and a click reaches the same id.
+
+**CONTINUE is gated on `hasSave`, and states why when it is dead.** A dim row
+reading `NO SAVE` is drawn and recorded with `live:false`; a caller must not
+dispatch it. The row is not hidden, because a menu that silently lacks an
+option teaches nothing (D17-B).
+
+**A refused load names its reason.** `ui.menu.notice` carries
+`shell/save.js#loadError.reason` verbatim — §27.7's five strings — and the menu
+draws it in `uiAmber`, wrapped, under a rule. `NO SAVE` and `CORRUPT SAVE:
+bands[0].edits` are different events and the player is told which.
+
+The SETTINGS page shows only what `frameCtx` already carries: `f.flags`'s
+`showGrid`/`showChunks`/`showDebug` and `f.ui`'s
+`autoCollect`/`autoFeed`/`hintsOpen`. **MUTE is deliberately absent** —
+`shell/audio.js#audio.muted` is not in the frame context and a mirror for it in
+`view` would be a second copy of the truth (`docs/FINDINGS.md`).
+
+The DEBUG page says out loud what debug mode is, which was the undocumented
+half of request 8: `h` toggles `flags.showDebug` and `t`/`b`/`k`/`y`/`p` do
+nothing until it is on.
+
+### 30.2 The state shape
+
+`src/shell/ui.js#ui.menu`, a fact about the session like every other field in
+that file. `view` reads it through `shell/main.js#frameCtx` and never writes it.
+
+| field | shape | meaning |
+|---|---|---|
+| `open` | bool | is the menu standing |
+| `page` | `'root'`\|`'controls'`\|`'settings'`\|`'debug'` | which page |
+| `index` | int | the focused row, counted over the page **currently drawn** |
+| `scroll` | int | the CONTROLS list's **page index**, not a line offset |
+| `seed` | string | digits typed into the SEED field; `''` means random |
+| `seedFocus` | bool | is the SEED field capturing keys |
+| `hasSave` | bool | a mirror of `shell/save.js#hasSave()` |
+| `notice` | string\|null | a mirror of `loadError.reason` |
+
+`hasSave` and `notice` are mirrors because **storage is a device**: `view` may
+not reach `localStorage`, so `shell` answers the question once and parks the
+answer. Accessors: `openMenu`, `closeMenu`, `menuPage`, `menuFocus`,
+`menuMove`, `menuScrollTo`, `setMenuSeed`, `setMenuSeedFocus`, `setMenuSave`,
+`setMenuNotice`. `menuMove` and `menuScrollTo` take the count they clamp
+against, because only the drawn record knows it.
+
+`view/ui/state.js#drawn.menu` is what was painted, or `null`:
+`{ page, rows:[{id,x,y,w,h,live,focused,label}], keys:[{id,keys,label,x,y,w,h}],
+focus, scroll, pages, notice }`. The record carries its own `page`, so a
+dispatcher cannot act on a CONTROLS row while the DEBUG page is showing.
+
+### 30.3 The keymap has one declaration
+
+`src/shell/ui.js#KEYMAP`, a frozen array of `{ when, debug?, rows }` whose rows
+are `{ id, codes, keys, label, hold? }`. `codes` holds the lowercased `e.key`
+values `shell/input.js` compares, `keys` is the display string, `id` is the verb
+a dispatcher binds.
+
+It lives in `shell` because a binding is a device fact, and it reaches `view`
+without an illegal import because `ui.keymap` references it and `frameCtx`
+already hands `ui` to every render. `shell/input.js` imports `KEYMAP` directly.
+**There is no second list.** A shortcuts page hand-copied from
+`shell/input.js`'s prose header would have drifted from it the first time a
+letter moved.
+
+**What 6o owes this table:** `shell/input.js` must derive its dispatch from
+`id`/`codes` rather than from its present `if (key === 'x')` clauses, so the
+declaration is the binding and not a description of one. Until it does, the
+table and the handler are two statements of one fact and can drift.
+
+### 30.4 It survives the 200 px floor
+
+`core/canvas.js#resize` clamps the base buffer at 200x180 and that is a desktop
+condition. Every page is placed by a layout pass over measured text (D8), never
+from a hardcoded origin.
+
+- a row label **wraps** rather than overrunning its frame.
+  `data/scenarios.js`'s longest trial name measures 185 px against the 184 px
+  of content the floor affords.
+- the shortcuts table flows into as many columns as the width really affords
+  (two at 640x400, one at the floor) and **pages** when it runs out of height —
+  46 lines against about 18, so three pages at the floor and one at the desktop
+  size. The panel keeps its full height while paging, so the frame does not
+  jump under the cursor.
+- degradation order inside a list panel, last dropped first and dropped whole:
+  the page's blurb, then the focused row's note, then the refusal notice. Half
+  a sentence reads as a rendering fault.
+
+`tests/visual.spec.js` asserts the geometry rather than only photographing it:
+every drawn row lies inside the buffer at both sizes with exactly one focused,
+and every `KEYMAP` id is drawn exactly once across the CONTROLS page's pages.
+Dropping one column of the table fails that second assertion by 16 bindings.

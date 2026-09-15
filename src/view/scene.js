@@ -37,6 +37,7 @@ import { bandAbove, bandBelow, bands, chunkPx, heightPx, lightAt, seenAt, widthP
 import { chips, drawChips } from './fx.js';
 import { drawHUD } from './hud.js';
 import { drawOverview } from './overview.js';
+import { drawMenu, menuOpen } from './ui/menu.js';
 import { beginFrame, chunkCanvas, effChargeAt, effHardAt, paintItem, paintMachine, skyBottomTy } from './paint.js';
 
 const INK = {
@@ -109,6 +110,11 @@ export function render(g, f) {
   stats.chunksDrawn = 0; stats.bandsDrawn = 0;
   stats.tint = tintRows(H); stats.tint.fill(0);
 
+  /* THE MENU OUTRANKS THE MAP. The game boots into the menu, and a `showMap`
+     left set by a previous run would otherwise take the whole frame and the
+     menu would never be seen. */
+  const menu = menuOpen(f);
+
   /* THE MAP OVERVIEW IS A DIFFERENT RENDER PATH, NOT A CAMERA TRICK, and it
      is a different FILE: `view/overview.js`, which owns its own
      scale, scroll, zoom, band ruler and metadata layers. It used to be
@@ -117,7 +123,7 @@ export function render(g, f) {
      items, the walking player sprite, fields, fog, atmosphere, the HUD)
      executes while the map is open -- the map is a full substitute frame, not
      an overlay on top of the ordinary one. */
-  if (f.flags.showMap) { drawOverview(g, f); return; }
+  if (f.flags.showMap && !menu) { drawOverview(g, f); return; }
 
   for (const b of bands) {
     if (!visible(b, cam, W, H)) continue;
@@ -157,7 +163,11 @@ export function render(g, f) {
   if (f.flags.showGrid)   overlay(g, cam, W, H, player.band?.tile ?? 8, INK.grid, 0.16);
   if (f.flags.showChunks) overlay(g, cam, W, H, player.band ? chunkPx(player.band) : 128, INK.chunk, 0.5);
 
-  drawHUD(g, f);
+  /* THE MENU STANDS INSTEAD OF THE HUD, not over it: hearts, the depth gauge
+     and the journal read as clutter through a dimmed backdrop, and the menu
+     owns `view/ui/state.js#drawn` for the frame -- it calls `resetDrawn()`
+     itself, exactly as `drawHUD` does. */
+  if (menu) drawMenu(g, f); else drawHUD(g, f);
 }
 
 const visible = (b, cam, W, H) =>

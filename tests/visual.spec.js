@@ -7118,3 +7118,225 @@ test('17l: the depth tint is world-anchored, and a seam ramps rather than steps'
 
   expect(errors).toEqual([]);
 });
+
+/* ============================================================
+   THE MAIN MENU AND THE SHORTCUTS PAGE (Phase 6l)
+
+   6o owns every input path, so nothing in the game can open the menu yet.
+   These drive `shell/ui.js`'s own accessors through a dynamic import of the
+   live module -- the same idiom `putInQuickbar` above uses for
+   `model/run.js#write` -- and never through a screen coordinate.
+   ============================================================ */
+
+/* Open the menu on a page, in a stated state, and draw one frame. `index` and
+   `scroll` go through the real clamping accessors rather than being written
+   onto the object, so a test cannot park the cursor somewhere the game could
+   not put it. */
+const showMenu = (page, opts = {}) => page.evaluate(async o => {
+  const u = await import('/src/shell/ui.js');
+  u.openMenu(o.page ?? 'root');
+  u.setMenuSeed(o.seed ?? '');
+  u.setMenuSave(!!o.hasSave);
+  u.setMenuNotice(o.notice ?? null);
+  if (o.index) u.menuFocus(o.index, 99);
+  if (o.scroll) u.menuScrollTo(o.scroll, 99);
+  __mf.draw();
+}, opts);
+
+/* WHAT THE MENU ACTUALLY DREW, out of `view/ui/state.js#drawn` rather than out
+   of `__mf.ui` -- that projection is `shell/main.js`'s and 6o owns the line
+   that adds `menu` to it. Plain values only, so it survives the structured
+   clone. */
+const menuDrawn = page => page.evaluate(async () => {
+  const { drawn } = await import('/src/view/ui/state.js');
+  return drawn.menu && JSON.parse(JSON.stringify(drawn.menu));
+});
+
+/* `core/canvas.js#resize` takes WINDOW pixels and derives the buffer from
+   them, so a test that wants to assert "inside the buffer" has to read the
+   buffer back rather than assume its own argument. 1280x800 is the one
+   Playwright project's viewport (buffer 640x400) and 200x180 is the floor. */
+const atWindow = (page, iw, ih) => page.evaluate(([iw, ih]) => {
+  __mf.resize(iw, ih);
+  __mf.draw();
+  const c = document.getElementById('stage');
+  return { w: c.width, h: c.height };
+}, [iw, ih]);
+
+const keymapIds = page => page.evaluate(async () => {
+  const { KEYMAP } = await import('/src/shell/ui.js');
+  return KEYMAP.flatMap(g => g.rows.map(r => r.id));
+});
+
+test('6l: the main menu, the shortcuts page, settings and the debug page', async ({ page }) => {
+  const errors = await boot(page);
+  await settle(page);
+
+  /* NO SAVE: CONTINUE states why it is dead rather than vanishing. */
+  await showMenu(page, { hasSave: false });
+  await shot(page, 'menu-root.png');
+
+  await showMenu(page, { hasSave: true, seed: '1337', index: 2 });
+  await shot(page, 'menu-root-continue.png');
+
+  /* A REFUSED SAVE IS NOT THE SAME EVENT AS NO SAVE (docs/SPEC.md 27.7), so
+     the reason is on screen, verbatim and wrapped. */
+  await showMenu(page, { hasSave: false, notice: 'CORRUPT SAVE: bands[0].edits', index: 2 });
+  await shot(page, 'menu-root-refused.png');
+
+  await showMenu(page, { page: 'controls' });
+  await shot(page, 'menu-controls.png');
+
+  await showMenu(page, { page: 'settings', index: 4 });
+  await shot(page, 'menu-settings.png');
+
+  await showMenu(page, { page: 'debug', index: 1 });
+  await shot(page, 'menu-debug.png');
+
+  expect(errors).toEqual([]);
+});
+
+test('6l: the menu at the 200 px buffer floor', async ({ page }) => {
+  const errors = await boot(page);
+  await settle(page);
+  await narrowFloor(page);
+
+  await showMenu(page, { hasSave: true, seed: '1337' });
+  await shot(page, 'menu-root-floor.png');
+
+  /* PAGE 1 OF THE PAGED TABLE. The floor affords one column and about 18
+     lines against 46, so the shortcuts page pages rather than clipping -- D8's
+     whole argument, and the next test proves every page's content is reachable
+     rather than trusting this picture. */
+  await showMenu(page, { page: 'controls' });
+  await shot(page, 'menu-controls-floor.png');
+
+  await showMenu(page, { page: 'debug', index: 4 });
+  await shot(page, 'menu-debug-floor.png');
+
+  expect(errors).toEqual([]);
+});
+
+/* ---- MEASUREMENTS, NOT PICTURES ----
+   A baseline proves the pixels have not changed. It cannot prove a row is
+   reachable, and `CLAUDE.md` records two tests that photographed a scene with
+   the feature accidentally off and passed. */
+
+test('6l: every menu row lies inside the buffer, at the floor and at the desktop size', async ({ page }) => {
+  const errors = await boot(page);
+  await settle(page);
+
+  /* EVERY ROW, not merely a non-empty list: the draw loop stops at the panel's
+     bottom edge rather than clipping, so a page that ran out of height would
+     record fewer rows and still photograph tidily. The DEBUG count comes off
+     the content table so a sixth scenario fails here rather than going
+     unreachable. `docs/SPEC.md` §30.1 owns the other three. */
+  const EXPECT_ROWS = await page.evaluate(async () => {
+    const { SCENARIOS } = await import('/src/data/scenarios.js');
+    return { root: 6, controls: 1, settings: 7, debug: SCENARIOS.length + 1 };
+  });
+
+  for (const [iw, ih] of [[1280, 800], [200, 180]]) {
+    const { w, h } = await atWindow(page, iw, ih);
+    for (const name of ['root', 'controls', 'settings', 'debug']) {
+      await showMenu(page, { page: name, hasSave: true, notice: 'WORLD MOVED' });
+      const rec = await menuDrawn(page);
+      expect(rec, `${name} at ${w}x${h}`).not.toBe(null);
+      expect(rec.page).toBe(name);
+      expect(rec.rows.length, `${name} at ${w}x${h}: rows drawn`).toBe(EXPECT_ROWS[name]);
+      const ids = new Set();
+      for (const r of rec.rows) {
+        const where = `${name} at ${w}x${h}: row ${r.id}`;
+        expect(r.x, where).toBeGreaterThanOrEqual(0);
+        expect(r.y, where).toBeGreaterThanOrEqual(0);
+        expect(r.x + r.w, where).toBeLessThanOrEqual(w);
+        expect(r.y + r.h, where).toBeLessThanOrEqual(h);
+        /* At least one whole glyph cell, or the row is drawn but unreadable. */
+        expect(r.h, where).toBeGreaterThanOrEqual(7);
+        expect(ids.has(r.id), `${where}: duplicate id`).toBe(false);
+        ids.add(r.id);
+      }
+      /* EXACTLY ONE FOCUSED ROW, always -- a cursor that lands nowhere cannot
+         be driven by a keyboard. */
+      expect(rec.rows.filter(r => r.focused).length, `${name} at ${w}x${h}`).toBe(1);
+      /* BACK exists on every page but the root, and never on the root. */
+      expect(ids.has('back'), `${name} at ${w}x${h}: BACK`).toBe(name !== 'root');
+    }
+  }
+
+  expect(errors).toEqual([]);
+});
+
+test('6l: every keymap binding is drawn on the shortcuts page, at both sizes', async ({ page }) => {
+  const errors = await boot(page);
+  await settle(page);
+  const declared = await keymapIds(page);
+  expect(declared.length).toBeGreaterThan(20);
+  expect(new Set(declared).size, 'KEYMAP ids are unique').toBe(declared.length);
+
+  for (const [iw, ih] of [[1280, 800], [200, 180]]) {
+    const { w, h } = await atWindow(page, iw, ih);
+    await showMenu(page, { page: 'controls' });
+    const first = await menuDrawn(page);
+    const seen = [];
+    for (let p = 0; p < first.pages; p++) {
+      await showMenu(page, { page: 'controls', scroll: p });
+      const rec = await menuDrawn(page);
+      expect(rec.scroll, `${w}x${h}: page ${p} was clamped away`).toBe(p);
+      for (const k of rec.keys) {
+        seen.push(k.id);
+        const where = `${w}x${h} page ${p}: binding ${k.id}`;
+        expect(k.x, where).toBeGreaterThanOrEqual(0);
+        expect(k.y, where).toBeGreaterThanOrEqual(0);
+        expect(k.x + k.w, where).toBeLessThanOrEqual(w);
+        expect(k.y + k.h, where).toBeLessThanOrEqual(h);
+        expect(k.label.length, where).toBeGreaterThan(0);
+      }
+    }
+    /* EVERY BINDING, ONCE. A group dropped by the column arithmetic or paged
+       off the bottom fails here and photographs as a tidy page. */
+    expect(seen.slice().sort(), `${w}x${h}: ${first.pages} page(s)`).toEqual(declared.slice().sort());
+  }
+
+  /* THE FLOOR REALLY DOES PAGE, or the loop above proved nothing about
+     paging. */
+  await atWindow(page, 200, 180);
+  await showMenu(page, { page: 'controls' });
+  expect((await menuDrawn(page)).pages).toBeGreaterThan(1);
+  await atWindow(page, 1280, 800);
+  await showMenu(page, { page: 'controls' });
+  expect((await menuDrawn(page)).pages).toBe(1);
+
+  expect(errors).toEqual([]);
+});
+
+test('6l: the menu is not vacuous -- it replaces the HUD and the pixels differ with it closed', async ({ page }) => {
+  const errors = await boot(page);
+  await settle(page);
+
+  await showMenu(page, { hasSave: true });
+  const open = await page.locator('#stage').screenshot();
+  const withMenu = await menuDrawn(page);
+  expect(withMenu).not.toBe(null);
+
+  await page.evaluate(async () => {
+    const u = await import('/src/shell/ui.js');
+    u.closeMenu();
+    __mf.draw();
+  });
+  const closed = await page.locator('#stage').screenshot();
+  expect(await menuDrawn(page)).toBe(null);
+  expect(Buffer.compare(open, closed), 'the menu changed no pixels').not.toBe(0);
+
+  /* AND IT STANDS INSTEAD OF THE HUD, not over it: the quickbar strip the HUD
+     records every frame is absent while the menu is up. */
+  const stripWhileOpen = await page.evaluate(async () => {
+    const u = await import('/src/shell/ui.js');
+    u.openMenu('root');
+    __mf.draw();
+    return __mf.ui.grids.some(gr => gr.id === 'quickbar');
+  });
+  expect(stripWhileOpen).toBe(false);
+
+  expect(errors).toEqual([]);
+});

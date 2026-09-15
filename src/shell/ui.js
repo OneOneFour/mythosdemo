@@ -18,6 +18,96 @@
    Every export here is a plain function mutating properties on the one `ui`
    object below, per docs/DEVELOPER_GUIDE.md#cross-module-mutable-state. */
 
+/* ============================================================================
+   THE KEYMAP, DECLARED ONCE, READ BY TWO LAYERS.
+
+   `view/ui/menu.js`'s CONTROLS page is generated from this array. It is here
+   and not in `view` because a binding is a DEVICE fact and `shell` owns
+   devices, and it is reachable from `view` without an illegal import because
+   `ui` below carries it (`keymap`) and `shell/main.js#frameCtx` already hands
+   `ui` to every render — so the menu reads `f.ui.keymap` the same way it reads
+   `f.ui.menu`. `shell/input.js` imports `KEYMAP` directly; same layer, legal.
+
+   ONE LIST, NOT TWO. Before this, the binding set existed as prose in
+   `shell/input.js`'s own header plus one `if (key === ...)` clause per verb,
+   and a shortcuts page hand-copied from either would have drifted from both
+   the first time a letter moved.
+
+   ROW SHAPE, and what each field is for:
+
+     id      the VERB. Unique across the whole table, and what
+             `shell/input.js` is to dispatch on.
+     codes   the `e.key` values, LOWERCASED, exactly as `input.js` compares
+             them. `null` for a binding with no key (the pointer).
+     keys    the DISPLAY string. Given rather than derived from `codes`,
+             because the derived form of the movement row is
+             'W A S D ARROWUP ARROWDOWN ARROWLEFT ARROWRIGHT'.
+     label   what the verb does, in the present tense. Measured by the menu's
+             layout pass, so a long one widens the page rather than
+             overrunning it (CLAUDE.md D8).
+     hold    the key must stay down for the verb to keep happening. Mining,
+             cranking and collecting are holds on purpose; everything else is
+             an edge.
+
+   A GROUP'S `when` IS THE CONTEXT ITS ROWS ONLY EXIST IN, and it is drawn as
+   the group heading, so a row that only works while the map is open says so
+   rather than reading as a global binding that does nothing. */
+export const KEYMAP = Object.freeze([
+  { when: 'IN THE MENU', rows: [
+    { id: 'menuMove',   codes: ['w', 's', 'arrowup', 'arrowdown'], keys: 'W/S', label: 'MOVE THE CURSOR' },
+    { id: 'menuPage',   codes: ['a', 'd', 'arrowleft', 'arrowright'], keys: 'A/D', label: 'PAGE THIS LIST' },
+    { id: 'menuSelect', codes: ['enter', ' '], keys: 'ENTER', label: 'TAKE THE ROW' },
+    { id: 'menuBack',   codes: ['escape'], keys: 'ESC', label: 'BACK, THEN PLAY' }
+  ] },
+  { when: 'ON FOOT', rows: [
+    { id: 'move', codes: ['a', 'd', 'w', 's', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown'],
+      keys: 'WASD/ARROWS', label: 'WALK, CLIMB' },
+    { id: 'hop',  codes: [' '], keys: 'SPACE', label: 'HOP' }
+  ] },
+  { when: 'HANDS', rows: [
+    { id: 'work',        codes: null,          keys: 'LMB', label: 'MINE, PLACE, FEED', hold: true },
+    { id: 'action',      codes: ['r'],         keys: 'R',   label: 'TURN A CRANK', hold: true },
+    { id: 'collect',     codes: ['c'],         keys: 'C',   label: 'COLLECT ITEMS', hold: true },
+    { id: 'drop',        codes: ['q'],         keys: 'Q',   label: 'DROP A PAIR' },
+    { id: 'link',        codes: ['l'],         keys: 'L',   label: 'LINK TWO HUBS' },
+    { id: 'deconstruct', codes: ['backspace'], keys: 'BACKSPACE', label: 'DECONSTRUCT' }
+  ] },
+  { when: 'POCKETS', rows: [
+    { id: 'panel',    codes: ['e'], keys: 'E', label: 'OPEN THE PANEL' },
+    { id: 'armSlot',  codes: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
+      keys: '1 - 0', label: 'ARM QUICKBAR SLOT' },
+    { id: 'cancel',   codes: ['z'], keys: 'Z', label: 'CANCEL SELECTION' },
+    { id: 'closeTop', codes: ['escape'], keys: 'ESC', label: 'CLOSE, CANCEL' }
+  ] },
+  { when: 'LOOKING', rows: [
+    { id: 'map',   codes: ['o'], keys: 'O', label: 'MAP OVERVIEW' },
+    { id: 'grid',  codes: ['g'], keys: 'G', label: 'GRID OVERLAY' },
+    { id: 'mute',  codes: ['m'], keys: 'M', label: 'MUTE' },
+    { id: 'debug', codes: ['h'], keys: 'H', label: 'DEBUG MODE' }
+  ] },
+  { when: 'WHILE THE MAP IS OPEN', rows: [
+    { id: 'mapPan',    codes: ['a', 'd', 'w', 's', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown'],
+      keys: 'WASD/ARROWS', label: 'SCROLL' },
+    { id: 'mapZoom',   codes: ['-', '=', '[', ']'], keys: '- / =', label: 'ZOOM OUT, IN' },
+    { id: 'mapFollow', codes: ['f'], keys: 'F', label: 'FOLLOW THE PLAYER' },
+    { id: 'mapLayer',  codes: ['1', '2', '3', '4', '5', '6', '7'], keys: '1 - 7', label: 'TOGGLE A LAYER' },
+    { id: 'mapClose',  codes: ['escape'], keys: 'ESC', label: 'CLOSE THE MAP' }
+  ] },
+  { when: 'WHILE A DRAFT STANDS', rows: [
+    { id: 'takeCard', codes: ['1', '2', '3'], keys: '1 2 3', label: 'TAKE THAT CARD' },
+    { id: 'reroll',   codes: ['r'], keys: 'R', label: 'REROLL THE OFFER' }
+  ] },
+  /* Behind `flags.showDebug`, which `h` above toggles. A no-op with it off,
+     which is why the DEBUG page says out loud that the gate exists. */
+  { when: 'DEBUG MODE ONLY', debug: true, rows: [
+    { id: 'draftTrinket', codes: ['t'], keys: 'T', label: 'DRAFT A TRINKET' },
+    { id: 'draftBoon',    codes: ['b'], keys: 'B', label: 'DRAFT A BOON' },
+    { id: 'draftGrant',   codes: ['k'], keys: 'K', label: 'DRAFT A GRANT' },
+    { id: 'draftMiracle', codes: ['y'], keys: 'Y', label: 'DRAFT A MIRACLE' },
+    { id: 'chunks',       codes: ['p'], keys: 'P', label: 'CHUNK OVERLAY' }
+  ] }
+]);
+
 export const ui = {
   stack: [],                    // panel ids; last = topmost = frontmost open
   tab: Object.create(null),     // panel id -> active tab id
@@ -188,7 +278,40 @@ export const ui = {
       chain: true, machines: true, piles: true, ore: true,
       light: false, bands: true, hover: true
     }
-  }
+  },
+
+  /* ---- THE MAIN MENU (6l) ----
+     Which page is showing, which row the cursor is on, what the player has
+     typed into the SEED field, whether a save exists and why the last load
+     refused. All of it is a fact about the SESSION, exactly like the panel
+     stack above; `view/ui/menu.js` reads it through
+     `shell/main.js#frameCtx` and never writes it (CLAUDE.md D2).
+
+     `hasSave` is a MIRROR of `shell/save.js#hasSave()`, and `notice` a mirror
+     of `loadError.reason`, because storage is a device: `view` may not reach
+     `localStorage` and must not have to. `shell` answers the question once
+     and parks the answer here.
+
+     `index` counts rows of the page CURRENTLY DRAWN, so it is only meaningful
+     against `view/ui/state.js#drawn.menu.rows`, and `scroll` is a PAGE index
+     into the CONTROLS list rather than a line offset -- the menu reports how
+     many pages it laid out, so a caller clamps against what was drawn rather
+     than recomputing the layout. Both are clamped for DRAWING by the menu and
+     for MOVEMENT by `menuMove`/`menuScrollTo` below; neither side guesses. */
+  menu: {
+    open: false,
+    page: 'root',        // 'root' | 'controls' | 'settings' | 'debug'
+    index: 0,
+    scroll: 0,
+    seed: '',            // digits typed into the SEED field; '' means random
+    seedFocus: false,
+    hasSave: false,
+    notice: null
+  },
+
+  /* The binding set, so `view` can draw it without importing `shell`. See
+     `KEYMAP`'s own header above. */
+  keymap: KEYMAP
 };
 
 /* THE PANELS THE GAME RAISES, which freeze the run while they stand (D17-A),
@@ -409,3 +532,51 @@ export function mapDragTo(sx, sy, scale) {
   ui.map.x = d.x - (sx - d.sx) / scale;
   ui.map.y = d.y - (sy - d.sy) / scale;
 }
+
+/* ---------- the main menu (6l) ----------
+   Plain mutators in the shape every other function in this file has. NOTHING
+   HERE DRAWS AND NOTHING HERE READS STORAGE: `shell` calls `setMenuSave` with
+   `shell/save.js#hasSave()`'s answer and `setMenuNotice` with
+   `loadError.reason`, and the menu paints whatever it finds.
+
+   `menuMove` and `menuScrollTo` take the COUNT they clamp against, because
+   only the drawn record knows it (`view/ui/state.js#drawn.menu.rows.length`
+   and `.pages`) and a second copy of the layout in `shell` is the one thing
+   the record-what-you-drew idiom exists to prevent. */
+export function openMenu(page = 'root') {
+  ui.menu.open = true;
+  menuPage(page);
+}
+
+export function closeMenu() {
+  ui.menu.open = false;
+  ui.menu.seedFocus = false;
+}
+
+/* Changing page resets the cursor and the paging, because a row index is only
+   meaningful against the page that was drawn with it. */
+export function menuPage(page) {
+  ui.menu.page = page;
+  ui.menu.index = 0;
+  ui.menu.scroll = 0;
+  ui.menu.seedFocus = false;
+}
+
+export function menuFocus(i, count = Infinity) {
+  ui.menu.index = Math.max(0, Math.min(count - 1, i | 0));
+}
+
+/* Wraps, so the cursor cannot be parked past the end of a shorter page. */
+export function menuMove(delta, count) {
+  if (!(count > 0)) return;
+  ui.menu.index = ((ui.menu.index + delta) % count + count) % count;
+}
+
+export function menuScrollTo(page, pages = Infinity) {
+  ui.menu.scroll = Math.max(0, Math.min(pages - 1, page | 0));
+}
+
+export function setMenuSeed(s) { ui.menu.seed = String(s ?? ''); }
+export function setMenuSeedFocus(v) { ui.menu.seedFocus = !!v; }
+export function setMenuSave(v) { ui.menu.hasSave = !!v; }
+export function setMenuNotice(s) { ui.menu.notice = s ?? null; }

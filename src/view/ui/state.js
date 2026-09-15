@@ -13,6 +13,16 @@
    See docs/DEVELOPER_GUIDE.md#record-what-you-drew */
 
 export const drawn = { panels: [], tabs: [], grids: [], bars: [], tooltip: null,
+  /* THE MAIN MENU's own rows, or null when the menu is not standing. ONE
+     record rather than a flat row list, and it carries the `page` it
+     describes, so a dispatcher cannot act on a CONTROLS row while the DEBUG
+     page is showing -- the rows and the page they came from can never
+     disagree. `pages` is how many pages the CONTROLS list laid out at this
+     viewport, which is what a caller clamps `shell/ui.js#ui.menu.scroll`
+     against, and `keys` is every SHORTCUT LINE the CONTROLS page actually
+     painted -- the one record that can prove a binding was reached rather
+     than paged off the bottom. See `view/ui/menu.js`. */
+  menu: null,
   /* `gridId -> [recipeId, ...]`, one entry per crafting grid drawn this frame
      -- `view/ui/mainPanel.js`'s own header explains why a grid slot's
      `{sub,form,n,mass}` shape is not enough on its own to name a recipe with a
@@ -26,5 +36,6 @@ export function resetDrawn() {
   drawn.grids.length = 0;
   drawn.bars.length = 0;
   drawn.tooltip = null;
+  drawn.menu = null;
   for (const k in drawn.recipeIndex) delete drawn.recipeIndex[k];
 }

@@ -3502,3 +3502,40 @@ fixed outside the ownership block (`src/rules/mining.js`,
   §28.2 lock. It is a design decision, not a defect, so it is parked here
   rather than taken: the levers are that rule, `eff('reach')`, or soil's
   hardness, and `eff('walk')` is not one of them.
+
+## Phase 6l — the main menu and the shortcuts page (`docs/SPEC.md` §30)
+
+Four things parked. Nothing was changed outside the ownership block
+(`src/view/ui/menu.js`, `src/view/scene.js`, `src/view/ui/state.js`,
+`src/shell/ui.js`, `tests/visual.spec.js`, `docs/SPEC.md` §30).
+
+- **`shell/input.js` still dispatches from `if (key === 'x')` clauses rather
+  than from the keymap it now has.** `src/shell/ui.js#KEYMAP` is the one
+  declaration and `src/view/ui/menu.js` generates the CONTROLS page from it, so
+  the page cannot drift from the table — but the table and
+  `src/shell/input.js:141-186,385-430` are still two statements of one fact.
+  6o owns that file and the fix is to bind off `id`/`codes`. Until then a
+  cheaper net is a `tools/check.mjs` assertion that every single-key literal in
+  `input.js` appears in some row's `codes`; the scrape is one regex over the
+  source and it catches the case that matters (a letter moved in one place).
+
+- **MUTE cannot be drawn on the SETTINGS page.** `src/shell/audio.js#audio` is
+  not in `shell/main.js#frameCtx` (`main.js:67`), so `view` cannot read
+  `audio.muted`, and the page shows the six toggles `f.flags` and `f.ui`
+  already carry instead. The fix is one field on `frameCtx` in 6o's own file —
+  `muted: audio.muted` beside `flags` — not a mirror on `ui.menu`, which would
+  be a second copy of the truth.
+
+- **`__mf.ui` does not project the menu.** `shell/main.js:889`'s getter
+  enumerates its fields explicitly, and `menu` is not one of them, so a test
+  reads `view/ui/state.js#drawn.menu` through a dynamic import instead
+  (`tests/visual.spec.js#menuDrawn`). 6o owns `main.js`; adding
+  `menu: uiDrawn.menu && { ...uiDrawn.menu }` to that getter is the line.
+
+- **`data/scenarios.js:176,199` carry the only two non-ASCII strings in
+  `data/`** — an em dash in each trial name. The 5x7 font is ASCII 0x20..0x7E
+  (`vendor/font5x7.js:19`) and `core/font.js#drawText` substitutes `?`, so an
+  unfolded name renders as a fault. `view/ui/menu.js#ascii` folds the Unicode
+  dash run for its own use, and it is the only reader of those names today. A
+  second reader (a tooltip, a toast) would need the same fold, at which point it
+  belongs in `core/font.js` beside `textWidth` rather than copied.
