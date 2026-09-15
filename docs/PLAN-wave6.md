@@ -225,6 +225,82 @@ Reviewer after each.
 
 ---
 
+### Wave 6.6 — finishing request 1 (added mid-wave, from 6c)
+
+6c delivered the landform pipeline and killed the sawtooth — direction changes
+per 128 columns went from a median of 43 to a median of 8 over 200 seeds — but
+**two thirds of request 1, not all of it.** Two things are left, and both were
+found by 6c rather than planned.
+
+**6r — the sky reaches the real skyline.** `ui`. View chain, before 6s.
+Owns `src/view/scene.js`.
+
+**My own §4 6c plan had a hole and 6c was right to stop at it.** Making air
+below `floorTy` transparent does not reveal sky, because
+`view/scene.js#drawSky:236` paints sky only down to
+`horizon = origin.y + floorTy * tile` and the backdrop below that is
+`INK.void` (`scene.js:108`). 6c photographed the result at `dip:4` — a hard
+black band hugging every valley floor, and a hand-dug shaft (geometrically a
+one-column valley) turning from a warm lit hole into a flat black slot. So it
+shipped `dip` at **0** and made `paint.js#excavated` a *union*
+(`ty >= floorTy || !skyExposedAt(...)`) rather than the pure sky test I
+specified. That union still bought the real fix — a tunnel driven sideways
+into a hilltop used to paint sky gradient *inside the hill* — but it left
+below-datum valleys unbuilt.
+
+This phase makes `drawSky` paint to the actual skyline per column instead of
+clamping at `floorTy`. Then `excavated` can become the pure sky test and `dip`
+can be spent. Note `tools/worldgen-check.mjs:342-350`'s relief budget is
+one-sided and will fail the day `dip` is nonzero; 6c wrote out the one-line
+fix in `docs/FINDINGS.md`.
+
+**6s — terraces read as slopes, in paint.** `ui`. View chain, after 6r and 6e.
+Owns `src/view/treatments.js`, `src/data/world.js` (the `dip` value only).
+
+6c's honest reservation, which I confirmed by reading the committed
+`surface-hills` and `cliff-face` baselines: **the flanks read as terraces.** A
+±1-tile-per-column slope limit on 8 px tiles cannot produce anything else, and
+relaxing the limit is not available — `rules/player.js#moveX`'s auto-step
+clears exactly one tile, so a 2-tile rise is a wall and the hills stop being
+walkable.
+
+The fix is therefore not geometry, it is **paint**, and `CLAUDE.md` D7 already
+argues this exact case: non-interactive detail is a `view/treatments.js#TREAT`
+entry reached from a `look:{}` row, deterministic from tile coordinates
+through `hash2`, at zero tile cost and zero collision change. A bevel/scree
+treatment on the outer corner of a step makes a staircase read as a slope
+without the terrain changing at all. The grass fringe and canopy entries are
+the precedent; extend `TREAT`, do not add a second paint pipeline.
+
+Spend `dip` in the same phase, once 6r has made it safe.
+
+### Wave 6.7 — the catch-box reach bug (added mid-wave, from 6j)
+
+**6q — `itemsIn` re-tests the rect.** `systems`. Sequence after 6p.
+Owns `src/model/items.js`, `src/model/space.js` (its header only),
+`docs/SPEC.md` §17 and §18.3.
+
+Found and measured by 6j, verified independently. `model/space.js:32-33`
+states the contract — "May visit an occupant whose exact position is outside
+`r`; callers that care re-test" — and `model/items.js:83#itemsIn` is the only
+caller and **never re-tests.** So the real reach of every catch box, every
+pickup radius, every carrier grab and every belt is the 32 px `BUCKET` grid
+(four tiles), not the rect the caller asked for.
+
+The measured consequence, from 6j's `winch` scenario: a haul released at the
+top of a segment comes to rest 6 px below a 10 px carrier box — 1 px outside
+it — and is re-grabbed as cargo on the next frame because both sit in the same
+bucket. **Releasing the crank carries delivered ore back down the shaft.**
+
+This is one rect test. It is a separate phase rather than a one-line fix
+because it narrows every catch box in the game simultaneously and starts
+enforcing margins `docs/SPEC.md` §17 and §18.3 currently lock but never
+exercise — the dock's `catchBox.slack` of 6 derives to 4.5 px against a real
+rect test. Expect tuning to follow, and expect 6j's scenarios and 6b's
+playtest timings to be the evidence for it.
+
+---
+
 ## 5. Explicitly not in this wave
 
 - **Unbounded horizontal generation.** U3. `docs/PLAN-horizontal-chunks-SCOPE.md`
