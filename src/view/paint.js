@@ -147,16 +147,37 @@ export function chunkCanvas(b, cx, cy) {
 
 /* ---------- terrain ---------- */
 
+/* Is this space cut out of rock, or open air over the landscape? Open air
+   stays TRANSPARENT so `view/scene.js`'s sky gradient shows through, and cut
+   rock gets the dark cavity texture. An air tile is cut rock when rock stands
+   above it anywhere in its column, OR when it sits at or below the band's
+   declared ground line.
+
+   `ty >= floorTy` alone was the whole test, and it called a tunnel driven
+   sideways into a hilltop open sky, so the tunnel filled with sky gradient.
+   Relief is 10 tiles, which makes that a tunnel a player really digs.
+   `skyExposedAt` asks the honest question instead, walking the column to the
+   top of the band's own grid.
+
+   THE `floorTy` TERM STAYS BECAUSE THE SKY STOPS AT THE HORIZON.
+   `view/scene.js#drawSky` paints only down to `floorTy * tile`, so a
+   sky-exposed tile below that row has `INK.void` behind it and not sky.
+   Dropping the term would lay a black band along any valley floor below the
+   ground line, and it would turn a hand-dug shaft from a lit hole into a flat
+   black slot, a shaft being geometrically the same thing as a one-column
+   valley. docs/FINDINGS.md (Phase 6c) records what has to land before
+   `data/world.js`'s `relief` row can spend a `dip`.
+
+   Evaluation order keeps the deep bands cheap. `topsoil`'s `floorTy` is 0, so
+   the first term holds for every tile there and the column walk never runs. */
+const excavated = (b, tx, ty) =>
+  ty >= (b.cfg.floorTy ?? 0) || !skyExposedAt(b, tx, ty);
+
 function paintChunk(b, cx, cy, g) {
   const t = b.tile, k = b.chunk, px = chunkPx(b);
   const t0x = cx * k, t0y = cy * k;
   g.clearRect(0, 0, px, px);
 
-  /* Open sky stays TRANSPARENT so the scene's sky gradient shows through; air
-     at or below the band's ground line is excavated rock and reads as cut. That
-     one distinction is `floorTy` from `data/world.js` and nothing else — the
-     previous painter needed a per-column surface array for it. */
-  const floorTy = b.cfg.floorTy ?? 0;
   const dark = cavityColour(b);
 
   for (let j = 0; j < k; j++) {
@@ -164,7 +185,7 @@ function paintChunk(b, cx, cy, g) {
     for (let i = 0; i < k; i++) {
       const tx = t0x + i, dx = i * t;
       if (tileAt(b, tx, ty) === AIR) {
-        if (ty >= floorTy) paintCavity(g, b, tx, ty, dx, dy, dark);
+        if (excavated(b, tx, ty)) paintCavity(g, b, tx, ty, dx, dy, dark);
         continue;
       }
       paintTile(g, b, tx, ty, dx, dy, dark);
@@ -282,11 +303,11 @@ function paintTile(g, b, tx, ty, dx, dy, dark) {
      thing being fixed. Copper's `glint` speckles are suppressed for the same
      reason: they belong on a vein face, not floating in a stairwell.
 
-     WHAT GOES BEHIND IT IS WHATEVER THE SPACE WOULD OTHERWISE HAVE BEEN, by the
-     one rule `paintChunk` already uses for air -- excavated rock at or below the
-     band's ground line, transparent sky above it -- so a ladder in a shaft sits
-     in the dark with the floor lip and ceiling fringe of its neighbours intact,
-     and a ladder climbing into open sky does not carry a black square with it.
+     WHAT GOES BEHIND IT IS WHATEVER THE SPACE WOULD OTHERWISE HAVE BEEN, by
+     the one rule `paintChunk` already uses for air (`excavated` above), so a
+     ladder under rock sits in the dark with the floor lip and ceiling fringe
+     of its neighbours intact, and a ladder climbing into open sky does not
+     carry a black square with it.
 
      Keyed on the PRESENCE of a form-level `look` block and nothing else. Not a
      name check: `decorate` above already carries the only two the project
@@ -294,7 +315,7 @@ function paintTile(g, b, tx, ty, dx, dy, dark) {
      adding a `look` to its own row, with no edit here. */
   const fl = formRowOf(tileAt(b, tx, ty))?.look;
   if (fl) {
-    if (ty >= (b.cfg.floorTy ?? 0)) paintCavity(g, b, tx, ty, dx, dy, dark);
+    if (excavated(b, tx, ty)) paintCavity(g, b, tx, ty, dx, dy, dark);
     treat(g, fl, cell);
     cracked(g, b, tx, ty, dx, dy, t);
     return;

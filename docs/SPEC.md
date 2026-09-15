@@ -851,33 +851,71 @@ from its seed (invariant 7). All of it lives in `src/rules/generate.js` plus
 ### 16.1 The height map (`kind:'relief'`)
 
 One row per band, declared FIRST; a band without one is flat (`astral`,
-`topsoil`). Three octaves of value noise over a lattice drawn from `rand()`,
-summed, then clamped, then pinned, then step-limited, in that order.
+`topsoil`). A landform pipeline of seven passes in this order — a trend
+octave, discrete summits, two smoothing passes, a clamp, the spawn shelf
+pinned, the relief blended in either side of it, and the step limit swept
+outward. Rewritten in wave 6 phase 6c; the three summed octaves this replaced
+are gone.
 
 | number | value | where | meaning |
 |---|---|---|---|
-| octaves | `[48, 2] [16, 1] [5, 0.5]` | `OCT`, `generate.js` | `[period tiles, amplitude tiles]`: landform, hills, roughness |
-| `amp` | 6 | strata row (`RELIEF` is the default) | total relief, 48 px at an 8 px tile |
+| `amp` | 10 | strata row (`RELIEF`, 6, is the default) | rows of hilltop above `floorTy`, 80 px at an 8 px tile |
+| `dip` | absent, so 0 | strata row | rows of valley floor below `floorTy` — see below |
+| `TREND_PERIOD` | 40 tiles | `generate.js` | lattice spacing of the one trend octave |
+| `TREND_SHARE` | 0.20 | `generate.js` | the trend's amplitude either way from its centre, as a fraction of `amp + dip` |
+| `HILL_SPACING` | 20 tiles | `generate.js` | tiles of world per summit, so 6 over a 128-column band |
+| `HILL_LOW` | 3 tiles | `generate.js` | the shortest summit |
+| `HILL_SHARE` | 0.72 | `generate.js` | the tallest summit, as a fraction of `amp` |
+| `HILL_SLOPE` | 1.6 | `generate.js` | half-width per tile of summit height |
+| `HILL_WIDE` | 1.8 | `generate.js` | how much wider than that a summit's draw may go |
+| `SMOOTH_PASSES` | 2 | `generate.js` | 1-2-1 passes over the float profile |
 | `FADE` | 36 rows | `generate.js` | depth at which a boundary's relief offset reaches 0 |
-| `BLEND` | 3 columns | `generate.js` | the fade-in either side of the spawn shelf |
-| `LIP` | 0.35 | `generate.js` (unchanged) | fraction of columns dipped one row — see below |
+| `BLEND` | 10 columns | `generate.js` | the smoothstepped fade-in either side of the spawn shelf |
+| `LIP` | 0.35 | `generate.js` | fraction of a FLAT band's top row carved away — see below |
 
-**Relief runs UP from `floorTy`, never below it.** Offsets are `-amp..0` (plus
-the one-row lip dip), so the declared ground row is the *lowest* ground and a
-hilltop is up to 6 rows above it. This is not cosmetic: `view/paint.js#
-paintChunk` treats an AIR tile at `ty >= floorTy` as excavated and paints it
-dark cavity texture, so a valley floor *below* `floorTy` would fill its own
-open sky with cave shading. Keeping the base row as the valley floor also
-keeps `floorTy` meaning exactly what `shell/boot.js`'s spawn, the depth datum
-(`view/hud.js`, `model/run.js`) and that sky test already assume.
+The blend is smoothstepped rather than linear. A linear ramp out of a flat
+shelf holds one slope for its whole width, so it renders as a flight of
+stairs. The S-curve leaves the shelf flat, steepens in the middle and settles
+into the landform, which renders as the foot of a slope. It also widens the
+guaranteed-flat ground at spawn from `SHELF`'s 19 columns to 21–23 measured,
+which §5's beat 6 only benefits from.
 
-**The ragged lip moved into the map.** `KINDS.layer` still carves `LIP` of its
-own top row in a band with no relief row, but in a band WITH one the same
-probability and the same one-row depth are applied to the height map instead
-(`heightmap()`), and `layer` skips its carve. A random one-tile carve laid on
-top of a height map is a two-tile face, and the hop clears one; folding it in
-means the step pass below can see it. The rendered result is identical — that
-column's top tile is still air over soil.
+A summit is one column per slice of `HILL_SPACING`, at a random column inside
+it, so the spacing is irregular but no seed gets a dead plain. Each summit is
+a raised cosine `h/2 * (1 + cos(pi x / w))` added to the profile in tiles.
+That shape has maximum slope `pi h / 2w`, so `w >= (pi/2) h` is exactly what
+holds the 1-tile-per-column limit `rules/player.js#moveX`'s auto-step
+imposes. `HILL_SLOPE` rounds `pi/2` up, which is why §16.2's step pass
+backstops a summit rather than shaping it.
+
+Measured over 200 seeds, reading the ground row the way
+`tools/worldgen-check.mjs#groundRow` does and skipping timber:
+
+| | three summed octaves | the landform pipeline |
+|---|---|---|
+| direction changes per 128 columns | 26–57, median 43 | 4–15, median 8 |
+| flat columns | 45–69%, median 57% | 54–79%, median 67% |
+| highest hilltop above `floorTy` | 2–6 rows | 6–10 rows |
+| steps over 1 tile, per seed | 0–3, median 1 | 0–1, median 0 |
+| longest flat run | 19–29 columns | 21–38 columns |
+
+**Relief runs UP from `floorTy`, and `dip` stays 0 until the sky reaches past
+the horizon.** `heightmap()` takes a downward budget and honours it, so a
+valley floor below the declared ground line is one content number away. What
+blocks spending it is `view/scene.js#drawSky`, which paints sky only down to
+`floorTy * tile` and leaves `INK.void` below that row — so a valley floor
+under `floorTy` wears a black band instead of sky. `view/paint.js#excavated`
+is already ready for it: an air tile is cut rock when rock stands above it
+anywhere in its column, OR when it sits at or below `floorTy`, and dropping
+the second term is the whole change. `docs/FINDINGS.md` (Phase 6c) holds the
+detail. The datum does not move either way — CLAUDE.md D9 anchors the HUD
+gauge and `cyclops_maw`'s `minDepth` to `floorTy`, and §16 never touches it.
+
+**The ragged lip belongs to a flat band only.** `KINDS.layer` carves `LIP` of
+its own top row in a band with NO relief row. A band with one gets no carve at
+all, because the carve is an independent coin flip per column — which leaves a
+two-tile face the hop cannot clear where it lands beside a raised column, and
+was the loudest term in the sawtooth this section replaced.
 
 **Strata follow the surface.** A boundary declared at row `ty` sits at
 `ty + round(off[tx] * max(0, 1 - (ty - floorTy) / FADE))`. Both sides of a
@@ -902,11 +940,22 @@ columns is not enough to stand on and place a 3x2 furnace at arm's length
 
 The step pass sweeps OUTWARD from the shelf in both directions, so the shelf
 and its blend are its fixed point. A rise away from spawn is capped at 1 tile
-always; a DESCENT away from spawn may take `STEP_BIG` where both its columns
+always. A DESCENT away from spawn may take `STEP_BIG` where both its columns
 are outside `SAFE_R + 1` and the last big step was `STEP_GAP` columns ago.
-Down is free, so walking out is never blocked — measured at roughly 0.5
-two-tile drops per seed. Walking back up one wants a dig or a ladder, which is
-the premise, not a bug.
+Down is free, so walking out is never blocked, and the landform pipeline
+leaves so little for this pass to do that a two-tile drop now turns up in
+roughly one seed in ten (0.1 per seed over 200, against 0.8 before). Walking
+back up one wants a dig or a ladder, which is the premise, not a bug.
+
+**Walkability is measured, not asserted.** Two ways, both over the live bands
+`newRun(seed)` builds. Geometrically, no adjacent column pair rises by more
+than 1 tile in the outward direction, over every seed tested. Behaviourally,
+the real player driven through `shell/main.js#step` at the fixed 1/120 s step
+reaches column 0 and column `tw - 1` from spawn in 12 of 12 seeds. The one
+thing that stops that walk is a standing tree trunk, which is 3 to 5 tiles of
+`solid:true` timber and clears neither the auto-step nor the hop. That is
+unchanged behaviour and predates the pipeline — the same 12 seeds stall at the
+same trunks under the three-octave generator.
 
 ### 16.3 The contact zone (`kind:'contact'`)
 

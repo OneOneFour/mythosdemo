@@ -2809,6 +2809,14 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
     return grid.slots.find(s => s.sub === S.soil && s.form === F.gravel);
   });
   expect(gravelSlot).toBeTruthy();                   // it IS held, and shown
+  /* LET THE CAMERA CONVERGE BEFORE CLICKING. `realClick` writes `cmd.mx/my`
+     against the LIVE `cam`, and `shell/main.js#applyUiIntents` recovers the
+     screen point against `drawCam`, the camera as of the last draw -- so a
+     camera still easing shifts the hit point by one substep of its own
+     travel. This scene's teleports leave `cam.y` a few hundred pixels from
+     its target, moving 7 to 14 px per substep, and the 16 px slot below was
+     being hit with a 1 px margin. Any worldgen change moved it out. */
+  await page.evaluate(() => __mf.frames(240));
   await realClick(page, gravelSlot.x + gravelSlot.w / 2, gravelSlot.y + gravelSlot.h / 2);
   const gravelArmed = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');

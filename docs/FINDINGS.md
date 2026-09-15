@@ -2843,6 +2843,45 @@ also what gives it its first execution.
   in a real browser through a throwaway Playwright script; phase 6p owns the
   committed test.
 
+## Wave 6, phase 6c (the surface terrain heightmap rewrite)
+
+- **`view/scene.js#drawSky:236` paints sky only down to the horizon, so a
+  valley floor below `floorTy` has `INK.void` behind it and not sky.**
+  `horizon = b.origin.y + floorTy * b.tile` and `y1 = min(H, horizon)`, and
+  the frame's backdrop under that row is `R(g, 0, 0, W, H, INK.void)` at
+  `scene.js:108` — `abyC`, `#0a0810`. Phase 6c's brief was to make air below
+  `floorTy` legal by changing `view/paint.js`'s excavated test, and that half
+  is done, but a `dip` on `data/world.js`'s `relief` row still renders a hard
+  black band hugging every valley bottom (photographed at `dip:4`, seed 9550,
+  surface column 64). `src/view/scene.js` is not in 6c's ownership block, so
+  `dip` ships at 0 and `view/paint.js#excavated` keeps `ty >= floorTy` as the
+  second half of a union. Whichever phase owns `view/scene.js` next should
+  extend the sky ramp's last step from the horizon to the deepest row relief
+  can reach (`floorTy + dip`); then deleting that one term in `excavated` and
+  setting `dip` on the strata row is the whole of valleys below the datum.
+  `docs/SPEC.md` §16.1 states the same in the locked numbers.
+
+- **`tools/worldgen-check.mjs:342-350`'s relief budget is one-sided and will
+  fail the day `dip` is spent.** `over = max(FLOOR_TY - RELIEF - row, row -
+  (FLOOR_TY + 1))` reads `RELIEF` live off the `relief` strata row's `amp`,
+  which is why it passes at `amp:10` today, but the `+ 1` lower slack is a
+  leftover from the ragged lip 6c deleted. The one-line fix is to read `dip`
+  off the same row and use it for the lower bound. Not taken — `tools/` is not
+  in 6c's ownership block, and with `dip` at 0 the assertion is correct as
+  written.
+
+- **A standing tree trunk blocks a walk along the surface, and always has.**
+  `data/substances.js:144` gives native `timber` `tile:{ solid:true }` and
+  `data/world.js`'s `trees` row grows it 3 to 5 tiles up from the ground, so
+  neither `rules/player.js#moveX`'s one-tile auto-step nor the hop clears one.
+  Measured with the real player driven through `shell/main.js#step` at 1/120 s:
+  0 of 12 seeds reach the right map edge from spawn and 1 of 12 reach the left,
+  and clearing every timber tile first makes it 12 of 12 both ways. The same
+  12 seeds stall at the same trunks under the pre-6c generator, so this is not
+  a landform regression. Whether a tree should be a wall is a design question
+  for whoever owns `data/substances.js` — felling it takes 0.35 s, so the
+  answer may well be "yes, and that is the toll".
+
 ## Wave 6, phase 6j (named debug scenarios)
 
 - **`src/model/items.js:83` — `itemsIn(r)` never re-tests the rect, so every

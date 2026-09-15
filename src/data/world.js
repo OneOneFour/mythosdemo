@@ -71,12 +71,19 @@ export const BANDS = [
     fields:['heat'],
     strata:[
       /* THE HEIGHT MAP, and it must be the first row: every boundary below
-         offsets by it. Relief runs UPWARD from `floorTy` only, never below --
-         `rules/generate.js`'s own comment states why (an AIR tile at or below
-         `floorTy` is excavated rock as far as `view/paint.js` is concerned, so
-         a valley floor would fill its own sky with cave shading). The spawn
-         shelf is pinned flat at 0 and blended out either side. */
-      { kind:'relief', amp:6 },
+         offsets by it. `amp` is rows of hilltop ABOVE `floorTy`; the pipeline
+         in `rules/generate.js#heightmap` also takes a `dip` for rows of
+         valley floor BELOW it, and this row deliberately declares none.
+         `view/scene.js#drawSky` paints sky only down to `floorTy * tile`, so
+         a valley floor under that row would have `INK.void` behind it and not
+         sky -- a black band along every valley bottom. docs/FINDINGS.md
+         (Phase 6c) records what has to land before `dip` can be spent.
+
+         10 rows is 80 px of relief in a 160 px sky, and it was 6 while relief
+         was three summed octaves. A landform needs the room: at 6 the clamp
+         flattened every summit into a mesa. The spawn shelf stays pinned flat
+         at 0 and blended out either side. */
+      { kind:'relief', amp:10 },
       /* A shallow soil cap over the stone, so the exposed ground reads as
          dirt-with-grass (`soil`'s `hi` look) rather than bare rock. `lip:false`
          on the stone row is load-bearing: without it, `layer()`'s ragged-edge
@@ -100,15 +107,16 @@ export const BANDS = [
       /* `toTy` must reach past the ground line or a trunk's base scan never
          finds solid ground -- it did not, for any seed, until this was 22:
          rows 16-19 were air, so `trees()`'s scan for the first solid tile
-         always fell through and every column was skipped. The window now has
-         to span every height the relief row can produce (`floorTy - amp` at a
-         hilltop, `floorTy` in a valley) PLUS the row a ragged lip may have
-         carved, hence 10..28 rather than 16..22. `chance` raised alongside the
-         original fix, once trees could exist at all, so 12ish logs is not a
-         fistfight between the first ladder and the first smelt (`log` is the
-         only fuel a player can mine this early -- `brand` exists too, but
-         only ever made from a log). */
-      { kind:'trees', sub:'timber', fromTy:10, toTy:28, chance:0.06, height:[3, 5] },
+         always fell through and every column was skipped. The window has to
+         span every height the relief row can produce, which is `floorTy - amp`
+         at a hilltop and `floorTy + dip` in a valley, with a margin either
+         side so raising `amp` by one cannot silently empty a hilltop of
+         trees. `chance` was raised alongside the original fix, once trees
+         could exist at all, so 12ish logs is not a fistfight between the
+         first ladder and the first smelt (`log` is the only fuel a player can
+         mine this early -- `brand` exists too, but only ever made from a
+         log). */
+      { kind:'trees', sub:'timber', fromTy:8, toTy:28, chance:0.06, height:[3, 5] },
       /* `count` is DOWN from 26 -- and was up from 14 before that. Both moves
          are the same move: a `count` here buys CELLS, and what docs/SPEC.md
          section 16.5 holds near constant is total ore UNITS. A cruciform cell

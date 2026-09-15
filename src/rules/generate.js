@@ -54,31 +54,61 @@ import { inBounds } from '../model/world.js';
    tiles and the footprint is three wide. 19 columns is. */
 const SHELF = 9;
 
-/* Fraction of a layer's top row that is carved away, so a stratum boundary
-   reads as ground rather than as a ruled line. One tile deep only: any more and
-   `floorTy` stops meaning what `data/world.js` says it means. */
+/* Fraction of a layer's top row that is carved away in a band with NO relief
+   row, so a flat stratum boundary reads as ground rather than as a ruled line.
+   One tile deep only: any more and `floorTy` stops meaning what
+   `data/world.js` says it means. */
 const LIP = 0.35;
 
 /* ---------- surface relief ----------
 
-   Three octaves of value noise over a lattice drawn from `rand()`, summed:
-   a landform, hills, and roughness. `[period in tiles, amplitude in tiles]`.
+   Four passes build a landform. A trend octave decides where the uplands and
+   the lowlands are, discrete raised-cosine summits sit on top of it, two
+   1-2-1 passes smooth the float profile, and a clamp to the strata row's own
+   budget flattens the extremes into a valley floor and the odd plateau. Then
+   the shelf is pinned, the relief is blended in either side of it, and the
+   step pass sweeps outward.
 
-   The amplitudes are HALF the ±4 / ±2 / ±1 docs/BUILD_PLAN.md names, and the
-   whole map is biased downward by `RELIEF / 2`, for one reason worth stating
-   plainly: relief may only go UP from a band's `floorTy`, never below it.
-   `view/paint.js#paintChunk` treats an AIR tile at `ty >= floorTy` as
-   EXCAVATED and paints it dark cavity texture; a valley floor below `floorTy`
-   would therefore fill the open sky above it with cave shading. Anchoring the
-   base row as the lowest ground keeps `floorTy` meaning what every other
-   reader (`shell/boot.js`'s spawn, the depth datum in `view/hud.js` and
-   `model/run.js`, that sky test) already assumes, and the resulting total
-   relief is the 6 tiles / 48 px BUILD_PLAN's own justification asks for. */
-const OCT = [[48, 2], [16, 1], [5, 0.5]];
+   DO NOT GO BACK TO SUMMING OCTAVES. The three-octave sum this replaced ran a
+   5-tile period and then flipped an independent one-row coin per column, so
+   the ground changed direction 37 to 52 times across 128 columns and read as
+   sawtooth rather than as terrain.
 
-const RELIEF = 6;        // tiles of relief above the base ground line, max
+   The locked numbers are docs/SPEC.md section 16.1. */
+
+/* Tiles between trend lattice points. 40 over a 128-column band gives 5
+   lattice points, so the trend is three or four broad features. */
+const TREND_PERIOD = 40;
+
+/* How much of the relief budget the trend claims either way from its own
+   centre line. The summits spend the rest, and they need the room -- at 0.3 a
+   trend high under a tall summit hit the clamp on most seeds, and a clamped
+   summit is a mesa. */
+const TREND_SHARE = 0.20;
+
+/* Tiles of world per summit, so a wider band gets more hills rather than
+   wider ones. 128 columns gives 6 summits. */
+const HILL_SPACING = 20;
+
+/* Summit height in tiles, never under `HILL_LOW` and never over `HILL_SHARE`
+   of the row's own upward budget. The hop clears a summit under 3 tiles, so
+   one would read as the per-column noise this pass exists to remove. */
+const HILL_LOW = 3;
+const HILL_SHARE = 0.72;
+
+/* Half-width per tile of summit height, and the factor the draw may widen it
+   by. A raised cosine `h/2 * (1 + cos(pi x / w))` has maximum slope
+   `pi h / 2w`, so `w >= (pi/2) h` is exactly what a summit needs to hold the
+   1-tile-per-column limit `rules/player.js#moveX`'s auto-step imposes, and
+   1.6 rounds pi/2 up. The step pass below therefore backstops a summit rather
+   than shaping it, which is why a hill survives it recognisably. */
+const HILL_SLOPE = 1.6;
+const HILL_WIDE  = 1.8;
+
+const SMOOTH_PASSES = 2;
+const RELIEF = 6;        // tiles above `floorTy` a relief row declaring no `amp` gets
 const FADE   = 36;       // rows below the ground line at which relief reaches 0
-const BLEND  = 3;        // columns either side of the shelf the relief fades in over
+const BLEND  = 10;       // columns either side of the shelf the relief fades in over
 
 /* TRAVERSABILITY. The hop clears exactly one tile (docs/SPEC.md section 2) and
    `rules/player.js#moveX`'s auto-step is gated on `onGround || onLadder`, so a
@@ -153,10 +183,11 @@ const KINDS = {
       const top = Math.max(0, row.fromTy + shift(ctx, b, tx, row.fromTy));
       const bot = Math.min(b.th, row.toTy + shift(ctx, b, tx, row.toTy));
       for (let ty = top; ty < bot; ty++) {
-        /* `!ctx.off`: in a band WITH a height map the lip has already been
-           folded into it, one row deep, at this same probability -- see
-           `heightmap()`. Carving it twice would put back the two-tile face the
-           step rule exists to forbid. */
+        /* A band with a height map gets no lip, which is what `!ctx.off`
+           tests. The carve is an independent coin flip per column, so over a
+           height map it lands beside a raised column and leaves a two-tile
+           face the hop cannot clear. A flat band still wants it, so a stratum
+           boundary there reads as ground rather than as a ruled line. */
         if (ty === top && row.lip !== false && !ctx.off &&
             !onShelf(b, tx) && rand() < LIP) continue;
         tw.set(b, tx, ty, sub, NATIVE);
@@ -437,44 +468,91 @@ function octave(tw, period, amp) {
   return out;
 }
 
-/* The signed per-column offset of the ground line, 0 (the band's own
-   `floorTy`) down to `-amp`. In order, and the order is the point: sum the
-   octaves, clamp, pin the shelf flat, fade the relief in either side of it,
-   then walk outward enforcing the step rule so nothing the fade or the noise
-   produced can leave a face the player cannot climb. */
-function heightmap(b, row) {
-  const amp = row.amp ?? RELIEF;
-  const off = new Int16Array(b.tw);
-  const sum = new Float64Array(b.tw);
-  for (const [period, a] of OCT) {
-    const o = octave(b.tw, period, a * amp / RELIEF);
-    for (let tx = 0; tx < b.tw; tx++) sum[tx] += o[tx];
-  }
-  for (let tx = 0; tx < b.tw; tx++)
-    off[tx] = clamp(Math.round(sum[tx] - amp / 2), -amp, 0);
+/* The signed per-column ROW offset of the ground line from the band's own
+   `floorTy`, NEGATIVE UP, because a tile row grows downward. The range runs
+   from `-row.amp` at a hilltop to `+row.dip` at a valley floor.
 
-  /* THE RAGGED LIP, MOVED INTO THE MAP. `layer()` carves `LIP` of its top row
-     away per column, and still does in a band with no relief row -- but a
-     random one-tile carve laid ON TOP of a height map is exactly what breaks
-     the step rule: a carved column beside a raised one is a two-tile face, and
-     the hop clears one. Folding the same probability and the same one-row
-     depth in HERE keeps the look identical (that column's top tile is still
-     air over soil) and lets the step pass below see it. */
-  for (let tx = 0; tx < b.tw; tx++) if (rand() < LIP) off[tx] += 1;
+   Pass order is fixed and both halves of it matter. Trend, summits, smooth
+   and clamp shape the profile; then the shelf is pinned, the relief is
+   blended in either side of it, and the step pass walks outward so nothing
+   the blend or the noise produced leaves a face the player cannot climb. */
+function heightmap(b, row) {
+  const up = row.amp ?? RELIEF;
+  const down = row.dip ?? 0;
+
+  /* `h` holds height above `floorTy` in tiles, float and unrounded until the
+     clamp. Rounding between the trend and the summits would quantise every
+     flank to one staircase and put the jitter back. */
+  const h = new Float64Array(b.tw);
+  const reach = (up + down) * TREND_SHARE;
+  const trend = octave(b.tw, TREND_PERIOD, reach);
+  /* Centred so a trend minimum carrying no summit lands on the valley floor,
+     which is what makes `dip` the number it claims to be. */
+  for (let tx = 0; tx < b.tw; tx++) h[tx] = reach - down + trend[tx];
+
+  summits(h, b.tw, up);
+  for (let n = 0; n < SMOOTH_PASSES; n++) smooth(h, b.tw);
+
+  const off = new Int16Array(b.tw);
+  for (let tx = 0; tx < b.tw; tx++) off[tx] = -Math.round(clamp(h[tx], -down, up));
 
   const sx = b.cfg.spawnTx;
   if (sx !== undefined)
     for (let tx = 0; tx < b.tw; tx++) {
       const d = Math.abs(tx - sx);
-      if (d <= SHELF) off[tx] = 0;                                   // THE SHELF
-      else if (d <= SHELF + BLEND)                                   // and its blend,
-        off[tx] = Math.round(off[tx] * (d - SHELF) / (BLEND + 1));   // so it is not a plateau
+      if (d <= SHELF) { off[tx] = 0; continue; }                     // THE SHELF
+      if (d > SHELF + BLEND) continue;
+      /* The blend is smoothstepped. A linear ramp out of a flat shelf holds
+         one slope for its whole width and renders as a flight of stairs,
+         where an S-curve leaves the shelf flat, steepens in the middle and
+         settles into the landform, which renders as the foot of a slope. */
+      const k = (d - SHELF) / (BLEND + 1);
+      off[tx] = Math.round(off[tx] * k * k * (3 - 2 * k));
     }
 
   const anchor = sx ?? 0;
   stepPass(off, b.tw, clamp(anchor + SHELF, 0, b.tw - 1), +1, anchor);
   stepPass(off, b.tw, clamp(anchor - SHELF, 0, b.tw - 1), -1, anchor);
   return off;
+}
+
+/* Add `tw / HILL_SPACING` raised-cosine summits to the profile, in tiles of
+   height. The three draws per summit run centre, height, width, and that
+   order is fixed because seed reproducibility depends on it (invariant 7).
+
+   Each summit takes one column at random from its own slice of the band.
+   Distance between two summits still runs from 1 column to twice the slice,
+   so the spacing reads as irregular, but a uniform scatter over the whole
+   band left one seed in three with a 70-column dead plain.
+
+   A summit the band edge clips is kept as drawn. A hill running off the map
+   is a hill, and rejecting it would bias every band toward flat edges. */
+function summits(h, tw, up) {
+  const n = Math.max(1, Math.round(tw / HILL_SPACING));
+  const tall = Math.max(HILL_LOW, up * HILL_SHARE);
+  for (let k = 0; k < n; k++) {
+    const lo = Math.round(k * tw / n), hi = Math.round((k + 1) * tw / n) - 1;
+    const cx = randInt(lo, Math.max(lo, hi));
+    const hh = randRange(HILL_LOW, tall);
+    const w = Math.max(1, Math.round(hh * HILL_SLOPE * randRange(1, HILL_WIDE)));
+    for (let dx = -w; dx <= w; dx++) {
+      const tx = cx + dx;
+      if (tx < 0 || tx >= tw) continue;
+      h[tx] += hh * 0.5 * (1 + Math.cos(Math.PI * dx / w));
+    }
+  }
+}
+
+/* One 1-2-1 pass over the profile, in place, holding both end columns.
+   Consumes no randomness, and it is what keeps a single-column spike out of
+   the rounded result. */
+function smooth(h, tw) {
+  let prev = h[0];
+  for (let tx = 1; tx < tw - 1; tx++) {
+    const cur = h[tx];
+    h[tx] = (prev + 2 * cur + h[tx + 1]) / 4;
+    prev = cur;
+  }
 }
 
 /* Sweep OUTWARD from the shelf, never toward it, so the flat shelf and its
