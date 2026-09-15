@@ -14,12 +14,17 @@
 
 /* mulberry32. Small, fast, and good enough that a run is worth sharing. */
 export function mulberry(seed) {
-  return function () {
+  const draw = function () {
     seed |= 0; seed = seed + 0x6D2B79F5 | 0;
     let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
     t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
     return ((t ^ t >>> 14) >>> 0) / 4294967296;
   };
+  /* The whole state of mulberry32 is its own seed word, so `mulberry(state())`
+     continues the stream exactly rather than restarting it. That is what makes
+     the cursor one int32 in `shell/save.js`'s payload. */
+  draw.state = () => seed;
+  return draw;
 }
 
 /* Stateless 2D hash in [0,1). Used by chunk painting and edge jitter. */
@@ -36,6 +41,12 @@ export const rng = { next: Math.random };
 export function seedRng(seed) { rng.next = mulberry(seed | 0); }
 
 export const rand = () => rng.next();
+
+/* Where the run's stream stands, as an int32 `seedRng()` will resume from, or
+   null while `rng.next` is still `Math.random`. `shell/save.js` is the only
+   caller: without it a loaded run keeps the saved world and gets a different
+   future (docs/SPEC.md section 27.2). */
+export const cursor = () => (rng.next.state ? rng.next.state() : null);
 
 /* Convenience draws, so call sites stop rewriting the same arithmetic. */
 export const randRange = (lo, hi) => lo + rand() * (hi - lo);

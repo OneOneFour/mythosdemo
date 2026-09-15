@@ -3266,3 +3266,38 @@ own.
    worse off than one who walks. Whether that is the intended upgrade curve —
    a second crank is 3 logs and 3 gravel — or `crank.torque` should rise is a
    call nobody has made. The lever is `data/machines.js`, not a tuning row.
+
+## Wave 6, phase 6h-2 (the four save/load defects; two things left outside the block)
+
+All four of the reviewer's defects fired before the fix and do not after:
+`src/shell/save.js:442-446` no longer deletes a good save for the caller's
+wrong seed, a corrupt `seen` string is refused before anything is written,
+`hasSave()` and `load()` can no longer disagree, and the `rand()` cursor is
+part of the payload. `src/core/rng.js` gained one accessor, `cursor()`, and one
+line inside `mulberry` that exposes the state word it already had. Two things
+this phase found and did not own.
+
+1. **Nothing in `tests/` or `tools/` calls `save()`, `load()`, `hasSave()` or
+   `clearSave()`, so all four gates are still green on a module the game never
+   executes.** `.oxlintrc.json` closed the typo half of this (a renamed
+   `WORLD_SIG` inside `save()` is now `no-undef` at `src/shell/save.js:274`),
+   but the execution half is open: `tools/check.mjs:93-127`'s import list still
+   omits the file, and an import proves only that it parses. The four defects
+   this phase repaired each have a scratchpad script that fires on the old code
+   and passes on the new — a wrong seed, a `'!!!!'` fog string, a header write
+   that a quota refuses, and 57 draws across a save — plus a two-process reload
+   test that deep-diffs 1,200 frames of scripted play, saves, reloads in a
+   fresh module graph and replays 600 more. They are worth
+   committing and `tests/**` belongs to phase 6p.
+
+2. **`data/tuning.js#invSlots` is part of the payload's shape and no version
+   hash covers it** (the reviewer's 6h-6, unrepaired). `run.inv` is
+   position-significant, `applyRun` restores by index
+   (`src/shell/save.js:519-530`), and `run.mainSlots` is
+   `Math.round(eff('invSlots'))` at reset. Raise `invSlots` and a saved
+   quickbar stack lands in a main slot. Validation cannot see it: the payload
+   is internally consistent and only the tunable moved. The cheap repair is one
+   more field in the header — `slots: run.inv.length` — refused like the other
+   four, which trades a lost save for a shuffled quickbar. That is a call for
+   whoever owns the header's shape next; §27.3 lists four versions today and
+   this would be a fifth.

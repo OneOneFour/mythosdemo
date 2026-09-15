@@ -3334,11 +3334,27 @@ band, which is safe because `generate` writes `mat` and `ver` and nothing else.
 | `shell/ui.js` session state | Open panels, the armed pair, AUTO COLLECT and AUTO FEED. `newRun()` resets all of it (D13-A), and the save follows. |
 | `clock.t` and the camera | `shell/main.js` owns both. A caller that boots straight into a loaded run re-clamps the camera itself. |
 
+**The `rand()` cursor IS stored** (`cursor`, one int32), and it is the one row
+that argues with invariant 7 rather than following from it. Without it a loaded
+run keeps the world it was saved with and draws a different future from it, and
+reloading the same slot always replays the same stream — so no bug found after
+a load could be reported against its seed. It costs one accessor in
+`core/rng.js`: the whole state of mulberry32 is its own seed word, so
+`mulberry(state)` continues the stream exactly and the cursor needs neither a
+draw counter nor a fast-forward.
+
+Measured over a scripted 1,200 frames, a save, a fresh process, a load and 600
+more frames of the same script: every band's `mat` and `seen`, the whole `run`
+record, items, machines, segments, the dig and growth ledgers, boons and mods
+are identical, and one field differs — `player.digging`, which
+`shell/main.js:163` blinks off `clock.t` and which this table already says is
+not run state.
+
 ### 27.3 Four versions, and the last two cover the generator
 
 | field | is | checked in | catches |
 |---|---|---|---|
-| `v` | a literal, 1 | `hasSave()` | the payload shape changing |
+| `v` | a literal, 2 | `hasSave()` | the payload shape changing |
 | `world` | FNV-1a of `JSON.stringify(BANDS)` | `hasSave()` | a band dimension, origin or strata change, which invalidates every stored tile coordinate |
 | `content` | FNV-1a of the `SUB`, `FORM` and `MACH` id lists | `hasSave()` | an ordinal coming to mean another row |
 | `gen` | FNV-1a of each band's freshly generated `mat` | `load()`, after `newRun()` | `rules/generate.js` itself changing |
@@ -3348,10 +3364,34 @@ band, which is safe because `generate` writes `mat` and `ver` and nothing else.
 save and returns false, which leaves a clean run of the same seed rather than
 edits replayed onto ground that moved.
 
-Every id string in the payload that would throw downstream is resolved before
-`newRun()` runs — machine ids through `data/machines.js#M` and boon ids through
-`data/boons.js#BOON`. A payload naming content that no longer exists is refused
-rather than applied and then thrown on.
+**Every field is validated before `newRun()` runs, and the validation is what
+makes the apply unable to throw.** The apply writes through a dozen model
+writers and not one of them checks its argument, so anything a `typeof` gate
+let past landed in the world: a `seen` string of `'!!!!'` reached `atob` and
+threw out of the restore with band 0's tile edits already written. Rolling that
+back is not on offer, because `run` has no whole-record setter — which is why
+`applyRun` exists at all — so the payload is proved usable instead. The fog
+bitset is decoded during validation and the bytes are handed to `applyBand` on
+the row, so there is one `atob` per band and the check cannot disagree with the
+use.
+
+What is checked: every array is an array, every number is finite, every tile
+coordinate is inside its own band, every tile byte is 0..255, `made >= charges`,
+a segment's two hub indices are inside the machine list, and `misses` and
+`tutorialBeat` are integers under 10,000 because both are restored by repeated
+one-way increments and an edited 1e9 would hang the boot.
+
+Which ids are resolved: the ones this module or `model` itself dereferences —
+machine ids through `data/machines.js#M`, boon ids through `data/boons.js#BOON`,
+band ids through `BANDS`, substance and form ordinals as indices, buffer keys
+through `model/items.js#parseKey`, and the live demand's cycle id through
+`data/cycles.js#CYCLE`, which `model/run.js#write.tribute` reads to bound the
+batch ledger. Ids that only `rules` looks up, and looks up optionally — a
+recipe in `run.craftRecipe`, a god in `run.favour`, the draft ids in
+`run.offer` — are checked as strings and no further. An unknown one is ignored
+downstream, and refusing a whole run over a renamed recipe is the worse trade.
+`CONTENT_SIG` does not cover the recipe, god or cycle tables, so those three
+can change under a save with no hash moving.
 
 **`hasSave()` is cheap enough for a menu to ask every frame.** It parses the
 ~58-byte header key and never reads the body. Both signatures are computed once
@@ -3366,9 +3406,18 @@ importing no other `shell` module and leaves `shell/boot.js` and
 `shell/main.js` free to import it without a cycle. Pass
 `shell/boot.js#newRun`.
 
+**The caller's half of that contract is checked, not assumed.** `load()`
+compares `run.seed` against the stored seed after `newRun` returns, and a
+caller that generated another world gets `WRONG SEED` with the slot untouched.
+It used to get the `gen` mismatch that a wrong world inevitably causes, which
+deleted the save — one slip in the caller destroyed the player's only slot for
+a bug that was never the save's. A wrong seed is a programming error, so it
+also goes to `console.warn`; the same check catches a `newRun` that allocated
+no bands at all, which used to return **true** and half-apply.
+
 Order within `load()`:
 
-1. `newRun(seed)`, then the `gen` check per band.
+1. `newRun(seed)`, then the seed check, then the `gen` check per band.
 2. Per band, the tile edits, then the dig ledger, then the fog bitset.
    **The ledgers come after the edits**, because `write.setByte` clears the dig
    entry and plants the growth entry for every coordinate it writes.
@@ -3381,6 +3430,8 @@ Order within `load()`:
    `write.charge` and spending the difference back down through
    `write.spendCharge`, since `charge` raises both together.
 6. Boons, then `run`, then the player.
+7. The `rand()` cursor, last of all, so nothing above can leave the stream
+   anywhere but where the save found it.
 
 Within `run`, `write.arrival` runs before `write.tick`, so a director placement
 from earlier in the run stamps `t = 0` and reads as long finished rather than
@@ -3403,7 +3454,7 @@ equipped.
 
 | quantity | value |
 |---|---|
-| body | 11,267 bytes |
+| body | 11,267 bytes, and 21 more once `cursor` was added |
 | header | 58 bytes |
 | fog bitsets | 8,886 bytes, 79% of the body |
 | tile edits | 158 bytes for 19 edits |
@@ -3420,9 +3471,40 @@ the baseline regenerate to roughly 200 ms.
 
 `localStorage` throws in private-mode and sandboxed contexts rather than
 returning null, so every call goes through a guarded helper and a failure reads
-as "no save" rather than breaking the run. `save()` writes the body before the
-header, so a refused write never leaves a header pointing at a half-written
-body, and it returns false with whatever was already stored intact.
+as "no save" rather than breaking the run. Verified against storage that is
+absent, throwing on every call, refusing every write, and holding garbage:
+`hasSave()` and `load()` are false, `save()` is false where the write is
+refused, nothing throws, and 40 real `step()` calls run afterwards.
+
+**The header is the claim that a complete body exists**, so `save()` removes it
+first and writes it last, and clears both keys on any failure. A refused write
+therefore takes the previous slot with it. That is the deliberate trade: the
+alternative order kept a good header in front of a body the failed write had
+already overwritten, and a menu then offered CONTINUE forever and it never did
+anything. `hasSave()` reads the header alone, so it cannot prove a body; when
+`load()` finds the claim false — no body, an unparseable body, a body whose
+seed disagrees with the header, or any validation fault — it drops the header,
+which is what stops the offer. The body's bytes stay for a post-mortem and the
+next `save()` overwrites them.
+
+### 27.7 Every refusal is named
+
+`load()` has no journal at boot, so it reports why it refused on `loadError`
+and returns false. An object rather than an exported scalar, because module
+bindings are read-only for importers.
+
+| `loadError.reason` | means | the slot |
+|---|---|---|
+| `null` | the load succeeded | kept |
+| `NO SAVE` | no header, or storage is unreadable | untouched |
+| `STALE SAVE` | the header's `v`, `world` or `content` is not this build's | kept, and `hasSave()` is already false |
+| `CORRUPT SAVE: <field>` | the body is missing, torn, or failed validation at that field path | the header is dropped |
+| `WRONG SEED` | the caller's `newRun` built another world, or none | **kept** |
+| `WORLD MOVED` | a band's `gen` hash mismatches, so the generator changed | cleared |
+
+Only `WORLD MOVED` discards a valid save, and it discards one that describes
+ground that no longer exists. The player is left standing in a clean run of the
+same seed.
 
 ## 29. Named debug scenarios (Phase 6j)
 
