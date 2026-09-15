@@ -2936,3 +2936,50 @@ also what gives it its first execution.
   changes). The test takes no screenshot, so it cost no baseline. A harness
   phase should consider whether `realClick` ought to write `cmd.mx/my` after
   the draw rather than before it, which would retire the whole class.
+
+## Wave 6, phase 6r (the sky reaches the real skyline)
+
+- **`src/data/world.js`'s relief-row comment is stale, and it is 6s's row to
+  edit.** Lines 72-79 still say "`view/scene.js#drawSky` paints sky only down
+  to `floorTy * tile`, so a valley floor under that row would have `INK.void`
+  behind it and not sky" and point at phase 6c's entry above for what has to
+  land first. Both passes now read `view/paint.js#skyBottomTy`, so the comment
+  describes behaviour that no longer exists. `src/data/world.js` is outside
+  6r's ownership block and 6s owns the `dip` value on that same row, so the
+  correction belongs in the commit that spends it.
+
+- **`tools/worldgen-check.mjs:342-350` is now the last thing in `dip`'s way.**
+  Phase 6c parked the one-line fix above: `over = max(FLOOR_TY - RELIEF - row,
+  row - (FLOOR_TY + 1))` reads `RELIEF` off the relief row but hardcodes `+ 1`
+  of lower slack. Measured at a temporary `dip:4`: `npm run check:worldgen`
+  reports 159 failures over 200 seeds, every one of the form "column 75 at row
+  23 is 2 tile(s) outside [floorTy-10, floorTy+1]", while `npm run check`
+  itself passes clean — the relief budget lives in the worldgen tool, not in
+  `check.mjs`. `tools/` is outside 6r's ownership block too, so it goes with
+  6s.
+
+- **The per-column skyline query the brief asked for is measurable waste, and
+  the measurement is why this phase did not write one.** Below the horizon the
+  sky ramp is a single tone, so run-length encoding a skyline there trades one
+  full-width rect per band per frame for one rect per run of equal ground
+  height, and buys back only fill area that opaque rock covers anyway. Above
+  the horizon a per-column skyline would stop painting sky behind a hill —
+  also invisible, because `paintTile` fills every solid tile opaquely and
+  `chunkCanvas` paints a first-sight chunk regardless of `REPAINT_BUDGET`.
+  Neither variant can change a pixel, and `npm run check`'s `fillRect` total
+  is 1,344,909 before and after this phase, so the version that ships is the
+  one that adds no call at all: one rect from the horizon to `skyBottomTy`,
+  zero rows tall while `dip` is 0.
+
+- **`view` cannot tell a valley from a hand-dug shaft, so `excavated` cannot
+  become the pure sky test.** Both are one sky-exposed column, and no `model`
+  query records the height map `rules/generate.js#heightmap` started from — the
+  tile grid is the only source of truth for terrain (invariant 1) and it holds
+  the terrain as it is now. So the union stays and its depth term moves from
+  `floorTy` to `skyBottomTy`, which is the relief envelope rather than the
+  datum. Photographed at a temporary `dip:4`, seed 1337: the valley at column
+  17 reads as sky where it wore a black band before, a 2-wide shaft at column
+  30 reads as a lit hole with a daylit collar over its top two rows, and the
+  tunnel driven sideways into the hilltop at column 76 is still a cavity. A
+  phase that wants a quarry open to the sky needs `model` to remember the
+  generated ground row per column; nothing needs that today.

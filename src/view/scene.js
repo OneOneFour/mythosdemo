@@ -37,7 +37,7 @@ import { bandAbove, bandBelow, bands, chunkPx, heightPx, lightAt, seenAt, widthP
 import { chips, drawChips } from './fx.js';
 import { drawHUD } from './hud.js';
 import { drawOverview } from './overview.js';
-import { beginFrame, chunkCanvas, effChargeAt, effHardAt, paintItem, paintMachine } from './paint.js';
+import { beginFrame, chunkCanvas, effChargeAt, effHardAt, paintItem, paintMachine, skyBottomTy } from './paint.js';
 
 const INK = {
   void:   colour('abyC'),
@@ -237,8 +237,9 @@ function drawSky(g, b, f) {
   const { cam, W, H } = f;
   const top = b.origin.y - cam.y;
   const horizon = b.origin.y + (b.cfg.floorTy ?? 0) * b.tile - cam.y;
-  const y0 = Math.max(0, top), y1 = Math.min(H, horizon);
-  if (y1 <= y0) return;
+  const floor = b.origin.y + skyBottomTy(b) * b.tile - cam.y;
+  const y0 = Math.max(0, top), y1 = Math.min(H, horizon), y2 = Math.min(H, floor);
+  if (y2 <= y0) return;
 
   const ramp = skyRamp(b);
   const step = (horizon - top) / SKY_STEPS;
@@ -247,6 +248,21 @@ function drawSky(g, b, f) {
     const yb = i === SKY_STEPS - 1 ? y1 : Math.min(y1, Math.round(top + step * (i + 1)));
     if (yb > ya) R(g, 0, ya, W, yb - ya, ramp[i]);
   }
+
+  /* THE SKY REACHES THE SKYLINE, NOT THE HORIZON. Relief may put a valley
+     floor `dip` rows below the ground line (`view/paint.js#skyBottomTy`), and
+     the air over it is sky-exposed, so the backdrop there has to be sky rather
+     than the frame's own `INK.void`. The haziest step simply continues down --
+     the ramp is anchored on the horizon, so a band declaring no `dip` lands
+     `y2` on `y1` and this costs it neither a rect nor a pixel.
+
+     ONE RECT, NOT ONE PER COLUMN. The rows below the horizon are a single
+     tone, so run-length encoding a per-column skyline here would trade this
+     rect for one per run of equal height and save only fill area that opaque
+     rock covers anyway. `excavated` is what decides where rock stops, and the
+     two read the same row. */
+  const hz = Math.max(y0, y1);
+  if (y2 > hz) R(g, 0, hz, W, y2 - hz, ramp[SKY_STEPS - 1]);
 
   drawClouds(g, b, f, top, horizon, y0, y1);
 }

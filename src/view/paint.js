@@ -147,11 +147,34 @@ export function chunkCanvas(b, cx, cy) {
 
 /* ---------- terrain ---------- */
 
+/* THE DEEPEST ROW A BAND'S SKY REACHES, in band-local tiles, half-open: the
+   declared ground line plus whatever downward relief the band's own height map
+   asks for. `rules/generate.js#heightmap` puts a valley floor up to `dip` rows
+   below `floorTy`, and open air over that floor has to read as open air.
+
+   ONE NUMBER, READ BY TWO PASSES. `view/scene.js#drawSky` paints sky down to
+   this row and `excavated` below calls anything at or past it cut rock, so the
+   last row of sky and the first row of cavity cannot disagree.
+
+   Memoised per band id and never invalidated, because `b.cfg` is a frozen
+   `data/world.js` row -- the value cannot change within a run or between two
+   runs on the same content. */
+const skyBottoms = new Map();
+export function skyBottomTy(b) {
+  let ty = skyBottoms.get(b.cfg.id);
+  if (ty === undefined) {
+    const relief = (b.cfg.strata || []).find(r => r.kind === 'relief');
+    ty = (b.cfg.floorTy ?? 0) + (relief?.dip ?? 0);
+    skyBottoms.set(b.cfg.id, ty);
+  }
+  return ty;
+}
+
 /* Is this space cut out of rock, or open air over the landscape? Open air
    stays TRANSPARENT so `view/scene.js`'s sky gradient shows through, and cut
    rock gets the dark cavity texture. An air tile is cut rock when rock stands
-   above it anywhere in its column, OR when it sits at or below the band's
-   declared ground line.
+   above it anywhere in its column, OR when it sits at or past the row the sky
+   stops at.
 
    `ty >= floorTy` alone was the whole test, and it called a tunnel driven
    sideways into a hilltop open sky, so the tunnel filled with sky gradient.
@@ -159,19 +182,18 @@ export function chunkCanvas(b, cx, cy) {
    `skyExposedAt` asks the honest question instead, walking the column to the
    top of the band's own grid.
 
-   THE `floorTy` TERM STAYS BECAUSE THE SKY STOPS AT THE HORIZON.
-   `view/scene.js#drawSky` paints only down to `floorTy * tile`, so a
-   sky-exposed tile below that row has `INK.void` behind it and not sky.
-   Dropping the term would lay a black band along any valley floor below the
-   ground line, and it would turn a hand-dug shaft from a lit hole into a flat
-   black slot, a shaft being geometrically the same thing as a one-column
-   valley. docs/FINDINGS.md (Phase 6c) records what has to land before
-   `data/world.js`'s `relief` row can spend a `dip`.
+   THE DEPTH TERM STAYS BECAUSE VIEW CANNOT TELL A VALLEY FROM A SHAFT.
+   Both are a sky-exposed column, and nothing in `model` records the height map
+   the generator started from. Inside the relief envelope the landscape itself
+   may be open air, so the sky wins; past it the player dug, so the cavity
+   texture wins and a hand-dug shaft stays a lit hole rather than a slot of
+   daylight.
 
-   Evaluation order keeps the deep bands cheap. `topsoil`'s `floorTy` is 0, so
-   the first term holds for every tile there and the column walk never runs. */
+   Evaluation order keeps the deep bands cheap. `topsoil`'s `floorTy` is 0 and
+   it declares no relief, so the first term holds for every tile there and the
+   column walk never runs. */
 const excavated = (b, tx, ty) =>
-  ty >= (b.cfg.floorTy ?? 0) || !skyExposedAt(b, tx, ty);
+  ty >= skyBottomTy(b) || !skyExposedAt(b, tx, ty);
 
 function paintChunk(b, cx, cy, g) {
   const t = b.tile, k = b.chunk, px = chunkPx(b);

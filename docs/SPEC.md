@@ -899,17 +899,30 @@ Measured over 200 seeds, reading the ground row the way
 | steps over 1 tile, per seed | 0–3, median 1 | 0–1, median 0 |
 | longest flat run | 19–29 columns | 21–38 columns |
 
-**Relief runs UP from `floorTy`, and `dip` stays 0 until the sky reaches past
-the horizon.** `heightmap()` takes a downward budget and honours it, so a
-valley floor below the declared ground line is one content number away. What
-blocks spending it is `view/scene.js#drawSky`, which paints sky only down to
-`floorTy * tile` and leaves `INK.void` below that row — so a valley floor
-under `floorTy` wears a black band instead of sky. `view/paint.js#excavated`
-is already ready for it: an air tile is cut rock when rock stands above it
-anywhere in its column, OR when it sits at or below `floorTy`, and dropping
-the second term is the whole change. `docs/FINDINGS.md` (Phase 6c) holds the
-detail. The datum does not move either way — CLAUDE.md D9 anchors the HUD
-gauge and `cyclops_maw`'s `minDepth` to `floorTy`, and §16 never touches it.
+**Relief runs UP from `floorTy`, and the sky reaches past the horizon.**
+`heightmap()` takes a downward budget and honours it, so a valley floor below
+the declared ground line is one content number away — the `dip` on the strata
+row, still 0 and spent by wave 6 phase 6s. What used to block it was
+`view/scene.js#drawSky`, which painted sky only down to `floorTy * tile` and
+left `INK.void` below that row, so a valley floor under `floorTy` wore a black
+band instead of sky. Both passes now read one number,
+`view/paint.js#skyBottomTy`: `floorTy` plus the band's own `dip`. `drawSky`
+continues its haziest step down to that row, and `excavated` calls an air tile
+cut rock at or past it. Landed by phase 6r, and pixel-neutral while `dip` is
+0 — the extension is zero rows tall, so it costs neither a rect nor a pixel.
+
+**`excavated` stays a union, and the depth term is not removable.** A valley
+and a hand-dug shaft are the same geometry, one sky-exposed column, and
+nothing in `model` records the height map the generator started from — so
+`view` cannot tell them apart. Inside the relief envelope the landscape itself
+may be open air, so the sky wins; past it the player dug, so the cavity
+texture wins and a shaft stays a lit hole rather than a slot of daylight.
+Measured at a temporary `dip:4`, seed 1337: the valley at column 17 reads as
+sky, a shaft at column 30 reads as a lit hole with a daylit collar, and a
+tunnel driven into the hilltop at column 76 is still a cavity.
+
+The datum does not move either way — CLAUDE.md D9 anchors the HUD gauge and
+`cyclops_maw`'s `minDepth` to `floorTy`, and §16 never touches it.
 
 **The ragged lip belongs to a flat band only.** `KINDS.layer` carves `LIP` of
 its own top row in a band with NO relief row. A band with one gets no carve at
