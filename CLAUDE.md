@@ -128,7 +128,23 @@ same-frame response.
 |---|---|---|
 | `npm run check` | dependency direction, unresolved content names, render purity, hardness at 8 framerates, the fall table, a 7,200-frame collision fuzz, seed determinism, every band rendering | anything visual |
 | `npm run test:visual` | appearance *changing* — chunk seams, palette drift, font off-by-ones, z-order — plus real-browser boot errors and dev/dist parity | whether the art is any *good* |
-| `npm run lint` | unused and undefined identifiers, where the mutable-state-object convention fails silently | everything else |
+| `npm run lint` | unused identifiers, where the mutable-state-object convention fails silently | **undefined identifiers** (see below), everything else |
+
+**`npm run lint` does not catch an undefined identifier**, despite what a
+linter's name suggests. `oxlint` runs with no config here, and its `no-undef`
+rule is off by default — a file whose whole body is
+`export function f() { return notDefinedAnywhere + 1; }` exits 0. A typo'd
+identifier inside a function is therefore invisible to both `lint` and
+`check`, because `check` imports every module but only executes the paths its
+own assertions drive. One reached a commit that way (`docs/FINDINGS.md`,
+Phase 17 seam section): a stale `cam` reference in a furnace-halo loop survived
+both gates and was caught by the visual suite, and only because two scenes
+light a furnace.
+
+Closing it costs one `.oxlintrc.json` declaring the browser and node
+environments and the two deliberate test globals, with `no-undef` denied. The
+codebase is clean under it today, and it catches the real case. The file is not
+committed; `docs/FINDINGS.md` records the exact contents.
 
 `tools/layers.mjs` checks **direction and names, not sense.** It will not notice
 an unreachable recipe, a machine with no way to be fed, or a wrong number.

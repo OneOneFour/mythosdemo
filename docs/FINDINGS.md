@@ -2780,3 +2780,35 @@ also what gives it its first execution.
   returns as a per-band tile box. Not touched here — `rules/player.js` is
   outside this phase's ownership, and section 8h's motion claims are what
   would have to re-prove the refactor.
+
+- **`npm run lint` does not catch an undefined identifier, and `CLAUDE.md`'s
+  verification table claimed it did.** `oxlint` runs config-free here and its
+  `no-undef` rule is off by default. Proven two ways: a file containing only
+  `export function f() { return notDefinedAnywhere + 1; }` exits 0, and a
+  planted `totallyNotDefinedXyz` in `src/core/font.js` is reported only when a
+  config enabling the rule is passed with `-c`. `npm run check` does not cover
+  the gap either — it imports every module, so a syntax error fails, but a bad
+  identifier inside a function body only throws on the paths its assertions
+  drive. Phase 17's tint fix hit this live: removing `cam` from
+  `atmosphere`'s destructure left a stale `cam` in the machine-halo loop, both
+  gates passed, and the visual suite caught it as
+  `ReferenceError: cam is not defined` — only because two scenes light a
+  furnace with `fire > 0.02`. `CLAUDE.md`'s table is corrected.
+
+  The remedy, measured clean against `src`, `tools` and `tests` as of
+  `73d734a`, and **not committed** because it reverses the documented
+  "oxlint, no config" choice:
+
+  ```json
+  {
+    "env": { "browser": true, "es2024": true, "node": true },
+    "globals": { "__mf": "readonly", "__ops": "readonly" },
+    "rules": { "no-undef": "error" }
+  }
+  ```
+
+  `env.node` has to be global rather than an `overrides` entry for `tools/**`
+  and `tests/**` — oxlint accepted the override block and went on reporting
+  `process` in `tools/check.mjs`, so the narrower form does not work. The cost
+  of the flat form is that a bare `process` in `src/` would go unreported,
+  which is a far smaller hole than any typo anywhere going unreported.
