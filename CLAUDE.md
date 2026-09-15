@@ -31,7 +31,7 @@ npm run build            # esbuild -> dist/mythos-factory.html, one file
 npm run preview          # serve the built artifact on :5174
 npm run parity           # build, then assert dev and dist render identically
 npm run test             # check + build + full visual suite
-npm run lint             # oxlint, no config
+npm run lint             # oxlint; .oxlintrc.json turns no-undef on
 npm run test:visual:update   # re-accept deliberate visual changes
 ```
 
@@ -128,23 +128,41 @@ same-frame response.
 |---|---|---|
 | `npm run check` | dependency direction, unresolved content names, render purity, hardness at 8 framerates, the fall table, a 7,200-frame collision fuzz, seed determinism, every band rendering | anything visual |
 | `npm run test:visual` | appearance *changing* — chunk seams, palette drift, font off-by-ones, z-order — plus real-browser boot errors and dev/dist parity | whether the art is any *good* |
-| `npm run lint` | unused identifiers, where the mutable-state-object convention fails silently | **undefined identifiers** (see below), everything else |
+| `npm run lint` | unused identifiers, **undefined identifiers** (since wave 6 — see below), where the mutable-state-object convention fails silently | everything else |
 
-**`npm run lint` does not catch an undefined identifier**, despite what a
-linter's name suggests. `oxlint` runs with no config here, and its `no-undef`
-rule is off by default — a file whose whole body is
-`export function f() { return notDefinedAnywhere + 1; }` exits 0. A typo'd
-identifier inside a function is therefore invisible to both `lint` and
-`check`, because `check` imports every module but only executes the paths its
-own assertions drive. One reached a commit that way (`docs/FINDINGS.md`,
-Phase 17 seam section): a stale `cam` reference in a furnace-halo loop survived
-both gates and was caught by the visual suite, and only because two scenes
-light a furnace.
+**`npm run lint` catches an undefined identifier as of wave 6, and for most of
+this project's life it did not.** `oxlint`'s `no-undef` is off by default, and
+while `.oxlintrc.json` has existed all along it only set `ignorePatterns` and
+`no-unused-vars` — so a file whose whole body is
+`export function f() { return notDefinedAnywhere + 1; }` exited 0. (This
+paragraph and `docs/FINDINGS.md` both used to say the repo ran "with no
+config" and that the file "is not committed". Both were wrong: the file was
+committed in `011a4de` and simply did not enable this rule. Wave 6 nearly
+turned that error into a regression by replacing the file rather than adding
+to it, which would have silently dropped `no-unused-vars` and the
+`vendor/`/`reference/` ignores.) A typo'd
+identifier inside a function was invisible to **both** `lint` and `check` —
+`check` imports every module but only executes the paths its own assertions
+drive. One reached a commit that way (`docs/FINDINGS.md`, Phase 17 seam
+section): a stale `cam` reference in a furnace-halo loop survived both gates
+and was caught by the visual suite, and only because two scenes light a
+furnace.
 
-Closing it costs one `.oxlintrc.json` declaring the browser and node
-environments and the two deliberate test globals, with `no-undef` denied. The
-codebase is clean under it today, and it catches the real case. The file is not
-committed; `docs/FINDINGS.md` records the exact contents.
+`.oxlintrc.json` now closes it — the browser/node environments, the two
+deliberate test globals, and `no-undef` denied, **added alongside** the
+`no-unused-vars` and `ignorePatterns` that were already there. `oxlint`
+auto-discovers it, so `npm run lint` needs no flag. All three rules are
+verified to bite: wave 6's reviewer renamed an identifier inside
+`shell/save.js#save()` and `rules/scenarios.js#apply()` to something undefined
+and demonstrated that `oxlint` printed nothing while `check` reported "All
+checks passed" — two brand-new files, both unreachable from any assertion, so
+the hole was live rather than theoretical.
+
+The one accepted cost: `env.node` has to be global rather than an `overrides`
+entry for `tools/**` and `tests/**`, because oxlint accepted the override block
+and went on reporting `process` in `tools/check.mjs`. So a bare `process` in
+`src/` goes unreported — a far smaller hole than any typo anywhere going
+unreported.
 
 `tools/layers.mjs` checks **direction and names, not sense.** It will not notice
 an unreachable recipe, a machine with no way to be fed, or a wrong number.

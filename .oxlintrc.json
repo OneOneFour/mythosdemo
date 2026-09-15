@@ -1,6 +1,9 @@
 {
   "ignorePatterns": ["vendor/**", "reference/**", "node_modules/**", "dist/**"],
+  "env": { "browser": true, "es2024": true, "node": true },
+  "globals": { "__mf": "readonly", "__ops": "readonly" },
   "rules": {
-    "no-unused-vars": "warn"
+    "no-unused-vars": "warn",
+    "no-undef": "error"
   }
 }
