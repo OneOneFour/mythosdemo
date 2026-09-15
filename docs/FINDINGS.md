@@ -2716,23 +2716,45 @@ also what gives it its first execution.
   bands, or one flood over the union of bands, rather than the single top-down
   pass `step` makes. Neither is in the audit's scope.
 
-- **FIXED. `src/view/scene.js:791` stepped the whole screen 8x in one frame at
-  the surface/topsoil seam.** `atmosphere()` read `bandAt(cam.x + W/2, cam.y +
-  H/2)` and tinted by `min(0.55, (1 - ambient) * 1.1)`, which is 0.055 for
-  `surface` and 0.440 for `topsoil`. Measured at the 200 px buffer, `cam.y` 667
-  gave 0.055 and 668 gave 0.440. `view/scene.js#ambientOver` now takes the
-  area-weighted mean of every visible band's `look.ambient`, so one row of
-  camera travel moves the tint by at most 0.00193 at that buffer. `17l` in
-  `tests/visual.spec.js` sweeps 241 consecutive rows at each seam against a
-  bound derived from the ambient gap and the viewport height.
+- **FIXED TWICE. `src/view/scene.js:791` stepped the whole screen 8x in one
+  frame at the surface/topsoil seam.** `atmosphere()` read `bandAt(cam.x + W/2,
+  cam.y + H/2)` and tinted by `min(0.55, (1 - ambient) * 1.1)`, which is 0.055
+  for `surface` and 0.440 for `topsoil`. Measured at the 200 px buffer, `cam.y`
+  667 gave 0.055 and 668 gave 0.440.
 
-- **`view/scene.js#atmosphere` tints the sky by what is on screen below it.**
-  The tint is one flat alpha over the whole frame, so a camera showing surface
-  sky over topsoil rock now dims the sky too -- 0.055 to 0.209 in
-  `drive-band-seam`, which is 40% underground. A per-band rect clipped to each
-  band's on-screen rows would leave every band's interior exact and only tint
-  the rows that belong to it, at the cost of a hard horizontal edge at the
-  seam. That is a look decision rather than a fix, so it was not taken here.
+  The first fix took the area-weighted mean of every visible band's
+  `look.ambient`, which removed the step and left the whole frame on one alpha.
+  That alpha then depended on what else was in frame, so the same rock changed
+  brightness as the camera moved -- 0.055 to 0.209 in `drive-band-seam`, which
+  is 40% underground -- and surface sky dimmed in proportion to how much
+  topsoil sat under it.
+
+  **THAT OPTION WAS TAKEN.** The note below used to record a per-band rect as
+  the alternative, and the tint is now that: `view/scene.js#depthTint` gives
+  every world row the alpha its own band claims, with adjacent bands ramping
+  into each other over `TINT_SPAN` = 32 world px centred on the seam. The
+  alpha at a world row is now independent of the camera to the bit, measured
+  over all 3,328 world rows at three camera alignments and two buffers, and
+  every interior is exact: 0.000 in astral, 0.055 in surface, 0.440 in
+  topsoil. The worst step between adjacent world rows is 0.012, which is 3
+  units of 255 against `abyC`.
+
+  `17l` in `tests/visual.spec.js` asserts camera-invariance rather than the
+  continuity of a frame-wide scalar, because a frame-wide scalar stopped
+  describing the frame. `stats.depthTint` is gone with it; `stats.tint` records
+  the alpha per screen row.
+
+- **`npm run lint` does not catch an undefined identifier, which `CLAUDE.md`'s
+  verification table says it does.** Dropping `cam` from `atmosphere`'s
+  destructure in `view/scene.js` left a live `cam` reference in the machine-halo
+  loop. `npm run lint` exited 0. The visual suite caught it as
+  `ReferenceError: cam is not defined` in the two scenes that light a furnace,
+  and `npm run check` passed too, because nothing it draws has `fire > 0.02`.
+  `oxlint` with no config reports nothing for
+  `export function f() { return notDefinedAnywhere + 1; }` either, so the rule
+  is off rather than confused by the destructure. Either enable it in an
+  `oxlint` config or correct the table in `CLAUDE.md`; both are outside this
+  phase's ownership.
 
 - **`tools/check.mjs:559`'s printed epoch is not reproducible.** Section 2
   prints `epoch ${before}` after `boot.boot(1337)` and one substep, and three
@@ -2742,12 +2764,15 @@ also what gives it its first execution.
   fingerprint and is not one, so a reviewer diffing check output will chase
   it. Something in boot writes a wall-clock-dependent number of times.
 
-- **`view/scene.js#ambientOver` normalises over covered area, so a viewport
-  overhanging the world edge moves faster per camera row.** The mean stays
-  continuous, but the per-row bound `17l` asserts is `gap * 1.1 / coveredRows`
-  rather than `/ VIEW.h`. `shell/main.js#clampCam` keeps `cam.y` inside the
-  world whenever the world is taller than the viewport, which it is at every
-  shipped band configuration, so nothing reaches the overhang case in play.
+- **A viewport overhanging the world edge leaves those rows untinted.**
+  `view/scene.js#depthTint` walks the bands and paints only the rows they
+  cover, so screen rows above `bands[0]` or below the last band take no tint
+  rect at all and read at full brightness. `shell/main.js#clampCam` keeps
+  `cam.y` inside the world whenever the world is taller than the viewport,
+  which it is at every shipped band configuration, so only a test that writes
+  `cam.y` directly can see it. The area-weighted mean this replaced had the
+  same blind spot in a different shape, normalising over covered area and so
+  moving faster per camera row out there.
 
 - **`src/rules/player.js:319` `rowBand` can now be deleted in favour of
   `model/world.js#bandSpans`.** `boxSolid`, `boxClimb` and their siblings walk

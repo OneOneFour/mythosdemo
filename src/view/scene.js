@@ -33,7 +33,7 @@ import { progressAt, workAt } from '../model/mining.js';
 import { eff } from '../model/mods.js';
 import { PH, PW, player } from '../model/player.js';
 import { hasPick, run } from '../model/run.js';
-import { bands, chunkPx, heightPx, lightAt, seenAt, widthPx } from '../model/world.js';
+import { bandAbove, bandBelow, bands, chunkPx, heightPx, lightAt, seenAt, widthPx } from '../model/world.js';
 import { chips, drawChips } from './fx.js';
 import { drawHUD } from './hud.js';
 import { drawOverview } from './overview.js';
@@ -86,10 +86,14 @@ const INK = {
   shaftHi: colour('cloudA')
 };
 
-/* What the last `render()` drew. `depthTint` is the alpha `atmosphere` put over
-   the whole screen, recorded so a test can assert the tint moves continuously
-   across a band seam without a second copy of the weighting. */
-export const stats = { chunksDrawn: 0, bandsDrawn: 0, depthTint: 0 };
+/* What the last `render()` drew. `tint` is the depth-tint alpha per SCREEN row,
+   written by the same loop that issues the rects, so the record cannot disagree
+   with the pixels. Pair an index with `cam.y` for the world row it covers. A
+   REUSED buffer, replaced only when the viewport height changes. */
+export const stats = { chunksDrawn: 0, bandsDrawn: 0, tint: new Float64Array(0) };
+
+let tintBuf = new Float64Array(0);
+const tintRows = h => (tintBuf.length === h ? tintBuf : (tintBuf = new Float64Array(h)));
 
 /* `f` is the frame context assembled by `shell/main.js`:
      { cam:{x,y}, t, dt, frame, W, H, flags }
@@ -102,7 +106,8 @@ export function render(g, f) {
   beginFrame();
 
   R(g, 0, 0, W, H, INK.void);
-  stats.chunksDrawn = 0; stats.bandsDrawn = 0; stats.depthTint = 0;
+  stats.chunksDrawn = 0; stats.bandsDrawn = 0;
+  stats.tint = tintRows(H); stats.tint.fill(0);
 
   /* THE MAP OVERVIEW IS A DIFFERENT RENDER PATH, NOT A CAMERA TRICK, and it
      is a different FILE: `view/overview.js`, which owns its own
@@ -787,45 +792,79 @@ function drawFog(g, f) {
   }
 }
 
-/* Ambient light over the whole viewport, as the area-weighted mean of the
-   `look.ambient` each visible band claims. Reading one band under the camera
-   centre instead stepped the whole screen 0.055 -> 0.440 in the single frame
-   the centre crossed world-Y 768.
+/* THE DEPTH TINT IS WORLD-ANCHORED. A world row's alpha is a function of that
+   row's place in the band stack and of nothing else, so the same rock reads the
+   same whatever the camera is doing. A single frame-wide alpha read off the
+   camera centre used to step the whole screen 0.055 -> 0.440 the frame the
+   centre crossed world-Y 768, and an area-weighted mean over the visible bands
+   fixed the step but dimmed surface sky in proportion to how much topsoil
+   happened to be in frame under it.
 
-   Weights are the exact pixel area of each band's intersection with the
-   viewport, so the mean moves continuously as the camera pans and no
-   blend-distance constant exists to tune. `visible()` is the same predicate
-   every band pass above uses, so the tint averages exactly the bands drawn.
-   Normalised over covered area rather than W*H, which keeps the mean at a
-   single band's own claim when the viewport overhangs the world. */
-function ambientOver(cam, W, H) {
-  let cover = 0, sum = 0;
+   Each band's interior takes its own `look.ambient` exactly. Adjacent bands ramp
+   into each other over `TINT_SPAN` world pixels centred on their shared seam,
+   half of the ramp painted by each side, which is what keeps a seam from
+   reading as a drawn line.
+
+   32 world px is 4 tiles at every shipped band's `tile:8`. The widest ambient
+   gap is surface's 0.95 against topsoil's 0.6, which is 0.385 of alpha; over 32
+   rows that is 3 units of 255 per row against the near-black void, under the
+   ~5 units where a 1 px row starts to read as an edge. A rendering constant
+   with no gameplay meaning, so it is not a `data/tuning.js` row -- there is no
+   god whose gift should widen a gradient. */
+const TINT_SPAN = 32;
+const TINT_HALF = TINT_SPAN / 2;
+
+const ambOf = b => b.cfg.look?.ambient ?? 1;
+
+/* One rect per run of equal alpha, so a band interior costs one and a ramp row
+   costs one each. Writes `stats.tint` from the same loop.
+   ASSUMES `cam` is already integer (`render` rounds it) and leaves
+   `globalAlpha` at 1. A band shorter than TINT_SPAN would have its two ramps
+   meet; the `else` resolves that toward the upper seam, and no shipped band is
+   under 320 px. */
+function depthTint(g, f) {
+  const { cam, W, H } = f;
+  const rows = stats.tint;
+
   for (const b of bands) {
     if (!visible(b, cam, W, H)) continue;
-    const w = Math.min(cam.x + W, b.origin.x + widthPx(b)) - Math.max(cam.x, b.origin.x);
-    const h = Math.min(cam.y + H, b.origin.y + heightPx(b)) - Math.max(cam.y, b.origin.y);
-    cover += w * h;
-    sum += w * h * (b.cfg.look?.ambient ?? 1);
+    const top = b.origin.y, bot = top + heightPx(b);
+    const own = ambOf(b);
+    const up = bandAbove(b), dn = bandBelow(b);
+    const upA = up ? ambOf(up) : own, dnA = dn ? ambOf(dn) : own;
+    const y0 = Math.max(0, top - cam.y), y1 = Math.min(H, bot - cam.y);
+
+    let runY = y0, runA = -1;
+    for (let sy = y0; sy <= y1; sy++) {
+      let a = -1;
+      if (sy < y1) {
+        const wy = cam.y + sy;
+        let amb = own;
+        if (up && wy < top + TINT_HALF)       amb = upA + (own - upA) * ((wy - top + TINT_HALF) / TINT_SPAN);
+        else if (dn && wy >= bot - TINT_HALF) amb = own + (dnA - own) * ((wy - bot + TINT_HALF) / TINT_SPAN);
+        /* 1/510 is half an 8-bit quantum, so a row under it cannot change a
+           composited pixel and is recorded as the 0 it draws as. */
+        a = Math.min(0.55, (1 - amb) * 1.1);
+        if (a <= 1 / 510) a = 0;
+        rows[sy] = a;
+      }
+      if (a === runA) continue;
+      if (runA > 0) {
+        g.globalAlpha = runA;
+        R(g, 0, runY, W, sy - runY, INK.void);
+      }
+      runY = sy; runA = a;
+    }
   }
-  return cover > 0 ? sum / cover : 1;
+  g.globalAlpha = 1;
 }
 
 /* ---------- atmosphere ----------
-   Depth tint from how much light the bands on screen claim reaches them, then a
-   vignette on top, because the frame edge is where the eye leaks out. */
+   The world-anchored depth tint, then a vignette on top, because the frame edge
+   is where the eye leaks out. */
 function atmosphere(g, f) {
   const { cam, W, H } = f;
-  const amb = ambientOver(cam, W, H);
-  /* 1/510 is half an 8-bit quantum, so skipping below it cannot change a
-     composited pixel. A fixed cutoff higher than that would step the screen by
-     its own value the frame it was crossed. */
-  const a = Math.min(0.55, (1 - amb) * 1.1);
-  stats.depthTint = a;
-  if (a > 1 / 510) {
-    g.globalAlpha = a;
-    R(g, 0, 0, W, H, INK.void);
-    g.globalAlpha = 1;
-  }
+  depthTint(g, f);
   const grd = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.32,
                                      W / 2, H / 2, Math.max(W, H) * 0.76);
   grd.addColorStop(0, 'rgba(0,0,0,0)');

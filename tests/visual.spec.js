@@ -6936,98 +6936,116 @@ test('17k: a callout at the start of its fade draws nothing, bevel included', as
 });
 
 /* ============================================================
-   THE DEPTH TINT CROSSES A BAND SEAM CONTINUOUSLY
+   THE DEPTH TINT IS WORLD-ANCHORED
    (docs/AUDIT-seam-light.md section 2 and section 6 item 3)
 
-   `view/scene.js#atmosphere` used to read `look.ambient` from one `bandAt` of
-   the camera centre, so the whole-screen tint jumped 0.055 -> 0.440 in the
-   single frame the centre crossed world-Y 768. It now takes the area-weighted
-   mean of every visible band's claim, and this asserts the shape of that
-   weighting rather than a picture of it.
+   `view/scene.js#depthTint` gives every world row the tint its own band claims
+   and ramps adjacent bands into each other across a short span centred on their
+   seam. Two defects have lived here. One frame-wide alpha read off the camera
+   centre stepped the whole screen 0.055 -> 0.440 the frame the centre crossed
+   world-Y 768. An area-weighted mean over the visible bands removed that step
+   and left a milder wrong behind, because the mean depended on what else was in
+   frame and so the same rock changed brightness as the camera moved.
 
-   NUMBERS, NOT A SCREENSHOT. The tint is a flat alpha over the frame, so a
-   baseline of one camera position proves nothing about the position next to
-   it. `view/scene.js#stats.depthTint` records the alpha the last `render()`
-   actually used, which is what makes 240 consecutive camera rows assertable
-   in one test.
+   THE ASSERTION IS CAMERA-INVARIANCE, not continuity of a scalar. Each world
+   row is read from three camera alignments that put it at three different
+   screen rows, and the three readings must be bit-identical. That is the
+   property this design chose, and no frame-wide alpha can satisfy it.
 
-   THE BOUND IS DERIVED, NOT PICKED. Two bands share the viewport across a
-   seam and the weights are exact pixel areas, so one row of camera travel can
-   move the mean by at most the bands' ambient gap over the viewport height.
-   `1.1` is `atmosphere`'s own alpha slope. At the 200 px floor that is
-   0.00193 for the surface/topsoil gap, against the 0.385 the old code stepped
-   by -- a factor of 200. The bound assumes the viewport lies inside the world,
-   which `shell/main.js#clampCam` guarantees for `cam.y` and both sweeps below
-   stay within; a viewport overhanging the world edge covers fewer rows and so
-   moves the mean faster per row, though still continuously.
+   NUMBERS, NOT A SCREENSHOT. `view/scene.js#stats.tint` records the alpha per
+   SCREEN row, written by the loop that issues the rects, so the whole 3,328-row
+   world is readable in 17 draws per alignment rather than one baseline per
+   camera position.
+
+   THE STEP BOUND IS A LEGIBILITY BOUND, NOT A COPY OF THE SPAN. One row of the
+   ramp must not move a composited pixel by more than 5 of 255 against `abyC`,
+   which is about where a single row starts to read as a drawn line. Any ramp
+   from 20 rows up satisfies it; a hard edge at the seam (0.385) does not.
    ============================================================ */
 
-/* Park the camera at each world row in `[from, to]`, draw, and report the
-   alpha. `cam.y` rather than a walk: the subject is the camera, and 240 real
-   crossings driven by a player would take 240 shafts. */
-const tintSweep = (page, from, to) => page.evaluate(async ({ from, to }) => {
+/* Alpha per world row over `[0, worldBottom)`, assembled from tiled camera
+   positions. `phase` shifts every camera position, so a given world row lands
+   at a different screen row in each profile -- which is what makes comparing
+   two profiles a test of camera-invariance rather than of repeatability. */
+const tintProfile = (page, buffer, phase) => page.evaluate(async ({ buffer, phase }) => {
   const { stats } = await import('/src/view/scene.js');
   const { VIEW } = await import('/src/core/canvas.js');
-  const { BANDS } = await import('/src/data/world.js');
-  const out = [];
-  for (let y = from; y <= to; y++) {
-    __mf.cam.y = y;
+  const { bands } = await import('/src/model/world.js');
+  __mf.resize(buffer, buffer);
+  const H = VIEW.h;
+  const last = bands[bands.length - 1];
+  const bottom = last.origin.y + last.th * last.tile;
+  const out = Array.from({ length: bottom }, () => -1);
+  let draws = 0;
+  for (let cy = -phase; cy < bottom; cy += H) {
+    __mf.cam.y = cy;
     __mf.draw();
-    out.push(stats.depthTint);
+    draws++;
+    for (let i = 0; i < H; i++) {
+      const wy = cy + i;
+      if (wy >= 0 && wy < bottom) out[wy] = stats.tint[i];
+    }
   }
-  let gap = 0;
-  for (let i = 1; i < BANDS.length; i++)
-    gap = Math.max(gap, Math.abs((BANDS[i].look?.ambient ?? 1) - (BANDS[i - 1].look?.ambient ?? 1)));
-  return { out, H: VIEW.h, bound: gap * 1.1 / VIEW.h };
-}, { from, to });
+  return { out, H, bottom, draws };
+}, { buffer, phase });
 
-const tintAt = (page, y) => page.evaluate(async cy => {
-  const { stats } = await import('/src/view/scene.js');
-  __mf.cam.y = cy;
-  __mf.draw();
-  return stats.depthTint;
-}, y);
-
-test('17l: the depth tint has no step at either band seam', async ({ page }) => {
+test('17l: the depth tint is world-anchored, and a seam ramps rather than steps', async ({ page }) => {
   const errors = await boot(page);
   await settle(page);
 
-  /* The 200 px floor, because astral is 320 px tall and the desktop buffer is
-     400 px high -- a viewport that never fits inside astral cannot show what
-     the tint reads deep inside it. */
-  await page.evaluate(() => __mf.resize(400, 400));
+  /* The 200 px floor and the 400 px desktop buffer. Astral is 320 px tall, so
+     it fits inside the first and never inside the second -- which is exactly
+     the case the area-weighted mean got wrong, and the reason both are here. */
+  for (const buffer of [400, 800]) {
+    const a = await tintProfile(page, buffer, 0);
+    const b = await tintProfile(page, buffer, 37);
+    const c = await tintProfile(page, buffer, 113);
+    expect(a.H).toBe(buffer / 2);
+    expect(a.bottom).toBe(3328);
 
-  /* A seam's whole transition is exactly one viewport height of camera
-     travel, so each sweep starts H rows above the seam and ends 20 past it. */
-  const astral = await tintSweep(page, 320 - 200 - 20, 320 + 20);
-  const topsoil = await tintSweep(page, 768 - 200 - 20, 768 + 20);
-  expect(astral.H).toBe(200);
-
-  for (const s of [astral, topsoil]) {
-    let worst = 0, at = 0;
-    for (let i = 1; i < s.out.length; i++) {
-      const d = Math.abs(s.out[i] - s.out[i - 1]);
-      if (d > worst) { worst = d; at = i; }
+    /* CAMERA-INVARIANCE. Bit-identical, not close: the alpha is a function of
+       the world row, so three different screen placements of that row compute
+       the same double. */
+    let worstInv = 0, atInv = -1;
+    for (let wy = 0; wy < a.bottom; wy++) {
+      const d = Math.max(Math.abs(b.out[wy] - a.out[wy]), Math.abs(c.out[wy] - a.out[wy]));
+      if (d > worstInv) { worstInv = d; atInv = wy; }
     }
-    /* 1e-12 absorbs float reassociation in the weighted mean, and is five
-       orders below the bound it is added to. */
-    expect(worst, `worst step ${worst} at index ${at}`).toBeLessThanOrEqual(s.bound + 1e-12);
+    expect(worstInv, `H=${a.H}: worst camera-dependence ${worstInv} at world row ${atInv}`).toBe(0);
+
+    /* NO ROW WAS MISSED. -1 is the fill the profile starts at. */
+    expect(a.out.indexOf(-1)).toBe(-1);
+
+    /* NO HARD EDGE ANYWHERE IN THE WORLD. */
+    let worstStep = 0, atStep = -1;
+    for (let wy = 1; wy < a.bottom; wy++) {
+      const d = Math.abs(a.out[wy] - a.out[wy - 1]);
+      if (d > worstStep) { worstStep = d; atStep = wy; }
+    }
+    expect(worstStep, `H=${a.H}: worst row step ${worstStep} at world row ${atStep}`)
+      .toBeLessThanOrEqual(5 / 255);
+
+    /* EXACT INTERIORS, AT BOTH BUFFERS. No neighbour bleeds in, which is what
+       the area-weighted mean did: at the 400 px buffer it put astral's interior
+       at 0.011 and surface's at anything from 0.048 to 0.228. */
+    expect(a.out[100]).toBe(0);
+    expect(a.out[500]).toBeCloseTo(0.055, 10);
+    expect(a.out[2000]).toBeCloseTo(0.44, 10);
+
+    /* THE RAMP IS REAL. At each seam, count the rows strictly between the two
+       interior values it joins. A full tile's worth at least, so the ramp
+       cannot degenerate into a two-row dither and still pass the step bound. */
+    for (const [seam, lo, hi] of [[320, 0, 0.055], [768, 0.055, 0.44]]) {
+      let n = 0;
+      for (let wy = seam - 40; wy <= seam + 40; wy++)
+        if (a.out[wy] > lo + 1e-9 && a.out[wy] < hi - 1e-9) n++;
+      expect(n, `H=${a.H}: ramp rows at world-Y ${seam}`).toBeGreaterThanOrEqual(8);
+    }
+
+    /* NOT VACUOUS. The three interiors must be three different numbers, or
+       every assertion above is measuring one constant. */
+    expect(new Set([a.out[100], a.out[500], a.out[2000]]).size).toBe(3);
   }
-
-  /* MONOTONE DOWNWARD. A mean that stepped the right amount per row but in
-     the wrong direction would pass the bound above. */
-  for (const s of [astral, topsoil])
-    for (let i = 1; i < s.out.length; i++) expect(s.out[i]).toBeGreaterThanOrEqual(s.out[i - 1] - 1e-12);
-
-  /* BOTH STEADY STATES UNCHANGED. High in astral the screen takes no tint at
-     all, and deep in topsoil it takes the same 0.44 the single-band read gave
-     -- so the seam is fixed without re-grading either band's interior. */
-  expect(await tintAt(page, 0)).toBe(0);
-  expect(await tintAt(page, 2900)).toBeCloseTo(0.44, 6);
-
-  /* NOT VACUOUS. The two interiors must differ, or the sweeps above are
-     measuring a constant. */
-  expect(astral.out[0]).toBeLessThan(topsoil.out[topsoil.out.length - 1]);
 
   expect(errors).toEqual([]);
 });
