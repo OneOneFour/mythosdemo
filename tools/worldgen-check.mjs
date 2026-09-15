@@ -27,6 +27,11 @@ import { BANDS } from '../src/data/world.js';
 import * as boot from '../src/shell/boot.js';
 import { bands } from '../src/model/world.js';
 import { solidAt, subAt, tileAt, skyExposedAt, baseChargeAt } from '../src/model/tiles.js';
+/* THE ONE `view` IMPORT, and property 10 is what it is for. The number the
+   renderer actually stops the sky at, read from the module that defines it
+   rather than recomputed here. `view/paint.js` needs no canvas to import --
+   `core/canvas.js#offscreen` is only called from `chunkCanvas`. */
+import { skyBottomTy } from '../src/view/paint.js';
 
 let failures = 0;
 const fail = m => { console.error('  FAIL  ' + m); failures++; process.exitCode = 1; };
@@ -80,6 +85,14 @@ const surfaceCfg = BANDS.find(b => b.id === 'surface');
 const SPAWN_TX = surfaceCfg.spawnTx;
 const FLOOR_TY = surfaceCfg.floorTy;
 const RELIEF = surfaceCfg.strata.find(r => r.kind === 'relief').amp;
+const DIP = surfaceCfg.strata.find(r => r.kind === 'relief').dip ?? 0;
+
+/* A `dip` OF 0 MAKES PROPERTY 10 VACUOUS, so it fails here instead. That
+   property's whole job is to catch `view/paint.js#skyBottomTy` reading the
+   wrong field name, and at `dip` 0 the right answer and the wrong answer are
+   both `floorTy`. Lower the dip deliberately and this line is the one that
+   says what stops being checked. */
+if (DIP <= 0) fail(`the surface relief row declares dip ${DIP}; property 10 cannot tell a correct skyBottomTy from a broken one below 1`);
 
 /* The topmost solid row of a column, scanning from the sky down -- the same
    query `rules/generate.js#firstSolid` makes for the hollow-roof rule, asked
@@ -339,15 +352,17 @@ function checkSeed(seed) {
     let worstOver = 0, worstAt = -1;
     for (let tx = 0; tx < surface.tw; tx++) {
       const row = groundRow(surface, tx);
-      /* Ground may rise up to RELIEF tiles above floorTy, and never sit more
-         than one tile below it -- the one-row ragged LIP carve
-         (rules/generate.js#heightmap) is folded in AFTER the amp clamp and
-         can push a valley column exactly one row past floorTy. */
-      const over = Math.max(FLOOR_TY - RELIEF - row, row - (FLOOR_TY + 1));
+      /* BOTH BOUNDS ARE THE RELIEF ROW'S OWN, read off the same content the
+         generator reads -- `amp` rows of hilltop above floorTy and `dip` rows
+         of valley floor below it. The lower bound used to be a hardcoded
+         `floorTy + 1`, as room for the one-row ragged lip carve; wave 6 phase
+         6c stopped carving that in any band with a height map, and the ground
+         row then never reached floorTy + 1 on any of 200 seeds. */
+      const over = Math.max(FLOOR_TY - RELIEF - row, row - (FLOOR_TY + DIP));
       if (over > worstOver) { worstOver = over; worstAt = tx; }
     }
     if (worstOver > 0)
-      fail(`seed ${seed}: RELIEF -- column ${worstAt} at row ${groundRow(surface, worstAt)} is ${worstOver} tile(s) outside [floorTy-${RELIEF}, floorTy+1]`);
+      fail(`seed ${seed}: RELIEF -- column ${worstAt} at row ${groundRow(surface, worstAt)} is ${worstOver} tile(s) outside [floorTy-${RELIEF}, floorTy+${DIP}]`);
   }
 
   /* ---- 7 & 8. every hollow in surface + topsoil: roofed, and (in surface)
@@ -394,6 +409,29 @@ function checkSeed(seed) {
         }
       }
     }
+  }
+
+  /* ---- 10. the air over a valley floor has sky behind it ----
+     `view/paint.js#skyBottomTy` is the one row BOTH the sky ramp
+     (`view/scene.js#drawSky`) and the cut-rock test (`view/paint.js#excavated`)
+     stop at, and it finds this band's relief row by the literal string
+     `'relief'` and reads the literal field `dip`. Nothing else ties the two
+     together. Spell either wrong and `skyBottomTy` quietly returns `floorTy`,
+     every valley floor wears the black band `INK.void` again, and no other
+     assertion anywhere moves -- so this one asserts the number AND the terrain
+     it has to cover. ---- */
+  {
+    const want = FLOOR_TY + DIP;
+    const got = skyBottomTy(surface);
+    if (got !== want)
+      fail(`seed ${seed}: SKY FLOOR -- skyBottomTy is ${got}, but the relief row declares floorTy ${FLOOR_TY} + dip ${DIP} = ${want}`);
+    let worst = -1, worstAt = -1;
+    for (let tx = 0; tx < surface.tw; tx++) {
+      const row = groundRow(surface, tx);
+      if (row > worst) { worst = row; worstAt = tx; }
+    }
+    if (worst > got)
+      fail(`seed ${seed}: SKY FLOOR -- column ${worstAt}'s ground is row ${worst}, ${worst - got} row(s) below the deepest row the sky reaches (${got})`);
   }
 }
 
@@ -445,7 +483,7 @@ if (veinUnits.length) {
 }
 
 if (!failures) ok(`${SEEDS} seeds, 0 violations -- determinism, shelf, vein units, safe fall, ` +
-                  `step rule, relief budget, hollow roof, hollow exclusion, ore reachability`);
+                  `step rule, relief budget, sky floor, hollow roof, hollow exclusion, ore reachability`);
 else console.log(`\n  ${failures} FAILURE(S) over ${SEEDS} seeds`);
 
 /* Cheap rolling checksum, the same idiom tools/check.mjs#sumBytes uses --

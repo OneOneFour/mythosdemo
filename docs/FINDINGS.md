@@ -3301,3 +3301,58 @@ this phase found and did not own.
    four, which trades a lost save for a shuffled quickbar. That is a call for
    whoever owns the header's shape next; §27.3 lists four versions today and
    this would be a fifth.
+
+## Wave 6, phase 6s (spend `dip`, and make terraces read as slopes)
+
+- **A narrow-slot test would let `dip` go deeper than 2, and here is the
+  derivation for whoever wants it.** `view/paint.js#excavated` cannot tell a
+  valley from a shaft, so air inside the relief envelope reads as sky — and
+  the spawn shelf is pinned at `floorTy`, which makes the daylight collar on
+  the tutorial's own 5-tile hole exactly `dip` rows deep. That is the whole
+  reason `dip` is 2 rather than 4; photographed both ways at seed 1337, column
+  42. The reviewer's "`view` genuinely cannot separate the two cases" is right
+  about a per-column ground row and wrong about width, because a shaft is a SLOT and
+  a valley is not and the tile grid answers that. The test that works is "rock
+  within `W` columns on both sides, for `K` consecutive rows", and the
+  constants are forced rather than tuned. With the outward rise capped at 1
+  tile per column, the air width of a natural notch whose floor is at row `f`
+  is at least `2(f - r) + 1` at row `r`, so the middle column's distance to
+  rock is at least `f - r` and only rows `f-W..f` can look like a slot —
+  `W + 1` consecutive rows, doubled to `2W + 1` by the `STEP_BIG` descent
+  exception. A `w`-wide shaft needs `W >= w`, so `W = 2` and `K = 6` covers a
+  two-column shaft and cannot fire on natural ground. The cost is up to `2W`
+  `solidAt` reads per sky-exposed air tile in the chunk bake, which is noise
+  beside the `skyExposedAt` column walk already paid there. Not taken because
+  it rewrites the one rule phase 6r reasoned about at length and the phase
+  brief asked for `dip` plus paint, not a new discriminator.
+
+- **`tests/visual.spec.js:5447`'s `an ore blob against pale stone` header is
+  still factually wrong, and the review knew.** `docs/REVIEW-wave6-6c-6r.md`
+  D5 measured it. The claimed copper-against-granite window at tx 96-108 /
+  ty 109-111 holds no granite at HEAD, and the picture was already too dark to
+  show either substance before 6c. This phase re-accepted that baseline along
+  with 71 others (the surface profile moved) and did not repair the comment,
+  because the honest repair is re-picking a seed and a window for a scene whose
+  subject is a substance contact, which is a different phase's judgement about
+  what the picture is for.
+
+- **`grassCap` is now three decorations in one function**, and the third one
+  draws OUTSIDE its own cell horizontally for the first time. `EXTENT.grassCap`
+  was already 1 tile for the drape, so the chunk margin covered it with no
+  change — but the reach is now used in every direction rather than downward
+  only, and `bank` clamps its own `bevel` against it for exactly the reason
+  `canopy` clamps its span. A row asking for `bevel: 12` gets 8.
+
+- **What the bank does NOT fix, measured and specific.** The turf line now
+  runs level-diagonal-level, but the turf/SOIL boundary underneath it is still
+  a staircase, because turf is a whole tile and the tile below a tread is a
+  whole tile one row down. So a flank reads as a grass slope laid over a
+  stepped brown mass, and the green band is 8 px thick on a flat tread and up
+  to 16 px in the corner of a step where the bank stacks on the cap below it.
+  The fix is one more wedge, in soil tones, over the complementary triangle of
+  the LOWER cap tile -- at offset `j` px into that tile the turf surface is at
+  row `j`, so everything at or past row `j + 8` is more than a tile below the
+  surface and should be soil rather than green. That needs `decorate` to hand
+  `grassCap` the resolved rock tones off `paint.js#look` (a swatch, per the
+  no-substance-names rule) and it repaints turf the same function just
+  painted, which is why this phase stopped at the silhouette.

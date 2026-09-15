@@ -199,6 +199,13 @@ export const TREAT = {
      makes a step read as a bank of earth rather than as a block. That drape is
      why `EXTENT.grassCap` is 1 tile and not 0.
 
+     AND IT BANKS ACROSS A ONE-TILE STEP. The drape softens a riser; it cannot
+     change the silhouette, and the silhouette is where a hillside reads as a
+     flight of stairs. `bank` below fills the notch above the lower tread on
+     the diagonal, so the outline runs level, diagonal, level and consecutive
+     steps join into one continuous slope. `paint.js#banked` decides where,
+     because which neighbour is a one-tile step is `model` geometry.
+
      `paint.js` calls this only when `skyExposedAt` is true. Read the soil row's
      own comment in `data/substances.js` before widening anything here: a
      generic "any air above" test painted grass on cave ceilings. */
@@ -221,6 +228,12 @@ export const TREAT = {
     const drape = Math.min(p.drape ?? 4, EXTENT.grassCap * t);
     if (c.openL) lip(g, c.px, c.py + t, drape, c.tx, c.ty, low, dark, false);
     if (c.openR) lip(g, c.px + t, c.py + t, drape, c.tx, c.ty, low, dark, true);
+
+    /* Clamped against the declared reach for the reason the canopy's span is,
+       because a bank wider than the chunk margin is cut at every seam. */
+    const reach = Math.min(p.bevel ?? t, EXTENT.grassCap * t);
+    if (c.bankL) bank(g, c.px, c.py, t, reach, c.tx, c.ty, false, col, low, dark);
+    if (c.bankR) bank(g, c.px + t, c.py, t, reach, c.tx, c.ty, true, col, low, dark);
   },
 
   /* A LADDER: TWO RAILS AND A RUNG PITCH THAT DOES NOT KNOW WHERE THE TILES
@@ -539,6 +552,51 @@ function lip(g, x, y, depth, tx, ty, near, far, right) {
     if (k > 0 && hash2(tx * 7 + k, ty * 3 + (right ? 11 : 5)) < 0.28) break;
     const w = 1 + ((hash2(tx * 17 + k, ty * 29 + (right ? 5 : 1)) * 2) | 0);
     R(g, right ? x - w : x, y + k, w, 1, k < depth - 2 ? near : far);
+  }
+}
+
+/* THE OUTER CORNER OF A ONE-TILE STEP, CHAMFERED IN TURF -- the whole of
+   "terraces read as slopes", and it is paint rather than terrain (CLAUDE.md
+   D7). The +-1-tile-per-column slope limit cannot be relaxed, because
+   `rules/player.js#moveX`'s auto-step clears exactly one tile and a 2-tile
+   rise is therefore a wall the hills would stop being walkable over. All that
+   limit can draw is treads and risers, and at 8 px to the tile a run of them
+   is a staircase.
+
+   So this fills the notch over the lower tread on the diagonal, one pixel
+   wider per row down, hugging the riser, in the turf the tread already wears.
+   The outline then runs level, diagonal, level, and two steps in a row join
+   into one bank instead of reading as two stairs. The cells stay AIR, so
+   collision, the auto-step and the fall table are untouched and the player
+   walks through a bank exactly as they walk through a canopy.
+
+   `x` is the riser's own edge (the tile's far column for a right bank, its
+   near column for a left one) and `y` the tile's top row, both in destination
+   pixels. Each row takes a positional +1 px on its own hash, so the diagonal
+   is a bank of earth rather than a ruled line.
+
+   `TURF_LIT` px of each row stay in the bright tone, measured from the OUTER
+   end, because that end is the surface and the rest is under it -- the same
+   statement the cap's own `lowH` makes vertically. */
+const TURF_LIT = 5;
+
+function bank(g, x, y, t, reach, tx, ty, right, col, low, dark) {
+  for (let k = 0; k < t; k++) {
+    const jag = hash2(tx * 13 + k, ty * 41 + (right ? 3 : 19)) < 0.42 ? 1 : 0;
+    const w = Math.min(reach, k + 1 + jag);
+    const x0 = right ? x : x - w;
+    const edge = right ? x0 + w - 1 : x0;
+    R(g, x0, y + k, w, 1, col);
+    if (w > TURF_LIT)
+      R(g, right ? x0 : x0 + TURF_LIT, y + k, w - TURF_LIT, 1, low);
+    /* A tuft on the slope, one row ABOVE the outer pixel, which is open air
+       because the row above this one is a pixel narrower. The flat cap
+       scatters the same 1 px tufts along its top edge, and without them the
+       diagonal is the one hard-ruled line left in the silhouette. Never one
+       pixel further OUT, which would reach past `EXTENT.grassCap` and be
+       clipped at a seam. */
+    if (hash2(tx * 7 + k * 3, ty * 23 + k) < 0.35) R(g, edge, y + k - 1, 1, 1, col);
+    if (hash2(tx * 11 + k, ty * 29 + k * 5) < 0.28) R(g, edge, y + k, 1, 1, dark);
   }
 }
 

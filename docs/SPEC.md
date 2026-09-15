@@ -939,7 +939,7 @@ are gone.
 | number | value | where | meaning |
 |---|---|---|---|
 | `amp` | 10 | strata row (`RELIEF`, 6, is the default) | rows of hilltop above `floorTy`, 80 px at an 8 px tile |
-| `dip` | absent, so 0 | strata row | rows of valley floor below `floorTy` — see below |
+| `dip` | 2 | strata row | rows of valley floor below `floorTy` — see below |
 | `TREND_PERIOD` | 40 tiles | `generate.js` | lattice spacing of the one trend octave |
 | `TREND_SHARE` | 0.20 | `generate.js` | the trend's amplitude either way from its centre, as a fraction of `amp + dip` |
 | `HILL_SPACING` | 20 tiles | `generate.js` | tiles of world per summit, so 6 over a 128-column band |
@@ -956,8 +956,11 @@ The blend is smoothstepped rather than linear. A linear ramp out of a flat
 shelf holds one slope for its whole width, so it renders as a flight of
 stairs. The S-curve leaves the shelf flat, steepens in the middle and settles
 into the landform, which renders as the foot of a slope. It also widens the
-guaranteed-flat ground at spawn from `SHELF`'s 19 columns to 21–23 measured,
-which §5's beat 6 only benefits from.
+guaranteed-flat ground at spawn from `SHELF`'s 19 columns to 21–45, median 24,
+which §5's beat 6 only benefits from. That is the same metric as the longest
+flat run in the table below, and measured over seeds 1..200 the two are equal
+on every seed — the longest flat stretch a seed has IS the spawn shelf and its
+blend.
 
 A summit is one column per slice of `HILL_SPACING`, at a random column inside
 it, so the spacing is irregular but no seed gets a dead plain. Each summit is
@@ -972,23 +975,41 @@ Measured over 200 seeds, reading the ground row the way
 
 | | three summed octaves | the landform pipeline |
 |---|---|---|
-| direction changes per 128 columns | 26–57, median 43 | 4–15, median 8 |
-| flat columns | 45–69%, median 57% | 54–79%, median 67% |
-| highest hilltop above `floorTy` | 2–6 rows | 6–10 rows |
-| steps over 1 tile, per seed | 0–3, median 1 | 0–1, median 0 |
-| longest flat run | 19–29 columns | 21–38 columns |
+| direction changes per 128 columns | 26–57, median 43 | 5–13, median 8 |
+| flat columns | 45–69%, median 57% | 55–80%, median 69% |
+| highest hilltop above `floorTy` | 2–6 rows | 4–10 rows, median 8 |
+| deepest valley below `floorTy` | 0 rows, always | 0–2 rows, median 1 |
+| steps over 1 tile, per seed | 0–3, median 1 | 0–1, 0.065 per seed |
+| longest flat run | 19–29 columns | 21–45 columns, median 24 |
 
-**Relief runs UP from `floorTy`, and the sky reaches past the horizon.**
+The landform column is measured at `dip:2`; the three-octave column is the
+generator this replaced, at `dip:0`, which had no way to go below the datum at
+all. 111 seeds of 200 now carry at least one column below it.
+
+**Relief runs BOTH WAYS from `floorTy`, and the sky reaches past the horizon.**
 `heightmap()` takes a downward budget and honours it, so a valley floor below
-the declared ground line is one content number away — the `dip` on the strata
-row, still 0 and spent by wave 6 phase 6s. What used to block it was
-`view/scene.js#drawSky`, which painted sky only down to `floorTy * tile` and
-left `INK.void` below that row, so a valley floor under `floorTy` wore a black
-band instead of sky. Both passes now read one number,
-`view/paint.js#skyBottomTy`: `floorTy` plus the band's own `dip`. `drawSky`
-continues its haziest step down to that row, and `excavated` calls an air tile
-cut rock at or past it. Landed by phase 6r, and pixel-neutral while `dip` is
-0 — the extension is zero rows tall, so it costs neither a rect nor a pixel.
+the declared ground line is the `dip` on the strata row, spent at 2 by wave 6
+phase 6s. What used to block it was `view/scene.js#drawSky`, which painted sky
+only down to `floorTy * tile` and left `INK.void` below that row, so a valley
+floor under `floorTy` wore a black band instead of sky. Both passes now read
+one number, `view/paint.js#skyBottomTy`, which is `floorTy` plus the band's
+own `dip`.
+`drawSky` continues its haziest step down to that row, and `excavated` calls
+an air tile cut rock at or past it. Landed by phase 6r.
+
+**`dip` recentres the profile; it does not only cut valleys.** The trend
+octave is centred on `reach - dip`, so raising `dip` lowers the whole
+landscape relative to the datum and the spawn shelf becomes a plateau rather
+than the lowest ground in the band. That is the point of spending it, and it
+is also why the spend is small — see the cap below.
+
+**`tools/worldgen-check.mjs` property 10 is what holds the two numbers
+together.** `skyBottomTy` finds the relief row by the literal `'relief'` and
+reads the literal `dip`; spell either wrong and it silently returns `floorTy`,
+the black band comes back, and nothing else in any checker moves. Property 10
+asserts `skyBottomTy(surface) === floorTy + dip` and that no ground row over
+200 seeds is deeper than it, and the file refuses a `dip` of 0 outright,
+because at 0 the correct answer and the broken one are the same number.
 
 **`excavated` stays a union, and the depth term is not removable.** A valley
 and a hand-dug shaft are the same geometry, one sky-exposed column, and
@@ -996,9 +1017,20 @@ nothing in `model` records the height map the generator started from — so
 `view` cannot tell them apart. Inside the relief envelope the landscape itself
 may be open air, so the sky wins; past it the player dug, so the cavity
 texture wins and a shaft stays a lit hole rather than a slot of daylight.
-Measured at a temporary `dip:4`, seed 1337: the valley at column 17 reads as
-sky, a shaft at column 30 reads as a lit hole with a daylit collar, and a
-tunnel driven into the hilltop at column 76 is still a cavity.
+Photographed at `dip:2`, seed 17. The valley floor at column 22 reads as open
+sky down to row 22, a shaft sunk from that floor reads as a warm lit hole, and
+a tunnel driven sideways into a hilltop is still a cavity.
+
+**THE COST OF `dip` IS PAID AT SPAWN, AND IT IS WHY `dip` IS 2.** A shaft
+inside the relief envelope reads as sky for as long as it stays inside it, and
+the spawn shelf is pinned at exactly `floorTy` — so the daylight collar on the
+hole §5 beat 3 sends the player to dig is exactly `dip` rows deep. That hole
+is a 5-tile dig to the guaranteed vein's top at row 25. At `dip:4` four of
+those five rows are sky and the first hole in the game reads as a slot of
+daylight; at 2 it reads as light spilling into the mouth of a dark hole. Both
+were photographed before the number was chosen. A phase that wants a deeper
+`dip` needs a way to tell a shaft from a valley first; `docs/FINDINGS.md`
+(phase 6s) records one, and why it was not taken here.
 
 The datum does not move either way — CLAUDE.md D9 anchors the HUD gauge and
 `cyclops_maw`'s `minDepth` to `floorTy`, and §16 never touches it.
@@ -1036,7 +1068,7 @@ always. A DESCENT away from spawn may take `STEP_BIG` where both its columns
 are outside `SAFE_R + 1` and the last big step was `STEP_GAP` columns ago.
 Down is free, so walking out is never blocked, and the landform pipeline
 leaves so little for this pass to do that a two-tile drop now turns up in
-roughly one seed in ten (0.1 per seed over 200, against 0.8 before). Walking
+roughly one seed in fifteen (0.065 per seed over 200, against 0.78 before). Walking
 back up one wants a dig or a ladder, which is the premise, not a bug.
 
 **Walkability is measured, not asserted.** Two ways, both over the live bands
@@ -1048,6 +1080,33 @@ thing that stops that walk is a standing tree trunk, which is 3 to 5 tiles of
 `solid:true` timber and clears neither the auto-step nor the hop. That is
 unchanged behaviour and predates the pipeline — the same 12 seeds stall at the
 same trunks under the three-octave generator.
+
+**The ±1 limit stays, and the terracing it causes is answered in PAINT.**
+One tile per column on an 8 px tile can only draw a hillside as treads and
+risers, and the limit cannot be relaxed, because the auto-step clears exactly
+one tile and a 2-tile rise is therefore a wall the hills stop being walkable
+over. So `view/treatments.js#grassCap` chamfers the outer corner of every
+one-tile step — the notch over the lower tread is filled on the diagonal, one
+pixel wider per row down, in the turf the tread already wears, with the turf's
+own 1 px tufts scattered along the new edge. The outline then runs level,
+diagonal, level, and two steps in a row join into one bank. CLAUDE.md D7:
+it is a `TREAT` entry reached from a `look:{}` row, deterministic from tile
+coordinates through `hash2`, at zero tile cost, zero substance rows and no
+collision change at all — the cells stay air and the player walks through a
+bank exactly as they walk through a canopy.
+
+Three numbers, all in `view/treatments.js`: the chamfer reaches `bevel` px
+horizontally (default one tile, so 45°, clamped to `EXTENT.grassCap`), `5` px
+of each row stay in the bright turf tone measured from the outer end, and a
+positional hash widens a row by 1 px 42% of the time so the diagonal is a bank
+of earth rather than a ruled line. A row opts out with `bevel: 0`, which is
+also how `tests/visual.spec.js`'s "the turf bank is not a no-op" proves the
+pixels differ with it off.
+
+**A `STEP_BIG` face is deliberately NOT chamfered.** The bank fires only where
+the cell below the neighbour is a turfed surface tile — one row down, never
+two — so the steepest face the generator produces stays a cliff. That is what
+`cliff-face.png` photographs, and both readings are in the one frame.
 
 ### 16.3 The contact zone (`kind:'contact'`)
 

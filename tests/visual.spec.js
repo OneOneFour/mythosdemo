@@ -5704,16 +5704,101 @@ test('surface hills', async ({ page }) => {
   await shot(page, 'surface-hills.png');
 });
 
+/* THE PICTURE ABOVE IS NOT A NO-OP EITHER, and this is the half of it a
+   human cannot check by eye. `view/treatments.js#grassCap`'s bank chamfers
+   the outer corner of every one-tile step, which is most of what stops the
+   frame above reading as terraces -- but it paints turf over turf, so
+   "with it" and "without it" are two plausible hillsides rather than one
+   obviously broken one. A canvas hash over the same scene twice is the
+   honest version of the claim, the same way the unlit relic proves its own.
+
+   `bevel: 0` is how a content row opts out. Poking it here reaches into a
+   `data/` row, which `Object.freeze` guards only at the top level -- test
+   only, and the page is torn down after. `resetChunks()` is what makes the
+   second draw a real repaint, because the chunk canvases are keyed on a model
+   version counter that a look change does not move. */
+test('the turf bank is not a no-op', async ({ page }) => {
+  await boot(page);
+  const hashOf = () => page.evaluate(() => {
+    const c = document.getElementById('stage');
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let h = 2166136261;
+    for (let i = 0; i < d.length; i += 4) {
+      h ^= d[i] | (d[i + 1] << 8) | (d[i + 2] << 16);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  });
+
+  const frame = (page, off) => page.evaluate(async off => {
+    const { bandOf } = await import('/src/model/world.js');
+    const { write: rw, run } = await import('/src/model/run.js');
+    const { banner } = await import('/src/view/fx.js');
+    const { S, SUB } = await import('/src/data/substances.js');
+    const { resetChunks } = await import('/src/view/paint.js');
+
+    __mf.newRun(1337); __mf.clock.t = 10; __mf.frames(2);
+    while (run.tutorialBeat < 4) rw.advanceBeat();
+    if (off) SUB[S.soil].look.grassCap.bevel = 0;
+    resetChunks();
+    const band = bandOf('surface');
+    __mf.revealAll(band);
+    banner.fade = 0;
+    __mf.cam.x = band.origin.x;
+    __mf.cam.y = band.origin.y;
+    __mf.draw();
+  }, off);
+
+  await frame(page, false);
+  const banked = await hashOf();
+  await frame(page, true);
+  const flat = await hashOf();
+
+  expect(banked).not.toBe(flat);
+});
+
 /* A CLIFF FACE. `rules/generate.js#stepPass` permits a 2-tile step
    (`STEP_BIG`) outside `SAFE_R` of spawn, no closer together than
-   `STEP_GAP` columns -- the steepest face the generator will ever produce.
-   At seed 1337 it fires exactly once, at tx 109 (found by walking the
-   generated heightmap column by column, skipping tree-trunk columns so a
-   lone trunk is never mistaken for a step in the ground itself). */
+   `STEP_GAP` columns -- the steepest face the generator will ever produce,
+   and the one face `view/treatments.js#grassCap`'s bank deliberately does
+   NOT chamfer, so the picture holds a real cliff and banked one-tile steps
+   side by side.
+
+   SEED 58, tx 70 -> 71, rows 10 -> 12, and the step assertion below is what
+   keeps that sentence true. It was seed 1337 / tx 109 until wave 6. The
+   landform pipeline left that seed with no step over one tile anywhere in
+   the surface band, so the test went on photographing a region with no cliff
+   in it and only the comment noticed. 21 of the first 400 seeds carry a big
+   step outside the spawn shelf and its `SAFE_R`; 58 puts its own at tx 70,
+   which centres in frame at every viewport this suite uses. */
+const CLIFF_SEED = 58, CLIFF_TX = 70;
+
 test('a cliff face', async ({ page }) => {
   await boot(page);
-  await settle(page);
-  await page.evaluate(async () => {
+  await settle(page, CLIFF_SEED);
+  /* THE CLIFF IS ASSERTED, NOT ASSUMED. A screenshot cannot tell a 2-tile
+     face from a 1-tile one, so the geometry is read off the live band the
+     same way `tools/worldgen-check.mjs#groundRow` reads it -- topmost solid
+     row per column, skipping timber so a trunk is never mistaken for
+     ground. */
+  const steps = await page.evaluate(async tx0 => {
+    const { bandOf } = await import('/src/model/world.js');
+    const { solidAt, subAt } = await import('/src/model/tiles.js');
+    const { S } = await import('/src/data/substances.js');
+    const band = bandOf('surface');
+    const ground = c => {
+      for (let ty = 0; ty < band.th; ty++)
+        if (solidAt(band, c, ty) && subAt(band, c, ty) !== S.timber) return ty;
+      return band.th;
+    };
+    let big = 0;
+    for (let c = 0; c < band.tw - 1; c++) if (Math.abs(ground(c + 1) - ground(c)) > 1) big++;
+    return { at: ground(tx0 + 1) - ground(tx0), big, row: ground(tx0) };
+  }, CLIFF_TX);
+  expect(steps.at).toBe(2);        // descending away from spawn, so positive
+  expect(steps.big).toBe(1);       // and it is the only one in the band
+
+  await page.evaluate(async ({ tx0, row }) => {
     const { bandOf, worldX, worldY } = await import('/src/model/world.js');
     const { write: rw, run } = await import('/src/model/run.js');
     const { VIEW } = await import('/src/core/canvas.js');
@@ -5723,10 +5808,10 @@ test('a cliff face', async ({ page }) => {
     const band = bandOf('surface');
     __mf.revealAll(band);
     banner.fade = 0;
-    __mf.cam.x = Math.round(worldX(band, 109) - VIEW.w / 2);
-    __mf.cam.y = Math.round(worldY(band, 12) - VIEW.h / 2);
+    __mf.cam.x = Math.round(worldX(band, tx0) - VIEW.w / 2);
+    __mf.cam.y = Math.round(worldY(band, row + 2) - VIEW.h / 2);
     __mf.draw();
-  });
+  }, { tx0: CLIFF_TX, row: steps.row });
   await shot(page, 'cliff-face.png');
 });
 

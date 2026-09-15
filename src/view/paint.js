@@ -254,7 +254,9 @@ function decorate(g, b, tx, ty, dx, dy, clip) {
     px: dx, py: dy, tx, ty, tile: t, clip,
     openL: !solidAt(b, tx - 1, ty),
     openR: !solidAt(b, tx + 1, ty),
-    solidBelow: solidAt(b, tx, ty + 1)
+    solidBelow: solidAt(b, tx, ty + 1),
+    bankL: banked(b, tx - 1, ty),
+    bankR: banked(b, tx + 1, ty)
   };
   /* NATIVE only for a canopy: a placed log is a LADDER, and a ladder climbing
      out of a shaft into open sky satisfies every other condition a trunk top
@@ -265,6 +267,25 @@ function decorate(g, b, tx, ty, dx, dy, clip) {
   if (l.canopy && formAt(b, tx, ty) === NATIVE) TREAT.canopy(g, cell, l.canopy);
   if (l.grassCap) TREAT.grassCap(g, cell, l.grassCap);
 }
+
+/* IS THIS NEIGHBOURING CELL THE OUTER CORNER OF A ONE-TILE STEP, so the turf
+   beside it can bank across the corner (`view/treatments.js#grassCap`)? The
+   cell is open, the cell one row BELOW it is a turfed surface tile, and the
+   open cell has sky above it. `(tx, ty)` is the NEIGHBOUR's coordinate, not
+   the decorated tile's.
+
+   Two tiles down is a cliff and gets nothing, which is what keeps the bank an
+   answer to the +-1-tile slope limit rather than a way to hide a real face.
+   `look.grassCap` on the lower tile is the same key `decorate` dispatches on
+   rather than a third name check -- a bank joins two turfed treads, and a tree
+   trunk whose top happens to stand one row under a soil lip is not one.
+
+   EMPTY AIR rather than merely "not solid", because a rung is `solid:false`
+   and draws its own sprite in the rock pass -- a bank over one would bury a
+   placed ladder under turf on the next repaint. */
+const banked = (b, tx, ty) =>
+  tileAt(b, tx, ty) === AIR && solidAt(b, tx, ty + 1)
+  && !!rowAt(b, tx, ty + 1).look.grassCap && skyExposedAt(b, tx, ty);
 
 /* Excavated space: dark, with a floor lip and a hanging fringe, so the void
    reads as cut out of the rock rather than simply absent. */

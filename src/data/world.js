@@ -71,19 +71,37 @@ export const BANDS = [
     fields:['heat'],
     strata:[
       /* THE HEIGHT MAP, and it must be the first row: every boundary below
-         offsets by it. `amp` is rows of hilltop ABOVE `floorTy`; the pipeline
-         in `rules/generate.js#heightmap` also takes a `dip` for rows of
-         valley floor BELOW it, and this row deliberately declares none.
-         `view/scene.js#drawSky` paints sky only down to `floorTy * tile`, so
-         a valley floor under that row would have `INK.void` behind it and not
-         sky -- a black band along every valley bottom. docs/FINDINGS.md
-         (Phase 6c) records what has to land before `dip` can be spent.
+         offsets by it. `amp` is rows of hilltop ABOVE `floorTy` and `dip`
+         rows of valley floor BELOW it, so the envelope is rows 10..22 and the
+         pair is the whole of `rules/generate.js#heightmap`'s budget.
 
          10 rows is 80 px of relief in a 160 px sky, and it was 6 while relief
          was three summed octaves. A landform needs the room: at 6 the clamp
          flattened every summit into a mesa. The spawn shelf stays pinned flat
-         at 0 and blended out either side. */
-      { kind:'relief', amp:10 },
+         at 0 and blended out either side.
+
+         2 ROWS OF DIP, AND WHAT CAPS IT IS THE TUTORIAL'S OWN SHAFT.
+         `dip` recentres the trend octave, so it lowers the whole profile
+         rather than only cutting the valleys. At 2, 111 seeds in 200 carry a
+         column below the datum where 0 carried any, the flat fraction is
+         unchanged at a 69% median, and the deepest ground row over 200 seeds
+         is exactly `floorTy + dip`.
+
+         The price is paid at spawn, and it is why this is 2 and not 4.
+         `view/paint.js#excavated` cannot tell a valley from a shaft, so air
+         inside the relief envelope reads as SKY -- and the spawn shelf is
+         pinned at exactly `floorTy`, which makes the daylight collar on the
+         tutorial's own hole exactly `dip` rows deep. docs/SPEC.md section 5
+         beat 3 promises that hole is a 5-tile dig, so at 4 the first hole a
+         player digs is mostly sky and at 2 it reads as light spilling into
+         the mouth of a dark hole. Photographed both ways.
+
+         Both passes that paint the air over a valley floor read
+         `view/paint.js#skyBottomTy`, which is this number plus `floorTy`;
+         `tools/worldgen-check.mjs` property 10 asserts the two agree and
+         refuses a `dip` of 0 for making itself vacuous. The datum does not
+         move (CLAUDE.md D9), so a valley floor reads 2 M down on the gauge. */
+      { kind:'relief', amp:10, dip:2 },
       /* A shallow soil cap over the stone, so the exposed ground reads as
          dirt-with-grass (`soil`'s `hi` look) rather than bare rock. `lip:false`
          on the stone row is load-bearing: without it, `layer()`'s ragged-edge
