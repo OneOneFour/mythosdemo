@@ -3608,7 +3608,8 @@ Locked with `docs/PLAN-wave6.md` U5. Holding the dig button and sweeping
 already mined continuously — `cmd.mouse` latches at `pointerdown` and `aim`
 follows the pointer every frame — so what the queue adds is **not having to
 hold it**. A drag marks tiles; the player then mines marked tiles inside
-`eff('reach')`, nearest first, with no button held.
+`eff('reach')`, nearest first, with no button held. The queue **commits to one
+tile and finishes it** before asking which is nearest again (§28.6).
 
 **There is no pathfinding and no auto-walk.** A mark out of reach persists and
 resumes when the player walks into range, and the player does the walking. That
@@ -3643,9 +3644,12 @@ far as hand aim does.
 | `write.mark(b, tx, ty)` | `'ok'`, `'full'` at the cap, `'nothing'` for air, the world edge or an already-marked tile |
 | `write.unmark(b, tx, ty)` | drops one mark |
 | `write.prune()` | drops every stale mark; returns how many |
-| `write.clearAll()` | drops all of them |
+| `write.commit(b, tx, ty)` | records the mark `rules/mining.js` is working; coordinates with no live mark clear it instead |
+| `write.abandon()` | gives up the committed target, leaving the mark |
+| `write.clearAll()` | drops all of them, commitment included |
 | `markedAt(b, tx, ty)` | is there a live mark here |
 | `nearestWithin(px, py, reach)` | the nearest live mark within `reach` of a world point, or null |
+| `committedWithin(px, py, reach)` | the committed target, if it is still live and still within `reach`, or null |
 | `queued()` | the live map, for `view` to draw |
 | `activeCount()`, `isFull()` | size, and whether the cap is reached |
 
@@ -3676,7 +3680,9 @@ a function of the marked set rather than of the order it was painted in.
 
 - **A hand-aimed swing always wins.** While the dig button is held,
   `rules/mining.js` swings at the reticle and the queue waits, even if the
-  reticle is on air. The queue is what happens when nothing else is asking.
+  reticle is on air, and the commitment is abandoned rather than fought over.
+  The marks and the partial work stay; only the choice is given up. The queue
+  is what happens when nothing else is asking.
 - **Both routes go through one `swing`**, so a queued tile costs exactly the
   seconds a hand-swung one costs at any framerate (invariant 10). There is no
   second progress store and no second rate; `model/mining.js`'s float-seconds
@@ -3705,11 +3711,17 @@ breaking it on the frame they arrive.
 Invariant 8. Two mechanisms, and the first is the belt:
 
 1. `write.clearAll()` is what `shell/boot.js#newRun` must call, beside
-   `digw.clearAll()` and `growthw.clearAll()`.
+   `digw.clearAll()` and `growthw.clearAll()`. It drops the committed target
+   with the marks, because a commitment names one of them.
 2. A mark holds its **band record**, and `newRun` replaces every band record
    (`model/world.js#write.clear`, then `allocate` per row). So a mark of a
    previous run fails `bands[ord] === m.band` and is stale by construction,
    and `rules/mining.js` collects it on the first substep of the new run.
+
+The same identity test is what stops the committed target surviving a restart,
+because the commitment holds the mark record rather than its coordinates: a
+commitment whose band was reallocated reads as suspended and is dropped by the
+prune that collects its mark.
 
 The second exists because the first is not enough on its own reasoning: the
 same seed regenerates the same bytes at the same coordinates, so a byte test
@@ -3729,6 +3741,45 @@ draws nothing. Two things 6o owes this section:
   returns `'full'`. No `model` module imports `model/journal.js`, so the cap's
   refusal is the caller's to report, and every other refusal in this game is a
   journal row.
+
+### 28.6 The queue commits to one tile (Phase 6i-2)
+
+`nearestWithin` is asked **only when nothing is committed**. This is the
+hysteresis §23.2's pointerdown dispatch already applies to itself: decide once,
+then stop re-deciding every frame. Asking every substep does not work, and the
+number is 6i's own -- at `eff('walk')` (60 px/s) a column is the nearest mark
+for about 8 px of travel, 0.13 s against soil's 0.50 s hardness, so a player
+who paints a seam and walks along it finishes nothing.
+
+**Four things end a commitment**, and `committedWithin` answers all four from
+the record rather than needing a caller to notice them:
+
+| what happened | how it is seen | the mark |
+|---|---|---|
+| the tile broke, or was placed over | the byte on the record (`stale`) | gone, pruned |
+| the mark was dropped | the map no longer holds that record (`live`) | gone |
+| a restart replaced the band | the band record on the record (`stale`) | gone, invariant 8 |
+| the player walked out of range | `reach`, measured centre to centre | **kept, suspended** |
+
+Only the last is a suspension. The target goes back to being an ordinary mark
+and is picked up again by whichever query reaches it next, which is U5's
+"a mark out of reach persists and resumes when the player walks into range"
+applied to the one being worked. A hand-aimed swing abandons the commitment
+the same way (§28.3).
+
+**The committed target is `model` state, not a `rules` scalar,** for
+`model/aim.js`'s one reason: `view` draws which tile is being worked and `view`
+may not import `rules`. It is written only by `rules/mining.js`, exactly as the
+aim reticle is. `view` reads `committedWithin` with the same
+`playerCentre()`/`eff('reach')` pair the step passes, so a pass that drew a
+target as live while the step had already suspended it is not expressible.
+
+**One tile at a time is the visible consequence.** Two marks in reach break one
+after the other -- the first at its stated hardness, the second starting from
+zero once the first is gone -- rather than both creeping toward completion
+together. What it does not buy is a tile finished during a full-speed walk
+across a seam. That is bounded by reach geometry rather than by the retarget
+rule, and `docs/FINDINGS.md` (phase 6i-2) holds the arithmetic.
 
 ## 29. Named debug scenarios (Phase 6j)
 

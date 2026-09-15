@@ -35,7 +35,7 @@ import { AIR, F, NATIVE } from '../data/forms.js';
 import { S, SUB } from '../data/substances.js';
 import { DROPS } from '../data/drops.js';
 import { aim, write as aw } from '../model/aim.js';
-import { activeCount as markCount, nearestWithin, write as qw } from '../model/digqueue.js';
+import { activeCount as markCount, committedWithin, nearestWithin, write as qw } from '../model/digqueue.js';
 import { push } from '../model/journal.js';
 import { unitsCrossed, write as digw, workAt } from '../model/mining.js';
 import { write as iw } from '../model/items.js';
@@ -148,11 +148,19 @@ const trunkAt = (b, tx, ty) =>
 
 /* ---------- the step ----------
    TWO SOURCES OF A TARGET, AND THE HAND ALWAYS WINS. A held dig key swings at
-   the reticle; with nothing held, the dig queue supplies the nearest marked
-   tile inside `eff('reach')` (docs/SPEC.md section 28). Both routes go
-   through the one `swing` below, so a queued tile costs exactly the seconds a
-   hand-swung one costs at any framerate -- there is no second progress store
-   and no second rate (invariant 10). */
+   the reticle; with nothing held, the dig queue supplies a marked tile inside
+   `eff('reach')` (docs/SPEC.md section 28). Both routes go through the one
+   `swing` below, so a queued tile costs exactly the seconds a hand-swung one
+   costs at any framerate -- there is no second progress store and no second
+   rate (invariant 10).
+
+   THE QUEUE COMMITS TO ONE TILE AND FINISHES IT. `nearestWithin` is asked
+   only when nothing is committed, which is the same hysteresis
+   `shell/input.js`'s pointerdown dispatch applies to itself: decide once, then
+   stop re-deciding every frame. Re-deciding was measured and it does not work
+   -- at `eff('walk')` a column is the nearest mark for about 8 px of travel,
+   0.13 s against soil's 0.50 s, so a player who painted a seam and ran along
+   it finished nothing (docs/FINDINGS.md, phase 6i). */
 export function step(dt, cmd) {
   /* Stale marks are collected HERE, once per substep, and not inside the
      queries that notice them: `view` reads those queries and `view` may not
@@ -166,8 +174,12 @@ export function step(dt, cmd) {
   if (run.dead || !hasPick()) return;
 
   if (cmd.dig) {
+    /* The hand is the intent, so the queue's commitment goes with it rather
+       than being resumed the instant the button comes up somewhere else. The
+       marks stay and the partial work stays; only the choice is given up. */
+    qw.abandon();
     if (aim.valid && aim.band) swing(dt, aim.band, aim.tx, aim.ty);
-    return;                          // the hand is the intent; the queue waits
+    return;
   }
 
   /* NO PATHFINDING AND NO AUTO-WALK. Reach is measured from where the
@@ -185,8 +197,13 @@ export function step(dt, cmd) {
      THIS PICK once and then empties rather than 256 times. */
   if (markCount() === 0) return;
   const c = playerCentre();
-  const m = nearestWithin(c.x, c.y, eff('reach'));
-  if (!m) return;             // every mark is out of reach; they all persist
+  const reach = eff('reach');
+  let m = committedWithin(c.x, c.y, reach);
+  if (!m) {
+    m = nearestWithin(c.x, c.y, reach);
+    if (!m) return;           // every mark is out of reach; they all persist
+    qw.commit(m.b, m.tx, m.ty);
+  }
   if (!swing(dt, m.b, m.tx, m.ty)) qw.unmark(m.b, m.tx, m.ty);
 }
 

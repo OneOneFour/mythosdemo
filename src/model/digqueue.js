@@ -44,6 +44,15 @@
    is a `write`, called from `rules/mining.js#step`, and never folded into the
    query that notices them.
 
+   THE COMMITTED TARGET IS HERE AND NOT IN `rules/mining.js`, for
+   `model/aim.js`'s one reason: the HUD draws it. Which marked tile the pick is
+   actually working is what tells the tile being broken apart from the twenty
+   merely waiting, `view` may not import `rules`, and a module-local scalar in
+   `rules/mining.js` would be invisible to the layer that has to draw it.
+   The decision is still the rules' -- `write.commit` only stores what
+   `rules/mining.js` chose, exactly as `aim.js#write.set` stores where it
+   pointed.
+
    docs/SPEC.md section 28. */
 
 import { AIR } from '../data/forms.js';
@@ -56,12 +65,34 @@ const key = (b, tx, ty) => b.ord * 0x1000000 + idx(b, tx, ty);
 
 export const marks = { set: new Map() };
 
+/* The one mark `rules/mining.js` is committed to working until it is done with.
+   Holds the RECORD and not its coordinates, so a commitment cannot outlive the
+   mark it names: every test below is against the record's own identity. */
+const held = { m: null };
+
 /* Is this mark about a tile that no longer exists as it was? Broken by the
    queue, dug by hand, placed over, swallowed by the `chasm` miracle or grown
    into a trunk — one byte test covers all five. The identity test in front of
    it covers the sixth, which no byte test can see: the whole band was
    reallocated by a restart (see the header). */
 const stale = m => m.band !== bands[m.ord] || tileAt(m.band, m.tx, m.ty) !== m.byte;
+
+/* Is this record still THE mark at its coordinates? The identity test is what
+   `stale` cannot do: unmark and re-mark the same tile in one frame leaves a
+   fresh record with the same band and the same byte, and a committed target
+   must not go on naming the deleted one. */
+const live = m => !!m && marks.set.get(key(m.band, m.tx, m.ty)) === m && !stale(m);
+
+/* Squared distance in world px from a point to a marked tile's own middle. The
+   single implementation both the nearest query and the committed target are
+   measured with, so what suspends a target can never disagree with what would
+   have selected it. */
+function d2(m, px, py) {
+  const b = m.band;
+  const dx = worldX(b, m.tx) + b.tile / 2 - px;
+  const dy = worldY(b, m.ty) + b.tile / 2 - py;
+  return dx * dx + dy * dy;
+}
 
 /* The hard cap on marks, floored at 1: a queue that can hold nothing is a
    feature that silently does not exist. */
@@ -99,11 +130,34 @@ export const write = {
 
   /* No bump when there was nothing to delete, for `model/growth.js#clear`'s
      reason: a drag that sweeps back over open sky calls this per tile. */
-  unmark(b, tx, ty) { if (marks.set.delete(key(b, tx, ty))) bump(); },
+  unmark(b, tx, ty) {
+    const k = key(b, tx, ty);
+    const m = marks.set.get(k);
+    if (!m) return;
+    marks.set.delete(k);
+    if (held.m === m) held.m = null;
+    bump();
+  },
 
   prune,
 
-  clearAll() { marks.set.clear(); bump(); }
+  /* COMMIT TO A MARK. `rules/mining.js` decides which; this stores it, and
+     `committedWithin` below is what makes the choice stick. Committing to
+     coordinates that carry no live mark clears the commitment instead of
+     inventing one. */
+  commit(b, tx, ty) {
+    const m = marks.set.get(key(b, tx, ty));
+    const next = m && !stale(m) ? m : null;
+    if (next === held.m) return;
+    held.m = next;
+    bump();
+  },
+
+  /* Give up the commitment without touching the mark. What a hand-aimed swing
+     does to it, and what a mark leaving the set does to it. */
+  abandon() { if (held.m) { held.m = null; bump(); } },
+
+  clearAll() { marks.set.clear(); held.m = null; bump(); }
 };
 
 /* Drops every mark whose tile is not the tile it was marked on. Called once
@@ -112,7 +166,11 @@ export const write = {
    entry mid-iteration is defined behaviour for a `Map`. */
 function prune() {
   let gone = 0;
-  for (const [k, m] of marks.set) if (stale(m)) { marks.set.delete(k); gone++; }
+  for (const [k, m] of marks.set) if (stale(m)) {
+    marks.set.delete(k);
+    if (held.m === m) held.m = null;
+    gone++;
+  }
   if (gone) bump();
   return gone;
 }
@@ -141,14 +199,35 @@ export function nearestWithin(px, py, reach) {
   let best = null, bestD = Infinity, bestK = Infinity;
   for (const [k, m] of marks.set) {
     if (stale(m)) continue;
-    const b = m.band;
-    const dx = worldX(b, m.tx) + b.tile / 2 - px;
-    const dy = worldY(b, m.ty) + b.tile / 2 - py;
-    const d = dx * dx + dy * dy;
+    const d = d2(m, px, py);
     if (d > reach * reach) continue;
-    if (d < bestD || (d === bestD && k < bestK)) { best = { b, tx: m.tx, ty: m.ty }; bestD = d; bestK = k; }
+    if (d < bestD || (d === bestD && k < bestK)) { best = { b: m.band, tx: m.tx, ty: m.ty }; bestD = d; bestK = k; }
   }
   return best;
+}
+
+/* THE COMMITTED TARGET, if it is still live and still within `reach` of the
+   point, else null. This is the whole of the hysteresis: `rules/mining.js`
+   asks this first and only falls back to `nearestWithin` when it answers
+   null, so a walking player's target stops changing faster than any tile can
+   break.
+
+   FOUR THINGS END A COMMITMENT and all four answer here rather than needing a
+   caller to notice them: the tile broke or was otherwise overwritten (`stale`),
+   the mark was dropped (`live`), the band was reallocated by a restart
+   (`stale` again, invariant 8), and the player walked out of range. Only the
+   last is a suspension -- the mark goes back to being an ordinary one and is
+   picked up again by whichever query reaches it next (docs/SPEC.md
+   section 28.3).
+
+   `reach` IS A PARAMETER for `nearestWithin`'s reason, and the two must be
+   passed the same one: `view` draws the target differently from a waiting
+   mark, and a `view` pass that thought the target was still in reach while
+   the step had already suspended it would draw a tile nothing is working. */
+export function committedWithin(px, py, reach) {
+  const m = held.m;
+  if (!live(m) || d2(m, px, py) > reach * reach) return null;
+  return { b: m.band, tx: m.tx, ty: m.ty };
 }
 
 /* The live map, for `view` to draw and for a debug read. Returned rather than

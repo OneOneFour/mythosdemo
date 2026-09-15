@@ -3475,3 +3475,30 @@ Four things outside the block, all measured against the fix in place.
   to recover the extremes would be re-buying the magnetism this phase removed,
   and a drop that lands beside a machine is invariant 5 working ("material that
   FALLS IN is free"), so no tuning row moved.
+
+## Phase 6i-2 — the dig queue commits to a target (`docs/SPEC.md` §28.6)
+
+One thing parked, and it is the headline case's remaining half. Nothing was
+fixed outside the ownership block (`src/rules/mining.js`,
+`src/model/digqueue.js`, `docs/SPEC.md` §28).
+
+- **A full-speed walk across a seam still finishes no soil tile, and the bound
+  is reach geometry rather than the retarget rule.** The commitment doubled
+  what each tile receives, from 6i's 0.13 s to 0.27 s, and the arithmetic says
+  0.50 s is out of range for any rule that retargets to the NEAREST mark. A
+  marked tile one row under the player's feet sits 19.8 px below their centre,
+  so `eff('reach')` (25.6 px) admits it within ±16.3 px horizontally — 32.6 px
+  of travel, 0.54 s at `eff('walk')` (60 px/s), which soil's 0.50 s would just
+  fit. Nearest-first spends half of it: the nearest mark is by definition the
+  one abreast of the player, i.e. the one with only its outgoing half left, so
+  a commitment inherits ~0.27 s and the tile behind it is skipped. Measured
+  over a 14-tile run, one pass at full walk: before, 12 tiles hold 1.49 s
+  between them (0.12 s each); after, 6 tiles hold the same 1.49 s (0.25 s
+  each). Breaks then begin on the second pass rather than the fourth — 0/3/5/11
+  broken over four passes, against 0/0/0/10 before.
+  **Finishing a tile in a single pass needs a retarget that prefers the mark
+  AHEAD of the player**, which is a velocity-aware choice `rules` has no notion
+  of today and a change to the "nearest first" rule `docs/SPEC.md` §28.1 and
+  §28.2 lock. It is a design decision, not a defect, so it is parked here
+  rather than taken: the levers are that rule, `eff('reach')`, or soil's
+  hardness, and `eff('walk')` is not one of them.
