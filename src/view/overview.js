@@ -18,8 +18,8 @@
    arithmetic rather than by eyeballing a screenshot.
 
    The fix is the other axis: THE DEFAULT SCALE FITS THE WORLD'S WIDTH, and the
-   vertical axis SCROLLS, because a world four times taller than it is wide has
-   no scale that shows all of it and is also legible.
+   vertical axis SCROLLS, because no one scale shows a world of this aspect
+   whole and is also legible.
 
    ONE MORE CONSTRAINT, AND IT IS WHAT MAKES THE ZOOM LEVELS DISCRETE:
    docs/SPEC.md section 6 forbids fractional scale outright -- everything here
@@ -30,6 +30,28 @@
    fits the viewport width, derived from the band union the way `drawMap`
    already did -- nothing here hardcodes 128 tiles, so widening `astral` from
    its current `tw:96` to the full width needs no edit in this file.
+   ============================================================================
+
+   AND WHAT HAPPENS WHEN THE WIDTH NO LONGER FITS EITHER. docs/SPEC.md section
+   31 is the decision and the argument; the short form is that ONE SCREEN PIXEL
+   PER TILE IS THE FLOOR, so at 1,024 tiles wide the map shows all of the depth
+   and a WINDOW of the width, and `MAP_ZOOM[0]` stops being a fallback and
+   becomes the projection. Three reasons, in the order they bind:
+
+     1. A LEVEL BELOW ONE PIXEL PER TILE IS A RESAMPLING, and this mode's
+        invariant (below) forbids one. A pixel covering four tiles has to pick:
+        drop the tiles it cannot show, and a one-tile shaft the player dug
+        disappears from the map of their own work; or take a block's colour from
+        a sample, and a sample may be a tile they have never seen.
+     2. COST. A full-world pixel map at 1,024 tiles reads about 426,000 tiles
+        per frame, eight times what the viewport cull below was written to
+        avoid.
+     3. THE AXIS. Depth is the axis this game is about (docs/DESIGN.md: "depth
+        band = act"), and at that floor it is the axis very nearly all of which
+        is on screen -- 387 of 416 rows, against 609 of 1,024 columns.
+
+   So the width gets an affordance rather than a scale: `extentRibbon` below,
+   which is the horizontal twin of the band ruler on the right edge.
    ============================================================================
 
    WHY THIS STILL READS THE TILE GRID AND DOES NOT DOWNSCALE THE BAKED CHUNK
@@ -46,7 +68,7 @@
         INVARIANT this whole mode exists under, so the trade is not available.
      2. `chunkCanvas` PAINTS ON ANY CALL. Asking it for a chunk the player has
         never visited does not return null, it BAKES it -- so an overview that
-        reached for the whole world would cold-bake all 264 chunks of it, at
+        reached for the whole world would cold-bake all 216 chunks of it, at
         roughly 1.5 ms each (`view/paint.js#REPAINT_BUDGET`'s own measurement),
         and hold every one in the cache afterward.
 
@@ -78,7 +100,7 @@ import { player, playerCentre } from '../model/player.js';
 import {
   breaks, carrierPos, chains, isHub, linkCheck, segments, segmentsAt
 } from '../model/segments.js';
-import { rowAt } from '../model/tiles.js';
+import { rowOf, tileAt } from '../model/tiles.js';
 import { bands, heightPx, lightAt, seenAt, tileX, tileY, widthPx } from '../model/world.js';
 import { machineState, STATE_COLOUR } from './ui/mainPanel.js';
 import {
@@ -162,8 +184,13 @@ const minTile = () => Math.min(...bands.map(b => b.tile));
 
 /* The largest level whose world fits the viewport WIDTH -- "fits the width" as
    closely as an integer scale permits, which is the whole point of the level
-   list. Falls back to the smallest level on a viewport too narrow even for
-   that, where the horizontal clamp below takes over instead. */
+   list.
+
+   AND THE SMALLEST LEVEL WHEN NOTHING FITS, which is the answer at 1,024 tiles
+   and is a floor rather than a fallback (this file's header, docs/SPEC.md
+   section 31). The map is then depth-complete and width-windowed: the
+   horizontal clamp below keeps the window inside the world and
+   `extentRibbon` says which part of it you are looking at. */
 export function defaultZoom(vw, box = unionBox(), T = minTile()) {
   let best = MAP_ZOOM[0];
   for (const k of MAP_ZOOM) if ((box.w * k) / T <= vw) best = k;
@@ -269,6 +296,7 @@ export function drawOverview(g, f) {
   drawTerrain(g, v);
   drawLayers(g, v, f);
   drawPlayerMark(g, v);
+  extentRibbon(g, v);
 
   drawRuler(g, {
     id: 'map-ruler', x: f.W - rulerWidth() - 2, y: HEADER_H + 4,
@@ -324,22 +352,39 @@ function drawTerrain(g, v) {
   }
 }
 
-/* The hex a seen tile paints, or null for "draw nothing". Memoised by colour
-   NAME rather than by tile, because `colour()` is a guarded lookup and this is
-   the hottest call in the pass; the set of names is bounded by frozen content. */
-const hexCache = new Map();
-function hexOf(name) {
-  let h = hexCache.get(name);
-  if (h === undefined) { h = colour(name); hexCache.set(name, h); }
-  return h;
+/* WHAT A TILE BYTE PAINTS, resolved once per byte. Three answers because the
+   two whole-window passes ask nothing else of a tile: the terrain colour (or
+   null for "draw nothing"), whether the substance is ore, and the mark colour
+   the ORE layer uses.
+
+   KEYED ON THE PACKED TILE BYTE, which is what makes one table serve both.
+   `model/tiles.js#rowOf` is a pure function of that byte and there are 256 of
+   them, so this is a complete memo rather than a cache with a policy -- and it
+   replaces a `rowAt` plus a `tags.includes` plus a guarded `colour()` lookup
+   per tile with one array index.
+
+   THIS IS THE PASS THAT GETS DEARER WITH WIDTH, which is why it is worth the
+   table. At one screen pixel per tile the window is the viewport in tiles:
+   128 columns today, 609 at 1,024 tiles wide (docs/SPEC.md section 31), and
+   the ORE layer alone was 1.5 ms of a 3.9 ms map frame before this. Never
+   invalidated, because every input is a frozen `data/` row. */
+const byteInk = Array.from({ length: 256 });
+
+function inkOf(byte) {
+  let e = byteInk[byte];
+  if (!e) {
+    const row = rowOf(byte), l = row.look;
+    e = byteInk[byte] = {
+      base: l?.base ? colour(l.base) : null,
+      ore: !!row.tags?.includes('metal'),
+      mark: colour(l?.item?.[0] ?? l?.base ?? 'ui')
+    };
+  }
+  return e;
 }
 
-function cellColour(b, tx, ty) {
-  if (!seenAt(b, tx, ty)) return null;
-  const look = rowAt(b, tx, ty).look;
-  if (!look?.base) return null;
-  return hexOf(look.base);
-}
+const cellColour = (b, tx, ty) =>
+  seenAt(b, tx, ty) ? inkOf(tileAt(b, tx, ty)).base : null;
 
 /* ============================================================================
    THE METADATA LAYERS (docs/BUILD_PLAN.md Phase 9 section 4)
@@ -438,10 +483,10 @@ function drawOre(g, v) {
     for (let ty = ty0; ty < ty1; ty++) {
       for (let tx = tx0; tx < tx1; tx++) {
         if (!seenAt(b, tx, ty)) continue;
-        const row = rowAt(b, tx, ty);
-        if (!row.tags?.includes('metal')) continue;
+        const ink = inkOf(tileAt(b, tx, ty));
+        if (!ink.ore) continue;
         const x = sxOf(v, b.origin.x + tx * T), y = syOf(v, b.origin.y + ty * T);
-        R(g, x, y, cell, cell, hexOf(row.look?.item?.[0] ?? row.look?.base ?? 'ui'));
+        R(g, x, y, cell, cell, ink.mark);
         R(g, x, y, 1, 1, INK.ui);
       }
     }
@@ -645,7 +690,7 @@ function statsOf(b) {
     for (let tx = 0; tx < b.tw; tx++) {
       if (!seenAt(b, tx, ty)) continue;
       seen++;
-      if (rowAt(b, tx, ty).tags?.includes('metal')) ore++;
+      if (inkOf(tileAt(b, tx, ty)).ore) ore++;
       if (lightAt(b, tx, ty) / max < 0.6) dark++;
     }
   }
@@ -682,6 +727,48 @@ function bandTip(g, f, b, sx, sy) {
     ],
     cx: sx, cy: sy, vw: f.W, vh: f.H
   });
+}
+
+/* ---------- the horizontal extent ribbon ----------
+   WHICH SLICE OF THE WORLD'S WIDTH THE BODY IS SHOWING, as a scrollbar along
+   the bottom edge of the body: a dim track the width of the world and a lit
+   thumb the width of the window.
+
+   IT IS THE HORIZONTAL TWIN OF THE BAND RULER. The ruler answers "where in the
+   depth am I looking" down to the numeral, and until now nothing answered it
+   for the other axis -- which did not matter while the default zoom fitted the
+   whole width, and is the first thing that stops being true at 1,024 tiles
+   (this file's header, docs/SPEC.md section 31). A scrollbar rather than a
+   label because the question is "which part of a whole", and that is the one
+   question a scrollbar answers with no words at all.
+
+   DRAWN ONLY WHEN THERE IS SOMETHING TO SAY. A thumb spanning its whole track
+   has never once been wrong, and it would cost the body two rows to say so.
+
+   BOTH RECTS CARRY THEIR OWN WORLD RANGE (`wx0`/`wx1`, world px), the same way
+   `view/ui/ruler.js` records `wy0`/`wy1` on every band segment: `view` reports
+   what it drew and where in the world it drew it from, and `shell` decides what
+   a press on it means (CLAUDE.md D2). Nothing dispatches on either yet -- a
+   press anywhere on the map body is a drag today -- and neither records a
+   `wy0`, precisely so `bandAtScreen` above and `shell/input.js#mapRulerJump`
+   cannot mistake a ribbon for a band segment. */
+const RIBBON_H = 2;
+
+function extentRibbon(g, v) {
+  const room = v.vw / v.scale;                       // world px the body shows
+  if (room >= v.worldW || v.worldW <= 0) return;
+
+  const y = v.vy + v.vh - RIBBON_H;
+  const w = Math.max(3, Math.round((room / v.worldW) * v.vw));
+  const x = v.vx + Math.max(0, Math.min(v.vw - w,
+    Math.round(((v.wx - v.left) / v.worldW) * v.vw)));
+
+  R(g, v.vx, y, v.vw, RIBBON_H, mix(INK.back, INK.dim, 0.5));
+  R(g, x, y, w, RIBBON_H, INK.ui);
+  drawn.panels.push({ id: 'map-extent', x: v.vx, y, w: v.vw, h: RIBBON_H,
+                      wx0: v.left, wx1: v.left + v.worldW });
+  drawn.panels.push({ id: 'map-extent-window', x, y, w, h: RIBBON_H,
+                     wx0: v.wx, wx1: v.wx + room });
 }
 
 /* The visible tile window of one band, as `[tx0, tx1, ty0, ty1]`. Extracted

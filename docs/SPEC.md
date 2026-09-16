@@ -29,6 +29,36 @@ chunk dirty and only that chunk repaints: 128x128 px instead of 1024x2520, i.e.
 ~1/1500th of a full bake. The look is inherited; whether it *survives* being cut
 into chunks is a visual question only a human can answer.
 
+**The chunk canvas cache is bounded, and the bound is in bytes.**
+`view/paint.js#cacheLimit.bytes` is **24 MB** of backing store, and eviction is
+**LRU by frame touched**: `beginFrame` drops the least recently drawn canvases
+until residency is under budget, and never drops one the last frame drew.
+
+| | value |
+|---|---|
+| one chunk canvas | `px * px * 4` = **64 KB** at 16x16 tiles and `tile:8` |
+| the budget | **24 MB** = 384 chunks |
+| the whole world, resident | **216 chunks = 13.5 MB** at 128 tiles wide |
+| the whole world at 1,024 tiles | **1,728 chunks = 108 MB** |
+
+So nothing is evicted in today's world — the budget is a ceiling the narrow
+world never reaches — and at 1,024 tiles the cache holds about 30% of the
+world's chunks instead of all of it. 384 is more than eight times the 45
+chunks the largest base buffer `core/canvas.js#resize` produces can cover, so a
+player has to leave eight screens behind before turning round costs a re-bake.
+
+Two properties make the policy safe, and both are asserted in
+`tests/visual.spec.js`:
+
+- **A chunk evicted and re-baked is byte-identical to one never evicted.**
+  `paintChunk` is a pure function of the tile grid, the frozen substance rows
+  and `hash2` of absolute tile coordinates, with no `rand()` anywhere
+  (invariant 7).
+- **Eviction never widens a dig.** It drops canvases; it does not touch
+  invalidation. The chunk under the pick is on screen, and what the last frame
+  drew is never a candidate — so the same dig under a forced 2 MB budget
+  repaints the same chunks and leaves a bit-identical frame.
+
 ## 2. Player
 
 | | value |
@@ -4408,3 +4438,98 @@ not in progress: there is nothing to go back to.
 **The pointer reaches all of it.** RESUME and a confirming row are ordinary
 recorded rows with `id` and `live`, so `shell/input.js` hit-tests and
 dispatches them through the one path §30.5 already describes.
+
+## 31. The overview map's projection (Phase 6f)
+
+`view/overview.js` fits the world's width by default and scrolls the vertical
+axis (its own header records why: fitting the height collapsed the world to a
+111 px strip). At 128 tiles the widest level that fits is **zoom 4**, 4 screen
+pixels per tile, and the whole width is on screen.
+
+At **1,024 tiles** no level fits. The world is 8,192 px wide against a 609 px
+map body, and the coarsest level in `MAP_ZOOM` is one screen pixel per tile —
+1,024 px of map. `docs/PLAN-horizontal-chunks-SCOPE.md` §3.8 raises this as a
+design question and deliberately does not answer it.
+
+### 31.1 The decision
+
+**One screen pixel per tile is the floor, so the overview is depth-complete and
+width-windowed.** `MAP_ZOOM[0]` stops being a fallback for an absurdly narrow
+viewport and becomes the projection: the map shows every row of the world's
+depth and a window of its width, and the window's position is drawn.
+
+| | at 128 tiles, zoom 4 | at 1,024 tiles, zoom 1 |
+|---|---|---|
+| of the width, on screen | 1,024 of 1,024 px — **all of it** | 4,872 of 8,192 px — **609 of 1,024 columns, 59%** |
+| of the depth, on screen | 774 of 3,328 px, 23% | 3,096 of 3,328 px — **387 of 416 rows, 93%** |
+
+Three arguments, in the order they bind.
+
+1. **A level below one pixel per tile is a resampling, and this mode's
+   invariant forbids one.** The overview may never draw an unseen tile — it is
+   a map assembled from memory, not an X-ray, and worldgen spends real effort
+   making a hollow a discovery. A pixel covering four tiles has to choose: drop
+   the tiles it cannot show, and a one-tile shaft the player dug disappears
+   from the map of their own work; or take the block's colour from a sample,
+   and a sample may be a tile they have never seen. The first is a map that
+   lies by omission about the player's own excavation, the second is a fog
+   leak. Neither is better than not fitting.
+2. **Cost.** A full-world pixel map at 1,024 tiles reads about 426,000 tiles
+   per frame, eight times the 52,000 the viewport cull in `drawTerrain` was
+   written to avoid.
+3. **The axis.** `docs/DESIGN.md`'s thesis is that the interesting axis is
+   vertical ("depth band = act"), and depth is the axis a floor of one pixel
+   per tile still shows whole. At 1,024 x 416 tiles the world becomes wider
+   than it is tall and the constrained axis flips; the projection keeps the
+   axis the game is about.
+
+**Rejected, and recorded so it is not re-argued.** A coverage view — one pixel
+per N tiles, reading "how much of this world have I touched" rather than which
+tile is which — is a *different widget* from a projection of the tile grid, and
+it could be added beside this one without breaking either. It is not the
+overview, because the overview's every layer (ore, piles, machines, the chain
+and its gaps) is a statement about a tile.
+
+### 31.2 The extent ribbon
+
+The affordance §3.8 says is missing is not a zoom-to-fit but an answer to
+"which slice am I looking at". The band ruler on the right edge answers it for
+depth, down to the numeral. `view/overview.js#extentRibbon` is its horizontal
+twin:
+
+- **A scrollbar, two rows tall, along the bottom edge of the map body.** A dim
+  track the full width of the body stands for the world's width; a lit thumb
+  stands for the window. No words — "which part of a whole" is the one question
+  a scrollbar answers without any.
+- **Drawn only when the width does not fit.** A thumb spanning its whole track
+  has never once been wrong, and it would cost the body two rows to say so. At
+  128 tiles it is therefore absent at the default zoom and present at zoom 8,
+  which is the same case 1,024 tiles makes the default.
+- **Both rects are recorded** into `view/ui/state.js#drawn` as `map-extent`
+  (the track) and `map-extent-window` (the thumb), each carrying its own world
+  range as `wx0`/`wx1` in world pixels, the way `view/ui/ruler.js` records
+  `wy0`/`wy1`. Neither records a `wy0`, so nothing that hit-tests for a band
+  segment can mistake a ribbon for one. No `shell` dispatch reads them yet; a
+  press on the map body is a drag.
+
+### 31.3 Measured
+
+On this machine, at 1280x800 (a 640x400 base buffer, a 609x387 map body), seed
+1337, every band revealed, at the default layer set:
+
+| zoom | window, in tiles | map frame |
+|---|---|---|
+| 8 | 76 x 48 | 0.88 ms |
+| 4 | 152 x 97 | 1.24 ms |
+| 2 | 305 x 194 | 1.66 ms |
+| 1 | 609 x 387, clamped to each band's 128 columns | **2.8 ms** |
+
+The per-tile slope is **0.054 microseconds** (zoom 1 against zoom 2, which
+differ by 126 rows of 128 columns), so the same zoom-1 frame at 1,024 tiles wide
+projects to about **13 ms** — the map freezes the run, so that is a draw cost
+and not a simulation one. It was 20 ms before `inkOf`, the per-byte
+lookup table that resolves a tile's terrain colour, its ore tag and its ore
+mark colour once per packed byte instead of once per tile; the ORE layer alone
+was 1.5 ms of a 3.9 ms frame and is now 0.9 of 2.5. The table is a complete
+memo rather than a cache with a policy: `model/tiles.js#rowOf` is a pure
+function of the byte and there are 256 of them.

@@ -5558,6 +5558,223 @@ test('a tree crossing a chunk seam', async ({ page }) => {
   await shot(page, 'tree-chunk-seam.png');
 });
 
+/* ============================================================
+   THE CHUNK CACHE'S CEILING (Phase 6f, docs/PLAN-horizontal-chunks-SCOPE.md
+   3.7, docs/SPEC.md section 1)
+
+   `view/paint.js` holds one baked canvas per chunk and, until this phase,
+   dropped one only on `newRun()`. At 128 tiles the whole world is 264 chunks
+   -- 17 MB, under the 24 MB budget -- so THE CEILING CANNOT BE REACHED BY
+   PLAYING, and a test that swept the camera and watched the cache stay small
+   would be watching a cache that was never asked to grow. So the budget is
+   lowered here on purpose: `cacheLimit.bytes` is exported for exactly this,
+   and the control leg proves the forced leg is not measuring nothing.
+   ============================================================ */
+
+/* THE SWEEP. Camera steps of one viewport across a band and down it, drawing
+   each time -- the cheapest way to make `view/scene.js#drawChunks` ask for
+   every chunk in the world, which is what fills the cache. `__mf.draw()` runs
+   no simulation, so the terrain is identical at every step and the model is
+   untouched between the two legs. */
+const sweepWorld = page => page.evaluate(async () => {
+  const { bands } = await import('/src/model/world.js');
+  const { VIEW } = await import('/src/core/canvas.js');
+  for (const b of bands)
+    for (let y = b.origin.y; y < b.origin.y + b.th * b.tile; y += VIEW.h)
+      for (let x = b.origin.x; x < b.origin.x + b.tw * b.tile; x += VIEW.w) {
+        __mf.cam.x = x; __mf.cam.y = y; __mf.draw();
+      }
+});
+
+test('the chunk cache is bounded by its byte budget, and eviction is what bounds it', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+
+  const reset = (page, bytes) => page.evaluate(async bytes => {
+    const { cacheLimit, resetChunks } = await import('/src/view/paint.js');
+    resetChunks();
+    cacheLimit.bytes = bytes;
+  }, bytes);
+
+  const read = page => page.evaluate(async () => {
+    const { cacheLimit, stats } = await import('/src/view/paint.js');
+    /* One more draw at the camera the sweep finished on, so the reading is
+       taken AFTER an eviction pass rather than after a frame of cold bakes:
+       `beginFrame` evicts and then publishes `stats.bytes`. */
+    __mf.draw();
+    return { cached: stats.cached, bytes: stats.bytes,
+             evictedTotal: stats.evictedTotal, cap: cacheLimit.bytes };
+  });
+
+  const CHUNK_BYTES = 128 * 128 * 4;             // one 16x16-tile chunk at tile:8
+
+  await reset(page, 24 * 1024 * 1024);           // the shipped budget
+  await sweepWorld(page);
+  const control = await read(page);
+
+  await reset(page, 32 * CHUNK_BYTES);           // forced well under one world
+  await sweepWorld(page);
+  const forced = await read(page);
+
+  /* THE CONTROL LEG IS THE "NOT VACUOUS" HALF: at today's width the whole
+     world fits the shipped budget, so nothing is evicted and the cache holds
+     every chunk the sweep asked for. That is the leak this phase bounds. */
+  expect(control.evictedTotal).toBe(0);
+  expect(control.cached).toBeGreaterThan(200);
+  expect(control.bytes).toBe(control.cached * CHUNK_BYTES);
+
+  /* AND THE FORCED LEG: the same sweep under a 2 MB budget evicts, and what is
+     left is the budget plus what the last two frames drew -- which eviction
+     may never take (`view/paint.js#evict`). 64 chunks of allowance is twice
+     the 24 a 640x400 viewport covers, for the two frames of grace. */
+  expect(forced.evictedTotal).toBeGreaterThanOrEqual(control.cached - 32 - 64);
+  expect(forced.cached).toBeLessThanOrEqual(32 + 64);
+  expect(forced.cached).toBeLessThan(control.cached / 2);
+  expect(forced.bytes).toBeLessThanOrEqual(forced.cap + 64 * CHUNK_BYTES);
+});
+
+/* AND THE PROPERTY THAT MAKES EVICTION SAFE: a chunk thrown away and baked
+   again is the same pixels. It has to be -- `paintChunk` is a pure function of
+   the tile grid, the substance rows and `hash2` of absolute tile coordinates,
+   with no `rand()` anywhere (invariant 7) -- but "has to be" is what the render
+   purity probes in `tools/check.mjs` say about a frame, and nothing said it
+   about a bake that had been dropped and rebuilt from scratch.
+
+   THE CANVAS ITSELF IS HASHED, not the frame it is blitted into: `chunkCanvas`
+   returns the offscreen canvas, so this reads the 128x128 backing store
+   directly and compares two bakes of the same chunk with nothing but an
+   eviction between them. `stats.painted` moving on the second call is what
+   proves the chunk really was evicted -- without that this test would compare
+   one canvas with itself and pass. */
+test('a chunk evicted and re-baked is byte-identical to one never evicted', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+
+  const info = await page.evaluate(async () => {
+    const { bandOf } = await import('/src/model/world.js');
+    const { bands } = await import('/src/model/world.js');
+    const { VIEW } = await import('/src/core/canvas.js');
+    const { cacheLimit, chunkCanvas, resetChunks, stats } = await import('/src/view/paint.js');
+
+    const hashOf = canvas => {
+      const d = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+      let h = 2166136261;
+      for (let i = 0; i < d.length; i++) { h ^= d[i]; h = Math.imul(h, 16777619); }
+      return h >>> 0;
+    };
+
+    const band = bandOf('topsoil');
+    const cx = 2, cy = 3;                        // an arbitrary interior chunk
+
+    resetChunks();
+    cacheLimit.bytes = 32 * 128 * 128 * 4;
+    const p0 = stats.painted;
+    const first = hashOf(chunkCanvas(band, cx, cy));
+    const bakedFirst = stats.painted - p0;
+
+    /* Walk the camera away and keep drawing until the eviction pass has taken
+       this chunk. Every other band is swept too, so the probed chunk is the
+       least recently drawn thing in the cache long before the sweep ends. */
+    for (const b of bands)
+      for (let y = b.origin.y; y < b.origin.y + b.th * b.tile; y += VIEW.h)
+        for (let x = b.origin.x; x < b.origin.x + b.tw * b.tile; x += VIEW.w) {
+          __mf.cam.x = x; __mf.cam.y = y; __mf.draw();
+        }
+
+    const p1 = stats.painted;
+    const again = hashOf(chunkCanvas(band, cx, cy));
+    return { first, again, bakedFirst, bakedAgain: stats.painted - p1,
+             evictedTotal: stats.evictedTotal };
+  });
+
+  expect(info.bakedFirst).toBe(1);               // the cold bake
+  expect(info.evictedTotal).toBeGreaterThan(0);
+  expect(info.bakedAgain).toBe(1);               // it really had been evicted
+  expect(info.again).toBe(info.first);           // and it came back identical
+});
+
+/* A DIG STILL REPAINTS ITS CHUNK, NOT THE WORLD (invariant 3), WITH THE CACHE
+   FULL AND EVICTING. The script fills the cache past a 2 MB budget by sweeping
+   the world first, so evictions are already running when the pick starts, and
+   THEN digs. Every chunk under the pick is on screen, so `view/paint.js#evict`
+   may not take one -- which is the claim, and it is measurable two ways at
+   once: the same dig under the forced budget and under the shipped one must
+   repaint the same chunks AND leave a bit-identical frame. A policy that
+   evicted by distance from a remembered camera, or that forgot to protect what
+   the last frame drew, would fail the first; one that dropped the wrong chunk
+   would fail the second.
+
+   `repainted` counts only VERSION-driven re-bakes, never the cold bake of a
+   chunk that had been evicted (`chunkCanvas`'s own `e.ver !== -1` guard), which
+   is what makes the two legs comparable at all: the forced leg cold-bakes more
+   and must still invalidate exactly the same. */
+test('a dig under a full, evicting cache repaints the same chunks and draws the same pixels', async ({ page }) => {
+  await boot(page);
+
+  const dig = (page, bytes) => page.evaluate(async bytes => {
+    const { bands } = await import('/src/model/world.js');
+    const { VIEW } = await import('/src/core/canvas.js');
+    const { cacheLimit, resetChunks, stats } = await import('/src/view/paint.js');
+    const { banner } = await import('/src/view/fx.js');
+    const { write: rw, run } = await import('/src/model/run.js');
+
+    /* HELD KEYS DO NOT SURVIVE INTO THE SECOND LEG. `hold()` leaves whatever
+       it held set on `cmd` and `newRun()` does not clear it, so without this
+       the second leg digs its way through the two settling frames and the two
+       legs stop being the same script. */
+    for (const k of ['dig', 'down', 'right', 'collect']) __mf.cmd[k] = false;
+
+    __mf.newRun(1337); __mf.clock.t = 10; __mf.frames(2);
+    while (run.tutorialBeat < 4) rw.advanceBeat();
+    resetChunks();
+    cacheLimit.bytes = bytes;
+    banner.fade = 0;
+
+    /* THE PICKAXE FIRST, or `hasPick()` is false and the dig is a no-op --
+       the same walk-and-collect `digging.png` opens with, for the same
+       reason. `right` is a held key and has to be released, or the player
+       drifts and no single tile ever accumulates enough work to break. */
+    __mf.hold({ right: 1, collect: 1 }, 90);
+    __mf.cmd.right = false;
+
+    const camX = __mf.cam.x, camY = __mf.cam.y;
+    for (const b of bands)
+      for (let y = b.origin.y; y < b.origin.y + b.th * b.tile; y += VIEW.h)
+        for (let x = b.origin.x; x < b.origin.x + b.tw * b.tile; x += VIEW.w) {
+          __mf.cam.x = x; __mf.cam.y = y; __mf.draw();
+        }
+    __mf.cam.x = camX; __mf.cam.y = camY;
+    __mf.draw(); __mf.draw();                    // back on the pick, settled
+    const swept = stats.evictedTotal;
+
+    const before = { repainted: stats.repainted, skipped: stats.skipped };
+    /* TEN SEPARATE CALLS RATHER THAN ONE 600-SUBSTEP CALL, because `hold()`
+       draws once at the end and eviction runs once per FRAME: a single call
+       would give the pass one turn and prove nothing about a cache under
+       sustained pressure. */
+    for (let i = 0; i < 10; i++) __mf.hold({ dig: 1, down: 1, collect: 1 }, 60);
+
+    const c = document.getElementById('stage');
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let h = 2166136261;
+    for (let i = 0; i < d.length; i++) { h ^= d[i]; h = Math.imul(h, 16777619); }
+    return { swept,
+             repainted: stats.repainted - before.repainted,
+             skipped: stats.skipped - before.skipped,
+             evictedTotal: stats.evictedTotal, hash: h >>> 0 };
+  }, bytes);
+
+  const capped = await dig(page, 32 * 128 * 128 * 4);
+  const uncapped = await dig(page, 24 * 1024 * 1024);
+
+  expect(capped.swept).toBeGreaterThan(0);       // the forced budget really evicted
+  expect(uncapped.swept).toBe(0);                // and the shipped one never does
+  expect(capped.repainted).toBeGreaterThan(0);   // the dig really did invalidate
+  expect(capped.repainted).toBe(uncapped.repainted);
+  expect(capped.skipped).toBe(uncapped.skipped);
+  expect(capped.hash).toBe(uncapped.hash);
+});
+
 /* ---------- a natural hollow (worldgen's own generator), three ways ----------
    Found by flood-filling seed 1337's topsoil tile grid for a sealed air
    pocket clear of the spawn column -- `docs/BUILD_PLAN.md` Phase 11's own
@@ -5881,6 +6098,112 @@ test('overview with a broken lift chain', async ({ page }) => {
     __mf.draw();
   });
   await shot(page, 'map-broken-chain.png');
+});
+
+/* ============================================================
+   THE HORIZONTAL EXTENT RIBBON (Phase 6f, docs/SPEC.md section 31)
+
+   The overview fits the world's DEPTH and WINDOWS its width, so at any zoom
+   where the width does not fit, the body shows a slice and the ribbon says
+   which slice. At 128 tiles the default zoom still fits the whole width, which
+   is exactly why the ribbon is not in `map.png`: ZOOM 8 IS THE CASE THAT
+   EXISTS TODAY, where the world is 8,192 px wide against a 609 px body, and it
+   is the same case 1,024 tiles makes the DEFAULT.
+
+   THREE CLAIMS, AND THE FIRST IS WHAT KEEPS THE OTHER TWO HONEST: the widget
+   is ABSENT when the width fits. A ribbon drawn always, with its thumb always
+   spanning its whole track, is a widget that has never once been wrong and
+   would photograph identically either way.
+   ============================================================ */
+test('the overview extent ribbon appears only when the width does not fit, and tracks the scroll', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+
+  const at = (page, zoom, x) => page.evaluate(async ({ zoom, x }) => {
+    const { bands, write } = await import('/src/model/world.js');
+    const { mapMoveTo, setMapZoom } = await import('/src/shell/ui.js');
+    const { write: rw, run } = await import('/src/model/run.js');
+    const { mapView } = await import('/src/view/overview.js');
+    const { mix } = await import('/src/core/palette.js');
+    const { colour } = await import('/src/data/palette.js');
+
+    while (run.tutorialBeat < 4) rw.advanceBeat();
+    for (const b of bands) write.revealAll(b);
+    __mf.flags.showMap = true;
+    setMapZoom(zoom);
+    mapMoveTo(x, 900);
+    __mf.draw();
+
+    const panels = __mf.ui.panels;
+    const pick = id => {
+      const p = panels.find(p => p.id === id);
+      return p ? { x: p.x, y: p.y, w: p.w, h: p.h } : null;
+    };
+    const g2d = document.getElementById('stage').getContext('2d');
+    const rgb = (px, py) => [...g2d.getImageData(px, py, 1, 1).data].slice(0, 3);
+    const track = pick('map-extent'), win = pick('map-extent-window');
+
+    return {
+      track, win,
+      /* The world span the body can show, over the world's own width: the
+         fraction the thumb is supposed to be. Read off `mapView` rather than
+         re-derived, the same reason the fog test reads the transform back. */
+      fraction: (mapView.vw / mapView.scale) / mapView.worldW,
+      /* One pixel inside the thumb and one in the track beyond its far end. */
+      inWindow: win ? rgb(win.x + 1, win.y) : null,
+      inTrack: win && track && win.x + win.w + 2 < track.x + track.w
+        ? rgb(win.x + win.w + 2, win.y) : null,
+      ui: colour('ui'),
+      trackTone: mix(colour('uiBack'), colour('uiDim'), 0.5)
+    };
+  }, { zoom, x });
+
+  const hex = h => [h.slice(1, 3), h.slice(3, 5), h.slice(5, 7)].map(x => parseInt(x, 16));
+  const rgbStr = s => s.match(/\d+/g).map(Number);
+
+  /* THE DEFAULT ZOOM AT 128 TILES FITS THE WHOLE WIDTH, so there is nothing to
+     say and nothing is drawn. */
+  const fits = await at(page, 0, 0);
+  expect(fits.track).toBe(null);
+  expect(fits.win).toBe(null);
+  expect(fits.fraction).toBeGreaterThanOrEqual(1);
+
+  /* ZOOM 8 DOES NOT. The thumb is the window's share of the world's width, and
+     it is painted rather than merely recorded. */
+  const mid = await at(page, 8, 400);
+  expect(mid.fraction).toBeLessThan(1);
+  expect(mid.win.w / mid.track.w).toBeCloseTo(mid.fraction, 1);
+  expect(mid.win.x).toBeGreaterThan(mid.track.x);
+  expect(mid.inWindow).toEqual(hex(mid.ui));
+  expect(mid.inTrack).toEqual(rgbStr(mid.trackTone));
+
+  /* AND IT TRACKS THE SCROLL, to both ends. `fit()` clamps the offset to the
+     world, so parking past an edge parks ON it. */
+  const left = await at(page, 8, -9999);
+  expect(left.win.x).toBe(left.track.x);
+  const right = await at(page, 8, 9999);
+  expect(right.win.x + right.win.w).toBe(right.track.x + right.track.w);
+});
+
+/* AND WHAT IT LOOKS LIKE. Zoom 8 over a fully revealed world, parked mid-width
+   so the thumb sits mid-track: the one scroll position where the ribbon says
+   something neither end would. */
+test('the overview at a zoom the world does not fit', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  await page.evaluate(async () => {
+    const { bands, write } = await import('/src/model/world.js');
+    const { mapMoveTo, setMapZoom } = await import('/src/shell/ui.js');
+    const { write: rw, run } = await import('/src/model/run.js');
+
+    while (run.tutorialBeat < 4) rw.advanceBeat();
+    for (const b of bands) write.revealAll(b);
+    __mf.flags.showMap = true;
+    setMapZoom(8);
+    mapMoveTo(400, 900);
+    __mf.draw();
+  });
+  await shot(page, 'map-zoom8.png');
 });
 
 /* THE CLOUD DOCK, PLACED FOR REAL: `rules/placement.js#placeMachine`'s own

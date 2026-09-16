@@ -65,11 +65,59 @@ const REPAINT_BUDGET = 8;
    outside its own range a chunk has to look for the tiles that emit into it. */
 const DECO_MARGIN = Math.max(...Object.values(EXTENT));
 
-export const stats = { painted: 0, repainted: 0, cached: 0, skipped: 0 };
+/* HOW MUCH CANVAS THE CHUNK CACHE MAY HOLD, in bytes of backing store. A BYTE
+   budget rather than a chunk count because a band declares its own `chunk` and
+   its own `tile` (invariant 2), so two bands need not agree on how many pixels
+   a chunk canvas is.
 
-/* band ord + chunk index -> { canvas, g, ver }. */
+   24 MB, and both bounds on that number are measurements rather than taste. A
+   canvas costs `px * px * 4` bytes of backing store, so a 16x16-tile chunk at
+   `tile:8` is 128x128 px = 64 KB and the budget holds 384 of them. From below:
+   the largest base buffer `core/canvas.js#resize` produces is about 1000x500
+   (a 4K display at its scale-5 step), which covers 45 chunks across the two or
+   three bands a frame can straddle -- so the budget is eight times the most any
+   one frame can ask for, and a player has to leave eight screens of terrain
+   behind before walking back costs a re-bake. From above: the whole world is
+   216 chunks (13.5 MB) at 128 tiles wide and 1,728 (108 MB) at 1,024 -- both
+   counted off `b.cx * b.cy`, and both larger than
+   docs/PLAN-horizontal-chunks-SCOPE.md 3.7's estimate of 264 and 1,280. So
+   this is the smallest round budget that bounds the wide world while evicting
+   nothing at all in the narrow one. docs/SPEC.md section 1 holds the table.
+
+   MUTABLE, AND ON AN OBJECT for the reason CLAUDE.md gives about module
+   bindings: `tests/visual.spec.js` lowers it to force the ceiling, because at
+   128 tiles the whole world fits inside it and eviction can never be reached
+   by playing. */
+export const cacheLimit = { bytes: 24 * 1024 * 1024 };
+
+/* `bytes` is resident backing store, `evicted` this frame's drops and
+   `evictedTotal` the run's. All three are here rather than private because
+   a bounded cache that cannot be measured is a claim rather than a fact. */
+export const stats = { painted: 0, repainted: 0, cached: 0, skipped: 0,
+                       bytes: 0, evicted: 0, evictedTotal: 0 };
+
+/* chunk key -> { canvas, g, ver, bytes, frame }. ITERATION ORDER IS THE LRU
+   ORDER: a `Map` iterates in insertion order and `chunkCanvas` re-inserts on
+   the first touch of a new frame, so the front of this map is the least
+   recently drawn chunk. */
 const cache = new Map();
 let budget = REPAINT_BUDGET;
+let frames = 0;
+let resident = 0;
+
+/* BAND ORDINAL + CHUNK INDEX, and the multiplier is the BAND COUNT rather than
+   a fixed slot size. The old key was `b.ord * 0x10000 + cy * b.cx + cx`, which
+   gave each band 65,536 chunk slots and ran out at a band about 52,400 tiles
+   wide, past which band N's keys collide with band N+1's and blit the wrong
+   terrain (docs/PLAN-horizontal-chunks-SCOPE.md 3.2). Interleaved the other way
+   round there is no ceiling short of `MAX_SAFE_INTEGER / bands.length`. U3's
+   1,024 tiles makes topsoil 64 x 20 = 1,280 chunks, which reaches neither, so
+   this is a latent ceiling removed rather than a bug fixed.
+
+   `bands.length` is fixed for the life of a run, and `resetChunks` clears the
+   cache when `model/world.js#write.clear` changes it -- so no two keys in one
+   cache were ever built from different multipliers. */
+const chunkKey = (b, cx, cy) => (cy * b.cx + cx) * bands.length + b.ord;
 
 /* Called by `shell/boot.js` on every new run. The canvases hold the previous
    world and a stale blit is worse than a black frame. */
@@ -77,13 +125,52 @@ export function resetChunks() {
   cache.clear();
   looks.clear();
   worldBottom = 0;
+  resident = 0;
   stats.painted = 0; stats.repainted = 0; stats.cached = 0; stats.skipped = 0;
+  stats.bytes = 0; stats.evicted = 0; stats.evictedTotal = 0;
 }
 
-/* Give each frame its own repaint budget. Called once per frame by `view/scene.js`. */
+/* Give each frame its own repaint budget, and drop what the last two frames
+   did not draw. Called once per frame by `view/scene.js`. */
 export function beginFrame() {
   budget = REPAINT_BUDGET;
+  frames++;
+  evict();
   stats.cached = cache.size;
+  stats.bytes = resident;
+}
+
+/* EVICTION IS LRU BY FRAME TOUCHED, and that is a policy choice with two
+   halves worth stating.
+
+   WHY LRU AND NOT DISTANCE FROM THE CAMERA. This file is never told where the
+   camera is (`screenOffset` below makes the same point for a different reason),
+   and `view/scene.js#drawChunks` already asks for exactly the chunks the
+   viewport covers -- so "touched on the last frame" IS "on screen", derived
+   from the draw that happened rather than from a second copy of the camera's
+   window arithmetic. A distance rule would be that second copy.
+
+   NOTHING DRAWN ON THE LAST FRAME IS EVICTED. This runs from `beginFrame`,
+   before any of this frame's `chunkCanvas` calls, so the newest entries are the
+   previous frame's -- which are the ones about to be asked for again. A budget
+   smaller than one viewport therefore OVERSHOOTS rather than thrashing: you
+   cannot evict what you must draw, and re-baking the visible world every frame
+   would be worse than holding no cache at all.
+
+   A DIG STILL REPAINTS ITS CHUNK, NOT THE WORLD (invariant 3). This drops
+   canvases; it never widens an invalidation. The chunk a pick is swinging at is
+   on screen by construction, so it is never a candidate. */
+function evict() {
+  stats.evicted = 0;
+  if (resident <= cacheLimit.bytes) return;
+  for (const [key, e] of cache) {
+    if (resident <= cacheLimit.bytes) break;
+    if (e.frame >= frames - 1) continue;
+    cache.delete(key);
+    resident -= e.bytes;
+    stats.evicted++;
+  }
+  stats.evictedTotal += stats.evicted;
 }
 
 /* THE VERSION A CACHED CANVAS IS CHECKED AGAINST, and it is not this chunk's
@@ -121,7 +208,7 @@ function stackVer(b, cx, cy) {
 /* The painted canvas for a chunk, repainted if the model moved on. Returns null
    headless, where `core/canvas.js#offscreen` has no document to work with. */
 export function chunkCanvas(b, cx, cy) {
-  const key = b.ord * 0x10000 + cy * b.cx + cx;
+  const key = chunkKey(b, cx, cy);
   const ver = stackVer(b, cx, cy);
   let e = cache.get(key);
 
@@ -129,11 +216,21 @@ export function chunkCanvas(b, cx, cy) {
     const px = chunkPx(b);
     const s = offscreen(px, px);
     if (!s.g) return null;
-    e = { canvas: s.canvas, g: s.g, ver: -1 };
+    e = { canvas: s.canvas, g: s.g, ver: -1, bytes: px * px * 4, frame: frames };
     cache.set(key, e);
-  } else if (e.ver !== ver && budget <= 0) {
-    stats.skipped++;
-    return e.canvas;                        // stale for one frame, never blank
+    resident += e.bytes;
+  } else {
+    /* RE-INSERTED AT THE MRU END, and only on the first touch of a frame: a
+       chunk asked for twice in one frame must not churn the map's order, which
+       is what `evict` above reads as the LRU order. */
+    if (e.frame !== frames) {
+      e.frame = frames;
+      cache.delete(key); cache.set(key, e);
+    }
+    if (e.ver !== ver && budget <= 0) {
+      stats.skipped++;
+      return e.canvas;                      // stale for one frame, never blank
+    }
   }
 
   if (e.ver !== ver) {

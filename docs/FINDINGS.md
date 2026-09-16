@@ -3764,3 +3764,40 @@ Three parked gaps closed, one mirror deleted, and four things found.
 - **`data/scenarios.js` rows still carry no seed** (6o). Unchanged, and the
   confirmation gate now makes a scenario row a two-press action mid-run, which
   is the same `newRun()` it always was.
+
+---
+
+## Phase 6f — the two view prerequisites for a wide world
+
+Four things found outside the ownership block.
+
+- **`docs/PLAN-horizontal-chunks-SCOPE.md` §3.7's chunk counts are low, in the
+  direction that matters.** It estimates 264 chunks (17 MB) at 128 tiles and
+  1,280 (84 MB) at 1,024. Counted off `b.cx * b.cy` for the three real bands
+  the figures are **216 (13.5 MB)** and **1,728 (108 MB)** — `cy` is
+  `ceil(th / 16)` per band, so astral and surface each round up a row. The
+  conclusion is unchanged and stronger: eviction is mandatory at the new width.
+  `docs/SPEC.md` §1 now holds the table.
+
+- **`view/hud.js:1215`'s debug overlay cannot see the cache's new numbers.** It
+  prints `PAINT n RE n CACHE n` off `view/paint.js#stats`, which now also
+  carries `bytes`, `evicted` and `evictedTotal`. One line in `hudDebug`'s `rows`
+  would put resident megabytes and the run's eviction count on screen, which is
+  the reading a player walking a 1,024-tile world would want. `view/hud.js` was
+  not in this block.
+
+- **`view/ui/ruler.js:113-115` still scans `tw * th` to decide whether a band is
+  known**, exactly as §3.3 records — 327,680 tiles per band at the new width,
+  once, cached in a `WeakSet`. `b.seen.some(v => v)` over the dense array is the
+  one-line fix and the file was not in this block. `view/overview.js#statsOf`
+  had the same shape and now reads `inkOf(tileAt(...))` instead of
+  `rowAt(...).tags.includes(...)`, which is the same saving in the file that
+  owned it.
+
+- **`shell/input.js:414` steps the map zoom by `MAP_ZOOM.indexOf(mapView.zoom)`,
+  so a level added below 1 would be reachable with no shell edit.** Recorded
+  because `docs/SPEC.md` §31 decides *not* to add one and the reason is the fog
+  invariant rather than the wiring: whoever re-opens that decision should know
+  the input path is already free, and that the cost is in `drawTerrain`'s run
+  coalescing, which computes a run's width as `(tx - run) * cell` and would
+  overshoot by the decimation factor at a sub-tile scale.
