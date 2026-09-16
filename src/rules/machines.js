@@ -42,9 +42,9 @@ const api = {
   pocketed: (sel) => pocketedBest(sel),
 
   /* Both spends return the concrete `{sub, form}` pair actually taken, so the
-     interpreter learns which substance satisfied a selector without ever asking
+     interpreter learns which substance satisfied a selector without asking
      where it came from. That return value is the whole of how one `smelt` row
-     covers every ore -- docs/DEVELOPER_GUIDE.md#adding-a-recipe */
+     covers every ore. */
   takeBuffered: (m, sel, n) => {
     const pair = firstMatching(m, sel, n);
     if (!pair) return null;
@@ -84,12 +84,9 @@ const recipes = (def, i) => {
   return r;
 };
 
-/* the step
-   `cmd` is the narrowed command object `shell/main.js#step` builds, and this
-   step reads exactly ONE field of it: `cmd.autoFeed`, which decides whether
-   the proximity drain below runs at all (Phase 16b,
-   docs/PLAN-phase16-interaction-model-v2.md §5 D16-C). The same shape
-   `rules/items.js` takes for `cmd.collect`. */
+/* `cmd` is the narrowed command object, and this step reads exactly ONE field
+   of it: `cmd.autoFeed`, which decides whether the proximity drain below runs
+   at all. The same shape `rules/items.js` takes for `cmd.collect`. */
 export function step(dt, cmd) {
   for (const m of machines) {
     const def = defOf(m);
@@ -129,24 +126,16 @@ function catchFalling(m, def) {
   }
 }
 
-/* hand feed: THE OPT-IN PROXIMITY MAGNET
-   Stand within reach and the machine draws from your pockets, one unit per
-   accepted selector per substep. OFF BY DEFAULT as of Phase 16b
-   (docs/PLAN-phase16-interaction-model-v2.md §5 D16-C): the caller above
-   gates it on `cmd.autoFeed`, the Character tab's AUTO FEED row, whose only
-   default is `false`. THE REAL VERB IS `handOne` BELOW -- click a slot to arm
-   the pair, aim at a reachable machine, LMB, one unit per press.
+/* THE OPT-IN PROXIMITY MAGNET. Stand within reach and the machine draws from
+   your pockets, one unit per accepted selector per substep. OFF BY DEFAULT,
+   gated on `cmd.autoFeed`; the real verb is `handOne` below.
 
-   WHY IT SURVIVES AT ALL rather than being deleted: it is the one-click
-   revert to the behaviour every run had before 16b, and it is symmetric with
-   AUTO COLLECT -- a player who wants a magnet gets a magnet, for items and
-   for machines, from one panel.
+   WHY IT SURVIVES AT ALL: it is the one-click revert to the behaviour every
+   run had before the feed verb, and it is symmetric with AUTO COLLECT.
 
    The trap the design wants -- hauling ore up to a machine you placed in the
-   wrong place -- is unaffected either way: it is a fact about DISTANCE, and
-   both this and `handOne` require the player to be standing there. What is
-   no longer true is that walking past a machine costs you your cargo without
-   asking. The body below is byte-for-byte unchanged by 16b. */
+   wrong place -- is unaffected either way, because it is a fact about
+   DISTANCE and both paths require standing there. */
 function handFeed(m, def) {
   if (!overlaps(playerBox(), m.box, def.handFeed.reach)) return;
   for (const sel of def.handFeed.from) {
@@ -159,27 +148,15 @@ function handFeed(m, def) {
   }
 }
 
-/* THE FEED VERB
-   ONE unit of ONE named pair, handed over deliberately. This is what LMB on a
-   machine does; `handFeed` above is the proximity magnet that used to be the
-   only way material ever reached a buffer from a hand. It is now
-   retired behind `cmd.autoFeed` and off by default, so THIS is how a hand
-   fills a buffer unless the player asked for the magnet back.
+/* THE FEED VERB: ONE unit of ONE named pair, handed over deliberately. This
+   is what LMB on a machine does, and it differs from the magnet above in
+   three ways that are each the point -- it takes the pair the PLAYER named
+   rather than whatever `pocketedPair` finds first, it moves one unit per call
+   rather than one per selector per substep, and it SAYS WHY when it refuses.
 
-   The two differ in three ways and every one of them is the point: this takes
-   the pair the PLAYER named (`shell/ui.js#ui.armedPlace`) rather than whatever
-   `pocketedPair` happens to find first; it moves ONE unit per call rather than
-   one per selector per substep; and it SAYS WHY when it refuses. Everything
-   after the check is `handFeed`'s own body, verbatim, for one unit.
-
-   REACH IS NOT ASKED HERE. `shell/input.js`'s `pointerdown` asks it once, at
-   the instant of the press, and dispatches a mine instead when the answer is
-   no -- so a feed that reaches this function has already been decided to be a
-   feed, and a reach refusal here would be unreachable code claiming a
-   precedence docs/SPEC.md section 23.4 does not grant it.
-
-   Returns whether a unit actually moved, so `shell` can tell a fed press from
-   a refused one without reading the journal back. */
+   REACH IS NOT ASKED HERE. `pointerdown` asks once, at the instant of the
+   press, and dispatches a mine when the answer is no -- so a feed reaching
+   this function has already been decided to be a feed. */
 export function handOne(m, sub, form) {
   const chk = feedCheck(m, sub, form);
   if (!chk.ok) {
@@ -244,17 +221,13 @@ function produce(m, def, dt) {
   push('produce', { x: m.box.x, y: m.box.y }, { def: m.def, made });
 }
 
-/* First recipe whose inputs are all present. ORDER IN THE ROW IS THE DESIGN —
-   the clearest case was the retired winch stage, which listed timber before
-   hearts so it behaved like an ordinary fuelled winch right up until you ran
-   dry; `data/recipes.js`'s declaration-order block makes the same argument for
-   the hand recipes, which is where it still bites.
+/* First recipe whose inputs are all present. ORDER IN THE ROW IS THE DESIGN,
+   and `data/recipes.js`'s declaration-order block makes the argument where it
+   still bites, on the hand recipes.
 
-   THE `charges > 0` GATE IS GONE. It stopped a winch stage
-   holding an unspent haul from burning more fuel, and both the row and the
-   rules module that read the charge are gone with it. A belt is now the only
-   charge consumer, and it deliberately does NOT want that gate -- it banks
-   several and spends one per item delivered. */
+   THERE IS NO `charges > 0` GATE. A belt is the only charge consumer now, and
+   it deliberately does NOT want one -- it banks several and spends one per
+   item delivered. */
 function choose(m, def) {
   for (const r of recipes(def, m.def)) {
     if (!gated(m, r)) continue;
@@ -310,18 +283,14 @@ function emit(m, def, dt) {
   }
 }
 
-/* mine
-   A PLACED miner. GATES on top of `rules/mining.js`'s hardness, not a second
-   one -- see the `mine` key's own documentation in `data/machines.js`, and
-   docs/DEVELOPER_GUIDE.md#placed-miners
+/* A PLACED miner. GATES on top of `rules/mining.js`'s hardness, never a
+   second hardness.
 
    "Hands compete with machines on throughput; they lose on headcount" is
-   enforced HERE, not asserted in a comment: every placed miner chews at
-   `eff('pickPower') x bestHandToolPower()`, the exact same formula and the
-   exact same NUMBER `rules/mining.js#step` uses when a player swings the best
-   tool they hold. Only the GATE (`def.mine.tier`, what the miner may even
-   bite) and the WIDTH (`def.mine.tiles`, how tall a face it can reach) vary
-   between tiers; the per-tile rate never does. */
+   enforced HERE rather than asserted: every placed miner chews at
+   `eff('pickPower') x bestHandToolPower()`, the same formula and the same
+   NUMBER a player swinging their best tool gets. Only the GATE and the WIDTH
+   vary between tiers; the per-tile rate never does. */
 
 /* The best HAND tool's power, scanned off every substance's `item.tool`
    block rather than naming one. A future hand tool raises every placed
@@ -402,13 +371,11 @@ function mine(m, def, dt) {
      tier's throughput equality rests on. */
   const hard = baseHardAt(m.band, target.tx, target.ty) * eff('hard', SUB[sub].id);
 
-  /* DEPLETION, identical arithmetic to `rules/mining.js`'s hand-mining half --
-     same `baseChargeAt`, same `eff('richness', ...)`, same
-     `model/mining.js#unitsCrossed`, same order relative to the break test.
-     That is not politeness: docs/SPEC.md section 12 stakes a measured
-     "0.0000 s difference" on a placed miner chewing a tile at exactly the hand
-     rate, and the shared helper is what makes it true by construction rather
-     than by two files happening to agree. */
+  /* DEPLETION, identical arithmetic to the hand-mining half -- same
+     `baseChargeAt`, same `eff('richness')`, same `unitsCrossed`, same order
+     relative to the break test. A measured "0.0000 s difference" rests on it,
+     and the SHARED HELPER is what makes that true by construction rather than
+     by two files happening to agree. */
   const charge = Math.max(1, Math.round(
     baseChargeAt(m.band, target.tx, target.ty) * eff('richness', SUB[sub].id)));
   const total = hard * charge;
@@ -455,16 +422,13 @@ function mine(m, def, dt) {
   ejectMined(m, def, drop);
 }
 
-/* ONE mined unit, out of the mouth. Shared by the depletion branch and the
-   break branch above so the two cannot drift -- including the single `rand()`
-   call, whose position in the stream is load-bearing.
+/* ONE mined unit, out of the mouth. Shared by the depletion and break
+   branches so the two cannot drift, including the single `rand()` call whose
+   position in the stream matters.
 
-   ARCHITECTURE invariant 5, same as every other producer in this file: the
-   output DROPS, at the OUT port, never a direct buffer credit. Downward, not
-   tossed up like a recipe's own output loop above -- "drops to the tile below
-   the out port" is the phrase this key's spec uses, and gravity
-   (`rules/items.js`, which runs before this step every frame) carries it the
-   rest of the way regardless of which way it leaves the mouth. */
+   The output DROPS at the OUT port, never a direct buffer credit, and DOWNWARD
+   rather than tossed up like a recipe's output -- gravity runs before this
+   step every frame and carries it the rest of the way. */
 function ejectMined(m, def, pair) {
   const port = def.ports.find(p => p.mode === 'out');
   const mouth = m.mouth[port.side];
