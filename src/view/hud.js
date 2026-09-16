@@ -50,6 +50,7 @@ import { ASKERS, CYCLES } from '../data/cycles.js';
 import { S } from '../data/substances.js';
 import { aim } from '../model/aim.js';
 import { boons } from '../model/boons.js';
+import { committedWithin, markedAt, queued } from '../model/digqueue.js';
 import { eff, mods } from '../model/mods.js';
 import { items } from '../model/items.js';
 import { PH, player, playerCentre } from '../model/player.js';
@@ -61,9 +62,9 @@ import {
 import { linkCheck, reachOf } from '../model/segments.js';
 import { beat } from '../model/tutorial.js';
 import { tileAt } from '../model/tiles.js';
-import { bandOf, worldY } from '../model/world.js';
+import { bandOf, worldX, worldY } from '../model/world.js';
 import { CALLOUTS } from '../data/callouts.js';
-import { banner, toasts } from './fx.js';
+import { banner, frontToast, toasts } from './fx.js';
 import { resolveHover } from './hover.js';
 import { stats as paintStats } from './paint.js';
 import { drawBar } from './ui/bar.js';
@@ -142,6 +143,11 @@ export function drawHUD(g, f) {
      ran next. */
   const boonBottom = boonStack(g, f, W, 19);
   const favourBottom = favour(g, W, boonBottom + 3);
+  /* BEFORE the reticle and the ghosts on purpose: a queued mark, the aim
+     reticle and a build ghost can all land on one tile in one frame, and the
+     one the next press acts on is the reticle. Painted first, it stays under
+     them. */
+  digMarks(g, f);
   reticle(g, f);
   buildGhost(g, f);
   collectPrompt(g, f);
@@ -445,13 +451,21 @@ function tooltip(g, f) {
   lines.forEach((l, i) => drawText(g, l, bx + 4, by + 3 + i * 8, i === 0 ? UI.ink : UI.ink2, 1, 1));
 }
 
-/* One tile reads as one metre, measured from the SPAWN band's ground line — so
-   depth is a fact about the world and not about which band you happen to be in. */
+/* One tile reads one metre, measured from the SPAWN band's ground line — so
+   depth is a fact about the world and not about which band you happen to be in.
+
+   MEASURED AT THE FEET, `player.y + PH`. `player.y` is the TOP of the 16 px
+   body, so measuring it put the reading two tiles above the ground the player
+   is standing on and the spawn floor read `+2M` instead of `0M`
+   (docs/PLAYTEST.md B4). THE DATUM IS UNCHANGED: `worldY(ref, floorTy)` is the
+   same expression `model/run.js#placementCheck` gates `minDepth` on, per
+   CLAUDE.md D9, and that one measures a TILE ROW rather than a body, so it has
+   no `PH` to add and did not move. */
 function depth(g, W, y) {
   const ref = bandOf(SPAWN_BAND);
   if (!ref) return;
   const datum = worldY(ref, ref.cfg.floorTy ?? 0);
-  const d = Math.round((player.y - datum) / ref.tile);
+  const d = Math.round((player.y + PH - datum) / ref.tile);
   const s = (d >= 0 ? d : '+' + -d) + 'M';
   const w = textWidth(s) + 8;
   panel(g, W - w - 6, y - 2, w, 11);
@@ -636,6 +650,92 @@ function favour(g, W, startY) {
     y = bar.y + bar.h + FAVOUR_ROW_GAP;
   }
   return y;
+}
+
+/* ---------- the dig queue's marks, docs/SPEC.md section 28 ----------
+   Three states, and telling them apart is the whole feature:
+
+     WORKED     the tile `rules/mining.js` is committed to. The X inside a
+                1 px frame, primary ink. At most one per frame.
+     IN REACH   a mark waiting inside `eff('reach')`. The X, primary ink.
+     DEFERRED   a mark beyond reach. The X's four tips only, on the STATE
+                tone. It resumes when the player walks over, so it is the
+                same glyph gone sparse rather than a different one in the
+                refusal colour -- `uiDim` already means "inactive, waiting"
+                at every other site in this file.
+
+   DENSITY CARRIES THE READ AND ALPHA DOES NOT. 4 px, 12 px and 40 px of
+   opaque mark are three states at a glance on lit grass and on unlit rock
+   alike; the same ladder drawn at 0.5 / 0.7 / 1.0 alpha lost the deferred
+   state entirely over grass, measured at 7x on the spawn shelf.
+
+   AN X, BECAUSE THE OTHER TWO WORLD OVERLAYS ARE NOT ONE. `reticle` below
+   draws corner elbows and `drawFootprintGhost` fills the tile; three things
+   that can coincide must not share a shape.
+
+   REACH IS READ ONCE AND HANDED TO BOTH TESTS. `committedWithin` takes
+   `reach` as a parameter rather than reading `eff` itself
+   (`model/digqueue.js`'s own note) precisely so this pass and the rules step
+   cannot measure against different numbers. */
+
+/* Centre to centre in world px, squared, the formula `model/digqueue.js#d2`
+   measures `nearestWithin` and `committedWithin` with -- inclusive at the
+   boundary, as `d > reach * reach` there is. Mirrored rather than shared
+   because that module exports no per-mark predicate; both sides read the same
+   `eff('reach')`, so the two cannot disagree about the number even though they
+   each apply it. */
+function markInReach(m, cx, cy, reach) {
+  const half = m.band.tile / 2;
+  const dx = worldX(m.band, m.tx) + half - cx;
+  const dy = worldY(m.band, m.ty) + half - cy;
+  return dx * dx + dy * dy <= reach * reach;
+}
+
+/* The X, inset a pixel so it reads as a mark on the tile rather than a border
+   of it. `tips` draws the four ends alone. A band's tile is 8 px everywhere
+   today; under 4 px there is no room for a diagonal and the tile fills. */
+function markGlyph(g, x, y, t, col, tips) {
+  const n = t - 2;
+  if (n < 2) { R(g, x, y, t, t, col); return; }
+  if (tips) {
+    R(g, x + 1,     y + 1,     1, 1, col); R(g, x + t - 2, y + 1,     1, 1, col);
+    R(g, x + 1,     y + t - 2, 1, 1, col); R(g, x + t - 2, y + t - 2, 1, 1, col);
+    return;
+  }
+  for (let i = 0; i < n; i++) {
+    R(g, x + 1 + i,     y + 1 + i, 1, 1, col);
+    R(g, x + t - 2 - i, y + 1 + i, 1, 1, col);
+  }
+}
+
+function digMarks(g, f) {
+  const set = queued();
+  if (!set.size || run.dead) return;
+
+  const c = playerCentre();
+  const reach = eff('reach');
+  const target = committedWithin(c.x, c.y, reach);
+
+  for (const m of set.values()) {
+    /* A stale mark is collected by `rules/mining.js` on its next substep, not
+       here: reads never mutate (section 28.2). `markedAt` is the model's own
+       staleness predicate, so this pass cannot invent a second answer. */
+    if (!markedAt(m.band, m.tx, m.ty)) continue;
+
+    const t = m.band.tile;
+    const x = (worldX(m.band, m.tx) - f.cam.x) | 0;
+    const y = (worldY(m.band, m.ty) - f.cam.y) | 0;
+    if (x <= -t || y <= -t || x >= f.W || y >= f.H) continue;
+
+    const worked = !!target && target.b === m.band && target.tx === m.tx && target.ty === m.ty;
+    const near = worked || markInReach(m, c.x, c.y, reach);
+
+    markGlyph(g, x, y, t, near ? UI.ink : UI.dim, !near);
+    if (worked) {
+      R(g, x, y, t, 1, UI.ink);         R(g, x, y + t - 1, t, 1, UI.ink);
+      R(g, x, y + 1, 1, t - 2, UI.ink); R(g, x + t - 1, y + 1, 1, t - 2, UI.ink);
+    }
+  }
 }
 
 /* The aim reticle, in world space but drawn with the HUD because it is a
@@ -1011,9 +1111,11 @@ function buildGhost(g, f) {
 }
 
 /* ---------- the bottom line ----------
-   A transient toast (`toasts`, drained out of the journal by
+   A transient toast (`view/fx.js#frontToast`, drained out of the journal by
    `shell/notify.js`) always wins -- it is a fact that just happened and it
-   is more urgent than standing guidance. With none showing, the callout
+   is more urgent than standing guidance. The FRONT of that queue and not the
+   back: two facts can arrive in one frame and they are shown in the order they
+   happened, which is the whole of `view/fx.js`'s toast queue. With none showing, the callout
    falls back to whichever SPEC section 5 beat the player has not finished
    yet (`model/tutorial.js#beat`, a read-only query, and
    `data/callouts.js#CALLOUTS`, indexed by it). Two indices are `null` and
@@ -1027,8 +1129,8 @@ const CALLOUT_FADE_SECS = 0.4;
 const calloutFade = { beat: -1, since: 0 };
 
 function toastLine(g, f, W, H) {
-  const last = toasts[toasts.length - 1];
-  if (last) bottomLine(g, f, W, H, last.text, 1);
+  const front = frontToast();
+  if (front) bottomLine(g, f, W, H, front.text, 1);
 }
 
 function calloutLine(g, f, W, H) {
@@ -1165,12 +1267,15 @@ function endScreen(g, W, H, { wash, lines, id }) {
 
 /* Depth reached, in the SAME datum `depth()` above draws off and
    `model/run.js#placementCheck` gates on (CLAUDE.md D9) -- never a second
-   arithmetic. Shared by both end screens. */
+   arithmetic. `run.deepest` is the deepest `player.y`, the top of the body, so
+   it takes `depth()`'s own `+ PH` for the same reason: two readings of the
+   player's depth that differed by two tiles would be worse than either.
+   Shared by both end screens. */
 function depthReached() {
   const ref = bandOf(SPAWN_BAND);
   const datum = ref ? worldY(ref, ref.cfg.floorTy ?? 0) : 0;
   const tile = ref ? ref.tile : 8;
-  return Math.max(0, Math.round((run.deepest - datum) / tile));
+  return Math.max(0, Math.round((run.deepest + PH - datum) / tile));
 }
 
 /* THE TWO LINES BOTH ENDINGS PRINT, WRITTEN ONCE. A run is worth the same

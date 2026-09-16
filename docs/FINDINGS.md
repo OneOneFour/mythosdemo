@@ -3630,3 +3630,33 @@ Seven things found or left outside the block.
   `sigs.mjs` recomputes the world and content signatures by hand and claim 4
   moves each of them instead; `stale-ids.mjs` is claim 2's `run.granted` and
   `boons[0].id` rows.
+
+---
+
+## Phase 6m/6n/6w/6x — the wave 6 view closeout
+
+Four HUD items, and three things found outside the ownership block.
+
+- **`model/digqueue.js` exports no per-mark reach predicate**, so
+  `view/hud.js#markInReach` (`src/view/hud.js:688`) mirrors that module's own
+  private `d2` (`src/model/digqueue.js:90`) — centre to centre in world px,
+  squared, inclusive at the boundary. `nearestWithin` answers only for the
+  nearest mark and `committedWithin` only for the committed one, and the HUD
+  has to tint every mark. Both sides are handed the same `eff('reach')`, which
+  is the guarantee that matters, but a `withinReach(m, px, py, reach)` export
+  beside the other two would delete the mirror outright. Worth one line the
+  next time that file is open.
+
+- **`view/paint.js:440`'s comment is one reader out of date.**
+  `effHardAt`/`effChargeAt` are "Exported because TWO view passes need them";
+  `view/hover.js#unitsLine` is now a third, for the same reason the other two
+  cite — the tooltip's unit count and the depletion notches beside it must not
+  disagree. `view/paint.js` was not in this phase's ownership block.
+
+- **`docs/PLAYTEST.md` B5 is still open, and the toast queue makes it slightly
+  more likely.** `view/hud.js:171`'s draw chain paints `drawMainPanel` and then
+  the title banner above it, so opening the Character or Crafting tab inside
+  `shell/boot.js`'s 2.6 s opening banner writes `MYTHOS FACTORY / TORMENT I`
+  across the inventory grid. `docs/SPEC.md` §18.9 places the draft modal above
+  the banner and says nothing about the panel. Not fixed here: it is a z-order
+  change with baselines behind it and it is not one of this phase's four items.

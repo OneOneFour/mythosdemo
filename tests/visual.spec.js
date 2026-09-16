@@ -7340,3 +7340,353 @@ test('6l: the menu is not vacuous -- it replaces the HUD and the pixels differ w
 
   expect(errors).toEqual([]);
 });
+
+/* ============================================================
+   WAVE 6 VIEW CLOSEOUT (6m, 6n, 6w, 6x)
+
+   Four HUD readouts, and three of them are numbers or text rather than
+   pictures. A baseline of a three-glyph depth gauge proves almost nothing, so
+   each test below reads back what was actually drawn -- the tooltip's own
+   lines, the glyph mask the gauge printed, the pixels a mark changed -- and
+   the screenshots are there to catch a later change of shape.
+   ============================================================ */
+
+/* A copper tile with a known amount of work on it, hovered. `write.setByte`
+   clears the work ledger whenever the byte changes (docs/SPEC.md section
+   19.6), so the tile is written FIRST and the work added after; doing it the
+   other way round silently measures a fresh tile. */
+async function hoverDeposit(page, { subKey, work }) {
+  return page.evaluate(async ({ subKey, work }) => {
+    const { S } = await import('/src/data/substances.js');
+    const { packTile } = await import('/src/data/forms.js');
+    const { write: tw, baseHardAt, baseChargeAt } = await import('/src/model/tiles.js');
+    const { write: mw, workAt } = await import('/src/model/mining.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { banner } = await import('/src/view/fx.js');
+
+    const band = bandOf('topsoil');
+    const tx = 60, ty = 40;
+    tw.setByte(band, tx, ty, packTile(S[subKey]));
+    __mf.revealAll(band);
+    const hard = baseHardAt(band, tx, ty);
+    if (work > 0) mw.add(band, tx, ty, hard * work);
+
+    /* `drawHUD` draws the title card INSTEAD of the tooltip while the banner
+       is up; `settle()` advances `clock.t` but not `stepFx`. */
+    banner.fade = 0;
+    __mf.cmd.hasMouse = true;
+    __mf.cam.x = worldX(band, tx) - 40;
+    __mf.cam.y = worldY(band, ty) - 40;
+    __mf.mouseAt(44, 44);
+    __mf.draw();
+    return { hard, charge: baseChargeAt(band, tx, ty), work: workAt(band, tx, ty), lines: __mf.hover.lines };
+  }, { subKey, work });
+}
+
+test('6m: a deposit tile says how many units are left, and a charge-1 tile says nothing', async ({ page }) => {
+  const errors = await boot(page);
+  await settle(page);
+
+  /* 2.2 units of work on a charge-4 tile: two units are out of the ground and
+     the third is 20% cut, so two remain to come. Floored with no epsilon, the
+     same way `view/scene.js` counts the notches beside this text. */
+  const part = await hoverDeposit(page, { subKey: 'copper', work: 2.2 });
+  expect(part.charge).toBe(4);
+  expect(part.work).toBeCloseTo(part.hard * 2.2, 6);
+  expect(part.lines).toEqual(['COPPER', 'MASS 1.0', 'HARD 0.95S', 'UNITS 2 / 4']);
+
+  /* Untouched, the same tile is the full vein. */
+  const fresh = await hoverDeposit(page, { subKey: 'tin', work: 0 });
+  expect(fresh.charge).toBe(4);
+  expect(fresh.lines).toContain('UNITS 4 / 4');
+
+  /* ONE UNIT SHORT OF GONE, never "0 / 4": the last unit is the break itself,
+     so a tile that still exists still holds one. */
+  const nearly = await hoverDeposit(page, { subKey: 'copper', work: 3.9 });
+  expect(nearly.lines).toContain('UNITS 1 / 4');
+
+  /* And a charge-1 tile gains no line at all -- "1 / 1" on every rock in the
+     world is noise, not information. */
+  const stone = await hoverDeposit(page, { subKey: 'stone', work: 0.5 });
+  expect(stone.charge).toBe(1);
+  expect(stone.lines.some(l => l.startsWith('UNITS'))).toBe(false);
+
+  await hoverDeposit(page, { subKey: 'copper', work: 2.2 });
+  await shot(page, 'deposit-units-left.png');
+
+  /* AND RESOLVING THE LINE WRITES NOTHING (invariant 9). `npm run check`'s
+     epoch probe renders with no pointer, so `resolveHover` returns before it
+     reaches a tile there and this read path goes unexercised. */
+  const wrote = await page.evaluate(async () => {
+    const { epoch } = await import('/src/model/epoch.js');
+    const before = epoch.n;
+    __mf.draw();
+    __mf.draw();
+    return epoch.n - before;
+  });
+  expect(wrote).toBe(0);
+
+  expect(errors).toEqual([]);
+});
+
+/* Marks laid along the ground the player is standing on, running rightward:
+   the first three inside `eff('reach')` (25.6 px, centre to centre) and the
+   rest beyond it, with the nearest committed. Returns each mark's own state
+   and the screen rect it drew into. */
+const markScene = page => page.evaluate(async () => {
+  const { write: dq, committedWithin, queued } = await import('/src/model/digqueue.js');
+  const { eff } = await import('/src/model/mods.js');
+  const { playerCentre, player } = await import('/src/model/player.js');
+  const { tileX, tileY, worldX, worldY } = await import('/src/model/world.js');
+  const { banner } = await import('/src/view/fx.js');
+
+  const band = player.band;
+  const reach = eff('reach');
+  const ptx = tileX(band, player.x + 3), gy = tileY(band, player.y + 16);
+  for (const x of [ptx, ptx + 1, ptx + 2, ptx + 4, ptx + 6, ptx + 8, ptx + 10]) dq.mark(band, x, gy);
+  dq.commit(band, ptx, gy);
+
+  const c = playerCentre();
+  const target = committedWithin(c.x, c.y, reach);
+  banner.fade = 0;
+  __mf.cmd.hasMouse = false;
+  __mf.draw();
+
+  const marks = [];
+  for (const m of queued().values()) {
+    const half = m.band.tile / 2;
+    const dx = worldX(m.band, m.tx) + half - c.x, dy = worldY(m.band, m.ty) + half - c.y;
+    marks.push({
+      tx: m.tx,
+      state: target && target.tx === m.tx && target.ty === m.ty ? 'worked'
+        : dx * dx + dy * dy <= reach * reach ? 'reach' : 'deferred',
+      x: worldX(m.band, m.tx) - __mf.cam.x, y: worldY(m.band, m.ty) - __mf.cam.y, t: m.band.tile
+    });
+  }
+  return { reach, marks };
+});
+
+const markTiles = (page, marks) => page.evaluate(ms => {
+  const g = document.getElementById('stage').getContext('2d');
+  return ms.map(m => [...g.getImageData(m.x, m.y, m.t, m.t).data]);
+}, marks);
+
+test('6n: the dig queue draws three distinct states, and none of them is the bare tile', async ({ page }) => {
+  const errors = await boot(page);
+  await settle(page);
+  await page.evaluate(() => __mf.frames(240));        // onto the spawn shelf
+
+  const scene = await markScene(page);
+  expect(scene.marks.filter(m => m.state === 'worked')).toHaveLength(1);
+  expect(scene.marks.filter(m => m.state === 'reach')).toHaveLength(2);
+  expect(scene.marks.filter(m => m.state === 'deferred')).toHaveLength(4);
+  await shot(page, 'dig-marks.png');
+
+  /* NOT VACUOUS, AND THE THREE STATES MEASURED RATHER THAN PHOTOGRAPHED. The
+     same seven tiles are read twice, once with the queue up and once with it
+     cleared, so what is counted is the mark and never the rock under it. */
+  const withMarks = await markTiles(page, scene.marks);
+  await page.evaluate(async () => {
+    const { write: dq } = await import('/src/model/digqueue.js');
+    dq.clearAll();
+    __mf.draw();
+  });
+  const bare = await markTiles(page, scene.marks);
+
+  const count = scene.marks.map((m, i) => {
+    let n = 0;
+    for (let p = 0; p < m.t * m.t; p++) {
+      const o = p * 4;
+      if (withMarks[i][o] !== bare[i][o] || withMarks[i][o + 1] !== bare[i][o + 1]) n++;
+    }
+    return { state: m.state, n };
+  });
+
+  /* The X inside its frame, the X alone, and the X's four tips: 40, 12 and 4
+     opaque pixels on an 8 px tile. Exact rather than "greater than", because
+     the whole feature is that the three do not look alike. */
+  for (const c of count)
+    expect(c.n, `${c.state} mark`).toBe(c.state === 'worked' ? 40 : c.state === 'reach' ? 12 : 4);
+
+  /* AND DRAWING THEM WRITES NOTHING. `npm run check`'s epoch probe renders a
+     scene with an EMPTY queue, so `digMarks` returns before it touches
+     anything there and invariant 9 goes unexercised for this pass. A mark is
+     skipped when stale rather than pruned (docs/SPEC.md section 28.2), which
+     is the line that would break it. */
+  const wrote = await page.evaluate(async () => {
+    const { epoch } = await import('/src/model/epoch.js');
+    const { write: dq } = await import('/src/model/digqueue.js');
+    const { player } = await import('/src/model/player.js');
+    const { tileX, tileY } = await import('/src/model/world.js');
+    const band = player.band;
+    const ptx = tileX(band, player.x + 3), gy = tileY(band, player.y + 16);
+    for (const x of [ptx, ptx + 1, ptx + 6]) dq.mark(band, x, gy);
+    dq.commit(band, ptx, gy);
+    const before = epoch.n;
+    __mf.draw();
+    __mf.draw();
+    return epoch.n - before;
+  });
+  expect(wrote).toBe(0);
+
+  expect(errors).toEqual([]);
+});
+
+/* THE GAUGE'S OWN GLYPHS, READ BACK. `depth()` draws `s` at
+   `(W - textWidth(s) - 10, 6)` in `uiDim` at or above the datum, with no
+   shadow (it sits inside a panel), so every glyph pixel is that colour
+   exactly. Rendering the expected string with the same `drawText` and
+   comparing the two masks is what makes this an assertion about the TEXT
+   rather than about a rectangle of pixels. */
+const gaugeReads = (page, expected) => page.evaluate(async (expected) => {
+  const { drawText, textWidth } = await import('/src/core/font.js');
+  const { colour } = await import('/src/data/palette.js');
+  const dim = colour('uiDim');
+  const [r, g0, b] = [1, 3, 5].map(i => parseInt(dim.slice(i, i + 2), 16));
+
+  const stage = document.getElementById('stage');
+  const w = textWidth(expected), x0 = stage.width - w - 10, y0 = 6;
+
+  const ref = document.createElement('canvas');
+  ref.width = w; ref.height = 7;
+  drawText(ref.getContext('2d'), expected, 0, 0, dim, 1, 1);
+
+  const mask = data => {
+    const on = [];
+    for (let i = 0; i < data.length; i += 4)
+      if (data[i] === r && data[i + 1] === g0 && data[i + 2] === b) on.push(i / 4);
+    return on.join(',');
+  };
+  return {
+    drew: mask(stage.getContext('2d').getImageData(x0, y0, w, 7).data),
+    want: mask(ref.getContext('2d').getImageData(0, 0, w, 7).data)
+  };
+}, expected);
+
+test('6w: the depth gauge measures the feet, so the spawn floor reads 0M', async ({ page }) => {
+  const errors = await boot(page);
+  await settle(page);
+
+  const at = await page.evaluate(async () => {
+    const { PH, player } = await import('/src/model/player.js');
+    const { bandOf, worldY } = await import('/src/model/world.js');
+    const { SPAWN_BAND } = await import('/src/data/world.js');
+    const { banner } = await import('/src/view/fx.js');
+    banner.fade = 0;
+    __mf.frames(240);                                 // settle onto the shelf
+    __mf.draw();
+    const ref = bandOf(SPAWN_BAND);
+    return {
+      standing: player.onGround,
+      feet: player.y + PH, datum: worldY(ref, ref.cfg.floorTy), tile: ref.tile
+    };
+  });
+
+  /* The player's FEET are on the datum row, which is the whole claim: the
+     gauge used to measure `player.y`, the top of a 16 px body, and read +2M
+     standing here (docs/PLAYTEST.md B4). */
+  expect(at.standing).toBe(true);
+  expect(at.feet).toBeCloseTo(at.datum + 0.8, 1);
+
+  const zero = await gaugeReads(page, '0M');
+  expect(zero.drew).toBe(zero.want);
+
+  /* AND IT IS NOT STUCK AT ZERO. Eight tiles down the same column reads 8M,
+     in the primary ink rather than the state tone, so this second read is
+     against `ui` and not `uiDim` -- which is itself the assertion that the
+     datum sign still drives the colour. */
+  const deep = await page.evaluate(async () => {
+    const { PH, player, write: pw } = await import('/src/model/player.js');
+    const { drawText, textWidth } = await import('/src/core/font.js');
+    const { colour } = await import('/src/data/palette.js');
+    pw.move(player.x, player.y + 8 * player.band.tile);
+    __mf.draw();
+
+    const ink = colour('ui');
+    const [r, g0, b] = [1, 3, 5].map(i => parseInt(ink.slice(i, i + 2), 16));
+    const stage = document.getElementById('stage');
+    const w = textWidth('8M'), x0 = stage.width - w - 10;
+    const ref = document.createElement('canvas');
+    ref.width = w; ref.height = 7;
+    drawText(ref.getContext('2d'), '8M', 0, 0, ink, 1, 1);
+    const mask = data => {
+      const on = [];
+      for (let i = 0; i < data.length; i += 4)
+        if (data[i] === r && data[i + 1] === g0 && data[i + 2] === b) on.push(i / 4);
+      return on.join(',');
+    };
+    return {
+      feet: player.y + PH,
+      drew: mask(stage.getContext('2d').getImageData(x0, 6, w, 7).data),
+      want: mask(ref.getContext('2d').getImageData(0, 0, w, 7).data)
+    };
+  });
+  expect(deep.drew).toBe(deep.want);
+
+  expect(errors).toEqual([]);
+});
+
+test('6x: the First Trial announces both its rewards, in the order they were granted', async ({ page }) => {
+  const errors = await boot(page);
+  await settle(page);
+
+  /* THE FRAME THE FIRST TRIAL ACTUALLY PRODUCES. `rules/cycles.js#complete`
+     pushes the `cycle` row and queues the reward; `rules/grants.js#step` then
+     awards the furnace and the cloud dock in the SAME substep, and
+     `shell/notify.js` drains all three together. The award queue is driven
+     through `model/run.js#write.award`, which is the real path -- not a hand
+     -written pair of toasts. */
+  const paid = await page.evaluate(async () => {
+    const { run, write: rw } = await import('/src/model/run.js');
+    const { push } = await import('/src/model/journal.js');
+    const { banner, toasts } = await import('/src/view/fx.js');
+    push('cycle', null, { cycleId: run.tribute?.cycleId, god: 'hephaestus', reward: {} });
+    rw.award(['furnace', 'cloud_dock']);
+    __mf.frames(1);
+    __mf.draw();
+    return { banner: { ...banner }, queue: toasts.map(t => t.text), front: toasts[0].text };
+  });
+
+  /* Both facts are held, and the furnace -- the whole reward of docs/SPEC.md
+     section 4 -- is the one on screen. Before the queue it was overwritten
+     inside its own frame and never appeared (docs/PLAYTEST.md B3). */
+  expect(paid.queue).toEqual(['CRUDE FURNACE IS GRANTED', 'THE CLOUD DOCK IS GRANTED']);
+  expect(paid.front).toBe('CRUDE FURNACE IS GRANTED');
+  /* And the god's own line is the banner beside it, not a third thing
+     competing for the same slot. */
+  expect(paid.banner.text).toBe('HEPHAESTUS');
+  expect(paid.banner.sub).toBe('IS SATISFIED');
+  await shot(page, 'cycle1-reward-announced.png');
+
+  /* THE SECOND LINE ARRIVES, and within the handoff rather than 3.2 s later:
+     anything waiting cuts the row on screen to one glance. */
+  const next = await page.evaluate(async () => {
+    const { toasts } = await import('/src/view/fx.js');
+    __mf.frames(126);                                 // 1.05 s, just past the handoff
+    __mf.draw();
+    return { queue: toasts.map(t => t.text) };
+  });
+  expect(next.queue).toEqual(['THE CLOUD DOCK IS GRANTED']);
+
+  /* A REPEAT REFRESHES RATHER THAN STACKING. Eleven hand-feeds push eleven
+     identical rows and the bottom line must not become a backlog of them. */
+  const repeats = await page.evaluate(async () => {
+    const { toast, toasts } = await import('/src/view/fx.js');
+    toasts.length = 0;
+    for (let i = 0; i < 11; i++) toast('1 COPPER ORE TITHED');
+    return toasts.map(t => t.text);
+  });
+  expect(repeats).toEqual(['1 COPPER ORE TITHED']);
+
+  /* AND THE QUEUE IS BOUNDED, dropping the row that has already had its
+     glance rather than the newest fact. */
+  const capped = await page.evaluate(async () => {
+    const { toast, toasts } = await import('/src/view/fx.js');
+    toasts.length = 0;
+    for (const t of ['A', 'B', 'C', 'D']) toast(t);
+    return toasts.map(t => t.text);
+  });
+  expect(capped).toEqual(['B', 'C', 'D']);
+
+  expect(errors).toEqual([]);
+});

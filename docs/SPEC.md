@@ -2450,6 +2450,25 @@ hand-equals-machine equality depends on them agreeing. It caps at
 never interleaved with it, so the rare-trinket roll keeps its exact position
 relative to the final drop spawn in the seed's `rand()` stream (invariant 7).
 
+**The tooltip prints how many units are left (Phase 6m).** A hovered tile
+whose effective charge is above 1 gains one line, `UNITS <left> / <charge>`,
+under the hardness line. Units, never a percentage, because the player plans
+in units. `charge:1` tiles gain nothing -- their one unit is the tile, and
+`1 / 1` on every rock in the world is noise.
+
+| | |
+|---|---|
+| left | `charge - min(charge - 1, floor(progressAt(...) x charge))` |
+| charge | `view/paint.js#effChargeAt`, the tile's own charge times `eff('richness', sub)` |
+| hardness | `view/paint.js#effHardAt`, not the base figure the `HARD n.nnS` line prints |
+
+The arithmetic is `view/scene.js#drawLiveTiles`'s own, so the printed count
+and the notches bitten out of the tile beside it cannot disagree, and it is
+measured with the EFFECTIVE pair rather than the base one for the same reason
+-- a live `hard` or `richness` modifier moves the notches, so it must move the
+number. Capped one short of `charge` there and therefore never `0 / 4`: the
+last unit is the break, so a tile that still exists still holds one.
+
 **A placed unit has no charge.** `model/tiles.js#baseChargeOf` returns 1 for
 any non-`NATIVE` byte, which it must: `stair` crosses with `metal`, so
 `copper/stair` is a real placeable pair and charging it by its substance would
@@ -2744,14 +2763,14 @@ means ten rows in ten consecutive 1/120 s steps, which is 120 Hz of bell and
 ten fresh ZzFX buffers a frame. `cycle`, `debt` and `win` need no gap — each
 fires at most once per trial.
 
-**A known ordering artifact, stated rather than discovered.**
+**The ordering artifact this section used to record is fixed (Phase 6x).**
 `rules/cycles.js#miss` pushes the `debt` row and *then* calls `hurtFor`, whose
-`hurt` row toasts the cause; `view/fx.js#toast` keeps one line and the newest
-fact wins, so on every punishable cycle shipped today the debt line is
-superseded within its own frame by the heart line. The debt row's sound and
-chips still land, and a punishment with no hearts (none ships) would show it.
-Left as it is: reordering the pushes would trade the heart count away for the
-favour count, and a toast *queue* is a bigger change than this phase.
+`hurt` row toasts the cause. While `view/fx.js#toast` kept one line and the
+newest fact won, the debt line was superseded within its own frame by the
+heart line on every punishable cycle. The toast queue (§26.8) holds both and
+shows them in order, so the favour count is read and the heart count follows
+it about a second later. Neither push was reordered; the slot stopped
+discarding one of them.
 
 ---
 
@@ -3340,8 +3359,9 @@ lines and the stat rows are now one scroll region.
 
 ### 26.6 The bottom line: a callout under the window, a toast over it
 
-`view/hud.js` draws one line at the bottom of the screen — the newest toast,
-or the SPEC §5 beat's callout when there is none.
+`view/hud.js` draws one line at the bottom of the screen — the toast at the
+FRONT of the queue (§26.8), or the SPEC §5 beat's callout when there is
+none.
 
 - **It reserves its neighbours' rectangles.** The callout is centred and the
   quickbar is pinned right, so the two met only where the text was wide
@@ -3355,6 +3375,71 @@ or the SPEC §5 beat's callout when there is none.
   guidance loses to a window the player opened; a fact that just happened
   does not, or a refusal raised by a click inside the panel would be hidden
   by the panel that raised it.
+
+### 26.7 The depth gauge measures the feet (Phase 6w)
+
+`view/hud.js#depth` measured `player.y`, the TOP of the 16 px body, against
+the datum — so a player standing on the spawn floor read **`+2M`** and one
+eight tiles down a shaft read `6M` (`docs/PLAYTEST.md` B4). It measures
+`player.y + PH`.
+
+| | |
+|---|---|
+| datum | `worldY(bandOf(SPAWN_BAND), floorTy)`, **unchanged** |
+| reading | `round((player.y + PH - datum) / ref.tile)` |
+| `depthReached()` | `round((run.deepest + PH - datum) / ref.tile)`, floored at 0 |
+
+**The datum did not move, and that is the constraint that shaped the fix.**
+CLAUDE.md D9 anchors this gauge and `data/machines.js#cyclops_maw`'s
+`minDepth:200` to one expression, and `model/run.js#placementCheck` reads it
+unchanged. That check measures a TILE ROW — `worldY(band, ty) - datum` — so it
+has no body height to add and needed no edit. The two agree on where 0 M is;
+they differ only in what each measures against it, which is a tile in one case
+and a pair of feet in the other.
+
+`depthReached()` takes the same `+ PH` because `run.deepest` is the deepest
+`player.y`. Two readings of the player's own depth differing by two tiles
+would be worse than either.
+
+### 26.8 The toast slot holds three and shows one (Phase 6x)
+
+`view/fx.js#toast` kept exactly one row and let the newest fact win, so a
+frame carrying two facts lost one. The measured case is the First Trial:
+`rules/grants.js#step` awards the furnace and the cloud dock in the same
+substep (§20.3), so `CRUDE FURNACE IS GRANTED` — the whole reward of §4 — was
+overwritten inside its own frame and the player never saw it
+(`docs/PLAYTEST.md` B3).
+
+| | |
+|---|---|
+| held | 3 rows, oldest first; the FRONT is drawn |
+| drained | front only, by `step(dt)`; a row expiring shifts the next one up |
+| a repeat | matches on the text and refreshes that row rather than queueing |
+| over the cap | drops the FRONT, which has already had its glance |
+| handoff | anything waiting cuts the front row to **1.0 s** |
+
+**The handoff is what keeps a queue from burying the newest fact**, which is
+why the slot was single in the first place. A refusal arriving behind three
+stale lines would be read late or not at all, so the newest row is on screen
+within a second however many are queued. 1.0 s is one glance, about four short
+words at 250 ms each.
+
+**A repeat refreshes because eleven hand-feeds push eleven identical rows.**
+`shell/notify.js#TEXT.tribute` names the pair rather than a running total, and
+one unit moves per selector per substep, so ten ore is ten rows in ten
+consecutive steps. Stacking those would be 35 s of one sentence.
+
+**The banner keeps its single slot, deliberately.**
+`shell/notify.js#BANNERS` maps exactly one journal kind to it (a paid trial)
+and `shell/boot.js` raises the opening title; two of those cannot land in one
+frame, so a banner queue would be machinery for a collision that cannot occur.
+A banner is two lines across the middle of the screen, so two in a row would
+hold the centre for five seconds and the second would read as though the first
+had not happened.
+
+Measured: the paid First Trial holds `['CRUDE FURNACE IS GRANTED', 'THE CLOUD
+DOCK IS GRANTED']` with the furnace drawn and the god's own line on the banner
+beside it; a miss holds the debt line and the heart line in that order (§20.5).
 
 ## 27. The save slot (Phase 6h)
 
@@ -3780,6 +3865,42 @@ zero once the first is gone -- rather than both creeping toward completion
 together. What it does not buy is a tile finished during a full-speed walk
 across a seam. That is bounded by reach geometry rather than by the retarget
 rule, and `docs/FINDINGS.md` (phase 6i-2) holds the arithmetic.
+
+### 28.7 What `view` draws (Phase 6n)
+
+`view/hud.js#digMarks`, in world space, immediately BEFORE the aim reticle and
+the build ghosts so those stay on top of it. Three states, and telling them
+apart is the whole feature.
+
+| state | test | glyph | tone | px on an 8 px tile |
+|---|---|---|---|---|
+| worked | `committedWithin(playerCentre(), eff('reach'))` names this tile | the X inside a 1 px frame | `ui` | 40 |
+| in reach | centre-to-centre distance <= `eff('reach')` | the X | `ui` | 12 |
+| deferred | beyond it | the X's four tips | `uiDim` | 4 |
+
+**Density carries the read and alpha does not.** 4, 12 and 40 opaque pixels
+are three states at a glance on lit grass and on unlit rock alike. The same
+ladder drawn at 0.5 / 0.7 / 1.0 alpha lost the deferred state entirely over
+grass, measured at 7x on the spawn shelf.
+
+**An X, because the other two world overlays are not one.** `reticle` draws
+corner elbows and `drawFootprintGhost` fills the tile; three overlays that can
+land on one tile in one frame must not share a shape.
+
+**Deferred reads as waiting rather than refused.** The same glyph gone sparse
+on the STATE tone, never the heart colour: a mark out of reach resumes when the
+player walks over (§28.3), so it is not an error. `uiDim` already means
+"inactive, waiting" at every other site in `view/hud.js`.
+
+**Reach is measured once and handed to both reads.** `committedWithin` takes
+`reach` as a parameter rather than reading `eff` itself (§28.6), so this pass
+is passed the same value the step measures with. The per-mark in-reach test
+mirrors `model/digqueue.js#d2` — centre to centre in world px, squared,
+inclusive at the boundary — because that module exports no per-mark predicate;
+`docs/FINDINGS.md` (6n) records the missing export.
+
+**A stale mark is skipped, never cleared.** Reads never mutate (§28.2), so the
+draw asks `markedAt` and leaves the pruning to `rules/mining.js#step`.
 
 ## 29. Named debug scenarios (Phase 6j)
 
