@@ -5,8 +5,7 @@
    NO SUBSTANCE NAME AND NO MACHINE NAME APPEARS ANYWHERE IN THIS LAYER.
    Everything drawn below comes from a `look` block: `base`/`hi`/`lo` for rock,
    `item` for a dropped unit, `body`/`trim`/`base`/`fire`/`pips` for a machine,
-   and `treatments` for anything a colour triple cannot say. See
-   docs/DEVELOPER_GUIDE.md#colour-and-appearance
+   and `treatments` for anything a colour triple cannot say.
 
    A DIG REPAINTS ITS CHUNK, NOT THE WORLD. The mockup baked one
    1024x2520 strip; this paints 128x128 px, about 1/1500th of a full bake.
@@ -34,29 +33,12 @@ import { bands, chunkPx, chunkVer, heightPx } from '../model/world.js';
 import { EXTENT, TREAT, seedAt, treat } from './treatments.js';
 import { SPRITE } from './sprites.js';
 
-/* Repaints per frame. A first paint is never budgeted — a chunk with no canvas
-   has nothing stale to show — but a re-paint is, so walking a long tunnel while
-   digging cannot stack forty bakes into one frame.
+/* Repaints per frame. A first paint is never budgeted, because a chunk with no
+   canvas has nothing stale to show; a re-paint is, so walking a long tunnel
+   while digging cannot stack forty bakes into one frame.
 
-   STILL 8, AND THAT WAS RE-EXAMINED RATHER THAN ASSUMED, because the decoration
-   margin below changed both sides of the trade at once: a tile write now makes
-   up to nine chunks stale instead of one to three, so the budget is genuinely
-   REACHED where it used to be approached, and a chunk repaint got dearer.
-   Measured on this machine, cold-baking the 23 chunks a 640x400 viewport holds
-   (a frame with nothing stale is 0.2 ms either way):
-
-     before (commit 0da2a06)   23.5 ms, 1.02 ms per chunk
-     after                             35.3 ms, 1.53 ms per chunk
-
-   So the worst case is 8 x 1.53 = 12.2 ms, in the one frame a tile breaks,
-   roughly twice a second while digging — inside a 16.7 ms frame, and the
-   simulation is a fixed 1/120 s step that does not care what the draw costs.
-   Five was tried and is worse: it caps the spike at 7.6 ms but the chunk being
-   dug is mid-raster-order among the nine, so it loses its turn and the shaft
-   visibly lags several tiles behind the pick (caught by `digging.png`, whose
-   diff was exactly the shaft column and nothing else). A skipped chunk shows its
-   own previous canvas, never a blank one — that is the trade this budget exists
-   to make, and paying it on the tile you are looking at is the wrong place. */
+   8 x 1.53 ms is 12.2 ms in the one frame a tile breaks, inside a 16.7 ms
+   frame. A skipped chunk shows its own previous canvas, never a blank one. */
 const REPAINT_BUDGET = 8;
 
 /* HOW WIDE A NEIGHBOURHOOD A CHUNK'S APPEARANCE DEPENDS ON, in tiles. Taken
@@ -65,29 +47,13 @@ const REPAINT_BUDGET = 8;
    outside its own range a chunk has to look for the tiles that emit into it. */
 const DECO_MARGIN = Math.max(...Object.values(EXTENT));
 
-/* HOW MUCH CANVAS THE CHUNK CACHE MAY HOLD, in bytes of backing store. A BYTE
-   budget rather than a chunk count because a band declares its own `chunk` and
-   its own `tile`, so two bands need not agree on how many pixels
-   a chunk canvas is.
+/* How much canvas the chunk cache may hold, in BYTES of backing store rather
+   than a chunk count, because a band declares its own `chunk` and `tile` so
+   two bands need not agree on how many pixels a chunk canvas is.
 
-   24 MB, and both bounds on that number are measurements rather than taste. A
-   canvas costs `px * px * 4` bytes of backing store, so a 16x16-tile chunk at
-   `tile:8` is 128x128 px = 64 KB and the budget holds 384 of them. From below:
-   the largest base buffer `core/canvas.js#resize` produces is about 1000x500
-   (a 4K display at its scale-5 step), which covers 45 chunks across the two or
-   three bands a frame can straddle -- so the budget is eight times the most any
-   one frame can ask for, and a player has to leave eight screens of terrain
-   behind before walking back costs a re-bake. From above: the whole world is
-   216 chunks (13.5 MB) at 128 tiles wide and 1,728 (108 MB) at 1,024 -- both
-   counted off `b.cx * b.cy`, and both larger than
-   docs/PLAN-horizontal-chunks-SCOPE.md 3.7's estimate of 264 and 1,280. So
-   this is the smallest round budget that bounds the wide world while evicting
-   nothing at all in the narrow one. docs/SPEC.md section 1 holds the table.
-
-   MUTABLE, AND ON AN OBJECT for the reason CLAUDE.md gives about module
-   bindings: `tests/visual.spec.js` lowers it to force the ceiling, because at
-   128 tiles the whole world fits inside it and eviction can never be reached
-   by playing. */
+   24 MB is eight times the most one frame can ask for, and smaller than the
+   whole world at 128 tiles wide, so nothing is ever evicted there. MUTABLE and
+   on an object, because the visual suite lowers it to force the ceiling. */
 export const cacheLimit = { bytes: 24 * 1024 * 1024 };
 
 /* `bytes` is resident backing store, `evicted` this frame's drops and
@@ -105,18 +71,14 @@ let budget = REPAINT_BUDGET;
 let frames = 0;
 let resident = 0;
 
-/* BAND ORDINAL + CHUNK INDEX, and the multiplier is the BAND COUNT rather than
-   a fixed slot size. The old key was `b.ord * 0x10000 + cy * b.cx + cx`, which
-   gave each band 65,536 chunk slots and ran out at a band about 52,400 tiles
-   wide, past which band N's keys collide with band N+1's and blit the wrong
-   terrain. Interleaved the other way
-   round there is no ceiling short of `MAX_SAFE_INTEGER / bands.length`. U3's
-   1,024 tiles makes topsoil 64 x 20 = 1,280 chunks, which reaches neither, so
-   this is a latent ceiling removed rather than a bug fixed.
+/* BAND ORDINAL + CHUNK INDEX, multiplied by the BAND COUNT rather than a fixed
+   slot size, so there is no ceiling short of `MAX_SAFE_INTEGER / bands.length`.
+   A fixed 65,536 slots per band collided past about 52,400 tiles of width and
+   blitted the wrong terrain.
 
-   `bands.length` is fixed for the life of a run, and `resetChunks` clears the
-   cache when `model/world.js#write.clear` changes it -- so no two keys in one
-   cache were ever built from different multipliers. */
+   `bands.length` is fixed for the life of a run and `resetChunks` clears the
+   cache when it changes, so no two keys in one cache came from different
+   multipliers. */
 const chunkKey = (b, cx, cy) => (cy * b.cx + cx) * bands.length + b.ord;
 
 /* Called by `shell/boot.js` on every new run. The canvases hold the previous
@@ -140,26 +102,15 @@ export function beginFrame() {
   stats.bytes = resident;
 }
 
-/* EVICTION IS LRU BY FRAME TOUCHED, and that is a policy choice with two
-   halves worth stating.
+/* EVICTION IS LRU BY FRAME TOUCHED. This file is never told where the camera
+   is, and `view/scene.js#drawChunks` asks for exactly the chunks the viewport
+   covers, so "touched last frame" IS "on screen" -- derived from the draw that
+   happened rather than from a second copy of the camera's arithmetic.
 
-   WHY LRU AND NOT DISTANCE FROM THE CAMERA. This file is never told where the
-   camera is (`screenOffset` below makes the same point for a different reason),
-   and `view/scene.js#drawChunks` already asks for exactly the chunks the
-   viewport covers -- so "touched on the last frame" IS "on screen", derived
-   from the draw that happened rather than from a second copy of the camera's
-   window arithmetic. A distance rule would be that second copy.
-
-   NOTHING DRAWN ON THE LAST FRAME IS EVICTED. This runs from `beginFrame`,
-   before any of this frame's `chunkCanvas` calls, so the newest entries are the
-   previous frame's -- which are the ones about to be asked for again. A budget
-   smaller than one viewport therefore OVERSHOOTS rather than thrashing: you
-   cannot evict what you must draw, and re-baking the visible world every frame
-   would be worse than holding no cache at all.
-
-   A DIG STILL REPAINTS ITS CHUNK, NOT THE WORLD. This drops
-   canvases; it never widens an invalidation. The chunk a pick is swinging at is
-   on screen by construction, so it is never a candidate. */
+   Nothing drawn on the last frame is evicted, because this runs from
+   `beginFrame` before any `chunkCanvas` call. A budget smaller than one
+   viewport therefore OVERSHOOTS rather than thrashing. This drops canvases and
+   never widens an invalidation. */
 function evict() {
   stats.evicted = 0;
   if (resident <= cacheLimit.bytes) return;
@@ -173,27 +124,16 @@ function evict() {
   stats.evictedTotal += stats.evicted;
 }
 
-/* THE VERSION A CACHED CANVAS IS CHECKED AGAINST, and it is not this chunk's
-   own version alone.
+/* NOT THIS CHUNK'S VERSION ALONE. `write.touch` bumps the written tile's chunk
+   and, on a seam, the one chunk over the seam. A decoration reaching
+   `DECO_MARGIN` tiles means a chunk's pixels also depend on tiles that far
+   outside it, and `view` may not extend `touch` because it may not write to
+   `model` at all.
 
-   `model/tiles.js#write.touch` bumps the written tile's chunk and, when the tile
-   sits on a seam, the one chunk over the seam from it — sized for the 1-2 px of
-   edge shading a neighbouring tile contributes and nothing wider. A decoration
-   reaching `DECO_MARGIN` tiles means a chunk's pixels also depend on tiles up to
-   that far outside it, and `view` may not extend `touch` (it may not write to
-   `model` at all, which is what the epoch assertion proves). So the dependency
-   is expressed on the READ side instead: sum the versions of this chunk and all
-   eight neighbours. Versions only ever increase, so a sum is strictly increasing
-   and two different neighbourhoods can never collide on one number.
-
-   The cost is stated at `REPAINT_BUDGET` above: one tile write now invalidates
-   up to nine chunks rather than one. That is the price of a decoration wider
-   than a tile, and the alternative — leaving it — is silent permanent
-   pixel loss at every chunk seam. The margin SCAN itself is
-   nearly free by comparison: forcing `DECO_MARGIN` to 0 takes a cold bake of
-   the visible viewport from 35.3 ms to 33.1 ms, about 0.1 ms of the 1.5 ms a
-   chunk costs. It is the extra invalidation, not the extra reading, that has to
-   be paid for. */
+   So the dependency is expressed on the READ side: sum the versions of this
+   chunk and all eight neighbours. Versions only increase, so a sum is strictly
+   increasing and two neighbourhoods cannot collide on one number. The cost is
+   one tile write invalidating up to nine chunks. */
 function stackVer(b, cx, cy) {
   let v = 0;
   for (let dy = -1; dy <= 1; dy++)
@@ -244,18 +184,14 @@ export function chunkCanvas(b, cx, cy) {
 
 /* terrain */
 
-/* THE DEEPEST ROW A BAND'S SKY REACHES, in band-local tiles, half-open: the
-   declared ground line plus whatever downward relief the band's own height map
-   asks for. `rules/generate.js#heightmap` puts a valley floor up to `dip` rows
-   below `floorTy`, and open air over that floor has to read as open air.
+/* The deepest row a band's sky reaches, in band-local tiles, half-open: the
+   declared ground line plus the band's own downward relief, because open air
+   over a valley floor has to read as open air.
 
-   ONE NUMBER, READ BY TWO PASSES. `view/scene.js#drawSky` paints sky down to
-   this row and `excavated` below calls anything at or past it cut rock, so the
-   last row of sky and the first row of cavity cannot disagree.
-
-   Memoised per band id and never invalidated, because `b.cfg` is a frozen
-   `data/world.js` row -- the value cannot change within a run or between two
-   runs on the same content. */
+   ONE NUMBER, TWO PASSES: `drawSky` paints sky down to this row and
+   `excavated` calls anything at or past it cut rock, so the last row of sky
+   and the first row of cavity cannot disagree. Memoised per band and never
+   invalidated, because `b.cfg` is frozen. */
 const skyBottoms = new Map();
 export function skyBottomTy(b) {
   let ty = skyBottoms.get(b.cfg.id);
@@ -268,27 +204,15 @@ export function skyBottomTy(b) {
 }
 
 /* Is this space cut out of rock, or open air over the landscape? Open air
-   stays TRANSPARENT so `view/scene.js`'s sky gradient shows through, and cut
-   rock gets the dark cavity texture. An air tile is cut rock when rock stands
-   above it anywhere in its column, OR when it sits at or past the row the sky
-   stops at.
+   stays TRANSPARENT so the sky gradient shows through; cut rock gets the dark
+   cavity texture. An air tile is cut rock when rock stands above it anywhere
+   in its column, OR when it sits at or past the row the sky stops at.
 
-   `ty >= floorTy` alone was the whole test, and it called a tunnel driven
-   sideways into a hilltop open sky, so the tunnel filled with sky gradient.
-   Relief is 10 tiles, which makes that a tunnel a player really digs.
-   `skyExposedAt` asks the honest question instead, walking the column to the
-   top of the band's own grid.
-
-   THE DEPTH TERM STAYS BECAUSE VIEW CANNOT TELL A VALLEY FROM A SHAFT.
-   Both are a sky-exposed column, and nothing in `model` records the height map
-   the generator started from. Inside the relief envelope the landscape itself
-   may be open air, so the sky wins; past it the player dug, so the cavity
-   texture wins and a hand-dug shaft stays a lit hole rather than a slot of
-   daylight.
-
-   Evaluation order keeps the deep bands cheap. `topsoil`'s `floorTy` is 0 and
-   it declares no relief, so the first term holds for every tile there and the
-   column walk never runs. */
+   THE DEPTH TERM STAYS BECAUSE VIEW CANNOT TELL A VALLEY FROM A SHAFT. Both
+   are a sky-exposed column, and nothing in `model` records the height map.
+   Inside the relief envelope the sky wins; past it the player dug, so the
+   cavity texture does. Evaluation order keeps the deep bands cheap, since
+   `topsoil` declares no relief and never walks its column. */
 const excavated = (b, tx, ty) =>
   ty >= skyBottomTy(b) || !skyExposedAt(b, tx, ty);
 
@@ -311,36 +235,31 @@ function paintChunk(b, cx, cy, g) {
     }
   }
 
-  /* DECORATIONS ARE A SECOND PASS OVER A WIDER RANGE, for two reasons.
-
-     Range: a tile up to `DECO_MARGIN` outside this chunk can paint INTO it, so
-     this loop visits those tiles too and lets the canvas clip what falls
-     outside. Without it a canopy or a turf drape is cut off at every chunk
-     seam — see `stackVer` above.
-
-     Separate pass: a decoration drawn from inside the tile loop would be
-     overpainted by whichever tiles happen to be painted after it, so the same
-     tree would sit in front of the rock in its own chunk and behind it in the
-     neighbour that redraws its overflow. All rock, then all decoration, gives
-     one z-order that every chunk agrees on. */
+  /* DECORATIONS ARE A SECOND PASS OVER A WIDER RANGE.
+     Range     a tile up to `DECO_MARGIN` outside this chunk can paint INTO
+               it, so the loop visits those too and the canvas clips the rest.
+               Without it a canopy is cut off at every chunk seam.
+     Separate  a decoration drawn from inside the tile loop would be
+               overpainted by whichever tiles come after it, so a tree would
+               sit in front of the rock in its own chunk and behind it in the
+               neighbour redrawing its overflow. All rock, then all
+               decoration, is one z-order every chunk agrees on. */
   const lo = -DECO_MARGIN, hi = k + DECO_MARGIN;
   for (let j = lo; j < hi; j++)
     for (let i = lo; i < hi; i++)
       decorate(g, b, t0x + i, t0y + j, i * t, j * t, px);
 }
 
-/* A tile that has seen the sun grows something. `skyExposedAt` is a full walk to
-   the top of the band's own grid, not "the tile above is air": a tunnel ceiling
-   satisfies the latter but was never under the sun, and grass on a cave roof was
-   exactly the bug that check exists to prevent (see `data/substances.js`'s soil
-   row). Only rows that declare a decoration pay for the walk.
+/* A tile that has seen the sun grows something. `skyExposedAt` is a full walk
+   to the top of the band's grid, not "the tile above is air" -- a tunnel
+   ceiling satisfies the latter but was never under the sun, and grass on a
+   cave roof is the bug that check prevents. Only rows declaring a decoration
+   pay for the walk.
 
-   The two `look` keys checked by name here are the pre-existing exception the
-   generic `treatments:[...]` list does not cover — a decoration is geometry
-   (which neighbours are open, whether this tile has sky) rather than a texture,
-   and geometry is a `model` query `view/treatments.js` may not make itself.
-   A THIRD name check does not belong here: see docs/DEVELOPER_GUIDE.md and
-   CLAUDE.md D7. */
+   The two `look` keys checked BY NAME here are the one exception the generic
+   `treatments:[...]` list does not cover, because a decoration is geometry
+   rather than a texture and geometry is a `model` query `view/treatments.js`
+   may not make. A THIRD name check does not belong here. */
 function decorate(g, b, tx, ty, dx, dy, clip) {
   const l = rowAt(b, tx, ty).look;
   if (!l.canopy && !l.grassCap) return;
@@ -365,21 +284,15 @@ function decorate(g, b, tx, ty, dx, dy, clip) {
   if (l.grassCap) TREAT.grassCap(g, cell, l.grassCap);
 }
 
-/* IS THIS NEIGHBOURING CELL THE OUTER CORNER OF A ONE-TILE STEP, so the turf
-   beside it can bank across the corner (`view/treatments.js#grassCap`)? The
-   cell is open, the cell one row BELOW it is a turfed surface tile, and the
-   open cell has sky above it. `(tx, ty)` is the NEIGHBOUR's coordinate, not
-   the decorated tile's.
+/* Is this neighbouring cell the OUTER CORNER of a one-tile step, so the turf
+   beside it can bank across it? The cell is open, the cell one row BELOW is a
+   turfed surface tile, and the open cell has sky above. `(tx, ty)` is the
+   NEIGHBOUR's coordinate, not the decorated tile's.
 
-   Two tiles down is a cliff and gets nothing, which is what keeps the bank an
-   answer to the +-1-tile slope limit rather than a way to hide a real face.
-   `look.grassCap` on the lower tile is the same key `decorate` dispatches on
-   rather than a third name check -- a bank joins two turfed treads, and a tree
-   trunk whose top happens to stand one row under a soil lip is not one.
-
-   EMPTY AIR rather than merely "not solid", because a rung is `solid:false`
-   and draws its own sprite in the rock pass -- a bank over one would bury a
-   placed ladder under turf on the next repaint. */
+   Two tiles down is a cliff and gets nothing, which keeps the bank an answer
+   to the one-tile slope limit rather than a way to hide a real face. EMPTY AIR
+   rather than "not solid", because a rung is `solid:false` and draws its own
+   sprite -- a bank over one would bury a placed ladder under turf. */
 const banked = (b, tx, ty) =>
   tileAt(b, tx, ty) === AIR && solidAt(b, tx, ty + 1)
   && !!rowAt(b, tx, ty + 1).look.grassCap && skyExposedAt(b, tx, ty);
@@ -426,32 +339,14 @@ function paintTile(g, b, tx, ty, dx, dy, dark) {
 
   const cell = { px: dx, py: dy, tx, ty, tile: t };
 
-  /* A FORM MAY DRAW ITSELF, AND THEN IT IS NOT A CUBE. Terrain painting is otherwise entirely
-     substance-driven and form-blind, which is why a placed ladder used to be
-     pixel-identical to a native trunk minus its canopy: `rung.tile.solid` is
-     false, so an open shaft gave it a lit top face, a jittered cliff face on
-     BOTH sides and a bottom shade line, and it read as an edge-lit wooden cube
-     floating in the void.
+  /* A FORM MAY DRAW ITSELF, AND THEN IT IS NOT A CUBE. Every generic cube pass
+     is SUPPRESSED rather than drawn under the sprite -- base fill, grain and
+     the substance's own treatments alike -- because the ladder sprite is two
+     rails and a rung with the tile empty between them.
 
-     So the generic cube passes are SUPPRESSED here rather than drawn under the
-     sprite. All of them, including the base fill, the grain and the substance's
-     own treatments -- the sprite in `view/treatments.js#ladder` is two rails
-     and a rung, with the tile empty between them, and it can only read that way
-     over the space the tile actually occupies. Drawn over an 8x8 block of
-     timber it would be a wooden cube with faint stripes on it, which is the
-     thing being fixed. Copper's `glint` speckles are suppressed for the same
-     reason: they belong on a vein face, not floating in a stairwell.
-
-     WHAT GOES BEHIND IT IS WHATEVER THE SPACE WOULD OTHERWISE HAVE BEEN, by
-     the one rule `paintChunk` already uses for air (`excavated` above), so a
-     ladder under rock sits in the dark with the floor lip and ceiling fringe
-     of its neighbours intact, and a ladder climbing into open sky does not
-     carry a black square with it.
-
-     Keyed on the PRESENCE of a form-level `look` block and nothing else. Not a
-     name check: `decorate` above already carries the only two the project
-     allows, and CLAUDE.md D7 forbids a third. A future form draws itself by
-     adding a `look` to its own row, with no edit here. */
+     What goes behind it is whatever the space would otherwise have been, by
+     `excavated`'s rule. Keyed on the PRESENCE of a form-level `look` and never
+     a name check, so a future form draws itself with no edit here. */
   const fl = formRowOf(tileAt(b, tx, ty))?.look;
   if (fl) {
     if (excavated(b, tx, ty)) paintCavity(g, b, tx, ty, dx, dy, dark);
@@ -502,43 +397,32 @@ function paintTile(g, b, tx, ty, dx, dy, dark) {
     cliffFace(g, dx, dy, tx, ty, t, LIGHT.fromX < 0 ? L.faceShade : L.faceSun, true);
   if (!solidAt(b, tx, ty + 1)) R(g, dx, dy + t - 1, t, 1, L.lo);
 
-  /* Appearance is data: docs/DEVELOPER_GUIDE.md#colour-and-appearance */
+  /* Appearance is data. */
   treat(g, L.row.look, cell);
 
   cracked(g, b, tx, ty, dx, dy, t);
 }
 
-/* A CRACK MEANS "THIS SWING", NOT "THIS VEIN". It read
-   `progressAt` while every tile broke on its first unit, which was the same
-   number; a deposit tile now takes `charge` swings, and a crack
-   pattern that crept on across all four of them would say nothing about the
-   hit actually landing. `unitProgressAt` resets per unit, so each swing
-   cracks the rock from scratch and the moment a unit falls out is visible in
-   the cracks vanishing. HOW SPENT THE WHOLE VEIN IS is the other question,
-   and it is deliberately NOT drawn here: it is a live condition and this is
-   a chunk bake (see this file's header and `view/scene.js#drawDepletion`).
+/* A CRACK MEANS "THIS SWING", NOT "THIS VEIN". `unitProgressAt` resets per
+   unit, so each swing cracks the rock from scratch and a unit falling out is
+   visible in the cracks vanishing. A pattern that crept across all four swings
+   of a deposit tile would say nothing about the hit landing.
 
-   ITS OWN FUNCTION SINCE PHASE 13b, because a form that draws its own sprite
-   skips every OTHER pass in `paintTile` and must not skip this one: a ladder
-   being mined back out is exactly as much "this swing landed" as a rock face
-   is, and it is the one cue that says the pick is working at all. */
+   How spent the whole vein is is deliberately NOT drawn here: that is a live
+   condition and this is a chunk bake. Its own function, because a form that
+   draws its own sprite skips every OTHER pass and must not skip this one. */
 function cracked(g, b, tx, ty, dx, dy, t) {
   const d = unitProgressAt(b, tx, ty, effHardAt(b, tx, ty), effChargeAt(b, tx, ty));
   if (d > 0.05) cracks(g, dx, dy, tx, ty, d, t);
 }
 
-/* THE TWO NUMBERS `rules/mining.js` MINES A TILE BY, RESOLVED ONCE FOR `view`.
-   Both are the substance's base value times its own scoped modifier, exactly
-   as the rule reads them (`rules/mining.js:163` and `:176`) -- so a trinket
-   that softens a material also makes it visibly crack sooner, and a boon that
-   enriches a vein also makes it take visibly longer to look spent.
+/* THE TWO NUMBERS `rules/mining.js` MINES A TILE BY, resolved once for
+   `view`. Both are the substance's base value times its own scoped modifier,
+   exactly as the rule reads them, so a trinket that softens a material also
+   makes it crack sooner.
 
-   Exported because TWO view passes need them and must never disagree: the
-   crack above (a chunk bake, this file) and the depletion cue
-   (`view/scene.js#drawDepletion`, a live overlay). One formula in one place is
-   what keeps "how cracked" and "how spent" two readings of the same tile
-   rather than two guesses about it. `view/scene.js` already imports this
-   module, and a same-layer import is legal (ARCHITECTURE section 1). */
+   Exported because two view passes need them and must not disagree: the crack
+   above, in a chunk bake, and the depletion cue, a live overlay. */
 export function effHardAt(b, tx, ty) {
   const sub = subAt(b, tx, ty);
   return baseHardAt(b, tx, ty) * (sub < 0 ? 1 : eff('hard', SUB[sub].id));
@@ -562,25 +446,14 @@ function cliffFace(g, dx, dy, tx, ty, t, col, right) {
   }
 }
 
-/* grain
-   HOW ROUGH A MATERIAL LOOKS IS THE ROW'S OWN BUSINESS. This used to be a fixed
-   pair of thresholds on a per-pixel `hash2` — 16% of pixels toward the dark
-   tone, 10% toward the light — identical for soil and for adamant, which is a
-   large part of why every stratum read as the same texture in a different
-   colour. `look.speckle` is now the FRACTION of a tile's pixels that get a
-   grain dot at all: soil is noisy, adamant is nearly smooth.
+/* HOW ROUGH A MATERIAL LOOKS IS THE ROW'S OWN BUSINESS. `look.speckle` is the
+   FRACTION of a tile's pixels that get a grain dot.
 
-   Drawn with `core/pixels.js#noiseFill`, which was ported from the mockup with
-   the rest of `core/` and then called by nothing at all for the whole life of
-   the layered rewrite until this call. Its seed is positional, never `rand()`
-   — a repaint may not advance anything
-   (ARCHITECTURE invariant 7) and, just as importantly, the same tile has to
-   speckle identically when a neighbouring chunk redraws it.
-
-   TWO passes rather than one array of two colours, because the ratio matters:
-   dark grain reads as pitting and light grain as a facet catching the light,
-   and an even mix of the two looks like static. 62/38 is the ratio the old
-   16/10 thresholds had. */
+   The `noiseFill` seed is positional and never `rand()`, both because a repaint
+   may not advance the generator and because the same tile must speckle
+   identically when a neighbouring chunk redraws it. TWO passes rather than one
+   array of two colours, because dark grain reads as pitting and light grain as
+   a facet, and an even mix looks like static. */
 const SPECKLE = 0.26;                      // default, and exactly the old density
 const GRAIN_LO = 0.62, GRAIN_HI = 0.38;
 
@@ -629,25 +502,15 @@ const INK = {
   warn:   colour('uiHeart')
 };
 
-/* the look cache
-   Resolving five colour names per tile per repaint is the one place a name
-   lookup would show up, so each substance's palette is resolved ONCE. `colour()`
-   throws on a name that is not in `data/palette.js`, which is what makes a
-   typo'd colour an import-time failure rather than a black tile.
+/* Five colour names per tile per repaint is the one place a name lookup would
+   show up, so a substance's palette resolves ONCE PER DEPTH STEP. `colour()`
+   throws on an unknown name, so a typo is an import-time failure rather than a
+   black tile.
 
-   ONCE PER SUBSTANCE PER DEPTH STEP, now. The same granite has to read deeper
-   at row 260 than at row 180 or the deep bands are the shallow ones in a
-   different palette; a single shared curve pushes every tone toward the abyss
-   colour with depth. The curve is QUANTISED into `DEPTH_STEPS` bands for two
-   reasons: the palette is meant to be a palette rather than a per-row gradient,
-   and a cache keyed on a continuous depth would hold one entry per tile row.
-   Twelve steps over the whole world is about one shade per 280 px, which at
-   this tile size is a shift you notice over a shaft and not over a tile.
-
-   Depth is measured in ABSOLUTE WORLD PIXELS against the world's own total
-   extent, read from the band records rather than hardcoded: bands are
-   allocated at boot with their own origins, and a view constant naming a world
-   dimension is exactly what ARCHITECTURE section 6 exists to prevent. */
+   The depth curve is QUANTISED into `DEPTH_STEPS` bands, because a cache keyed
+   on a continuous depth would hold one entry per tile row. Depth is ABSOLUTE
+   WORLD PIXELS read from the band records rather than hardcoded -- a view
+   constant naming a world dimension is what per-band allocation prevents. */
 const DEPTH_STEPS = 12;
 const DEPTH_K = 0.34;                   // darkest the curve ever gets
 
@@ -697,19 +560,14 @@ function cavityColour(b) {
 
 /* live passes */
 
-/* A dropped unit: two colours off the substance's `look.item`, sized by the
-   form — or, if the row names one, a dedicated `SPRITE`. Either way `px`/`py`
-   are screen pixels at the item's CENTRE, and `treat()` still runs after: a
-   sprite item can carry a `halo` treatment exactly like a generic square can
-   (see the relic glow below), because the two are additions to the same
-   `look`, not alternatives to each other.
+/* A dropped unit: two colours off `look.item` sized by the form, or a
+   dedicated `SPRITE` if the row names one. `px`/`py` are screen pixels at the
+   item's CENTRE, and `treat()` still runs after, so a sprite item can carry a
+   `halo` exactly as a generic square can.
 
-   `sprite` IS A STRING FOR A SINGLE-FORM SUBSTANCE (`pick`, `bellows` --
-   `relic` is the only form either ever takes) AND AN OBJECT, KEYED BY FORM
-   ID, FOR ONE THAT SPANS SEVERAL (`timber`'s `brand` gets a shape; its
-   `log`/`rung`/`stair`/`seed` do not and fall through to the generic
-   square). A bare string is read as-is so the single-form case never has to
-   spell out the form it already only ever has. */
+   `sprite` is a STRING for a single-form substance and an OBJECT keyed by form
+   id for one spanning several. A bare string is read as-is, so the single-form
+   case never spells out the form it already only ever has. */
 export function paintItem(g, it, px, py, t) {
   const l = SUB[it.sub].look;
   if (!l?.item) return;
@@ -745,13 +603,10 @@ export function paintMachine(g, m, px, py, t) {
      a hub has to be visible in it, not swallowed by it. */
   if (l.cable) paintCables(g, m, px, py, l);
 
-  /* A ROW WITH `parts` DRAWS ITSELF OUT OF NAMED SHAPES; a row without one
-     gets the generic catch box below, unchanged. This is one look key and a
-     generic dispatch, NOT a third name check beside `canopy`/`grassCap`: the
-     four segment-transport rows are the first machines in the game that are
-     not boxes
-     with mouths, and "hopper lips, so it reads as a catch box" is a lie on a
-     gear. See docs/DEVELOPER_GUIDE.md#colour-and-appearance and CLAUDE.md D7. */
+  /* A ROW WITH `parts` DRAWS ITSELF OUT OF NAMED SHAPES; a row without one gets
+     the generic catch box below. One look key and a generic dispatch, never a
+     third name check -- the segment-transport rows are the first machines that
+     are not boxes with mouths, and hopper lips are a lie on a gear. */
   if (l.parts) {
     const cell = { px, py, w, h, tx: m.tx, ty: m.ty,
                    tile: m.band?.tile ?? 8, turn: m.turn, t };
@@ -801,40 +656,15 @@ export function paintMachine(g, m, px, py, t) {
   if (l.carrier) paintCarriers(g, m, px, py, l);
 }
 
-/* segments: the cable, its bucket chain, and the carrier
-   WHY THIS IS DRAWN FROM `paintMachine` AND NOT FROM A PASS OF ITS OWN.
-   A segment has no footprint and is not a machine (`model/segments.js`'s own
-   header), so it has no natural place in `view/scene.js`'s pass order -- but
-   it does have exactly two anchors, both of which ARE machines that already
-   get a draw call at a known screen position. Hanging the cable off the hub
-   that anchors it therefore costs no new pass, no new import in `scene.js`,
-   and -- the part that actually matters -- puts the cable INSIDE the machine
-   pass, which runs before `drawDarkness` and `drawFog`. A cable in an unlit
-   shaft is dark and a cable behind fog is hidden, for free, with nothing
-   said about either. Drawn from the HUD instead it would glow through both.
+/* Drawn from `paintMachine` rather than a pass of its own. A segment has no
+   footprint and is not a machine, but its two anchors ARE machines already
+   getting a draw call, and hanging the cable off its hub puts it INSIDE the
+   machine pass -- which runs before `drawDarkness` and `drawFog`, so a cable
+   in an unlit shaft is dark and one behind fog is hidden for free.
 
-   EXACTLY ONE HUB DRAWS EACH PART OF A SEGMENT, so a span is not painted twice
-   with the far hub's own colours on the second pass -- but WHICH hub differs
-   between the cable and the carrier, and that is a z-order fact rather than a
-   preference. `view/scene.js` paints machines in `machines` order, so anything
-   drawn during the EARLIER hub's call is overpainted by the LATER hub's body:
-
-     the CABLE and its chain must pass BEHIND both drums  -> the earlier hub
-     the CARRIER must sit IN FRONT of both                -> the later hub
-
-   The second half was found by looking at the matrix, not by reasoning: at
-   `t = 1` the carrier sits exactly on the upper hub's own anchor, and drawn
-   from `seg.a` (which was the lower hub) it vanished completely behind the
-   upper one. `winch-vertical-top.png` is the baseline that caught it.
-
-   `machines.indexOf` over a list that is tens long, twice per segment per
-   frame. Placement order is deterministic, so which end draws
-   what is reproducible from the seed and the build order.
-
-   WORLD PX TO SCREEN PX WITHOUT THE CAMERA: `paintMachine` is handed `px`/`py`
-   for a machine whose world position it also holds, so the camera offset is
-   `px - m.box.x`. `view` never needs to be told where the camera is to draw
-   something anchored to something it is already drawing. */
+   EXACTLY ONE HUB DRAWS EACH PART, or a span is painted twice in the far
+   hub's colours. Which hub is a z-order fact: the CABLE goes on the EARLIER
+   hub to pass behind both drums, the CARRIER on the LATER to sit in front. */
 function screenOffset(m, px, py) {
   return { ox: px - m.box.x, oy: py - m.box.y };
 }
@@ -854,21 +684,16 @@ function ends(seg) {
            hix: up ? seg.ax : seg.bx, hiy: up ? seg.ay : seg.by };
 }
 
-/* HOW A LINE AT AN ARBITRARY ANGLE STAYS INTEGRAL, which is a question this
-   project has not had to answer before.
+/* HOW A LINE AT AN ARBITRARY ANGLE STAYS INTEGRAL. Both strands are the SAME
+   Bresenham run translated by exactly ONE WHOLE PIXEL along the axis the line
+   varies LEAST in, so vertical-ish spans separate horizontally and
+   horizontal-ish ones vertically.
 
-   Both strands are the SAME Bresenham run (`core/pixels.js#lineTo`, which
-   floors its own four coordinates) translated by exactly ONE WHOLE PIXEL
-   along the axis the line varies LEAST in: vertical-ish spans separate
-   horizontally, horizontal-ish spans separate vertically. That is not an
-   approximation of a perpendicular offset, it is the only offset that keeps
-   the two strands stair-step for stair-step parallel -- a true perpendicular
-   would be fractional at every angle except 0, 45 and 90 degrees, and
-   rounding it per pixel is exactly how a two-tone cable develops a moire
-   along its length. The cost is that a 45-degree span's strands sit 1.41 px
-   apart rather than 1, which reads as slightly fatter and is invisible.
-   The `1.5 px` of a real perpendicular is not available at this scale, and
-   pretending otherwise is what the integer-pixels rule forbids. */
+   That is not an approximation of a perpendicular offset; it is the only
+   offset keeping the strands stair-step for stair-step parallel. A true
+   perpendicular is fractional at every angle but 0, 45 and 90, and rounding it
+   per pixel is how a two-tone cable develops a moire. The cost is a 45-degree
+   span's strands sitting 1.41 px apart rather than 1. */
 function strandNormal(dx, dy) {
   return Math.abs(dx) >= Math.abs(dy) ? { nx: 0, ny: 1 } : { nx: 1, ny: 0 };
 }
@@ -936,19 +761,15 @@ function paintCables(g, m, px, py, l) {
 
 const lerpPx = (a, b, f) => a + (b - a) * f;
 
-/* THE CARRIER. It has to read as STANDABLE, because the player
-   stands on it: so a bright lit deck plank a pixel wider than the body, a
-   dark body under it, and two hangers up to the cable. The deck line is the
-   thing the eye reads as a surface, and it is the top of
-   `model/segments.js#carrierBox` -- the same rectangle the ride branch will
-   test against, so what looks standable and what IS standable are the same
-   pixels rather than two guesses.
+/* THE CARRIER has to read as STANDABLE, because the player stands on it: a
+   bright lit deck plank a pixel wider than the body, a dark body under it, and
+   two hangers up to the cable. The deck line is the top of
+   `model/segments.js#carrierBox`, the same rectangle the ride branch tests
+   against, so what looks standable and what IS standable are the same pixels.
 
-   LOAD IS HOW FULL THE BUCKET LOOKS, never a number (this phase's brief): the
-   body fills from the bottom up with the cargo tone, over `look.carrier.full`
-   talents. `full` is APPEARANCE, not a tunable -- it says "this many talents
-   is a brimming bucket", which is a drawing decision, and a god's trinket has
-   no business changing how full a bucket looks. */
+   LOAD IS HOW FULL THE BUCKET LOOKS, never a number: the body fills from the
+   bottom over `look.carrier.full` talents. `full` is APPEARANCE rather than a
+   tunable, so a god's trinket cannot change how full a bucket looks. */
 function paintCarriers(g, m, px, py, l) {
   const { ox, oy } = screenOffset(m, px, py);
   const p = l.carrier;
