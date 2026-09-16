@@ -51,9 +51,10 @@ docs/        SPEC (locked numbers), DESIGN (the game), MIGRATION, rfc/
 
 **Nothing may import upward. `rules` and `view` may never import each other.**
 `rules` modules are siblings and do not import one another — their order is
-stated once, in `src/shell/schedule.js`, with a comment explaining every
-adjacent pair. `tools/layers.mjs` enforces all of it as section 0 of
-`npm run check`, with a budget of 0 that may only go down.
+stated once, in `src/shell/schedule.js`, one line per adjacent pair. The
+reasoning behind each pair is in `.claude/brain/rules-order.md`.
+`tools/layers.mjs` enforces all of it as section 0 of `npm run check`, with a
+budget of 0 that may only go down.
 
 Two rules answer most "where does this go?" questions:
 
@@ -224,7 +225,11 @@ them good.
 
 ## Comments
 
-A comment must answer something the code cannot. Keep only these categories:
+A comment or a docstring is the public description of the code it sits on.
+Concise, present tense, about what the code does now. Anything longer than the
+thing it describes is wrong.
+
+Write one only where the code cannot carry the information itself:
 
 - **Coordinate space and units.** Canvas y-down vs world y-up, tile vs pixel vs
   chunk coords, talents vs kg, ticks vs ms vs frames. State it once at the
@@ -233,34 +238,55 @@ A comment must answer something the code cannot. Keep only these categories:
   dependencies, assumed canvas transform state on function entry, ctx.save()
   balance across a call.
 - **Determinism constraints.** Anything where call order affects seeded RNG or
-  replay: `// consumes 2 draws; reordering breaks seed compatibility`.
+  replay — `// consumes 2 draws; reordering breaks seed compatibility`.
 - **Deliberate non-idiomatic code, with the reason.** Object reuse to avoid
   per-frame allocation, manual loops over .map in hot paths, bitpacking,
   typed-array layout. Say what breaks if someone "cleans it up".
-- **Why a magic number is that number.** Cite the tuning pass, the physical
-  derivation, or the constraint it satisfies. Naming the number is not a reason.
+- **Why a magic number is that number.** Give the derivation or the constraint
+  it satisfies, in terms of the code. Naming the number is not a reason.
 - **Registry coupling.** When a literal must match a key in data/*.js, say which
   file owns it.
+- **Named algorithms.** One line naming shadowcasting, BSP, Bresenham or A*
+  saves a reader half an hour.
 - **Upstream/browser bugs worked around,** with a version or UA bound.
 - **TODO(rob): / FIXME:** with a concrete resolution condition.
+
+**Never reference a working document.** No SPEC.md, DESIGN.md, PLAN-*.md,
+DEVELOPER_GUIDE.md, ARCHITECTURE.md, FINDINGS.md or CLAUDE.md, no section
+number, no phase, wave or gate label, no D-number, no assertion number. A
+comment that only makes sense with another document open is not a comment —
+state the constraint itself, in terms of the code.
+
+**Six lines is the cap for one block.** Past that it is prose, and prose does
+not go in source. Cut it to the constraint or move it to `.claude/brain/`.
 
 Delete everything else:
 
 - Restating the line below it in English.
 - Narrating control flow or the frame loop ("first we clear, then we draw...").
+- Narrating your own process — "first we...", "I chose...", "as discussed
+  above", "for now".
 - Diff and phase commentary: `// Phase 6.6`, `// now uses the registry`,
-  `// moved from renderer.js`, `// as per SPEC.md`, `// as requested`. Git and
-  SPEC.md own this.
+  `// moved from renderer.js`, `// as per SPEC.md`, `// as requested`.
+- Rationale or history for a previous version of the code, and any comment
+  describing what an earlier version of the same comment claimed.
 - Section banners (`// ===== RENDERING =====`).
 - Self-assessment ("this is critical", "clean approach here").
 - Restated JSDoc types, or JSDoc that only repeats the signature.
 - **Commented-out code.** Never leave a previous implementation in place
   commented out. Delete it; git has it.
+- A speculative TODO. A TODO names a concrete defect actionable today.
 - eslint-disable without a reason on the same line.
 
-One line unless the invariant genuinely needs two. Default to zero comments —
+One line unless the constraint genuinely needs two. Default to zero comments —
 every comment is a claim that a competent reader of this codebase would
-otherwise get it wrong.
+otherwise get it wrong. If the code needs a paragraph to be understandable,
+that is a fact about the code, not a reason to write the paragraph.
+
+Spec compliance goes in the commit message or the PR body. Game design
+rationale goes in DESIGN.md. Reasoning a future session needs, but a reader of
+the code does not, goes in `.claude/brain/`. None of the three is referenced
+from source.
 
 ## JSDoc
 
@@ -276,11 +302,9 @@ One imperative line saying what it does. Then only if non-obvious:
   registers a listener, allocates.
 - `@throws` only for what callers are expected to catch.
 
-No rationale, no design history, no usage tutorials, no prose essays. Over 12
-lines needs justification. Small private helpers with clear names get none.
-
-Rationale for a mechanic goes in DESIGN.md. Behavioural contracts go in SPEC.md.
-Irreversible technical decisions go in docs/adr/. Never inline.
+No rationale, no design history, no usage tutorials, no prose essays. Six
+lines is the cap, the same as any other block. Small private helpers with clear
+names get none, and no docstring names a document.
 
 ## Mistakes already made here — don't repeat them
 
@@ -365,6 +389,10 @@ Be direct and technically precise; skip preamble. Quantify tradeoffs rather
 than asserting them. When something is verified, say what verified it; when
 it's only eyeballed or unverified, say that instead. If a request implies a
 structural change, name the cost before starting.
+
+A comment references code and concepts, never a working document. Spec
+compliance goes in the commit message. Reasoning you need kept, but a reader of
+the code does not, goes in `.claude/brain/`. See the Comments section.
 
 ## Design context
 
