@@ -1,43 +1,32 @@
 /* LAYER view — THE BAND RULER. One widget, TWO CONTEXTS, built once and
-   parameterised by height (docs/BUILD_PLAN.md Phase 9 section 3):
+   parameterised by height:
 
      the right edge of OVERVIEW mode   full height, band names, a footer
      the right edge of the NORMAL HUD  compact: the bar, the numerals and the
                                        player's marker, and nothing else
 
-   The compact form is not a lesser version, it is D8's layout: the depth
-   READOUT already owns top-right with the boon timer stack under it, so a
-   second depth figure and a second band name in the HUD would be two panels
-   restating one fact. The ruler is the right EDGE, vertical, and it does not
-   collide with them -- `view/hud.js` anchors it below whatever the top-right
-   cluster actually drew rather than at a hardcoded y (D8: "panels are
-   positioned by an anchored layout pass over measured text, never by
-   hardcoded pixel origins").
+   The compact form is not a lesser version. The depth READOUT already owns
+   top-right with the boon timer stack under it, so a second depth figure and
+   a second band name in the HUD would be two panels restating one fact. The
+   ruler is the right EDGE, vertical, and `view/hud.js` anchors it below
+   whatever that top-right cluster actually drew rather than at a hardcoded y.
 
    Imports `core`, `data` and READ-ONLY `model` queries, plus `./state.js`.
    Registers what it drew, so `shell` can hit-test a click on a band segment
-   and jump the overview to it -- `view` never dispatches (CLAUDE.md D2).
+   and jump the overview to it; `view` never dispatches.
 
-   THE MASKED-ID PREDICATE LIVES HERE, AND THIS IS THE ONE PLACE IT LIVES.
-   Before the band ruler, nothing in `src/` masked anything -- there was no
-   FAVOUR panel, no TRIBUTE state and no `????????` rule anywhere. CLAUDE.md
-   D8 says whichever phase lands the band ruler writes that predicate and the
-   FAVOUR panel reuses it, not the other way round. So:
+   THE MASKED-ID PREDICATE LIVES HERE, AND THIS IS THE ONE PLACE IT LIVES --
+   nothing else in `src/` masks anything yet, and the FAVOUR panel should
+   import `masked` from this file rather than write a second one:
 
      `masked(label, known)`  the mask itself: the label, or `????????`
      `bandKnown(b)`          has the player ever ENTERED this band, OR has a
                              cycle reward CHARTED it for them
 
-
-   The FAVOUR panel should import `masked` from
-   this file (same-layer imports are legal) rather than write a second one.
-
-   THE DEPTH DATUM DOES NOT MOVE (CLAUDE.md D9). Depth is measured from the
-   SPAWN band's own `floorTy`, the identical datum `view/hud.js#depth` and
-   `data/machines.js`'s `minDepth` placement rule both read, specifically so
-   the gauge and placement legality can never disagree. 0 M stays the spawn
-   floor and the astral band reads as ABOVE it; nothing here introduces a
-   second zero. */
+   DEPTH IS MEASURED FROM THE SPAWN BAND'S OWN `floorTy`, the identical datum
+   `view/hud.js#depth` and `data/machines.js`'s `minDepth` placement rule both
+   read, so the gauge and placement legality can never disagree. 0 M is the
+   spawn floor and the astral band reads as ABOVE it; no second zero. */
 
 import { drawText, textWidth } from '../../core/font.js';
 import { mix } from '../../core/palette.js';
@@ -52,12 +41,11 @@ import { drawn } from './state.js';
 const INK = colour('ui'), DIM = colour('uiDim'), BACK = colour('uiBack');
 const MARK = colour('ichor');
 
-/* The coloured bar's own width. Deliberately NARROW: an 8 px bar could not fit
-   'III' inside it and the numerals clipped off the right edge of the canvas on
-   the first render of this widget, which is the D8 failure mode ("FAVOUR's
-   HEPHAESTUS overruns its frame") reproduced immediately. So the bar is a bar
-   and the numerals sit BESIDE it, in a column sized from MEASURED text rather
-   than from a guess -- `rulerWidth()` below is what a caller reserves. */
+/* The coloured bar's own width. Deliberately NARROW: an 8 px bar could not
+   fit 'III' inside it and the numerals clipped off the right edge of the
+   canvas on the first render of this widget. So the bar is a bar and the
+   numerals sit BESIDE it, in a column sized from MEASURED text rather than
+   from a guess -- `rulerWidth()` below is what a caller reserves. */
 export const RULER_W = 6;
 
 /* Bar plus the numeral column, measured. Whatever the widest numeral in this
@@ -77,22 +65,15 @@ export const MASK = '????????';
 export const masked = (label, known) => (known ? label : MASK);
 
 /* has the player ever entered this band
-   Derived, never stored -- there is no `enteredBands` field and adding one
-   would be a second source of truth for something `b.seen` already answers.
-   Two clauses, and both are needed:
+   Derived, never stored -- `b.seen` already answers it. Two clauses, both
+   needed: the player is IN the band (true the frame they cross the seam,
+   before `rules/reveal.js` has run for it), or any tile of it is REVEALED
+   (permanent and one-way).
 
-     the player is IN it        true the frame they cross the seam, before
-                                `rules/reveal.js` has run for the new band
-     any tile of it is REVEALED which is permanent and one-way, so knowledge
-                                of a band, like knowledge of a tile, never
-                                goes back
-
-   Cached in a `WeakSet` because `seen` only ever gains bits: once true this is
-   true for the rest of the run, and a new run allocates NEW band records
-   (`model/world.js#write.allocate`), so the cache invalidates itself with no
-   reset call and no way for it to survive a restart. Until a
-   band qualifies the scan runs every frame -- 3,840 `seenAt` calls for the
-   astral band, which is the only one that stays unknown for long. */
+   Cached in a `WeakSet` because `seen` only ever gains bits, and because a
+   new run allocates NEW band records, so the cache invalidates itself with no
+   reset call. Until a band qualifies the scan runs every frame -- 3,840
+   `seenAt` calls for the astral band. */
 const knownBands = new WeakSet();
 
 export function bandKnown(b) {
@@ -187,12 +168,10 @@ export function drawRuler(g, opts) {
     const ny = y0 + Math.max(0, Math.min(sh - 8, (sh >> 1) - 3));
     if (sh >= 8) drawText(g, num, nx, ny, known ? INK : DIM, 1, 1);
 
-    /* THE RECT CARRIES THE BAND'S WORLD RANGE WITH IT (`wy0`/`wy1`, world px).
-       `shell` hit-tests this rect and jumps the overview to the band, and it
-       must not have to re-derive which band a rect belongs to from its `id`
-       string or re-read `bands` to find the extent -- `view` reports what it
-       drew, including WHERE in the world it drew it from, and `shell` decides
-       what a click on it means (CLAUDE.md D2). Two readers, one number. */
+    /* THE RECT CARRIES THE BAND'S WORLD RANGE WITH IT (`wy0`/`wy1`, world px),
+       so `shell` need not re-derive which band a rect belongs to from its
+       `id` string nor re-read `bands` for the extent. Two readers, one
+       number. */
     const rect = { id: id + '-band-' + b.id, x, y: y0, w: RULER_W, h: sh, title: num,
                    wy0: b.origin.y, wy1: b.origin.y + heightPx(b) };
     drawn.panels.push(rect);

@@ -14,29 +14,13 @@ const INK = colour('ui'), INK2 = colour('uiInk2'), BACK = colour('uiBack');
 /* `opts`: { sections: Line[][], cx, cy, vw, vh, offset? }, where a `Line` is
    either a plain string or `{ s, col }`.
 
-   `sections` is an array of line-arrays; a blank line is inserted between
-   sections when joining. Returns `{ x, y, w, h, lines }`, and `lines` is
-   always a flat array of PLAIN STRINGS whatever form went in -- it is the
-   test hook's projection (`shell/main.js`'s `__mf.ui.tooltip`) and several
-   assertions call `String.prototype.startsWith` on its members.
+   A blank line separates sections when joining. Returns a rect plus `lines`,
+   always a flat array of PLAIN STRINGS whatever went in, because it is the
+   test hook's projection (`__mf.ui.tooltip`) and assertions call `startsWith`
+   on its members.
 
-   TONE. Line 0 of the joined list is the title and draws in `INK`; every body
-   line draws in `INK2`, the secondary body tone, NOT in `uiDim`. This is the
-   single highest-traffic grey in the game -- band tips, recipe tooltips, pair
-   tooltips and machine tooltips all land here -- and none of it encodes
-   state, so none of it belongs on the state tone.
-
-   The ONE exception §2.3 names is a body line that IS a state: `view/ui/
-   mainPanel.js#recipeTooltip`'s "UNKNOWN -- NOT YET STOLEN". Rather than
-   teach this primitive to recognise that string -- a name check in a generic
-   widget, the same mistake D7 refuses for `decorate` -- the CALLER hands over
-   its own colour on the line, the same way `view/ui/bar.js` is handed
-   `fillColour` rather than learning what "burden" means. A generic widget
-   must not learn which of its lines are semantic.
-
-   NO SHADOW. A tooltip is a panel with a 0.92-alpha `BACK` fill behind every
-   line of it, which is already the backing a shadow would be substituting
-   for. */
+   NO SHADOW: the 0.92-alpha `BACK` fill behind every line is already the
+   backing a shadow would substitute for. */
 export function drawTooltip(g, opts) {
   const { sections, cx, cy, vw, vh, offset = 8 } = opts;
   const rows = [];
@@ -58,6 +42,10 @@ export function drawTooltip(g, opts) {
 
   rows.forEach((r, i) => {
     if (!r.s) return;
+    /* Title in `INK`, every body line in `INK2` rather than `uiDim`: none of
+       this encodes state, so none of it belongs on the state tone. A body line
+       that IS a state gets `r.col` FROM THE CALLER, the way `./bar.js` is
+       handed `fillColour` rather than learning what "burden" means. */
     drawText(g, r.s, x + 4, y + 3 + i * 8, r.col || (i === 0 ? INK : INK2), 1, 1);
   });
 

@@ -1,24 +1,19 @@
 /* LAYER view — the GRID primitive: fixed-size square slots, a configurable
-   column count, scrollable. Scrolling is snapped to whole ROWS rather than
-   done with a canvas clip — this project draws with `R()`/`lineTo()` only
-   (invariant 11's "integer pixels" extends to layout: a half-visible row
-   would be exactly the sub-pixel lie that rule forbids), and
-   `tools/check.mjs`'s headless 2d stub does not implement `clip()`/`rect()`
-   at all, so a real clip would pass in a browser and throw in `npm run
-   check`. Snapping the row offset means every drawn slot is already fully
-   inside the grid's bounds vertically; nothing needs clipping.
+   column count, scrollable.
+
+   SCROLLING IS SNAPPED TO WHOLE ROWS rather than done with a canvas clip. This
+   project draws with `R()`/`lineTo()` only, and the headless 2d stub does not
+   implement `clip()`/`rect()` at all -- so a real clip would pass in a browser
+   and throw in `npm run check`. Snapping means every drawn slot is already
+   fully inside the grid's bounds.
 
    COLUMN COUNT IS CLAMPED TOO, and this is the part that is easy to get
-   wrong: the content width is DERIVED from `cols x cell`, not from a
-   caller-supplied `w` — there is no such thing as a grid narrower than its
-   own columns. Reporting a clamped `w` while still looping over the full
-   `cols` would draw slots past that `w` (and possibly past `vw`) while the
-   returned rect claims they are not there, which is exactly the
-   layout/hit-test disagreement recording a drawn rect exists to prevent.
-   So a grid that cannot fit `cols` columns at `cell` px each
-   REDUCES its effective column count instead, the same "shrink to fit"
-   contract `panel.js` applies to width and `tabs.js` applies to how many
-   tabs it draws. */
+   wrong: the content width is DERIVED from `cols x cell`, never from a
+   caller-supplied `w`. Reporting a clamped `w` while looping over the full
+   `cols` would draw slots past it while the returned rect claims they are not
+   there -- exactly the layout/hit-test disagreement recording a drawn rect
+   exists to prevent. So a grid that cannot fit `cols` REDUCES its effective
+   column count. */
 import { R } from '../../core/pixels.js';
 import { mix } from '../../core/palette.js';
 import { colour } from '../../data/palette.js';

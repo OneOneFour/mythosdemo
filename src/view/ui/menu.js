@@ -1,40 +1,27 @@
 /* LAYER view — THE MAIN MENU and the keyboard-shortcuts page. Imports `core`,
-   `data` and the panel primitive beside it (same-layer imports are legal). No
-   `model`, no `rules`, no `shell`.
+   `data` and the panel primitive beside it. No `model`, no `rules`, no
+   `shell`.
 
-   FOUR PAGES, ONE DRAW CALL: `root`, `controls`, `settings`, `debug`. Which
-   one is showing, which row the cursor is on and what the player has typed
-   into the SEED field are `shell/ui.js#ui.menu`, handed over read-only through
-   `shell/main.js#frameCtx` exactly as `f.flags` already is (CLAUDE.md D2).
+   FOUR PAGES, ONE DRAW CALL. Which is showing, which row the cursor is on and
+   what has been typed into the SEED field are `shell/ui.js#ui.menu`, handed
+   over read-only through the frame context.
 
-   A CLICK THAT DOES SOMETHING IS SHELL CALLING RULES. Every row is registered
-   into `./state.js#drawn.menu` with a stable id, and `shell` hit-tests that
-   record and dispatches. Nothing here hit-tests, nothing here dispatches, and
-   nothing here touches `model`.
+   A CLICK THAT DOES SOMETHING IS SHELL CALLING RULES: every row registers
+   into `./state.js#drawn.menu` with a stable id, and `shell` hit-tests and
+   dispatches. Nothing here hit-tests, dispatches or touches `model`.
 
+   STORAGE IS A DEVICE, so CONTINUE is not gated on `hasSave()` here -- `view`
+   may not reach `localStorage`. `shell` answers and parks the answer, with
+   `stale` telling another build's header from an empty slot and `notice`
+   carrying the reason verbatim. `inRun` is the same kind of mirror one layer
+   down, because this file may not import `model` either.
 
-   STORAGE IS A DEVICE, so CONTINUE is not gated on `shell/save.js#hasSave()`
-   here -- `view` may not reach `localStorage`. `shell` answers the question
-   and parks the answer on `ui.menu.hasSave`, with `ui.menu.stale` telling
-   another build's header apart from an empty slot, and `ui.menu.notice`
-   carries `loadError.reason` verbatim. A refused save is a different event
-   from no save at all and the player is told which.
+   THE CONTROLS PAGE IS GENERATED FROM `f.ui.keymap`, the one declaration of
+   the binding set, so there is no second list to drift from it.
 
-   AND `ui.menu.inRun` IS THE SAME KIND OF MIRROR ONE LAYER DOWN, because this
-   file may not import `model` either. Whether a run stands behind the menu
-   decides the RESUME row and whether NEW RUN and CONTINUE are about to throw a
-   run away.
-
-   THE CONTROLS PAGE IS GENERATED FROM `f.ui.keymap`, which is
-   `shell/ui.js#KEYMAP` -- the one declaration of the binding set, read by this
-   file and by `shell/input.js`. There is no second list here to drift from it,
-   and an empty keymap draws as a loud gap rather than an empty page.
-
-   IT SURVIVES THE 200x180 BASE BUFFER (`core/canvas.js#resize`), which is the
-   whole of D8: every page is positioned by a layout pass over measured text,
-   a row's label WRAPS rather than overrunning its frame, and the shortcuts
-   table flows into as many columns as the width really affords and pages when
-   it runs out of height. Nothing is clipped at either size. */
+   IT SURVIVES THE 200x180 BASE BUFFER: every page is positioned by a layout
+   pass over measured text, a row's label WRAPS rather than overrunning, and
+   the shortcuts table flows into as many columns as the width affords. */
 
 import { drawText, textWidth, wrap } from '../../core/font.js';
 import { mix } from '../../core/palette.js';
@@ -146,11 +133,10 @@ function rootRows(m) {
   return rows.map(r => (r.id === m.confirm ? confirming(r) : r));
 }
 
-/* EVERY TOGGLE HERE IS ALREADY READABLE FROM THE FRAME CONTEXT -- three
-   `f.flags` and three `f.ui` fields. MUTE is deliberately absent: it lives on
-   `shell/audio.js#audio.muted`, which `frameCtx` does not carry, and inventing
-   a mirror for it in `view` would be a second copy of the truth. Parked in
-   docs/FINDINGS.md. */
+/* EVERY TOGGLE HERE IS ALREADY READABLE FROM THE FRAME CONTEXT. MUTE is
+   deliberately absent: it lives on `shell/audio.js#audio.muted`, which the
+   frame context does not carry, and inventing a mirror for it in `view` would
+   be a second copy of the truth. */
 function settingsRows(f) {
   const state = v => ({ value: v ? 'ON' : 'OFF', valueCol: v ? GOOD : DIM });
   return [
@@ -275,9 +261,8 @@ function list(g, f, m, rec, rows, focus, top, bottom) {
   const panelW = Math.min(availW, Math.max(need + 2 * PAD + 2, Math.min(WANT_W, availW)));
   const inner = panelW - 2 * PAD - 2;
 
-  /* A label that does not fit WRAPS. The mockup's overrunning name is the bug
-     D8 exists to prevent, and `data/scenarios.js`'s longest trial name is 185
-     px against the 184 px the 200 px floor affords -- one pixel, and it would
+  /* A label that does not fit WRAPS. The longest shipped trial name is 185 px
+     against the 184 px the 200 px floor affords -- one pixel, and it would
      have painted outside the frame. */
   const laid = rows.map(r => ({
     row: r,

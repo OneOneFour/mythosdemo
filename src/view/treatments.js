@@ -1,68 +1,44 @@
-/* LAYER view — TREATMENTS: named pure drawing functions a `look` row may request.
-   Imports `core` and `data` only. Reads no model and mutates nothing.
+/* LAYER view — TREATMENTS: named pure drawing functions a `look` row may
+   request. Imports `core` and `data` only. Reads no model and mutates nothing.
 
-   THIS TABLE PLUS A NAME IN A CONTENT ROW IS HOW APPEARANCE BECAME DATA:
+   THIS TABLE PLUS A NAME IN A CONTENT ROW IS HOW APPEARANCE BECAME DATA, and
+   no substance name appears anywhere in `view/`. A `fn` name that is not a key
+   here, and any colour name a `look` block gets wrong, fails the content lint
+   rather than drawing nothing at depth 300.
 
-     data/substances.js says   look:{ treatments:[{ fn:'glint', col:'veinA', n:2 }] }
-     view/paint.js says        for (const t of look.treatments) TREAT[t.fn](g, cell, t)
-
-   and no substance name appears anywhere in `view/`. A `fn` name that is not a
-   key here, and any colour name a `look` block gets wrong, fails
-   `npm run check:content` (`tools/content.mjs` assertion 15) rather than drawing
-   nothing at depth 300 — which is what actually used to happen, `treat()`'s
-   `if (fn)` swallowing an unknown name in silence.
-
-
-   CONTRACT. Every function takes `(g, cell, p)` where `cell` is
-   `{ px, py, tx, ty, tile }` in destination pixels and band tiles, and `p` is
+   CONTRACT: every function takes `(g, cell, p)`, where `cell` is
+   `{ px, py, tx, ty, tile }` in destination pixels and band tiles and `p` is
    the row's own parameter object.
 
-   A MACHINE PART GETS FOUR MORE CELL FIELDS, and they are additions to the
-   same contract rather than a second one: `w`/`h` (the footprint's own pixel
-   size, so a part can centre itself in a 2x2 hub or a 3x1 axle without the
-   row restating it), `turn` (`model/machines.js#m.turn`, accumulated rotation
-   phase in radians -- a MODEL number, never a frame counter and never
-   `rand()`) and `t` (the clock, for anything that has to breathe). A terrain
-   treatment reads none of them and a machine part reads no `tile`; both go
-   through the SAME `TREAT` table and the same `look` list, which is what
-   makes `tools/content.mjs` assertion 15 validate a machine part's `fn` and
-   its colour names for free.
+   A MACHINE PART GETS FOUR MORE CELL FIELDS, additions to the same contract
+   rather than a second one: `w`/`h` (the footprint's pixel size, so a part
+   centres itself without the row restating it), `turn` (accumulated rotation
+   in radians -- a MODEL number, never a frame counter) and `t` (the clock).
+   Both kinds go through the SAME table and list, which is what lets the lint
+   validate a machine part's `fn` and colours for free.
 
-   COLOUR PARAMS MUST USE THE NAMES `tools/content.mjs#COLOUR_KEYS` KNOWS
-   (`body`, `trim`, `base`, `hi`, `lo`, `col`, `low`, `dark`, `face`,
-   `contact`, ...). A colour under any other key is not a syntax error, it is
-   an UNCHECKED colour -- it would throw from `colour()` the first time the
-   part painted, at whatever depth that happened to be, which is the exact
-   failure assertion 15 exists to move to import time.
+   COLOUR PARAMS MUST USE THE NAMES THE LINT KNOWS. A colour under any other
+   key is not a syntax error, it is an UNCHECKED colour that throws from
+   `colour()` the first time the part paints, at whatever depth that is.
 
-   THEY MAY USE `hash2` AND MUST NOT USE `rand`. Rendering consumes no
-   randomness (ARCHITECTURE invariant 7): a repaint must not be a mutation of
-   anything, not even of an RNG cursor, or a screenshot would depend on how many
-   times the frame had been drawn. Flicker comes from the clock plus a position
-   hash, never from the stream. */
+   THEY MAY USE `hash2` AND MUST NOT USE `rand`: a repaint must not mutate
+   anything, not even an RNG cursor, or a screenshot would depend on how many
+   times the frame had been drawn. */
 
 import { colour } from '../data/palette.js';
 import { LIGHT, R, glow, lineTo, noiseFill } from '../core/pixels.js';
 import { hash2 } from '../core/rng.js';
 
-/* HOW FAR A DECORATION REACHES, IN TILES
-   A treatment that draws OUTSIDE its own cell is clipped by the chunk canvas it
-   is drawing into, and the neighbouring chunk does not independently redraw the
-   missing part -- those pixels are permanently lost, silently, with no error and
-   nothing visual to notice it by. That is not a hypothesis; it was read
-   straight off two adjacent chunk canvases (seed 1, tile
-   (7,17): the canopy's top row was out of bounds in its owning chunk and fully
-   transparent in the chunk above).
+/* HOW FAR A DECORATION REACHES, IN TILES. A treatment drawing OUTSIDE its own
+   cell is clipped by the chunk canvas it draws into, and the neighbour does
+   not independently redraw the missing part -- those pixels are PERMANENTLY
+   LOST, silently, with nothing to notice it by.
 
-   So every decoration declares its own MAXIMUM reach here, in tiles, in every
-   direction, and `view/paint.js` scans a margin of neighbouring tiles that wide
-   before it decides a chunk is finished. The number is authoritative rather than
-   descriptive: the treatments below CLAMP their own data-supplied `w`/`h`
-   against it, so a content row cannot ask for a canopy the margin does not
-   cover. Grow one of these and the margin grows with it, in one place.
-
-   `paint.js` takes the largest of them as its margin, so this table is the only
-   thing that has to be right. */
+   So every decoration declares its maximum reach here, and `view/paint.js`
+   scans a margin that wide before deciding a chunk is finished. The number is
+   AUTHORITATIVE rather than descriptive: the treatments clamp their own
+   data-supplied `w`/`h` against it, so a content row cannot ask for a canopy
+   the margin does not cover. */
 export const EXTENT = Object.freeze({ canopy: 4, grassCap: 1 });
 
 export const TREAT = {
@@ -77,16 +53,13 @@ export const TREAT = {
            1, 1, col);
   },
 
-  /* A soft halo: hot metal, ichor, anything self-lit. The one non-integer
-     effect in the project, and it is additive light rather than geometry, so it
-     cannot produce a half-pixel edge.
+  /* A soft halo. The one non-integer effect in the project, and it is additive
+     LIGHT rather than geometry, so it cannot produce a half-pixel edge.
 
-     A SLOW PULSE, NOT A FLASH, when the caller has a clock to give it (`c.t`
-     -- item and machine-part contexts both do; a bare terrain cell does not,
-     and `glow()` with its base alpha is exactly what a still relic in a
-     screenshot-diffed baseline should be). Derived from `c.t` plus a hash of
-     the cell's own position so two relics on screen at once do not breathe in
-     lockstep -- never from a frame counter (CLAUDE.md invariant 7). */
+     A SLOW PULSE, NOT A FLASH, when the caller has a clock to give it -- a
+     bare terrain cell does not, and the base alpha is what a still relic in a
+     diffed baseline should be. Derived from the clock plus a position hash, so
+     two relics do not breathe in lockstep. */
   halo(g, c, p) {
     const base = p.a ?? 0.3;
     const pulse = c.t != null
@@ -102,37 +75,16 @@ export const TREAT = {
       if ((c.ty * c.tile + y) % every === 0) R(g, c.px, c.py + y, c.tile, 1, col);
   },
 
-  /* AN OLIVE CROWN, and it is deliberately a THIRD shape.
+  /* AN OLIVE CROWN, and deliberately a THIRD shape: a flat rectangle reads as a
+     rectangle, and the mockup's 26 polar-scattered dots read as fuzz at this
+     viewport. So a UNION OF A FEW BLOBS, eroded at the rim -- solid interior
+     to hold together at 8 px, ragged outline so it is not a rectangle.
+     `CANOPY_BLOBS` is a FIXED lopsided fan rather than a scatter, which is the
+     whole difference: the silhouette is DESIGNED and only its edge is random.
 
-     What was here was a flat `w` x `h` tile rectangle of two greens -- chosen,
-     with a reason recorded in this very comment, over the preserved mockup's
-     `oliveTree()`, whose 26 polar-scattered 2x2 dots (verbatim in
-     `reference/mockup/src/world/strata.js`) read as fuzz rather than as a tree
-     at this project's small viewport. That objection stands. So does the
-     rectangle's own problem: it reads as a rectangle. Reverting to the dot
-     cloud would trade one wrong answer for the other.
-
-     The third shape is a UNION OF A FEW BLOBS, eroded at the rim. Solid
-     interior, so it holds together at 8 px to the tile the way the dot cloud
-     never did; a ragged outline, so it is not a rectangle. `CANOPY_BLOBS` is a
-     FIXED layout -- five overlapping discs in a deliberately lopsided fan --
-     rather than a per-pixel scatter, which is the whole difference: the
-     silhouette is designed and only its edge is random. Olives are sparse,
-     silver-green and irregular (SPEC section 5), so the fan leans, the two
-     upper blobs are small, and the highlight tone gets a scatter of flecks
-     where the light catches -- the silver in silver-green.
-
-     THREE TONES, ONE SUN. Underside shade, body, sun-side highlight, chosen per
-     pixel from its offset within its own blob projected onto
-     `core/pixels.js#LIGHT`. No second light direction, and no baked-in "top
-     course is lighter" -- which is what the rectangle did, and why it read as a
-     lit box rather than as a lit sphere.
-
-     Everything is positional (`hash2` over BAND pixel coordinates, never the
-     chunk's own), so the same crown is identical from either side of a seam --
-     without that, a tree straddling a chunk boundary would be two different
-     trees meeting in the middle. `paint.js` is the only caller and only when
-     `skyExposedAt` is true, a `model` query this file may not make itself. */
+     THREE TONES, ONE SUN, per pixel from its offset within its own blob.
+     Positional over BAND coordinates and never the chunk's, so a tree
+     straddling a boundary is one tree rather than two. */
   canopy(g, c, p) {
     const t = c.tile;
     const tones = [colour(p.leaves?.[0] || 'vdC'),
@@ -182,33 +134,15 @@ export const TREAT = {
     }
   },
 
-  /* A TURF CAP, and the emphasis is on cap rather than fringe. What this used
-     to draw was two pixels of green on a tile's top edge, which reads as a line
-     ruled along the ground rather than as ground; docs/ARCHAEOLOGY.md section 1a
-     has the older look it is recovered from, and that look was a FULL band --
-     `R(g, 0, SURFACE_Y - 6, W, 8, P.grassA)` then `R(g, 0, SURFACE_Y + 2, W, 4,
-     P.grassB)`, i.e. a whole tile of bright green over a darker green lower
-     edge, with a `noiseFill` speckle pass over both and 1 px tufts above. Same
-     three parts here, per tile instead of screen-wide, so it steps with Phase
-     7's relief instead of running flat.
+  /* A TURF CAP, and the emphasis is on CAP rather than fringe: two pixels of
+     green on a top edge reads as a line ruled along the ground. A whole tile
+     of bright green over a darker lower edge, speckled, per tile rather than
+     screen-wide so it steps with relief.
 
-     AND IT DRAPES OVER A LIP. A hillside is otherwise a stack of cut cubes: the
-     turf stops dead at the top face and the vertical face below it is bare
-     subsoil. So where this tile has an open side and solid rock beneath it, the
-     turf runs a few pixels down that face, ragged, which is the one detail that
-     makes a step read as a bank of earth rather than as a block. That drape is
-     why `EXTENT.grassCap` is 1 tile and not 0.
-
-     AND IT BANKS ACROSS A ONE-TILE STEP. The drape softens a riser; it cannot
-     change the silhouette, and the silhouette is where a hillside reads as a
-     flight of stairs. `bank` below fills the notch above the lower tread on
-     the diagonal, so the outline runs level, diagonal, level and consecutive
-     steps join into one continuous slope. `paint.js#banked` decides where,
-     because which neighbour is a one-tile step is `model` geometry.
-
-     `paint.js` calls this only when `skyExposedAt` is true. Read the soil row's
-     own comment in `data/substances.js` before widening anything here: a
-     generic "any air above" test painted grass on cave ceilings. */
+     AND IT DRAPES OVER A LIP, because a hillside is otherwise a stack of cut
+     cubes -- which is why `EXTENT.grassCap` is 1 and not 0. AND IT BANKS
+     ACROSS A ONE-TILE STEP, because the drape softens a riser and cannot
+     change the silhouette. */
   grassCap(g, c, p) {
     const t = c.tile;
     const col = colour(p.col || 'grassA');
@@ -237,32 +171,14 @@ export const TREAT = {
   },
 
   /* A LADDER: TWO RAILS AND A RUNG PITCH THAT DOES NOT KNOW WHERE THE TILES
-     ARE. The first treatment a FORM asks for rather than a substance
-     (`data/forms.js`'s `rung` and `stair` rows; docs/PLAN-phase13.md section
-     3.3), and the one property that makes it work is that the rung rows are
-     chosen from the tile's ABSOLUTE band row -- `c.ty * c.tile + y` -- rather
-     than from a counter starting at each tile's own top edge. A 3-row pitch
-     computed per tile restarts at every tile boundary: six stacked tiles then
-     show six identical 8 px patterns whose joins stutter, and a ladder placed
-     one row lower than the one above it does not line up with it. Derived from
-     the band row, a column of any length is ONE ladder and it is continuous
-     across every seam, at any starting row.
+     ARE. The rung rows come from the tile's ABSOLUTE band row, never a counter
+     starting at each tile's top edge -- a per-tile pitch restarts at every
+     boundary, so stacked tiles show identical patterns whose joins stutter.
+     Derived from the band row, a column of any length is ONE ladder.
 
-     NO JITTER AND NO HASH, deliberately. Everything else painted into a chunk
-     canvas is geology and is roughened positionally; a ladder is the one thing
-     down there somebody MADE, and straight rails are what say so at 8 px.
-     (`hash2` would have been allowed here; `rand()` never is -- invariant 7.)
-
-     THREE COLOURS, ALL UNDER KEYS `tools/content.mjs#COLOUR_KEYS` VALIDATES:
-     `body` the rails, `hi` the lit face of a rung, `lo` the row beneath it
-     where a tread is deeper than one pixel. docs/PLAN-phase13.md section 3.3
-     proposed `rail:`/`rung:` instead; those are not colour keys, so they would
-     have been UNCHECKED colours -- the exact failure this file's header block
-     says assertion 15 exists to move to import time.
-
-     `every`/`tread`/`inset` are what make the two tiers read apart: timber
-     pegs are 1 px rungs between inset rails, a bronze stair is a 2 px tread
-     between rails on the tile's own edges. One function, two rows of data. */
+     NO JITTER AND NO HASH, deliberately: everything else baked into a chunk is
+     geology and is roughened positionally, and a ladder is the one thing down
+     there somebody MADE. */
   ladder(g, c, p) {
     const t = c.tile;
     const rail = colour(p.body);
@@ -289,34 +205,24 @@ export const TREAT = {
     }
   },
 
-  /* MACHINERY
-     The parts a machine row's `look.parts` list may name. `EXTENT` does NOT
-     apply to any of them: a machine is drawn live into the frame by
-     `view/paint.js#paintMachine`, never baked into a chunk canvas, so there
-     is no seam to be clipped at and nothing to declare a reach for. What
-     bounds a part is its own footprint, and a part that draws outside it
-     (the hub's cable lugs, an axle's end teeth) is drawing over the world,
-     on purpose, exactly as the existing hopper lips already do.
+  /* MACHINERY: the parts a `look.parts` list may name. `EXTENT` does NOT apply
+     to any of them -- a machine is drawn LIVE into the frame and never baked
+     into a chunk canvas, so there is no seam to be clipped at. What bounds a
+     part is its own footprint, and one that draws outside it is drawing over
+     the world on purpose.
 
-     ROTATION IS `c.turn` AND NOTHING ELSE. `rules/drive.js` writes it; before
-     placement it is 0 and every wheel below draws at phase 0, which is
-     correct rather than a placeholder. */
+     ROTATION IS `c.turn` AND NOTHING ELSE. Before placement it is 0 and every
+     wheel draws at phase 0, which is correct rather than a placeholder. */
 
-  /* A TOOTHED WHEEL, which is the one shape this whole machine family is
-     built out of: the hub's big drive gear, a 1x1 gear, an axle's two end
-     gears, and the crank's own boss are all this function at four sizes.
+  /* A TOOTHED WHEEL, the one shape this whole machine family is built out of,
+     at four sizes.
 
-     TEETH REACH PAST THE FOOTPRINT ON THE FOUR ORTHOGONAL AXES, and that is
-     the entire art-teaches-the-rule requirement (docs/PLAN A3: diagonals do
-     not conduct). `rt` defaults to half the tile past the wheel's own rim, so
-     two gears in ORTHOGONALLY adjacent tiles have teeth that overlap in the
-     gap between them and visibly interlock, while two in DIAGONALLY adjacent
-     tiles are 1.41 tiles apart centre to centre and leave a plain gap with
-     nothing bridging it. Nothing declares "these mesh"; the geometry does.
+     TEETH REACH PAST THE FOOTPRINT ON THE FOUR ORTHOGONAL AXES, which is the
+     entire art-teaches-the-rule requirement: two gears ORTHOGONALLY adjacent
+     overlap their teeth in the gap, two DIAGONALLY adjacent sit 1.41 tiles
+     apart and leave a plain gap. Nothing declares "these mesh".
 
-     TOOTH COUNT IS TIED TO THE ANGLE GRID, not to size: `teeth` multiples of
-     4 keep one tooth on each axis at phase 0, which is what makes an
-     unpowered train read as meshed rather than as coincidentally close. */
+     TOOTH COUNT IS TIED TO THE ANGLE GRID, not to size. */
   gearWheel(g, c, p) {
     const bw = c.w ?? c.tile, bh = c.h ?? c.tile;
     const d = p.d ?? Math.min(bw, bh);
@@ -556,28 +462,14 @@ function lip(g, x, y, depth, tx, ty, near, far, right) {
 }
 
 /* THE OUTER CORNER OF A ONE-TILE STEP, CHAMFERED IN TURF -- the whole of
-   "terraces read as slopes", and it is paint rather than terrain (CLAUDE.md
-   D7). The +-1-tile-per-column slope limit cannot be relaxed, because
-   `rules/player.js#moveX`'s auto-step clears exactly one tile and a 2-tile
-   rise is therefore a wall the hills would stop being walkable over. All that
-   limit can draw is treads and risers, and at 8 px to the tile a run of them
-   is a staircase.
+   "terraces read as slopes", and PAINT rather than terrain. The one-tile
+   slope limit cannot be relaxed, because the auto-step clears exactly one
+   tile, so all it can draw is treads and risers -- a staircase at 8 px.
 
-   So this fills the notch over the lower tread on the diagonal, one pixel
-   wider per row down, hugging the riser, in the turf the tread already wears.
-   The outline then runs level, diagonal, level, and two steps in a row join
-   into one bank instead of reading as two stairs. The cells stay AIR, so
-   collision, the auto-step and the fall table are untouched and the player
-   walks through a bank exactly as they walk through a canopy.
-
-   `x` is the riser's own edge (the tile's far column for a right bank, its
-   near column for a left one) and `y` the tile's top row, both in destination
-   pixels. Each row takes a positional +1 px on its own hash, so the diagonal
-   is a bank of earth rather than a ruled line.
-
-   `TURF_LIT` px of each row stay in the bright tone, measured from the OUTER
-   end, because that end is the surface and the rest is under it -- the same
-   statement the cap's own `lowH` makes vertically. */
+   This fills the notch over the lower tread on the diagonal, one pixel wider
+   per row. The cells stay AIR, so collision, the auto-step and the fall table
+   are untouched. `TURF_LIT` px of each row stay bright, measured from the
+   OUTER end, because that end is the surface. */
 const TURF_LIT = 5;
 
 function bank(g, x, y, t, reach, tx, ty, right, col, low, dark) {
@@ -600,16 +492,9 @@ function bank(g, x, y, t, reach, tx, ty, right, col, low, dark) {
   }
 }
 
-/* discs
-   A CIRCLE, ONE INTEGER ROW AT A TIME. No `arc`, no fill path, for the same
-   reason `view/scene.js#dome` refuses one: a canvas curve antialiases its own
-   edge, and SPEC section 6 forbids that outright. `d` is the DIAMETER and the
-   disc exactly fills the `d x d` box at `(x, y)`, so a caller that has already
-   floored `x`/`y` cannot produce a half-pixel edge no matter what `d` is.
-
-   The row width comes from the circle equation sampled at each row's CENTRE
-   ((j + 0.5) normalised to -1..1), which is what stops an even diameter from
-   drawing a flat-topped disc one row taller than it is wide. */
+/* A CIRCLE, ONE INTEGER ROW AT A TIME. No `arc` and no fill path, because a
+   canvas curve antialiases its own edge. `d` is the DIAMETER and the disc
+   exactly fills the `d x d` box at `(x, y)`. */
 export function disc(g, x, y, d, col) {
   for (let j = 0; j < d; j++) {
     const k = ((j + 0.5) / d) * 2 - 1;
@@ -619,20 +504,14 @@ export function disc(g, x, y, d, col) {
 }
 
 /* THE SAME DISC AS A MACHINED WHEEL: a 1 px DARK OUTLINE all the way round, a
-   mid-tone interior, and a lit crescent on the sun side of the rim. Three
-   tones, and the outline is the one that matters.
+   mid-tone interior, and a lit crescent on the sun side of the rim.
 
-   THE OUTLINE IS THE WHOLE FIX, and it was arrived at by looking. The first
-   version shaded the disc symmetrically -- a lit arc up-left, a shaded arc
-   down-right, mid tone between -- and at 11 px in an unlit shaft the result
-   was a grey amoeba: the lit arc ran into the teeth (drawn in the same
-   highlight tone), the shaded arc ran into the background, and nothing said
-   where the wheel ENDED. A dark ring says it in one pixel, and it is also
-   what makes a tooth read as a tooth: a body-toned block sitting outside the
-   ring rather than a lump of the same crescent.
-
-   `RIM_R2` is in squared normalised radius, so the highlight test costs no
-   square root. Runs are coalesced per row exactly as the canopy's are. */
+   THE OUTLINE IS THE WHOLE FIX, arrived at by looking. Shaded symmetrically,
+   at 11 px in an unlit shaft the result was a grey amoeba -- the lit arc ran
+   into the teeth, the shaded arc into the background, and nothing said where
+   the wheel ENDED. A dark ring says it in one pixel, and it is also what makes
+   a tooth read as a tooth. `RIM_R2` is squared normalised radius, so the
+   highlight test needs no square root. */
 const RIM_R2 = 0.30;
 const DISC_LIT = 0.35;
 

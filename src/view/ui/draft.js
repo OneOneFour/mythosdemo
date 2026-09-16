@@ -1,37 +1,25 @@
 /* LAYER view — THE DRAFT MODAL: the cards a god lays out, and what a second
-   look costs. Imports `core`, `data` and READ-ONLY `model` queries, plus the
-   panel primitive beside it (same-layer imports are legal). No `rules`, no
-   `shell`.
+   look costs. Imports `core`, `data`, READ-ONLY `model` queries and the panel
+   primitive beside it. No `rules`, no `shell`.
 
-   IT PAUSES NOTHING FROM HERE. The freeze is `shell/ui.js#pausesRun`, read by
-   `shell/main.js#step` — this file only draws the thing that is standing while
-   the run is stopped, and `f.ui.stack` is how it learns that, handed over
-   through the frame context exactly as `f.flags` already is.
+   IT PAUSES NOTHING FROM HERE. The freeze is `shell/ui.js#pausesRun`; this
+   file only draws the thing standing while the run is stopped.
 
    A CLICK THAT DOES SOMETHING IS SHELL CALLING RULES. Every card and the
-   reroll row are registered into `./state.js#drawn.panels` under the ids
-   `draft-card-<i>` and `draft-reroll`; `shell/main.js#applyDraftIntents`
-   hit-tests those rectangles and sets the SAME `wants.takeCard` /
-   `wants.reroll` the 1/2/3 and `r` keys set. Nothing here dispatches, and
-   `<i>` is the index into `run.offer.ids`, which is what makes the pointer
-   and the keyboard reach the identical card.
-
+   reroll row register into `./state.js#drawn.panels`, and `shell` hit-tests
+   those rectangles and sets the SAME `wants` the 1/2/3 and `r` keys set. `<i>`
+   is the index into `run.offer.ids`, which is what makes the pointer and the
+   keyboard reach the identical card.
 
    THE MOD LINES ARE BUILT FROM THE ROW, NOT FROM `model/mods.js#explain`.
-   `explain` filters the LIVE `mods.rows` list, so it can only describe a
-   modifier already applied — an offered trinket is not equipped and an
-   offered boon is not running, so it would return nothing for every card on
-   the table. `view/ui/mainPanel.js#trinketDeltaLines` is a reader of the live
-   list for that reason and is not reusable here; what IS shared is the
-   wording, and `modLines` below produces byte-identical strings to that
-   file's `formatModRow` so the same modifier reads the same on the card and
-   in the Character tab. See docs/FINDINGS.md for the lift that would make it
-   one function.
+   `explain` filters the LIVE rows, so it can only describe a modifier already
+   applied -- an offered trinket is not equipped, so it would return nothing
+   for every card on the table. What IS shared is the WORDING: `modLines`
+   produces byte-identical strings to the Character tab's.
 
    TWO CARDS IS A REAL CASE, not a degenerate one: the grant tier ships at two
-   rows by decision and `rules/draft.js`
-   never pads, so the layout is driven by `run.offer.ids.length` and never
-   reserves a gap where a third card would be. */
+   rows and `rules/draft.js` never pads, so the layout is driven by
+   `ids.length` and never reserves a gap where a third card would be. */
 
 import { drawText, textWidth } from '../../core/font.js';
 import { R } from '../../core/pixels.js';
@@ -51,9 +39,8 @@ const GOOD = colour('uiGood'), AMBER = colour('uiAmber');
    relic's frame -- a god's name on a card is the same fact, not a second one. */
 const RELIC = colour('ichor');
 
-/* `run.offer.tier` -> the frozen table its ids index. The four tiers of
-   CLAUDE.md D1; `rules/draft.js` owns which ids, this owns what they look
-   like. */
+/* `run.offer.tier` -> the frozen table its ids index. `rules/draft.js` owns
+   WHICH ids; this owns what they look like. */
 const TABLE = { boon: BOON, grant: GRANT, trinket: TRINKET, miracle: MIRACLE };
 
 const TITLE = 'CHOOSE ONE';
@@ -82,8 +69,7 @@ const MAX_CARD_W = 128;
 export const draftOpen = f => f.ui.stack.includes('draft') && !!run.offer?.ids?.length;
 
 /* Greedy word wrap to `maxW` screen px at scale 1. A word wider than the
-   whole line is hard-broken rather than allowed to overrun the card frame
-   (CLAUDE.md D8: the mockup's overflow is a bug to fix, not a target). */
+   whole line is HARD-BROKEN rather than allowed to overrun the card frame. */
 function wrap(s, maxW) {
   const out = [];
   if (!s) return out;
@@ -106,17 +92,15 @@ function wrap(s, maxW) {
 
 const push = (out, s, col, maxW) => { for (const l of wrap(s, maxW)) out.push({ s: l, col }); };
 
-/* One `{key, mul, add}` row as the player reads it. Byte-identical wording to
-   `view/ui/mainPanel.js#formatModRow`, and the same single accent colour, so
-   a modifier reads the same on the card and in the Character tab.
+/* One `{key, mul, add}` row as the player reads it, byte-identical in wording
+   to the Character tab's.
 
    THE SIGN IS NOT THE POLARITY, and this deliberately does not pretend
-   otherwise. `poseidon-flood`'s `hard x0.85` is a BENEFIT and `girdle`'s
-   `climb x0.8` is a COST, and both print as a negative percentage -- whether
-   up is good is a fact about the tunable, which lives in `data/tuning.js` and
-   may only ever be imported by `model/mods.js`. Colouring by sign would state
-   the wrong thing for one of those two rows at the exact moment the player is
-   choosing. Parked in docs/FINDINGS.md with the one-key fix. */
+   otherwise: `hard x0.85` is a BENEFIT and `climb x0.8` is a COST, and both
+   print as a negative percentage. Whether up is good is a fact about the
+   TUNABLE, which only `model/mods.js` may import, so colouring by sign would
+   state the wrong thing for one of those two at the exact moment the player
+   is choosing. */
 function modLines(m, maxW, out) {
   const dot = m.key.indexOf('.');
   const base = dot < 0 ? m.key : m.key.slice(0, dot);
@@ -131,10 +115,9 @@ function modLines(m, maxW, out) {
 }
 
 /* IN PRIORITY ORDER, LAST DROPPED FIRST. The draw loop stops at the card's
-   bottom edge rather than clipping (there is no `clip()` in this project's
-   canvas vocabulary -- docs/DEVELOPER_GUIDE.md#widget-primitives), so line
-   order IS the degradation rule: the asking god, the name and the numbers
-   survive a short card; the flavour text is what goes. */
+   bottom edge rather than clipping -- there is no `clip()` in this project's
+   canvas vocabulary -- so LINE ORDER IS THE DEGRADATION RULE: the asking god,
+   the name and the numbers survive a short card, and the flavour goes. */
 function cardLines(row, index, maxW) {
   const out = [];
   push(out, row.god ? `${index + 1}  ${godName(row.god)}` : String(index + 1), RELIC, maxW);
@@ -235,11 +218,10 @@ export function drawDraft(g, f) {
   y += rowCount * cardH + (rowCount - 1) * GAP + GAP;
 
   /* RECORDED EVEN WHEN DIMMED, and clickable: `rules/draft.js#reroll` is the
-     one place that decides, and it refuses out loud through a `'refused'`
-     journal row (D17-B: "never a hidden button"). A rect that silently
-     swallowed the press would teach the player nothing that the reason
-     already drawn on it does not -- and it would put the predicate in a
-     second place. */
+     one place that decides, and it refuses OUT LOUD through a journal row --
+     never a hidden button. A rect that silently swallowed the press would
+     teach nothing the reason already drawn on it does not, and would put the
+     predicate in a second place. */
   const rp = drawPanel(g, {
     id: 'draft-reroll', x: M + ((availW - rrW) >> 1), y, w: rrW, h: rrH, vw, vh, alpha: 0.94
   });

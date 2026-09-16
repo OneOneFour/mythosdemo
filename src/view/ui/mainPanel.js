@@ -168,31 +168,20 @@ function drawCharacterTab(g, f, body) {
 
   let ry = bar.y + bar.h + 5;
 
-  /* AUTO COLLECT (docs/PLAN-phase12.md §3 D-E/D-F): items no longer pick
-     themselves up -- holding 'c' does, and this toggle restores the old
-     always-on magnet for whoever would rather have it back. Its own
-     `drawPanel` id, hit-tested by `shell/main.js#applyUiIntents` exactly the
-     way the crafting tab's search box and `view/ui/quickbar.js`'s own
-     hints-toggle already are, so a click here is never mistaken for a click
-     on the grid beneath it. */
-  /* AUTO FEED is the machine-side half of
-     exactly the same preference: standing beside a machine no longer empties
-     your pockets into it -- arming a pair and clicking the machine hands
-     over one unit per press (`rules/machines.js#handOne`) -- and this toggle
-     restores the old always-on drain for whoever would rather have it back.
-     Two magnets, items and machines, one line.
+  /* AUTO COLLECT: items no longer pick themselves up -- holding 'c' does --
+     and this toggle restores the old always-on magnet. Its own `drawPanel`
+     id, hit-tested the way the search box and the hints toggle are, so a
+     click here is never mistaken for one on the grid beneath it. */
+  /* AUTO FEED is the machine-side half of the same preference: arming a pair
+     and clicking a machine hands over one unit per press, and this restores
+     the old always-on drain. Two magnets, items and machines, one line.
 
-     THE TWO SHARE A ROW WHEN BOTH FIT, AND THAT IS A MEASUREMENT, NOT A
-     GUESS (CLAUDE.md D8: "panels are positioned by an anchored layout pass
-     over measured text, never by hardcoded pixel origins"). Stacking them
-     unconditionally cost 11 px, and this tab has no spare 11 px -- the
-     STATS block below already clips to `body.bottom` and a second row pushed
-     the last surviving stat line off the panel, leaving a "STATS" heading
-     with nothing under it. Side by side costs zero rows and is legible at
-     both the desktop buffer (`w` 232) and the 200 px phone floor (`w` 188,
-     against 182 px of worst-case text). The fallback is not dead code
-     insurance either: a longer label, a bigger font scale or a narrower
-     floor makes it the right layout, and it reads better than the clip. */
+     THE TWO SHARE A ROW WHEN BOTH FIT, AND THAT IS A MEASUREMENT. Stacking
+     them cost 11 px, and this tab has no spare 11 px -- the STATS block
+     already clips to `body.bottom`, and a second row pushed the last
+     surviving stat line off the panel. Side by side costs zero rows and is
+     legible at both the desktop buffer and the 200 px floor. The fallback is
+     not dead code: a longer label or a narrower floor makes it right. */
   const acLabel = 'AUTO COLLECT ' + (f.ui.autoCollect ? 'ON' : 'OFF');
   const afLabel = 'AUTO FEED ' + (f.ui.autoFeed ? 'ON' : 'OFF');
   const acW = Math.min(textWidth(acLabel) + 4, w);
@@ -209,13 +198,11 @@ function drawCharacterTab(g, f, body) {
 
   ry = afY + 11;
 
-  /* Inventory grid: one cell per SLOT, `run.inv.slice(0, run.mainSlots)`,
-     empty slots included and drawn empty (docs/PLAN-phase12.md §3 D-G/D-H).
-     This is the Minecraft-style choice, made deliberately -- capacity is a
-     real, positioned fact now, and hiding empty slots would hide the exact
-     information ("how much room do I have left") this revision exists to
-     make legible. `view/ui/grid.js#drawGrid` needs no changes to draw a
-     sparse, `null`-inclusive `items` array; it already did. */
+  /* Inventory grid: one cell per SLOT, empty slots INCLUDED and drawn empty.
+     Capacity is a real positioned fact now, and hiding empty slots would hide
+     the exact information -- how much room is left -- this shape exists to
+     make legible. `drawGrid` needed no change to draw a `null`-inclusive
+     array; it already did. */
   const invSlots = run.inv.slice(0, run.mainSlots);
   const items = invSlots.map(slot => !slot ? null : {
     sub: slot.sub, form: slot.form, n: slot.n, mass: massOfPair(slot.sub, slot.form) * slot.n,
@@ -300,24 +287,12 @@ function contentBottom(body) {
 }
 
 /* THE TAB'S LAST BLOCK SCROLLS, because it has never fitted: of four stat
-   rows the desktop buffer drew one and the rest were clipped at
-   `body.bottom` (docs/FINDINGS.md 16b.3). A fourth tab was the other route
-   and does not fit -- `CHARACTER`/`CRAFTING`/`LOGISTICS` cost 171 px of the
-   200 px floor's 188 px of content width, and `view/ui/tabs.js` DROPS a tab
-   it cannot fit rather than truncating it, so the feature would be absent
-   at the floor with nothing on screen to say so.
+   rows the desktop buffer drew one and the rest clipped at `body.bottom`.
 
-   IT REUSES THE MECHANISM THE INVENTORY GRID ALREADY HAS rather than a
-   second one. The rectangle goes into `./state.js#drawn.grids`, which is
-   what `shell/main.js#applyUiIntents` hit-tests a wheel notch against, and
-   the offset it stores under `main:stats` comes back through
-   `f.ui.scroll`. `slots` is empty deliberately: there is nothing here to
-   click, drag or arm, and every click path in that dispatcher is keyed on a
-   slot, so an empty list makes the region wheel-only without a guard
-   anywhere. `lines` is what was actually drawn, recorded for the same
-   read-back reason every other rectangle in this project carries its own
-   contents.
-*/
+   It reuses the mechanism the inventory grid has: the rectangle goes into
+   `drawn.grids`, which is what a wheel notch is hit-tested against. `slots`
+   is EMPTY deliberately -- every click path is keyed on a slot, so an empty
+   list makes the region wheel-only with no guard anywhere. */
 function statList(g, f, { x, y, w, bottom, lines }) {
   const visible = Math.floor((bottom - y) / STAT_LINE_H);
   if (visible < 1) return;
@@ -586,21 +561,19 @@ function recipeTooltip(r) {
   }
   const machineName = MACH.find(m => (m.recipes || []).some(x => x === r.id || x?.id === r.id))?.name;
   lines.push(`BY HAND: ${r.secs.toFixed(1)} S` + (machineName ? ` -- SAME AS ${machineName}` : ''));
-  /* THE ONE BODY LINE IN THE GAME THAT KEEPS THE STATE TONE (§2.3 #10). Every
-     other tooltip body line now draws in `uiInk2`; this one is not
-     de-emphasis, it is the same "you have not stolen this yet" state the '?'
-     glyph and the `frameColour: DIM` on the slot above already say, so it is
-     handed its own colour rather than letting `view/ui/tooltip.js` guess from
-     the string -- see that file's header for why the primitive must not learn
-     which of its lines are semantic. */
+  /* THE ONE BODY LINE IN THE GAME THAT KEEPS THE STATE TONE. Every other
+     tooltip body line draws in `uiInk2`; this one is not de-emphasis, it is
+     the same "you have not stolen this yet" state the '?' glyph and the
+     dimmed slot frame already say. Handed its own colour rather than letting
+     the tooltip primitive guess from the string. */
   if (!isKnown(r.id)) lines.push('', { s: 'UNKNOWN -- NOT YET STOLEN', col: DIM });
   return lines;
 }
 
 /* Best count currently pocketed toward a selector, for the tooltip's
-   have/need line -- `model/run.js#pocketedBest` is the single-largest-
-   matching-pair query every other reader of the slot array now shares
-   (docs/PLAN-phase12.md §3 D-G), so this no longer hand-rolls its own scan. */
+   have/need line. `pocketedBest` is the single-largest-matching-pair query
+   every other reader of the slot array shares, so this no longer hand-rolls
+   its own scan. */
 const countTowards = sel => pocketedBest(sel);
 
 function drawCraftingTooltip(g, f, grid, recipes) {
@@ -635,30 +608,12 @@ function drawCraftingTooltip(g, f, grid, recipes) {
 export function machineState(m) {
   const def = defOf(m);
   if (m.running || m.charges > 0 || m.torque > 0) return 'RUNNING';
-  /* A DRIVETRAIN OR STRUCTURAL MACHINE IS NOT A PROCESSOR, and the clause
-     below cannot say anything true about one. A hub, a crank, a gear and an
-     axle have no `ports` and no `recipes` at all, so they fell through to
-     "empty buffer, therefore BLOCKED" -- which read as a red alarm on a hub
-     doing exactly what a hub does. The overview map is what made it visible
-     (every hub in a working chain drawn in the colour of a fault); the tab
-     has been saying it since the drivetrain landed. `m.torque > 0` above
-     already catches one that is actively turning, so what is left here is
-     honestly IDLE.
-
-     PHASE 10c, FINDINGS #15's second instance: a receiver -- the Cloud Dock,
-     the altar -- carries `ports` (a `mode:'in'` catch for cargo) and no
-     `recipes`, so the ORIGINAL "no ports AND no recipes" clause still fell
-     through to BLOCKED on an empty buffer, a red alarm on a dock that has
-     simply not been fed yet. Dropping the `ports` check on its own would
-     overshoot, though: `talos_head`/`cyclops_maw` ALSO have `ports` (a
-     fuel intake) and no `recipes` -- they are active miners, not receivers,
-     and their `mine:{}` block is what says so, so their fuel/stalled reading
-     below must stay reachable. The clause that is actually true of every
-     structural-or-receiver machine and false of every active one is "no
-     recipes AND no mine job" -- verified against every row in
-     `data/machines.js`: the only rows with `recipes:[]` and no `mine` are
-     the drivetrain parts (already IDLE before this change) and the two
-     receivers this change is for. */
+  /* A DRIVETRAIN OR STRUCTURAL MACHINE IS NOT A PROCESSOR, so an empty buffer
+     is not BLOCKED. A hub, crank, gear and axle have no `ports`; a receiver
+     has `ports` and no `recipes`; the two placed miners have `ports`, no
+     `recipes` and a `mine:{}` block that says they are active. The clause
+     true of every structural-or-receiver machine and false of every active
+     one is "no recipes AND no mine job". */
   if (!def.recipes?.length && !def.mine) return 'IDLE';
   const fuelSels = [];
   for (const p of def.ports || [])

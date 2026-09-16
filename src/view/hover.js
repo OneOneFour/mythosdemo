@@ -1,20 +1,16 @@
 /* LAYER view — HOVER: what the pointer is over, resolved fresh every frame.
    Imports `core`, `data`, READ-ONLY `model` queries and one same-layer `view`
-   module. No `rules` import (view and rules are mutually forbidden) and no
-   `shell` import (the pointer reaches this file as WORLD px on the frame
-   context, exactly the way `cam` does).
+   module. No `rules` and no `shell` -- the pointer arrives as WORLD px on the
+   frame context, the way `cam` does.
 
    NO STATE. `model/aim.js` exists because `rules/mining.js` WRITES the aim and
    `view/hud.js` READS it. Hover has exactly one writer AND one reader, both
-   this file's caller, so it is not a field on anything: it is a return value,
-   recomputed on every call. Caching a hover result on a model record would be
-   a `view` write to `model`, which the epoch assertion exists to catch (
-   invariant 9).
+   this file's caller, so it is a return value rather than a field. Caching it
+   on a model record would be a `view` write to `model`.
 
-   PRIORITY. The HUD is drawn on top of the world, so a HUD hitbox always wins.
-   Within the world: a falling item beats a machine beats bare rock, because an
-   item and a machine are the rarer, more specific thing the cursor could be
-   over; a tile is the default everything else stands on. */
+   PRIORITY: a HUD hitbox always wins, because the HUD is drawn on top. Within
+   the world, a falling item beats a machine beats bare rock -- an item and a
+   machine are the rarer, more specific thing the cursor could be over. */
 
 import { AIR, FORM, labelOf, packTile } from '../data/forms.js';
 import { recipesOf } from '../data/recipes.js';
@@ -97,19 +93,15 @@ function describeTile(byte) {
   return lines;
 }
 
-/* UNITS STILL IN A DEPOSIT, or no line at all. The player plans in units, so
-   this prints the count and never a percentage, and a `charge:1` tile (soil,
-   stone, timber) prints nothing -- its one unit IS the tile and "1 / 1" would
-   be noise on every rock in the world.
+/* UNITS STILL IN A DEPOSIT, or no line at all. The player plans in UNITS, so
+   this prints a count and never a percentage, and a `charge:1` tile prints
+   nothing -- its one unit IS the tile, and "1 / 1" would be noise on every
+   rock in the world.
 
-   THE SAME ARITHMETIC `view/scene.js#drawLiveTiles` COUNTS ITS NOTCHES WITH,
-   so the number and the bites out of the tile beside it cannot disagree:
-   `progressAt` is work / (hard * charge), floored with no epsilon so it never
-   claims a unit the rule has not dropped, and capped one short of `charge`
-   because the last unit is the break itself. Measured with `view/paint.js`'s
-   EFFECTIVE hardness and charge rather than the base pair `hardLine` prints --
-   a live `hard` or `richness` modifier moves both the notches and this count,
-   and `HARD n.nnS` is deliberately the base figure (see `baseHardOf`). */
+   THE SAME ARITHMETIC `drawLiveTiles` COUNTS ITS NOTCHES WITH, so the number
+   and the bites out of the tile beside it cannot disagree: floored with no
+   epsilon, capped one short of `charge`. Measured with EFFECTIVE hardness and
+   charge rather than the base pair `hardLine` prints. */
 function unitsLine(b, tx, ty) {
   const charge = effChargeAt(b, tx, ty);
   if (charge <= 1) return [];

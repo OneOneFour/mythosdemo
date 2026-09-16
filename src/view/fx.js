@@ -1,19 +1,18 @@
 /* LAYER view — TRANSIENT PRESENTATION: chips, toasts and the title fade.
    Imports `core` and `data` only. Reads no model and writes none.
 
-   These three things are presentation STATE, owned by the layer that draws
-   them: a chip is not a world fact (so not `model`, which would owe it a
-   `newRun()` reset), and `view` may not import `shell`. So `shell/notify.js`
-   EMITS into this file when it drains a journal row, `shell/main.js` STEPS it,
-   and `view/scene.js` DRAWS it -- the same ownership pattern as the chunk cache
-   in `view/paint.js`.
+   These three are presentation STATE, owned by the layer that draws them: a
+   chip is not a world fact, so not `model`, which would owe it a `newRun()`
+   reset, and `view` may not import `shell`. So `shell/notify.js` EMITS here
+   when it drains a journal row, `shell/main.js` STEPS it, `view/scene.js`
+   DRAWS it.
 
-   RANDOMNESS. Chips must not consume `rand()`. The journal is drained once per
-   FRAME, so the number of drains depends on the display refresh rate — a chip
-   drawing from the run's stream would make the world itself depend on framerate,
-   which is exactly the determinism bug invariant 7 forbids. So this file carries
-   its own generator, seeded from a constant and advanced only here. Two players
-   at 60 and 144 fps see different sparks and dig identical worlds. */
+   CHIPS MUST NOT CONSUME `rand()`. The journal is drained once per FRAME, so
+   the number of drains depends on the display refresh rate -- a chip drawing
+   from the run's stream would make the world depend on framerate. This file
+   carries its own generator, seeded from a constant and advanced only here,
+   so two players at 60 and 144 fps see different sparks and dig identical
+   worlds. */
 
 import { mulberry } from '../core/rng.js';
 import { R } from '../core/pixels.js';
@@ -48,34 +47,16 @@ export function burst(x, y, n, col, spread = 90) {
   }
 }
 
-/* the toast queue
-   ONE LINE IS SHOWN AND UP TO THREE ARE HELD, drained in order from the front.
-   This slot used to keep exactly one row and let the newest fact win, which
-   lost a fact whenever a frame contained two: `rules/grants.js#step` awards the
-   furnace and the cloud dock in the same substep when the First Trial is paid,
-   so `CRUDE FURNACE IS GRANTED` -- the whole reward of docs/SPEC.md section 4 --
-   was overwritten inside its own frame and the player never saw it
-   (docs/PLAYTEST.md B3).
+/* ONE LINE IS SHOWN AND UP TO THREE ARE HELD, drained from the front. A
+   single slot let the newest fact win, which lost a fact whenever a frame
+   contained two -- the furnace and the dock are awarded in the same substep,
+   so `CRUDE FURNACE IS GRANTED` was overwritten inside its own frame.
 
-   THE HANDOFF IS WHAT KEEPS A QUEUE FROM BURYING THE NEWEST FACT. The reason
-   the slot was single in the first place was urgency: a refusal that arrived
-   behind three stale lines would be read late or not at all. So the moment
-   anything is waiting, the row on screen is cut to `TOAST_HANDOFF` -- one
-   glance, about four short words at 250 ms each -- and the newest row is up
-   within a second however many are queued. Nothing is lost and nothing waits.
-
-   A REPEAT REFRESHES RATHER THAN QUEUES. Eleven hand-feeds push eleven
-   identical `1 COPPER ORE TITHED` rows (`shell/notify.js`'s own note), and
-   stacking those would be 35 s of the same sentence. Matching on the text is
-   enough because the text is all this file has.
-
-   THE BANNER KEEPS ITS SINGLE SLOT, and that is a decision rather than an
-   omission. `shell/notify.js#BANNERS` maps exactly one journal kind to it (a
-   paid trial) and `shell/boot.js` raises the opening title; two of those cannot
-   land in one frame, so a banner queue would be machinery for a collision that
-   cannot occur -- and a banner is two lines across the middle of the screen, so
-   two in a row would hold the centre for five seconds and the second would read
-   as though the first had not happened. */
+   THE HANDOFF IS WHAT KEEPS A QUEUE FROM BURYING THE NEWEST FACT: the moment
+   anything waits, the row on screen is cut to `TOAST_HANDOFF`. A REPEAT
+   REFRESHES RATHER THAN QUEUES, matching on the text, which is all this file
+   has. THE BANNER KEEPS ITS SINGLE SLOT: two cannot land in one frame, and
+   two in a row would hold the screen's centre for five seconds. */
 const TOAST_MAX = 3;
 const TOAST_HANDOFF = 1.0;
 

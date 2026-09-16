@@ -1,17 +1,14 @@
-/* LAYER view — THE QUICKBAR. One row, numbered from 1, ALWAYS
-   drawn (not gated on the main panel being open -- a quickbar is part of the
-   permanent HUD, the same way the hearts are). The quickbar's cells ARE
-   `run.inv[run.mainSlots .. run.inv.length)` -- the same physical storage the
-   Character tab's grid draws, sliced differently (docs/PLAN-phase12.md §3
-   D-H). Not a mirror, not a derived list, not an assignment table: dragging a
-   pair here MOVES it, the same `write.moveSlot` the Character tab's own grid
-   also drives. There is nothing left to overflow, so there is nothing to
-   scroll or truncate -- a genuine scope reduction the storage-shape decision
-   buys for free.
+/* LAYER view — THE QUICKBAR. One row, numbered from 1, ALWAYS drawn rather
+   than gated on the main panel, because a quickbar is part of the permanent
+   HUD the way the hearts are.
 
+   Its cells ARE `run.inv[run.mainSlots ..]` -- the same physical storage the
+   Character tab's grid draws, sliced differently. Not a mirror, not a derived
+   list, not an assignment table: dragging a pair here MOVES it, through the
+   same `write.moveSlot`. There is nothing left to overflow, so nothing to
+   scroll or truncate.
 
-   Imports `core`, `data`, READ-ONLY `model`, and the primitives in this same
-   directory. No `rules`, no `shell`. */
+   Imports `core`, `data`, READ-ONLY `model`, and the primitives beside it. */
 
 import { drawText, textWidth } from '../../core/font.js';
 import { mix } from '../../core/palette.js';
@@ -28,11 +25,10 @@ import { frameSlot } from './slot.js';
 const INK = colour('ui'), DIM = colour('uiDim'), BACK = colour('uiBack');
 const ARMED = colour('uiGood');
 const SHADE = colour('uiShade');
-/* COLS MATCHES `eff('quickbarSlots')` (8, docs/SPEC.md section 24), so the
-   strip is one row with no ragged tail. `./grid.js` paints a cell for every
-   column of every row it draws, so a column count the slot count does not
-   divide leaves boxes that address nothing. 8 * (SIZE + 1) - 1 = 119 px
-   fits the 200 px base-buffer floor with room to spare. */
+/* COLS MATCHES `eff('quickbarSlots')`, so the strip is one row with no ragged
+   tail: `./grid.js` paints a cell for every column of every row it draws, so
+   a column count the slot count does not divide leaves boxes that address
+   nothing. 119 px fits the 200 px base-buffer floor with room to spare. */
 const SIZE = 14, COLS = 8;
 
 /* Gap between the IN HAND line's baseline box and the quickbar's own top
@@ -108,59 +104,25 @@ export function drawQuickbar(g, f) {
   drawText(g, label, 6, H - 9, INK, 1, 1);
 }
 
-/* IN HAND
-   ONE LINE, AND ONLY WHEN SOMETHING IS ARMED. Not a permanent fixture with
-   an empty state: `ui.armedPlace` is null the overwhelming majority of the
-   time, and a fixture reading "IN HAND --" would spend eight pixels of the
-   HUD's most contested row on saying nothing. This is new information
-   appearing, which is why it reads at a glance without a legend.
+/* IN HAND -- one line, and only when `ui.armedPlace` is set. The armed pair
+   is this game's item-in-cursor, and the only other cue for it is
+   `frameSlot`'s border inside the main panel, which `shell/main.js
+   #applyIntents` auto-closes the instant a placement intent arrives.
 
-   WHY IT EXISTS AT ALL (docs/PLAN-phase16-interaction-model-v2.md §4.4,
-   §5 D16-E #2): the armed pair is this game's "item in cursor", and until
-   this line the ONLY cue that anything was in it was `frameSlot`'s border
-   on a slot inside the main panel -- which `shell/main.js#applyIntents`
-   auto-closes the instant a placement intent arrives. So the cue was
-   routinely behind a window the game itself had just shut. Deliberately NOT
-   a mouse-following cursor icon: that is docs/PLAN-phase16-interaction-
-   model-v2.md §5 D16-A's rejected alternative, and this game's placement
-   already answers "where" with the aim reticle and the build ghost.
-
-   ANCHORED OFF `drawGrid`'S OWN RETURNED RECT AND THE MEASURED TEXT, never a
-   hardcoded origin (CLAUDE.md D8). `grid` is what `drawGrid` actually drew --
-   already clamped and already shrunk-to-fit by that primitive -- so the line
-   tracks the quickbar rather than re-deriving where the quickbar "should"
-   be; a viewport narrow enough to move the grid moves this with it. RIGHT-
-   EDGE aligned to the grid, because that edge is the stable one (the grid is
-   pinned to the right of the screen and grows leftwards), then clamped left
-   to 2 so a long pair name at a narrow base buffer slides into view instead
-   of off it -- the same clamp `view/hud.js#cableGhost`'s refusal text and
-   every primitive in this directory apply. The label is composed by
-   `data/forms.js#labelOf`, THE shared pair-name composer this repo already
-   has three other readers for (`view/hover.js`, `view/hud.js#pairLabel`,
-   `shell/notify.js`); nothing here hand-writes "COPPER ORE".
-
-   AND IT RESERVES THE BAND RULER'S COLUMN, which is the one thing the first
-   version of this got wrong and the first baseline caught. `view/hud.js
-   #hudRuler` mounts the DEPTH ruler against the right edge (D8's table) and
-   stops it 4 px above the quickbar's real rect -- which is exactly the strip
-   this line then wanted, so "IN HAND TIMBER LADDER" came out with the ruler's
-   bar and numeral column drawn through the last three letters. `rulerWidth()`
-   is the measured reserve that widget's own header tells a caller to read
-   ("whatever the widest numeral in this world actually is, that is how much
-   room the widget needs"), so the right edge of this text is the ruler's left
-   edge, not the quickbar's. It CANNOT be read back out of
-   `view/ui/state.js#drawn` instead: `hudRuler` runs AFTER `drawQuickbar`
-   precisely so it can read the quickbar's rect, so at this point in the frame
-   the ruler has not drawn yet. Reserved unconditionally, including on the
-   short viewports where `hudRuler` bails out early -- a line that moved
-   depending on whether a different widget happened to render is worse than
-   four unused pixels. */
+   Anchored off `drawGrid`'s returned rect and the measured text, never a
+   hardcoded origin, so a narrow viewport moves this with it. */
 function inHand(g, f, grid) {
   const { W, ui } = f;
   if (!ui.armedPlace) return;
 
   const text = HAND_PREFIX + labelOf(ui.armedPlace.sub, ui.armedPlace.form);
   const tw = textWidth(text);
+  /* The ruler's column is reserved UNCONDITIONALLY. `view/hud.js#hudRuler`
+     mounts against the right edge and stops 4 px above the quickbar's rect --
+     the same strip this line wants -- and it runs AFTER `drawQuickbar` to read
+     that rect, so its own drawn rect does not exist yet. Four unused pixels on
+     the short viewports where `hudRuler` bails out early beat a line that
+     moves depending on whether another widget rendered. */
   const right = Math.min(grid.x + grid.w, W - rulerWidth() - 3);
   const tx = Math.max(2, right - tw);
   const ty = Math.max(2, grid.y - HAND_GAP);
