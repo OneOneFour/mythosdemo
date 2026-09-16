@@ -1,28 +1,19 @@
 /* LAYER rules — CRAFTING: the player's own hands, as a rate-limited machine.
-   Imports `core`, `data`, `model`. Imports no other `rules` module.
+   Imports `core`, `data`, `model`, and no other `rules` module.
 
-   THE THESIS THIS FILE EXISTS TO SERVE: hand-crafting must not be strictly
-   worse than the machine that runs the same recipe, or every machine in the
-   game would earn its keep by having no substitute rather than by throughput.
-   So this runs the SAME named recipe a machine would, at the machine's own
-   `secs`, spending and producing exactly what the machine does. See
-   docs/DEVELOPER_GUIDE.md#adding-a-recipe
+   THE THESIS THIS FILE SERVES: hand-crafting must not be strictly worse than
+   the machine running the same recipe, or every machine would earn its keep
+   by having no substitute rather than by throughput. So this runs the SAME
+   named recipe at the machine's own `secs`, spending and producing exactly
+   what the machine does.
 
-   THE CRAFT INTENT NAMES ITS RECIPE. `cmd.craft` is the hold; `cmd.craftId`
-   is the row it is held on -- the id the player clicked in the CRAFTING panel,
-   folded onto the command set by `shell/main.js#step` because `rules` may not
-   import `shell`. A named row is the ONLY row a named hold can make: an
-   unaffordable one makes nothing, rather than quietly making something else.
-   Only a hold that names nothing falls through to `choose()` below.
+   THE CRAFT INTENT NAMES ITS RECIPE. A named row is the ONLY row a named hold
+   can make: an unaffordable one makes nothing rather than quietly making
+   something else. Only a hold that names nothing falls through to `choose()`.
 
-   PROGRESS IS A SCALAR ON `run`, NOT A MAP. `model/mining.js` keeps a Map
-   because several tiles can be part-dug at once; a player has one pair of
-   hands, so there is only ever one craft in flight, and `run.craftProgress` /
-   `run.craftRecipe` (`model/run.js#RUN_SCHEMA`) reset with the run for free
-    rather than needing a dedicated model module of their own.
-   Unlike mining, releasing the key or losing the ingredients forgets the bar
-   entirely rather than banking it -- there is no shaft to come back to here,
-   only a recipe that either has the player's attention right now or does not. */
+   PROGRESS IS A SCALAR ON `run`, NOT A MAP, because a player has one pair of
+   hands. Unlike mining, releasing the key or losing the ingredients FORGETS
+   the bar rather than banking it -- there is no shaft to come back to here. */
 
 import { F } from '../data/forms.js';
 import { HAND_RECIPES } from '../data/recipes.js';
@@ -109,11 +100,10 @@ export function step(dt, cmd) {
     if (sub === undefined || sub === null) continue;
     const form = F[clause.form];
     if (firstSub === undefined) { firstSub = sub; firstForm = form; }
-    /* Hand-crafted output is a direct write.collect, not a physical item --
-       ARCHITECTURE invariant 5 covers MINED material only. A full main
-       inventory falls back to the same ground-drop `write.spawn` the
-       INVENTORY FULL refusal path (rules/items.js) already uses, so
-       finished work is never silently lost. */
+    /* Hand-crafted output is a direct `write.collect` rather than a physical
+       item, because the falling-material rule covers MINED material only. A
+       full main inventory falls back to the same ground-drop the INVENTORY
+       FULL refusal path uses, so finished work is never silently lost. */
     if (!rw.collect(sub, form, clause.n)) {
       for (let k = 0; k < clause.n; k++) iw.spawn(player.band, c.x, c.y, sub, form, 0, -50);
     }

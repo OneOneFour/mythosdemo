@@ -18,9 +18,8 @@ import { mods, write as modw } from '../model/mods.js';
 import { player, playerCentre } from '../model/player.js';
 import { invCount, run, write as rw } from '../model/run.js';
 
-/* A draft is a god's gift, so it falls like everything else material in this
-   game rather than being credited straight into a list -- invariant 5, and
-   docs/DEVELOPER_GUIDE.md#the-four-gift-tiers */
+/* A draft is a god's gift, so it FALLS like everything else material in this
+   game rather than being credited straight into a list. */
 export function grant(id) {
   const t = TRINKET[id];
   /* A missing trinket is a programming error, not a content error: the resolver

@@ -1,24 +1,15 @@
-/* LAYER rules — FALLING MATERIAL: gravity, landing, resting, pickup.
-   Imports `core`, `data`, `model`. Imports no other `rules` module.
+/* LAYER rules — FALLING MATERIAL: gravity, landing, resting, pickup. Imports
+   `core`, `data`, `model`, and no other `rules` module.
 
-   THE COLLISION HERE IS SWEPT, AND THAT IS A FIX RATHER THAN A FLOURISH.
-   The previous version integrated in one shot and then point-sampled the tile
-   under the item's new position. At terminal velocity (400 px/s) and a 30 ms
-   frame an item travels 12 px, which is one and a half tiles — so a one-tile
-   floor could be entirely stepped over, and ore mined above a thin ledge fell
-   through it into the cavern below. It was invisible at 60 fps and reproducible
-   the moment the tab lost focus.
+   THE COLLISION HERE IS SWEPT. Integrating in one shot and point-sampling the
+   tile under the new position stepped clean over a one-tile floor at terminal
+   velocity -- 12 px in a 30 ms frame is a tile and a half -- so ore mined
+   above a thin ledge fell through it. The sweep splits motion into substeps
+   no longer than half a tile, so no solid tile can be skipped at any dt.
 
-   The sweep splits the motion into substeps no longer than half a tile, so no
-   solid tile can be skipped regardless of dt. The cost is up to a handful of
-   probes per item per frame, against hundreds of items — measured in
-   microseconds, and worth it for a mechanic whose entire promise is that
-   material lands where you expect.
-
-   ARCHITECTURE invariant 5, restated because this file is where it is felt:
-   mined material is a physical thing that falls. Machines are catch boxes and
-   material that falls in is free, which is what makes placing a machine UNDER a
-   vein strictly better than placing it on the surface. */
+   Mined material is a physical thing that FALLS. Machines are catch boxes and
+   material that falls in is free, which is what makes placing a machine UNDER
+   a vein strictly better than placing it on the surface. */
 
 import { rand } from '../core/rng.js';
 import { push } from '../model/journal.js';
@@ -62,16 +53,12 @@ function refusalDue(it) {
   return true;
 }
 
-/* the drop verb
-   CLAUDE.md D4's own stated prerequisite: shipping the encumbrance lockout
-   without a way to put material down would soft-lock an over-cap player.
-   Spends exactly one unit of the HEAVIEST held pair -- the one that buys
-   the most relief per item dropped, not the first in HUD order -- and hands
-   it back to gravity at the player's feet, the same "material becomes a
-   falling item" idiom `rules/crafting.js` and
-   `rules/trinkets.js#grant` already use, with a small toss read through
+/* THE DROP VERB, without which the encumbrance lockout would soft-lock an
+   over-cap player. Spends exactly one unit of the HEAVIEST held pair -- the
+   one buying the most relief per item dropped, not the first in HUD order --
+   and hands it back to gravity at the player's feet, with a toss read through
    `eff('tossUp')`/`eff('tossSpread')` rather than a fifth
-   independently-chosen toss magnitude. */
+   independently-chosen magnitude. */
 export function dropHeaviest() {
   if (run.dead || !player.band) return;
 
@@ -95,13 +82,10 @@ export function dropHeaviest() {
   push('place', at, { sub: best.sub, form: best.form });
 }
 
-/* `cmd.collect` (docs/PLAN-phase12.md §3 D-E/D-F): pickup is opt-in, not
-   automatic -- the pickup branch below only fires while it is true.
-   `shell/main.js#step()` folds `ui.autoCollect || cmd.collect` into it
-   before calling this, the same "which device/preference asked is a shell
-   question" idiom `digging`/`turn` already use, so this file itself still
-   only ever reads one HOLD off the narrowed command object every sibling
-   `rules` step that takes one already does. */
+/* Pickup is OPT-IN: the branch below fires only while `cmd.collect` is true.
+   `shell/main.js#step` folds `ui.autoCollect || cmd.collect` into it before
+   calling, so this file reads one HOLD off the narrowed command object, the
+   same as every sibling step that takes one. */
 export function step(dt, cmd) {
   const grav = eff('grav'), term = eff('terminal');
   const pickupR = eff('pickupR');
@@ -115,10 +99,9 @@ export function step(dt, cmd) {
     else if (!integrate(it, dt, grav, term)) { iw.remove(it); continue; }
 
     if (cmd.collect && it.age > MAGNET_DELAY && !run.dead && near(it, c, pickupR)) {
-      /* CLAUDE.md D4: a pickup that would cross the HARD cap is refused, and
-         the item stays on the ground -- never partially collected. Checked
-         BEFORE the slot-capacity refusal below, same order the two refusal
-         reasons were introduced in (docs/PLAN-phase12.md D-G/§4.6). */
+      /* A pickup that would cross the HARD cap is refused and the item stays on
+         the ground, never partially collected. Checked BEFORE the
+         slot-capacity refusal below. */
       if (burdenOf() + massOfPair(it.sub, it.form) > eff('burden') + MASS_EPS) {
         if (refusalDue(it))
           push('refused', { x: it.x, y: it.y }, { sub: it.sub, form: it.form, why: 'TOO HEAVY TO CARRY' });

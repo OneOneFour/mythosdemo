@@ -1,46 +1,26 @@
-/* LAYER rules — LIGHT: the current-lit-level field, and the one carried
-   light source. Imports `core`, `data`, `model`. Imports no other `rules`
-   module.
+/* LAYER rules — LIGHT: the current-lit-level field, and the one carried light
+   source. Imports `core`, `data`, `model`, and no other `rules` module.
 
-   TWO SEPARATE FACTS, AND THIS FILE OWNS ONLY THE SECOND -- `b.seen` is
-   memory, `b.light` is a current condition. See
-   docs/DEVELOPER_GUIDE.md#pass-order-and-darkness. `rules/reveal.js` owns
-   `seen`, and the only thing it reads FROM here is `lightAt()`, to keep its
-   own flood from mapping a pitch-black cavern by standing in it.
+   TWO SEPARATE FACTS, AND THIS FILE OWNS ONLY THE SECOND: `b.seen` is memory,
+   `b.light` is a current condition. `rules/reveal.js` owns `seen` and reads
+   only `lightAt()` from here, to keep its flood from mapping a pitch-black
+   cavern by standing in it.
 
-   PROPAGATION is a multi-source flood from every emitter -- every tile open
-   to its own band's sky at `eff('lightMax')`, every lit machine, the player's
-   own tile while a `timber/brand` burns, and row 0 at whatever the band above
-   carried down across the seam -- decrementing `eff('lightFalloffAir')` per
-   tile of open air crossed and `eff('lightFalloffRock')` per tile of solid
-   rock, so light does not leak through strata the way sight already does not.
-   A BAND'S ROW 0 IS NOT SKY. Only a band carrying sky of its own
-   (`model/world.js#hasOwnSky`) seeds daylight; `topsoil`'s row 0 is buried
-   under the surface band's rock and is lit only by what reaches it.
-   Implemented as a bucketed relaxation (Dial's algorithm: levels are small
-   bounded integers, so a level-indexed array of queues, walked from brightest
-   to dimmest, replaces a real priority queue at no cost) rather than a plain
-   BFS, because a WEIGHTED spread -- rock costs three times what air does --
-   cannot be visited in insertion order the way `rules/reveal.js#passB`'s
-   unweighted flood can.
+   PROPAGATION is a multi-source flood from every emitter, decrementing
+   `lightFalloffAir` per tile of open air and `lightFalloffRock` per tile of
+   solid rock, so light does not leak through strata the way sight does not.
+   A BAND'S ROW 0 IS NOT SKY -- only a band with sky of its own seeds daylight.
 
-   NO `rand()` ANYWHERE. The BFS order is fixed by tile index
-   inside each level's bucket, so two runs of the same seed relight identically.
+   Bucketed relaxation rather than a plain BFS, because a WEIGHTED spread
+   cannot be visited in insertion order the way an unweighted flood can.
 
-   RECOMPUTE ONLY WHEN SOMETHING THAT MATTERS ACTUALLY CHANGED, never per
-   frame -- a flood over a band's worth of tiles is not a per-frame cost.
-   "Changed" is two independent things, both cheap to check every frame even
-   when nothing did: the band's own chunk versions (`b.ver`, already bumped by
-   every tile write, so a dug tunnel opens a new path THIS check) summed over
-   every chunk -- not just the ones near the player, the way `passB`'s own
-   throttle limits itself, because a distant emitter's light can pass through
-   a tunnel dug anywhere in the band -- and a SIGNATURE of the currently active
-   emitter set (position and level of every lit machine, plus the carried
-   brand), because an emitter turning on or off or a fuel charge running out
-   never touches a tile byte at all and would otherwise be invisible to a
-   `ver`-based check. Whichever band actually changed recomputes, plus the band
-   below it, whose row 0 reads the changed field across the seam; the rest do
-   not, and most frames none does. */
+   NO `rand()`. The order is fixed by tile index inside each level's bucket.
+
+   RECOMPUTE ONLY WHEN SOMETHING THAT MATTERS CHANGED, never per frame, and
+   "changed" is two things: the band's chunk versions summed over EVERY chunk
+   (a distant emitter's light can pass through a tunnel dug anywhere), and a
+   SIGNATURE of the active emitter set, because a charge running out never
+   touches a tile byte. */
 
 import { F } from '../data/forms.js';
 import { S } from '../data/substances.js';
@@ -73,19 +53,10 @@ export function step(dt) {
   }
 }
 
-/* the one carried light source
-   `run.brandLeft` is a SCALAR, not per-item state, for the same reason
-   `run.craftProgress` is: a player has one pair of hands and there is only
-   ever one lit brand. It resets with the run for free because
-   it lives on `RUN_SCHEMA` alongside `craftProgress`; the alternative was
-   module-scoped state here that `newRun()` has no way to reset, which is
-   exactly the class of bug invariant 8 exists to prevent.
-
-   Auto-relights: the moment the current brand burns out (or at the start of
-   the run, when it is already at zero), the next `timber/brand` in the
-   pockets is spent and lit, with no separate "light your torch" verb -- the
-   phase names no such intent, and Prometheus does not re-steal the fire every
-   time it catches. */
+/* `run.brandLeft` is a SCALAR rather than per-item state, because a player has
+   one pair of hands and there is only ever one lit brand. It resets with the
+   run for free by living on `RUN_SCHEMA`; module-scoped state here would have
+   no way for `newRun()` to reset it. */
 function tickBrand(dt) {
   if (run.brandLeft > 0) rw.brand(Math.max(0, run.brandLeft - dt));
   if (run.brandLeft <= 0 && invCount(S.timber, F.brand) > 0 &&
@@ -164,24 +135,15 @@ function isDirty(b, sig) {
   return !prev || prev.verSum !== verSum || prev.sig !== sig;
 }
 
-/* propagation
-   Dial's algorithm: `buckets[lvl]` holds every tile index CURRENTLY BELIEVED
-   to be at level `lvl`, and levels only ever fall as the flood spreads, so
-   processing buckets from `max` down to `1` visits every tile at its FINAL,
-   brightest level the first time a live (non-stale) entry for it is popped.
-   A tile can be pushed more than once, at different levels, before its best
-   one is processed -- `best[i] !== lvl` on pop is the cheap way to ignore a
-   since-beaten, now-stale entry rather than searching a bucket to remove it.
+/* Dial's algorithm: `buckets[lvl]` holds every tile CURRENTLY BELIEVED to be
+   at level `lvl`, and levels only fall as the flood spreads, so walking
+   buckets from `max` down to 1 visits every tile at its FINAL level the first
+   time a live entry is popped. `best[i] !== lvl` on pop ignores a
+   since-beaten stale entry rather than searching a bucket to remove it.
 
-   THE SCRATCH FIELD IS THE LIT REGION'S BOUNDING BOX, NOT THE BAND. `best`
-   was `Int8Array(b.tw * b.th)` per recompute, which is 320 KB for `topsoil`
-   at 1,024 columns -- allocated, walked and thrown away every time a tile
-   broke anywhere. It is now sized
-   to the seeds' bounding box grown by `reach`, and `topsoil` with no shaft to
-   the surface and no lit machine has no seeds at all, so it allocates nothing
-   and floods nothing. Indices in `best` and in the buckets are WINDOW-LOCAL;
-   the only absolute coordinates are the ones handed to `solidAt` and
-   `setLight`. */
+   THE SCRATCH FIELD IS THE LIT REGION'S BOUNDING BOX, NOT THE BAND: a
+   band-sized `Int8Array` is 320 KB at 1,024 columns, allocated and thrown
+   away every time a tile broke anywhere. Indices here are WINDOW-LOCAL. */
 function recompute(b, emitters) {
   const max = Math.max(1, Math.round(eff('lightMax')));
   const air = eff('lightFalloffAir'), rock = eff('lightFalloffRock');
@@ -261,18 +223,14 @@ function forEachSeed(b, emitters, max, air, rock, cb) {
     if (lvl >= 1) cb(tx, ty, lvl);
   };
 
-  /* SKY, and only a band that carries sky of its own gets any
-     (`model/world.js#hasOwnSky`). Walk DOWN from row 0 once per column and
-     stop after the first solid tile, exactly `rules/reveal.js#passA`'s own
-     loop -- `worldSkyAt` and `skyExposedAt` both walk a whole column, and
-     running either per tile over a band this deep is close to quadratic, so
-     this calls neither. Every tile from row 0 to and including that first
-     solid tile has nothing solid above it and therefore a clear path to the
-     band's own sky, so all of them seed at `max`, not just the ground line.
+  /* SKY, and only a band carrying sky of its own gets any. Walk DOWN from row 0
+     once per COLUMN and stop after the first solid tile -- running a
+     whole-column query per TILE over a band this deep is close to quadratic.
+     Every tile down to and including that first solid one has a clear path to
+     the band's sky, so all of them seed at `max`, not just the ground line.
 
-     `topsoil` carries no sky, and its row 0 used to seed at `max` here under
-     28 rows of surface rock at level 0. Nothing about this loop could tell:
-     row 0 was the first solid tile it looked at. */
+     `topsoil` carries no sky, and its row 0 used to seed at `max` under 28
+     rows of surface rock: row 0 was the first solid tile the loop saw. */
   if (hasOwnSky(b))
     for (let tx = 0; tx < b.tw; tx++)
       for (let ty = 0; ty < b.th; ty++) {
@@ -283,17 +241,12 @@ function forEachSeed(b, emitters, max, air, rock, cb) {
   /* THE SEAM CARRY, which is what a buried row 0 gets instead. Each column
      takes the level the band above finished at one world row up, minus the
      cost of entering this tile -- the same falloff `relax` charges anywhere
-     else, so a shaft dug through the seam carries daylight down and solid
-     rock over the seam carries nothing. The band above has already settled
-     this frame (see `step`).
+     else, so a shaft through the seam carries daylight and rock carries
+     nothing. Where no band lies above, the world really is open, so it seeds
+     at `max`.
 
-     Where no band lies above a column the world really is open there, so it
-     seeds at `max`. That covers the topmost band and a column sticking out
-     horizontally past the band above it.
-
-     ONE DIRECTION ONLY. A brazier below a seam does not light the rock above
-     it, because resolving both directions needs the flood iterated to a fixed
-     point across bands rather than one top-down pass -- */
+     ONE DIRECTION ONLY: a brazier below a seam does not light the rock above
+     it, because both directions would need a fixed point across bands. */
   const wyAbove = b.origin.y - 1;
   for (let tx = 0; tx < b.tw; tx++) {
     const wx = worldX(b, tx) + b.tile / 2;

@@ -1,40 +1,25 @@
-/* LAYER rules — BELTS: fuel-powered horizontal relocation.
-   Imports `core`, `data`, `model`. Imports no other `rules` module.
+/* LAYER rules — BELTS: fuel-powered horizontal relocation. Imports `core`,
+   `data`, `model`, and no other `rules` module.
 
-   A BELT IS NOT A RECIPE-DRIVEN MACHINE THE WAY `furnace`/`press` ARE. Those
-   turn inputs into outputs; a belt turns a POSITION into a later position,
-   with no substance or form change anywhere in between. `rules/machines.js`'s
-   generic interpreter has no `out` clause shaped like "keep whatever this
-   already was, moving sideways at whatever height it already had" — and it
-   should not grow one for a single mechanic. So this file exists instead of a
-   new interpreter key. See
-   docs/DEVELOPER_GUIDE.md#when-a-machine-needs-its-own-rules-module
+   A BELT IS NOT A RECIPE-DRIVEN MACHINE. Those turn inputs into outputs; a
+   belt turns a POSITION into a later position with no substance or form
+   change. The generic interpreter has no `out` clause shaped like "keep
+   whatever this was, moving sideways", and should not grow one for a single
+   mechanic -- so this file exists instead of a new interpreter key.
 
-   THE MECHANISM IS `rules/drive.js#haul()` WITH ONE AXIS TAKEN AWAY. Machines
-   are not solid — `model/tiles.js#solidAt` is the only thing item collision
-   consults, and a machine's footprint is a `model/machines.js` record, not a
-   terrain tile (ARCHITECTURE invariant 1) — so an item resting inside a belt's
-   footprint is resting on the actual floor beneath it, at exactly the height
-   `haul()` grabs a resting item off a carrier at. Where `haul` does
-   `it.x += dx; it.y += dy` along a cable, this does `it.x += dx` alone while a
-   belt is charged: same shape, same idiom, flattened. (Both descend from the
-   retired staged winch's `carry()`, where the idiom was first written.)
+   THE MECHANISM IS `rules/drive.js#haul()` WITH ONE AXIS TAKEN AWAY.
+   Machines are not solid, so an item resting inside a belt's footprint rests
+   on the actual floor beneath it, at exactly the height `haul()` grabs a
+   resting item off a carrier at.
 
-   POWER IS A BANKED CHARGE, AND THIS IS NOW THE ONLY MOVER THAT USES ONE.
-   This file only ever
-   SPENDS a charge, exactly one per item it actually delivers off the belt's
-   end, and it cannot tell a charge bought with timber from one bought with
-   anything else. Vertical transport used to work the same way and no longer
-   does: `rules/drive.js` has no charge at all, only a crank the player is
-   holding. Whether a belt should take drivetrain torque instead is
-   docs/PLAN-gears-and-winches.md section 6.6, named and deliberately not
-   built.
+   POWER IS A BANKED CHARGE, AND THIS IS THE ONLY MOVER THAT USES ONE. It only
+   ever SPENDS one, exactly one per item delivered off the end, and cannot
+   tell a charge bought with timber from any other. Whether a belt should take
+   drivetrain torque instead is named and deliberately not built.
 
-   DELIBERATELY RARE. `docs/DESIGN.md`'s genre statement names flat, cheap
-   horizontal logistics as the thing this project is not — so a belt is priced
-   in plate, not raw ore, and gated on running fuel besides. Nothing here
-   softens that; this file only ever moves what a lit, fed belt is entitled to
-   move. */
+   DELIBERATELY RARE: flat cheap horizontal logistics is the thing this
+   project is not, so a belt is priced in plate and gated on running fuel
+   besides. */
 
 import { defOf, machines, write as mw } from '../model/machines.js';
 import { itemsIn, write as iw } from '../model/items.js';
@@ -78,9 +63,9 @@ function drag(m, def, dt) {
     if (!reached) continue;
 
     it.x = edge;
-    /* Backpressure, not a bug (see CLAUDE.md on the item cap): no charge left
-       THIS frame to pay for delivery, so the item piles at the lip instead of
-       resuming its fall. Whatever fuel arrives next frame moves it again. */
+    /* Backpressure, not a bug: no charge left THIS frame to pay for delivery, so
+       the item piles at the lip instead of resuming its fall. Whatever fuel
+       arrives next frame moves it again. */
     if (m.charges <= 0) continue;
 
     it.vx = 0;

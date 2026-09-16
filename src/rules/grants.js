@@ -1,28 +1,23 @@
-/* LAYER rules — GRANTS: the MACHINE tier of docs/DESIGN.md's four god-gift
-   tiers (CLAUDE.md "Resolved decisions" D1). Imports `data`, `model`.
-   Imports no other `rules` module.
+/* LAYER rules — GRANTS: the MACHINE gift tier. Imports `data`, `model`, and
+   no other `rules` module.
 
    THIS IS THE WHOLE GRANT LAYER, because `data/machines.js` is a plain frozen
-   table read at placement time and there is no boot compile step — so nothing
-   in the project has to support "late" content. This file adds an id to
+   table read at placement time and there is no boot compile step -- so
+   nothing has to support "late" content. This file adds an id to
    `run.granted` and `rules/placement.js` refuses anything not in it.
 
-
-   TWO ENTRY POINTS, ONE EFFECT: `grant(grantId)` for a DRAFTED
-   `data/grants.js` row, and `award(machineId)` for a machine handed over
-   outright as a cycle reward, drained off `run.awarded` by `step()`. Both
-   end in the same `write.grant` + `'grant'` journal row; see `award`'s own
-   header for why that is one path and not two. */
+   TWO ENTRY POINTS, ONE EFFECT: `grant(grantId)` for a DRAFTED row, and
+   `award(machineId)` for a machine handed over as a cycle reward. Both end in
+   the same `write.grant` plus `'grant'` journal row. */
 
 import { GRANT, GRANTS } from '../data/grants.js';
 import { M } from '../data/machines.js';
 import { push } from '../model/journal.js';
 import { canPlace, mirrorOf, run, write as rw } from '../model/run.js';
 
-/* A MIRRORED PAIR IS ONE GIFT (CLAUDE.md D1's tier, and the `_l` shape rule
-   `model/run.js#mirrorOf` derives). Both entry points below go through here,
-   so no content row ever names a `_l` id and a granted `talos_head` can be
-   placed facing either way the frame it arrives. */
+/* A MIRRORED PAIR IS ONE GIFT. Both entry points go through here, so no
+   content row ever names a `_l` id and a granted `talos_head` can be placed
+   facing either way the frame it arrives. */
 function grantPair(machineId) {
   rw.grant(machineId);
   const mirror = mirrorOf(machineId);
@@ -40,31 +35,16 @@ export function grant(grantId) {
   return true;
 }
 
-/* THE REWARD-GRANT BRIDGE
-   A cycle reward hands out a MACHINE ID, not a `data/grants.js` row id --
-   cycle 1's `furnace` and `cloud_dock` have no GRANT row and must not get
-   one, because a GRANT row is by definition draftable
-   (`draftable()` below) and neither of those is a draft. So `award()` is
-   `grant()`'s other half: the same two effects, `write.grant` plus a
-   `'grant'` journal row, entered from a machine id instead of from a
-   content row.
+/* THE REWARD-GRANT BRIDGE. A cycle reward hands out a MACHINE ID rather than
+   a `data/grants.js` row id -- cycle 1's `furnace` and `cloud_dock` have no
+   GRANT row and must not get one, because a GRANT row is by definition
+   DRAFTABLE. So `award()` is `grant()`'s other half, entered from a machine
+   id. NOT a second grant path: both functions here, and nothing else in
+   `src/`, call `write.grant`.
 
-   WHY THIS IS NOT A SECOND GRANT PATH. Both functions in this file, and
-   nothing else in `src/`, call `model/run.js#write.grant`. Before this
-   phase `rules/cycles.js:155` called it directly and pushed nothing, which
-   is exactly what a second path looks like; this replaces that with a queue
-   the director writes and this module drains. There is one writer of
-   `run.granted` reachable from a rule, one place a `'grant'` row is pushed,
-   and one journal kind for both tiers.
-
-   `step()` IS SCHEDULED, NOT IMPORTED. `shell/schedule.js` runs it
-   immediately after `rules/cycles.js` -- the adjacency is argued in that
-   file -- so an award lands in the same substep the trial was paid in, with
-   none of the one-frame latency `shell/main.js#applyIntents` would add and
-   none of the sibling import `tools/layers.mjs` forbids. It clears the queue
-   BEFORE performing it, so an award that somehow re-entered here could not
-   be performed twice, and the drain is idempotent on an empty queue (the
-   overwhelmingly common case -- one comparison per frame). */
+   `step()` IS SCHEDULED, NOT IMPORTED, immediately after `rules/cycles.js`,
+   so an award lands in the same substep the trial was paid in. It CLEARS the
+   queue before performing it, so a re-entry could not perform twice. */
 export function step() {
   if (!run.awarded) return;
   const ids = run.awarded;

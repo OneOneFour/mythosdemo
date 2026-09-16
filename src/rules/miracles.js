@@ -1,14 +1,10 @@
-/* LAYER rules — MIRACLES: the ONE-SHOT tier of docs/DESIGN.md's four
-   god-gift tiers (CLAUDE.md "Resolved decisions" D1). Imports `data`,
-   `model`. Imports no other `rules` module.
+/* LAYER rules — MIRACLES: the ONE-SHOT gift tier. Imports `data`, `model`,
+   and no other `rules` module.
 
-   `use()` is the whole mechanic: find the first held miracle (a substance x
-   `phial` pair, `data/miracles.js`'s own header), spend exactly one unit,
-   apply its `effect` to the tile grid at the AIMED tile, and grant its
-   side-effect boon if it has one. `grant()`/`draftable()` below are the
-   debug-only spawn path (`docs/BUILD_PLAN.md` Phase 4 Step 6): the same
-   "material never teleports into your hands" idiom `rules/trinkets.js#grant`
-   already uses for a drafted trinket. */
+   `use()` is the whole mechanic: find the first held miracle, spend exactly
+   one unit, apply its `effect` to the tile grid at the AIMED tile, and grant
+   its side-effect boon if it has one. `grant()`/`draftable()` are the
+   debug-only spawn path. */
 
 import { F } from '../data/forms.js';
 import { S } from '../data/substances.js';
@@ -50,28 +46,25 @@ function applyEffect(m, band, tx, ty) {
   }
 
   /* 'transmute': the same square, one verb over -- `write.set` instead of
-     `write.clear`, so it costs no new tile-write verb either. The `solidAt`
-     test is not redundant with `write.set`'s own bounds check and must not be
-     "simplified" away: it is the whole reason this branch cannot conjure
-     floor out of air, and without it the miracle is a terrain generator.
+     `write.clear`. The `solidAt` test is NOT redundant with `write.set`'s own
+     bounds check and must not be "simplified" away: it is the whole reason
+     this cannot conjure floor out of air, and without it the miracle is a
+     terrain generator.
 
      THE THIRD CALLER OF `packTile`, and the only one nothing validates on the
-     way in -- `e.sub` comes off a content row rather than from worldgen or
-     the pockets, so `tools/content.mjs` assertion 26 proves it exists and is
-     packable. An absent one packs to NaN and stores as AIR; a non-packable
-     one wraps the byte into an unrelated pair. */
+     way in, so the content lint proves `e.sub` exists and is packable -- an
+     absent one packs to NaN and stores as AIR, a non-packable one wraps the
+     byte into an unrelated pair. */
   if (e.kind === 'transmute') {
     for (let dy = -e.radius; dy <= e.radius; dy++)
       for (let dx = -e.radius; dx <= e.radius; dx++)
         if (solidAt(band, tx + dx, ty + dy)) tw.set(band, tx + dx, ty + dy, S[e.sub]);
   }
 
-  /* The side-effect boon, one of the timed tier's three stated sources.
-     Reads `data/boons.js` directly and calls `model/boons.js#write.grant`
-     rather than `rules/boons.js#grant` -- `rules` siblings may not import
-     one another, so this is the same primitive that file's own `grant()`
-     wraps, called here instead of through it. See
-     docs/DEVELOPER_GUIDE.md#duplication-across-a-layer-boundary */
+  /* The side-effect boon. Reads `data/boons.js` and calls
+     `model/boons.js#write.grant` rather than `rules/boons.js#grant`, because
+     siblings may not import one another -- this is the same primitive that
+     file's own `grant()` wraps. */
   if (e.boon) {
     const b = BOON[e.boon];
     if (b) {

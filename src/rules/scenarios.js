@@ -1,36 +1,26 @@
-/* LAYER rules — SCENARIOS: apply one named debug diorama.
-   Imports `core`, `data`, `model`. Imports no other `rules` module.
+/* LAYER rules — SCENARIOS: apply one named debug diorama. Imports `core`,
+   `data`, `model`, and no other `rules` module.
 
-   APPLIED AFTER `newRun()`, NEVER INSTEAD OF IT (CLAUDE.md invariant 8). The
-   world is already generated from its seed and the ledger already reset by the
-   time this runs, so a scenario is a set of edits on top of a clean run and
-   there is no second code path through boot. `shell` calls `apply(id)` once,
-   immediately after `newRun()`; nothing here is a per-frame step, so this
-   module has no place in `shell/schedule.js`.
+   APPLIED AFTER `newRun()`, NEVER INSTEAD OF IT. The world is already
+   generated and the ledger already reset, so a scenario is a set of edits on
+   top of a clean run and there is no second path through boot. Not a
+   per-frame step, so it has no place in `shell/schedule.js`.
 
-   WHY EVERY WRITE HERE IS A `model` WRITE, AND NOT A CALL TO
-   `rules/placement.js`. A scenario has to place machines, and the obvious
-   route -- `rules/placement.js#placeMachine` / `#placeTile` / `#linkSegment` --
-   is a `rules` sibling this file may not import (`tools/layers.mjs` section 0).
-   The legal route already exists and is already used for exactly this job:
-   `rules/cycles.js#ensureAltarPlaced` places the altar through
-   `model/machines.js#write.place`, the director route that asks nothing about
-   footing, grants or held items. This file does the same.
+   EVERY WRITE HERE IS A `model` WRITE, because `rules/placement.js` is a
+   sibling this file may not import. The legal route is
+   `model/machines.js#write.place`, the same director route the altar takes,
+   which asks nothing about footing, grants or held items.
 
-   WHAT THAT COSTS, STATED: `model/run.js#placementCheck` never runs, so a
-   diorama can stand a machine in a place a player could not have built it --
-   floating, unfooted, or past its own `minDepth`. That is not left to a
-   reviewer's eye. `tools/content.mjs` assertion 27 re-derives each footprint's
-   depth and band from the row's own `dx`/`dy` and fails the build on either
-   gate, and every scenario's geometry is verified by actually driving it. The
-   one check that cannot move to build time is `linkCheck`'s clear-path sweep,
-   because it is a question about live tiles -- so that one is asked here, at
-   apply time, and a refusal becomes a journal row rather than a silently
-   missing segment.
+   WHAT THAT COSTS, STATED: `placementCheck` never runs, so a diorama could
+   stand a machine where a player could not have built it. The content lint
+   re-derives each footprint's depth and band and fails the build on either
+   gate. The one check that cannot move to build time is `linkCheck`'s
+   clear-path sweep, because it is a question about LIVE tiles -- so that one
+   is asked here and a refusal becomes a journal row.
 
-   NO `rand()`. Every coordinate is derived from the spawn band's
-   `spawnTx` and the named band's `floorTy`, so applying a scenario does not
-   disturb the stream and a seed still reproduces the same terrain underneath. */
+   NO `rand()`: every coordinate derives from the spawn band's `spawnTx` and
+   the named band's `floorTy`, so applying a scenario does not disturb the
+   stream. */
 
 import { F } from '../data/forms.js';
 import { CYCLES } from '../data/cycles.js';

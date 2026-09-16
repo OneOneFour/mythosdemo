@@ -1,17 +1,14 @@
-/* LAYER rules — BOONS: the TIMED tier of docs/DESIGN.md's four god-gift
-   tiers (CLAUDE.md "Resolved decisions" D1). Imports `data`, `model`.
-   Imports no other `rules` module.
+/* LAYER rules — BOONS: the TIMED gift tier. Imports `data`, `model`, and no
+   other `rules` module.
 
-   `step()` IS A SYNC, NOT AN EVENT: every fixed 1/120 s step it (1) ticks
-   every active boon down and expires anything at zero, then (2) rebuilds
-   `model/mods.js`'s `'boon:'`-keyed rows FROM SCRATCH off the current active
-   list, resolving every `conflictsWith` fresh each frame. See
-   docs/DEVELOPER_GUIDE.md#the-four-gift-tiers
+   `step()` IS A SYNC, NOT AN EVENT: every fixed substep it ticks every active
+   boon down and expires anything at zero, then rebuilds `model/mods.js`'s
+   `'boon:'`-keyed rows FROM SCRATCH off the current active list, resolving
+   every `conflictsWith` fresh.
 
-   Registered in `shell/schedule.js` immediately before `machines`, for the
-   identical reason `trinkets before machines` is already stated there: a
-   rate modifier that turned on this frame should apply to this frame's
-   recipe tick, not the next one. */
+   Registered immediately before `machines`, for the reason
+   `trinkets before machines` is stated in `shell/schedule.js`: a rate
+   modifier that turned on this frame should apply to this frame's tick. */
 
 import { BOON, BOONS } from '../data/boons.js';
 import { push } from '../model/journal.js';
@@ -52,11 +49,10 @@ export function step(dt) {
     push('lost', null, { boon: id, name: BOON[id]?.name });
   }
 
-  /* 2. sync model/mods.js from the active list, honouring
-     conflictsWith. Full rebuild every frame, over the CONTENT table (not
-     just what happens to be active), so a boon that just expired loses its
-     row THIS frame with no separate "was this active a moment ago"
-     bookkeeping. See docs/DEVELOPER_GUIDE.md#the-four-gift-tiers */
+  /* Sync `model/mods.js` from the active list, honouring `conflictsWith`. A
+     FULL REBUILD every frame over the CONTENT table rather than over what
+     happens to be active, so a boon that just expired loses its row THIS
+     frame with no "was this active a moment ago" bookkeeping. */
   for (const b of BOONS) modw.removeBySource('boon:' + b.id);
 
   const ids = boons.active.map(a => a.id);
