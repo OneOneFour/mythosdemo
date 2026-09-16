@@ -1,9 +1,9 @@
 /* LAYER shell — THE JOURNAL DRAIN. Turns facts into sound, chips and text.
    Imports `core`, `data`, `model` (read + the journal drain), and `view/fx.js`.
 
-   THIS FILE IS WHERE NOTIFICATION FLOWING DOWNWARD CLOSES THE LOOP -- see
-   docs/DEVELOPER_GUIDE.md#notification-and-the-journal. It drains the queue
-   once per frame and is the only thing that may touch a device or a text queue.
+   Notification flows DOWNWARD and closes the loop here. This drains the queue
+   once per frame and is the only thing that may touch a device or a text
+   queue.
 
    A JOURNAL ROW IS A FACT, NOT AN INSTRUCTION. `kind` is a bare string; what to
    do about it is decided HERE. The kind -> sound mapping is `KIND_SFX` in
@@ -81,23 +81,16 @@ const TEXT = {
     : '',
   death:   row => row.data?.cause || '',
 
-  /* The three kinds `rules/cycles.js` pushes with nothing on this side
-     of the journal to read them, plus the win.
-
-     `tribute` names the pair and not a running total on purpose: the running
-     total is the TRIBUTE panel's job (`view/hud.js#tribute` draws
-     have/need per row and an aggregate), and a toast repeating it would be a
-     second, laggier copy of the same number. `toast()` keeps ONE line
-     (`view/fx.js`: "the newest fact wins"), so a ten-unit hand-feed reads as
-     one line that keeps refreshing rather than ten stacking up.
+  /* `tribute` names the PAIR and not a running total, because the total is the
+     TRIBUTE panel's job and a toast repeating it would be a laggier copy.
+     `toast()` keeps ONE line, so a ten-unit hand-feed refreshes one line
+     rather than stacking ten.
 
      `debt` states the whole reckoning, hearts included, and is USUALLY
-     SUPERSEDED WITHIN ITS OWN FRAME: `rules/cycles.js#miss` pushes this row
-     and then calls `hurtFor`, whose `hurt` row toasts the cause, and the
-     newest fact wins that slot. That is left as it is rather than
-     reordered -- the hurt line carries the more urgent number, this row's
-     SOUND and CHIPS still land, and a punishment with no hearts (none
-     shipped today) would show this line instead. */
+     SUPERSEDED WITHIN ITS OWN FRAME -- `miss` pushes it and then calls
+     `hurtFor`, whose row toasts the cause and wins the slot. Left as it is:
+     the hurt line carries the more urgent number, this row's SOUND and CHIPS
+     still land, and a punishment with no hearts would show this instead. */
   tribute: row => row.data
     ? `${row.data.n} ${labelOf(row.data.sub, row.data.form)} TITHED`
     : '',
@@ -114,18 +107,12 @@ const TEXT = {
   win:     () => 'THE GODS ARE ANSWERED'
 };
 
-/* THE ONE KIND THAT GETS A BANNER INSTEAD OF A TOAST
-   `view/fx.js#toast` keeps exactly ONE line and the newest fact
-   wins, and a completion is a frame with several facts in it: the last
-   `tribute` credit, the `cycle` row itself, and (cycle 1) two `grant` rows
-   from `rules/grants.js#step` immediately after. Wired as a toast, the god's
-   own line was therefore guaranteed to be overwritten inside its own frame by
-   `THE CLOUD DOCK IS GRANTED` -- measured, not guessed. So a paid trial takes
-   the BANNER slot (`view/fx.js#title`, the same one `shell/boot.js` uses for
-   `MYTHOS FACTORY`/`TORMENT I`), which nothing else competes for, and the
-   toast slot is left to the grant that came with it. The two then say
-   different things at once, which is what the moment actually contains.
-   2.6 s is `shell/boot.js`'s own figure, reused rather than re-picked. */
+/* THE ONE KIND THAT GETS A BANNER INSTEAD OF A TOAST. `toast()` keeps exactly
+   ONE line and the newest fact wins, and a completion is a frame holding
+   several facts -- the last `tribute` credit, the `cycle` row, and two `grant`
+   rows immediately after. As a toast the god's own line was guaranteed to be
+   overwritten inside its own frame. The BANNER slot has no competition, so the
+   two now say different things at once. */
 const BANNERS = {
   cycle: row => row.data?.god
     ? { text: String(row.data.god).toUpperCase(), sub: 'IS SATISFIED', secs: 2.6 }

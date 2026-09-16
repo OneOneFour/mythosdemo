@@ -1,51 +1,37 @@
 /* LAYER shell — THE SAVE SLOT. One `localStorage` slot, five exports, no
    listeners and no input. Imports every layer, as a `shell` device may.
 
-   THE PAYLOAD IS THE SEED PLUS WHAT THE PLAYER CHANGED (wave 6 U2). A run is
-   bit-reproducible from its seed, so the terrain is not stored.
-   `load()` regenerates the world from the seed through `newRun()` and then
-   replays the edits on top. Serialising the per-band `mat` arrays instead is
-   ~1.3 MB raw and was rejected.
+   THE PAYLOAD IS THE SEED PLUS WHAT THE PLAYER CHANGED. A run is
+   bit-reproducible from its seed, so the terrain is not stored -- `load()`
+   regenerates from the seed through `newRun()` and replays the edits on top.
+   Serialising the per-band `mat` arrays is ~1.3 MB raw and was rejected.
 
-   A SAVE IS ALWAYS APPLIED ON TOP OF A CLEAN RUN. `load()` takes `newRun` and
-   calls it itself, so there is no way to apply a payload to a dirty world and
-   invariant 8 still holds with persistence in the game. `newRun` is an
-   argument rather than an import so this module imports no other `shell`
-   module, which keeps `shell/boot.js` and `shell/main.js` free to import this
-   one without a cycle.
+   A SAVE IS ALWAYS APPLIED ON TOP OF A CLEAN RUN: `load()` takes `newRun` and
+   calls it itself, so a payload can never reach a dirty world. `newRun` is an
+   ARGUMENT rather than an import, so this module imports no other `shell`
+   module and both `boot.js` and `main.js` can import it without a cycle.
 
-   FOUR THINGS ARE VERSIONED, AND THE LAST TWO COVER THE GENERATOR:
-
-     v         the payload shape. A literal below.
-     world     FNV-1a of `data/world.js#BANDS`, so a band dimension or a
-               strata change invalidates every stored tile coordinate.
-     content   FNV-1a of the substance, form and machine id lists, so the
-               ordinals in the payload cannot come to mean another row.
-     gen       FNV-1a of each band's freshly generated `mat`, recorded at save
-               time and re-checked after `newRun()` at load time. This is what
-               catches a rewritten `rules/generate.js` without asking that
-               phase to remember to bump anything.
-
-   `hasSave()` checks the first three, which are in a small header key and cost
-   one short `JSON.parse`. `gen` can only be checked once a world exists, so
-   `load()` checks it after `newRun()` and discards the save on a mismatch,
-   leaving a clean run of the same seed rather than replayed edits over ground
-   that moved.
+   FOUR THINGS ARE VERSIONED, and the last two cover the generator:
+     v        the payload shape, a literal below.
+     world    FNV-1a of the band table, so a dimension or strata change
+              invalidates every stored tile coordinate.
+     content  FNV-1a of the substance, form and machine id lists, so an
+              ordinal cannot come to mean another row.
+     gen      FNV-1a of each band's freshly generated `mat`, recorded at save
+              time and re-checked after `newRun()`. This catches a rewritten
+              generator without asking anyone to remember to bump a number.
+   `hasSave()` checks the first three, which live in a small header key.
+   `gen` needs a world, so `load()` checks it after `newRun()` and discards the
+   save on a mismatch, leaving a clean run of the same seed.
 
    THE HEADER IS THE CLAIM THAT A COMPLETE BODY EXISTS. `save()` removes it
    first and writes it last, and clears both keys on any failure, so a header
-   can never outlive the body it describes. `load()` is the only thing that can
-   prove a body, and it drops the header when the claim turns out to be false —
-   otherwise a menu offers CONTINUE forever and it never does anything.
+   can never outlive its body. `load()` drops the header when the claim proves
+   false, or a menu offers CONTINUE forever and it never does anything.
 
-   A REFUSAL IS NAMED. This module has no journal at boot, so `load()` reports
-   why it refused on `loadError` and returns false; five reasons, and a caller
-   that wants to tell "nothing saved" from "that save is from another build"
-   reads the one it got. A caller deciding whether to OFFER the slot at all
-   asks `slotState()` instead, which tells those two apart before anything is
-   loaded.
-
-   docs/SPEC.md section 27 holds the schema and the round-trip contract. */
+   A REFUSAL IS NAMED on `loadError`, because this module has no journal at
+   boot. `slotState()` answers the narrower question a caller deciding whether
+   to OFFER the slot needs, before anything is loaded. */
 
 import { cursor, rng, seedRng } from '../core/rng.js';
 import { BOON } from '../data/boons.js';
@@ -71,11 +57,9 @@ const V = 2;
 const BODY = 'mythos-factory/save';
 const HEAD = 'mythos-factory/save-head';
 
-/* storage, which is allowed to fail
-   `localStorage` throws in private-mode and sandboxed contexts rather than
+/* `localStorage` THROWS in private-mode and sandboxed contexts rather than
    returning null, so every call goes through one of these three and a failure
-   reads as "no save". CLAUDE.md's Conventions section records the decision to
-   accept that breakage. */
+   reads as "no save". That breakage is accepted. */
 
 const read = key => {
   try { return globalThis.localStorage?.getItem(key) ?? null; } catch { return null; }
@@ -142,36 +126,16 @@ function fromB64(str) {
   return out;
 }
 
-/* the baseline world, regenerated to be diffed against
-
-   Nothing records which tiles the player changed, so the edit set is a diff
-   against a fresh generate of the same seed. Measured at the three shipped
-   bands (53,248 tiles), the regenerate costs 25 ms and reproduces the live
-   `mat` exactly. Recording edits as they happen would need a hook in
-   `model/tiles.js#write.setByte` and permanent bookkeeping; a diff cannot
-   drift from the world it describes.
-
-   TWO THINGS MUST NOT LEAK OUT OF THIS FUNCTION.
-
-   The RNG cursor. `seedRng` replaces the stream, so the live cursor is held
-   and put back in a `finally` — `rng.next` is a mulberry closure over its own
-   counter, so restoring the reference restores the position. Without this a
-   save would rewind the run's randomness to boot.
-
-   The band ledgers. `generate` writes through `model/tiles.js#write.setByte`,
-   which clears `model/mining.js` and plants into `model/growth.js` by a key
-   that starts with the band ordinal. So a scratch band carries `ord + ORD_GAP`
-   and cannot collide with a live band's entries. Everything else on the record
-   is shared with the live band by spread, which is safe because `generate`
-   writes `mat` and `ver` and nothing else.
-
-   The modifier store is cleared for the same reason. `shell/boot.js#newRun`
-   clears it before it generates, and `rules/generate.js` reads
-   `eff('hollowOre')`, whose own `data/tuning.js` row already anticipates a god
-   bending it. A baseline taken under live mods would differ from the one
-   `newRun()` produces and the save would be refused at load for no good
-   reason. `eff()` sums adds and multiplies muls, so re-adding the rows by
-   source restores the same numbers. */
+/* The baseline world, regenerated to be DIFFED against, because nothing
+   records which tiles the player changed. 25 ms over the three shipped bands.
+   Three things must not leak out of this function:
+     the RNG cursor   held and put back in a `finally`, or a save rewinds
+                      the run's randomness to boot.
+     the band ledgers `write.setByte` plants into `model/growth.js` by a key
+                      starting with the band ordinal, so a scratch band
+                      carries `ord + ORD_GAP`.
+     the mod store    `eff('hollowOre')` is read during generation, so a
+                      baseline under live mods differs from `newRun()`'s. */
 
 /* Must exceed the number of resident bands, which `data/world.js` puts at 3. */
 const ORD_GAP = 64;
@@ -309,37 +273,20 @@ function headerOk(h) {
       && Number.isFinite(h.seed);
 }
 
-/* WHAT THE BODY MUST CARRY BEFORE `newRun()` IS ALLOWED TO RUN.
+/* WHAT THE BODY MUST CARRY BEFORE THE APPLY IS ALLOWED TO RUN. The apply
+   writes through a dozen model writers and none checks its argument. A
+   `typeof` gate was not enough -- a `seen` string of `'!!!!'` reached `atob`
+   and threw out of the restore with band 0's tile edits already written, and
+   `run` has no whole-record setter to roll that back.
 
-   The apply writes through a dozen model writers and not one of them checks
-   its argument, so anything the payload gets wrong lands in the world. A
-   `typeof` gate was not enough: a `seen` string of `'!!!!'` reached `atob` and
-   threw out of the restore with band 0's tile edits already written (wave 6
-   review, defect 6h-2). Rolling that back is not on offer — `run` has no
-   whole-record setter, which is the whole reason `applyRun` exists — so the
-   payload is proved usable instead, field by field, before anything is
-   touched.
+   The fog bitset is DECODED HERE, so there is one `atob` per band and the
+   check cannot disagree with the use. Every id this module or `model`
+   DEREFERENCES is resolved; ids only `rules` looks up optionally are checked
+   as strings and no further. */
 
-   The fog bitset is DECODED HERE and left on the row for `applyBand`, so
-   there is one `atob` per band and the check cannot disagree with the use.
-
-   WHICH IDS ARE RESOLVED. Every id this module or `model` itself
-   dereferences: machine ids through `M`, boon ids through `BOON`, band ids
-   through `BANDS`, substance and form ordinals as indices, buffer keys through
-   `parseKey`, and the live demand's cycle id through `CYCLE`, which
-   `model/run.js#write.tribute` reads to bound the batch ledger. Ids that only
-   `rules` looks up, and looks up optionally — a recipe in `run.craftRecipe`, a
-   god in `run.favour`, the draft ids in `run.offer` — are checked as strings
-   and no further, because an unknown one is ignored downstream and refusing a
-   whole run over a renamed recipe is the worse trade.
-
-   Every function below returns the FIELD PATH of the first fault, or null when
-   the row is usable, so `load()` can name what it refused. */
-
-/* `misses` and `tutorialBeat` are restored by repeated one-way increments
-   (`write.miss`, `write.advanceBeat` take no argument), so an edited 1e9 would
-   hang the boot rather than corrupt it. Nothing legitimate comes near 10,000:
-   two misses end the run and the beat sheet is docs/SPEC.md section 5. */
+/* `misses` and `tutorialBeat` restore by repeated one-way increments, since
+   their writers take no argument, so an edited 1e9 would hang the boot rather
+   than corrupt it. Nothing legitimate comes near 10,000. */
 const REPLAY_MAX = 1e4;
 const INT32 = 2147483648;
 
@@ -598,10 +545,10 @@ function applyMachines(rows) {
   return out;
 }
 
-/* Why the last `load()` refused, or null when it succeeded. One of `NO SAVE`,
-   `STALE SAVE`, `CORRUPT SAVE` and the field that failed, `WRONG SEED`, or
-   `WORLD MOVED`. An object and not an exported scalar, because module bindings
-   are read-only for importers (CLAUDE.md Conventions). */
+/* Why the last `load()` refused, or null when it succeeded: `NO SAVE`,
+   `STALE SAVE`, `CORRUPT SAVE` plus the field that failed, `WRONG SEED`, or
+   `WORLD MOVED`. An OBJECT and not an exported scalar, because module bindings
+   are read-only for importers. */
 export const loadError = { reason: null };
 
 const refuse = why => { loadError.reason = why; return false; };
@@ -611,12 +558,8 @@ const refuse = why => { loadError.reason = why; return false; };
    nothing or leaves a clean run of the stored seed, never a half-applied one.
 
    `newRun(seed)` is called HERE rather than by the caller, so a payload can
-   never be applied to a world it did not generate. Pass
-   `shell/boot.js#newRun`.
-
-   The camera is not restored. `shell/main.js` owns the follow and the clamp,
-   and a caller that boots straight into a loaded run should re-clamp after
-   this returns. */
+   never reach a world it did not generate. The camera is NOT restored --
+   `shell/main.js` owns the follow and the clamp. */
 export function load(newRun) {
   const head = parse(read(HEAD));
   if (!head) return refuse('NO SAVE');
@@ -636,10 +579,9 @@ export function load(newRun) {
   newRun(p.seed);
 
   /* THE CALLER'S HALF OF THE CONTRACT, CHECKED RATHER THAN ASSUMED. A `newRun`
-     that built another world fails the `gen` check below for a reason that has
-     nothing to do with the generator, and the slot used to be deleted for it —
-     one slip in the caller silently destroyed the player's only save. A wrong
-     seed is a programming error, so the save is kept and the console says so. */
+     that built another world would fail the `gen` check below for a reason
+     that has nothing to do with the generator. A wrong seed is a programming
+     error, so the save is KEPT and the console says so. */
   if (run.seed !== p.seed || bands.length !== p.bands.length) {
     console.warn(`save: load(newRun) must generate the seed it is handed (${p.seed}); the slot was kept`);
     return refuse('WRONG SEED');

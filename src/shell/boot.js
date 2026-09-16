@@ -1,32 +1,27 @@
-/* LAYER shell — newRun(). BOOT ORDER IS LOAD-BEARING.
-   Imports every layer. This is the only file allowed to know the order below,
-   and the only one that imports both `rules` and `view` — which is what makes
-   the direction in `tools/layers.mjs` a rule instead of a wish.
+/* LAYER shell — newRun(). BOOT ORDER IS LOAD-BEARING. Imports every layer,
+   and is the only file that imports both `rules` and `view`, which is what
+   makes the direction in `tools/layers.mjs` a rule rather than a wish.
 
    THE ORDER, AND WHAT BREAKS IF YOU MOVE A LINE:
-
-     1  canvas.attach()             finds the surface; null headless, not a throw
+     1  attach()                    finds the surface; null headless, no throw
      2  resize()                    sets VIEW.w/h, which the camera clamp needs
-     3  seedRng(seed)               EVERY run reproducible from its seed, and it
-                                    must precede anything that draws from the
+     3  seedRng(seed)               must precede anything drawing from the
                                     stream, which is worldgen
-     4  run.write.resetMeta()       once per page; `reset()` once per run
-     5  run.write.reset(seed)       builds the pocket ledger and the granted set
-     6  world.write.allocate(cfg)   allocates the typed arrays FROM THE ROW; the
-                                    old code allocated at import and that is why
-                                    more than one band was impossible
-     7  fields.write.allocate(...)  needs the band record from (6)
+     4  run.write.resetMeta()       once per PAGE
+     5  run.write.reset(seed)       builds the pocket ledger and granted set
+     6  world.write.allocate(cfg)   allocates the typed arrays FROM THE ROW;
+                                    allocating at import is why more than one
+                                    band was once impossible
+     7  fields.write.allocate()     needs the band record from (6)
      8  generate(band)              needs (6) and (3)
-     9  player.write.spawn(...)     needs (8), or it spawns inside rock
-    10  items.write.spawn(pick)       needs (9) for a position to plant beside
+     9  player.write.spawn()        needs (8), or it spawns inside rock
+    10  items.write.spawn(pick)     needs (9) for a position to plant beside
+   Getting this wrong throws during boot and renders NOTHING AT ALL. It is
+   written here because it cannot be inferred from the import graph.
 
-   Getting this wrong throws during boot and renders NOTHING AT ALL, which is
-   the exact mistake recorded in CLAUDE.md. It is written down here because it
-   cannot be inferred from the import graph.
-
-   ARCHITECTURE invariant 8: `newRun()` RESETS EVERYTHING. A field that survives
-   a restart is a determinism bug, so every model module with a `clear` is
-   cleared below, and so are the two caches `view` owns. */
+   `newRun()` RESETS EVERYTHING: a field surviving a restart is a determinism
+   bug, so every model module with a `clear` is cleared below, and so are the
+   two caches `view` owns. */
 
 import { attach, resize } from '../core/canvas.js';
 import { seedRng } from '../core/rng.js';
@@ -72,56 +67,23 @@ export function newRun(seed = (Math.random() * 1e9) | 0) {
   /* --- tear down, before anything reads a stale array --- */
   worldw.clear();
   machw.clear();
-  segw.clear();        // a segment holds two MACHINE RECORDS, so it
-                       // must go with the machines it points at -- and a
-                       // segment surviving a restart is exactly the
-                       // determinism bug invariant 8 exists to name
+  segw.clear();        // holds two MACHINE RECORDS, so it goes with them
   itemw.clear();
   digw.clearAll();
-  dqw.clearAll();      // docs/SPEC.md section 28.4: a mark holds its band
-                       // record, so `worldw.clear()` above already makes every
-                       // mark of the previous run stale by construction -- and
-                       // that makes the absence of this line UNOBSERVABLE,
-                       // which is why it is written down. A queue surviving a
-                       // restart is invariant 8's determinism bug whether or
-                       // not a test can currently see it.
-  growthw.clearAll();  // Phase 15 (docs/PLAN-phase15-trees.md D15-B): the one
-                       // ledger `model/tiles.js#write.setByte` cannot clear
-                       // for itself here, because `worldw.clear()` above
-                       // replaces `b.mat` wholesale rather than tile by tile
-                       // -- so a seed three-quarters grown would still be
-                       // three-quarters grown in the next run, at the same
-                       // coordinates, which is exactly invariant 8's
-                       // determinism bug and exactly what docs/FINDINGS.md
-                       // (8d, #2) records happening to `segments`
+  dqw.clearAll();      // a mark holds its band record, so `worldw.clear()`
+                       // above already makes every mark stale -- which makes
+                       // the absence of this line UNOBSERVABLE
+  growthw.clearAll();  // the one ledger `model/tiles.js#write.setByte` cannot
+                       // clear for itself, because `worldw.clear()` replaces
+                       // `b.mat` wholesale rather than tile by tile
   modw.clear();
-  boonw.clear();       // Phase 4: a boon surviving a
-                        // restart is invariant 8's determinism bug, same as
-                        // every other model clear on this list
+  boonw.clear();
   aimw.reset();
   journalw.clear();
-  setAutoCollect(false);  // D13-A: AUTO COLLECT is
-                          // an INPUT, not a cosmetic preference -- it ORs into
-                          // `cmd.collect` in `shell/main.js#step`, so it gates
-                          // what enters `run.inv`, which moves burden, climb
-                          // speed and carrier load. A toggle surviving a
-                          // restart would make two runs from the same seed
-                          // diverge on what the player clicked before dying,
-                          // which is exactly invariant 8's determinism bug.
-                          // Both this and `setAutoFeed` below are `shell`
-                          // state, cleared here for that reason.
-  setAutoFeed(false);     // D16-C's answer is D13-A's, unchanged
-                          // (docs/PLAN-phase16-interaction-model-v2.md §5
-                          // D16-C says so in as many words: "the same kind of
-                          // fact takes the same answer; 16b must not
-                          // introduce a second policy"). AUTO FEED is an
-                          // INPUT too -- it gates `rules/machines.js#
-                          // handFeed`, which spends `run.inv` into a machine
-                          // buffer, which moves burden and climb speed and,
-                          // through `rules/cycles.js#drainReceivers`,
-                          // whether a trial gets paid. A toggle surviving a
-                          // restart would make two runs from the same seed
-                          // diverge on what the player clicked before dying.
+  setAutoCollect(false);  // both are INPUT rather than cosmetic: they gate
+  setAutoFeed(false);     // what enters `run.inv` and a machine buffer, so a
+                          // toggle surviving a restart would make two runs
+                          // from one seed diverge on what the player clicked
   /* `ui.menu` IS DELIBERATELY NOT CLEARED HERE, and it is the one `shell`
      field on this teardown that is not. The menu stands AROUND a run rather
      than inside one: `shell/main.js` closes it itself once a row has been

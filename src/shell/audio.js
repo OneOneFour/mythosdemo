@@ -1,10 +1,8 @@
 /* LAYER shell — THE SOUND DEVICE. The only file in the project that calls into
    the synth. Imports `core`, `data` and `vendor/`.
 
-   WHY THIS IS IN `shell` AND NOTHING ABOVE IT MAY CALL IT: audio is a device,
-   devices live in the outermost layer, and a call from `rules` to here would be
-   an upward edge — precisely the edge `tools/layers.mjs` refuses. See
-   docs/DEVELOPER_GUIDE.md#notification-and-the-journal
+   Audio is a DEVICE, devices live in the outermost layer, and a call from
+   `rules` to here would be the upward edge `tools/layers.mjs` refuses.
 
    Every call is guarded three ways, because a missing AudioContext must never
    break a frame: Node has none at all, browsers refuse to start one before a
