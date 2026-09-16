@@ -1,40 +1,12 @@
 /* LAYER view — THE HUD. Drawn in the same pixel space as the world using the
    5x7 bitmap font. Imports `core`, `data` and READ-ONLY `model` queries.
 
-   NO `fillText` ANYWHERE (invariant 9). Mixing an antialiased system font into
-   a nearest-neighbour upscale breaks the look immediately, and it is the first
-   thing that creeps back in, so the rule is absolute.
+   NO `fillText` anywhere. Below roughly 240 px of base width the panels
+   overlap and the depth gauge collides with anything centred, which is what
+   the clamps are for.
 
-   ============================================================================
-   THE ALWAYS-ON HUD SHOWS A BAR, NOT A STRIP. It used to draw every held pair
-   by name and count below the hearts (`pockets()`, a text strip driven by
-   `run.pocketRows()` -- deleted along with its only caller once this changed).
-   That was clutter, not information the player needs at a glance: the same
-   `pocketRows()` query backs the full detail in the CHARACTER tab (`i`), which
-   is now the ONLY inventory display -- the older text panel this file used to
-   also draw (`invPanel`, gated on `flags.showInv`) was retired once the tabbed
-   window covered the same information; see `docs/FINDINGS.md` for when and
-   why. All that remains always-on is a compact burden bar, drawn with the SAME
-   `view/ui/bar.js` primitive and the SAME three-colour rule the Character
-   tab's own burden bar already uses (`view/ui/mainPanel.js#drawCharacterTab`)
-   -- one fact about "how heavy am I", not a second implementation of it.
-   ============================================================================
-
-   Panels clamp on narrow viewports. Below roughly 240 px of base width the
-   panels overlap and the depth gauge collides with anything centred; the clamps
-   below are what stop that, and they were learned the hard way. Keep them.
-
-   ============================================================================
-   HOVER IS RESOLVED, NOT STORED. `view/hover.js#resolveHover` reads the pointer
-   off the frame context and the model fresh every call; nothing here caches a
-   result on a model record (ARCHITECTURE invariant 9). The one piece of state
-   in THIS file, `hoverInfo` below, is `view`'s own scratch space
-   for what it drew and found last frame -- the same idiom `view/paint.js`'s
-   `stats` and `view/scene.js`'s `stats` already use for "what did the last
-   render do", read back only by the test hook and never by another module's
-   logic. It costs nothing the epoch check watches, because nothing here calls
-   `model/epoch.js#bump`.
-   ============================================================================ */
+   `hoverInfo` is `view`'s own scratch record of what it drew last frame, read
+   back only by the test hook. Nothing here calls `model/epoch.js#bump`. */
 
 import { drawText, textWidth, wrap } from '../core/font.js';
 import { R, lineTo } from '../core/pixels.js';
@@ -75,22 +47,14 @@ import { drawQuickbar } from './ui/quickbar.js';
 import { drawRuler, masked, roman, rulerWidth } from './ui/ruler.js';
 import { drawn as uiDrawn, resetDrawn as resetUiDrawn } from './ui/state.js';
 
-/* THREE INK TONES, AND `dim` IS NOT ONE OF THE BODY ONES (Phase 13a,
-   docs/PLAN-phase13.md §2.3/§2.4). `ink` is primary, `ink2` is the secondary
-   body tone for de-emphasised text that must still READ, and `dim` now means
-   only what it encodes: in this file, exactly one site -- `depth()`'s
-   at-or-above-the-datum reading. Everything that used `dim` merely to look
-   quieter is on `ink2`.
+/* Three ink tones. `ink` is primary, `ink2` the secondary body tone for
+   de-emphasised text that must still read, and `dim` encodes a state rather
+   than a volume -- in this file one site, `depth()`'s at-or-above-the-datum
+   reading.
 
-   `shade` is the text-shadow tone, passed as `drawText`'s 8th argument (and
-   through `view/ui/bar.js`'s own `shadow` option) ONLY at the sites in this
-   file that draw straight onto rendered world with no panel behind them: the
-   burden bar and its lockout line, TRIBUTE's heading/rows/clock, FAVOUR's
-   rows, the boon rows, the two build-ghost refusals and the title banner.
-   Anything this file draws inside `panel()`/`drawPanel()` -- the tooltip, the
-   depth readout, the callout, the debug rows, the death screen and its
-   restart button -- gets NO shadow, because the panel is already the
-   backing. */
+   `shade` is the text-shadow tone, and only for text drawn straight onto
+   rendered world with no panel behind it. Anything inside `panel()` or
+   `drawPanel()` gets no shadow, because the panel is the backing. */
 const UI = {
   ink:    colour('ui'),
   ink2:   colour('uiInk2'),
@@ -101,17 +65,12 @@ const UI = {
   hollow: '#2c2028',
   hi:     '#ff8a7a',
   good:   '#9ad86a',
-  /* BURDEN's warning colour, past the soft cap (D3/D4) -- see below. */
+  /* BURDEN's warning colour, past the soft cap. */
   amber:  '#e0a030',
   debug:  colour('watB'),
-  /* THE DIVINE ACCENT: a relic's frame, and the armed
-     miracle's ghost (`miracleGhost` below). `ichor` is already the
-     divine-gold `data/palette.js` name a trinket's own `look.item` uses (see
-     `bellows` in `data/substances.js`), so a trinket's border, a trinket's
-     swatch and a miracle's ghost all read as the same material rather than
-     the HUD inventing a second and third "this is special" colour -- a
-     miracle is a divine one-shot, so it is the same fact, not an exception
-     to it. */
+  /* A relic's frame and the armed miracle's ghost. `ichor` is the same
+     divine-gold a trinket's own `look.item` uses, so border, swatch and
+     ghost read as one material. */
   relic:  colour('ichor')
 };
 
@@ -129,18 +88,13 @@ export function drawHUD(g, f) {
   resetUiDrawn();
 
   hearts(g, 6, 6);
-  /* BURDEN's own bottom edge used to be thrown away here -- a bare statement
-     with no assignment -- which is exactly what left no anchor for TRIBUTE
-     to hang under (D8). Captured now, the same way `boonStack` below has
-     always handed its own bottom to `hudRuler`/`debug`. */
+  /* BURDEN's bottom edge is TRIBUTE's anchor, the same way `boonStack` hands
+     its own bottom to `hudRuler` and `debug`. */
   const burdenBottom = burden(g, 6, 14, W);
   tribute(g, f, 6, burdenBottom, W);
   depth(g, W, 6);
-  /* The timed-boon stack: BELOW the depth gauge just drawn
-     (y 6). FAVOUR is inserted directly under it, in the SAME
-     anchor chain: `favourBottom`, not `boonBottom`, is what now reaches
-     `hudRuler` and `debug`, or FAVOUR would draw through whichever of them
-     ran next. */
+  /* `favourBottom`, not `boonBottom`, is what reaches `hudRuler` and
+     `debug`, or FAVOUR draws through whichever runs next. */
   const boonBottom = boonStack(g, f, W, 19);
   const favourBottom = favour(g, W, boonBottom + 3);
   /* BEFORE the reticle and the ghosts on purpose: a queued mark, the aim
@@ -152,12 +106,9 @@ export function drawHUD(g, f) {
   buildGhost(g, f);
   collectPrompt(g, f);
   drawQuickbar(g, f);
-  /* THE BAND RULER, RIGHT EDGE, COMPACT (docs/BUILD_PLAN.md Phase 9 section 3).
-     One widget, two contexts: `view/overview.js` mounts the same function full
-     height with band names and a footer, and this is the other mount. Drawn
-     AFTER the quickbar on purpose -- it measures the quickbar's real rect out of
-     `view/ui/state.js#drawn` to know where to stop -- and BEFORE the main panel,
-     which is a window over the permanent HUD and must cover it. */
+  /* One widget, two mounts: `view/overview.js` mounts it full height. Drawn
+     AFTER the quickbar, whose real rect it measures out of `drawn` to know
+     where to stop, and BEFORE the main panel, which must cover it. */
   hudRuler(g, f, W, H, favourBottom);
   /* THE CALLOUT GOES UNDER THE WINDOW AND THE TOAST GOES OVER IT. Standing
      guidance loses to a window the player opened on purpose; a fact that
@@ -171,31 +122,24 @@ export function drawHUD(g, f) {
   drawMainPanel(g, f);
   toastLine(g, f, W, H);
   if (f.flags.showDebug) debug(g, f, W, favourBottom);
-  /* DEATH OUTRANKS THE WIN, and it is a real ordering rather than a
-     defensive one: `shell/main.js#step` stops stepping the moment `run.won`
-     is set, so a player cannot die after winning -- but the reverse can
-     happen inside a single frame (a miss's second heart loss and cycle 4's
-     completion are both `rules/cycles.js#step` decisions), and an end screen
-     that showed a victory over a corpse would be the wrong one. */
+  /* Death outranks the win. A player cannot die after winning, since
+     `shell/main.js#step` stops on `run.won`, but the reverse can happen
+     inside one frame: a miss's heart loss and a completion are both
+     `rules/cycles.js#step` decisions. */
   if (run.dead) deathScreen(g, W, H);
   else if (run.won) winScreen(g, W, H);
-  /* THE DRAFT MODAL JOINS THIS CHAIN rather than being drawn beside it: it is
-     a window over everything above -- including `drawMainPanel`, which the
-     player may have left open -- and nothing under it may paint on top.
-     BELOW the two end screens on purpose, and not for tidiness: a run that is
-     over does not reach `applyDraftIntents` (`shell/main.js`'s `run.won`
-     guard returns above it), so a modal drawn over the win screen would be a
-     card nothing could take and a restart button it covered. ABOVE the title
-     banner and the hover tooltip, which are the world talking and must not
-     read through a ceremony the game raised. */
+  /* A window over everything above it, including a main panel the player
+     left open. BELOW the two end screens, because a finished run never
+     reaches `applyDraftIntents`, so a modal over the win screen would be an
+     untakeable card covering the restart button. ABOVE the title banner and
+     the hover tooltip. */
   else if (draftOpen(f)) drawDraft(g, f);
   else if (banner.fade > 0) title(g, W, H);
   else tooltip(g, f);
 }
 
-/* ---------- five discrete hearts, per docs/SPEC.md section 2 ----------
-   No partials and no regeneration, so a bar would be a lie: the player must be
-   able to count what a fall will cost. */
+/* Five discrete hearts, no partials and no regeneration, so a bar would be a
+   lie -- the player must be able to count what a fall will cost. */
 function hearts(g, x, y) {
   for (let i = 0; i < run.maxHearts; i++) {
     const full = i < run.hearts;
@@ -210,19 +154,12 @@ function hearts(g, x, y) {
   }
 }
 
-/* ---------- BURDEN, D3/D4 ----------
-   A compact bar below the hearts, reusing `view/ui/bar.js#drawBar` -- the
-   SAME primitive and the SAME three-state colour rule the Character tab's
-   own burden bar already draws (`view/ui/mainPanel.js#drawCharacterTab`):
-   good under the soft cap, amber past it, red at/over the hard cap. Narrow
-   by construction (bar plus value text tops out well under 130 px) so it
-   never reaches the depth gauge `depth()` draws top-right, even at the
-   200 px phone floor `core/canvas.js#resize` enforces. The lockout is still
-   spelled out in words below the bar so a refused climb (`rules/player.js`)
-   is never a silent wall the player has to reverse-engineer. Returns the y
-   just past whatever it drew -- `drawHUD` used to discard this (a bare
-   statement, no assignment), which is exactly why nothing anchored under it
-   until now: TRIBUTE (below) is what actually reads it. */
+/* A compact bar below the hearts, on the same `drawBar` primitive and the
+   same three-state rule the Character tab uses: good under the soft cap,
+   amber past it, red at or over the hard cap. Bar plus value text stays under
+   130 px, so it never reaches the depth gauge even at the 200 px buffer
+   floor. The lockout is spelled out in words, so a refused climb is never a
+   silent wall. Returns the y just past what it drew; TRIBUTE reads it. */
 function burden(g, x, y, W) {
   const cap = eff('burden'), soft = eff('burdenSoft'), frac = burdenFrac();
   const locked = frac >= 1;
@@ -251,51 +188,26 @@ function mmss(secs) {
   return ((s / 60) | 0) + ':' + String(s % 60).padStart(2, '0');
 }
 
-/* Is a countdown flashing this instant? ONE rule, two readers -- the boon
-   stack and the tribute deadline -- so the HUD cannot come to mean two
-   different things by "nearly out". Derived from `f.t` (== `clock.t`) and
-   the seconds left, never `rand()` and never a frame counter. 3 Hz, which is
-   fast enough to catch the eye and slow enough to stay readable. */
+/* Is a countdown flashing this instant? One rule, two readers -- the boon
+   stack and the tribute deadline -- so "nearly out" cannot come to mean two
+   things. Derived from `f.t` and the seconds left, never `rand()` and never a
+   frame counter. 3 Hz reads without strobing. */
 function urgentFlash(left, t) {
   return left > 0 && left <= eff('urgentSecs') && ((t * 6) | 0) % 2 === 0;
 }
 
-/* ---------- TRIBUTE, Phase 10c / docs/SPEC.md section 18 / D8, D-F ----------
-   Left column, anchored at `burden()`'s own returned bottom just above --
-   the value that call site used to discard. Reads `run.tribute`
-   (`model/run.js`) and the live row out of `data/cycles.js#CYCLE` directly:
-   `view` may read `model`, and a cycle's demand shape is read-only content,
-   so there is nothing here for a `rules` import to duplicate.
-   `tributeMet()`'s own completion predicate stays in `model/run.js` for
-   `rules/cycles.js` to share -- this panel only draws the SAME `have`/`need`
-   numbers, never re-decides completion.
+/* Left column, anchored at `burden()`'s returned bottom. Draws the same
+   `have`/`need` numbers `tributeMet` decides completion from, never
+   re-deciding it, and nothing at all when `run.tribute` is null. No timer
+   line when `left === null`, because cycle 1 has no clock.
 
-   NOTHING IS DRAWN WHEN `run.tribute` IS NULL -- every shipped cycle paid,
-   or the one frame between a completion and `rules/cycles.js#ensureLiveCycle`
-   re-arming the next. NO TIMER LINE WHEN `left === null` -- cycle 1 has no
-   clock (docs/SPEC.md section 4) and a panel that drew a zero for it would
-   be lying about a deadline that can never expire.
-
-   READ-ONLY: drawn through `drawBar` alone, never `view/ui/panel.js`, so
-   nothing here lands in `drawn.panels` and the always-on-UI dispatcher
-   (`shell/main.js#applyUiIntents`, `shell/input.js#onAlwaysOnUi`) has
-   nothing new to widen for (docs/PLAN-phase10.md 2.9).
-
-   Demand rows are ordered through `data/forms.js#byHudOrder`, the SAME rule
-   the pocket strip uses (`pairLabel`'s own header below), so a cycle's bill
-   and a player's pockets never disagree on which pair comes first. The bar
-   width (50 px) matches `burden`'s own bar immediately above rather than
-   being measured from the widest label -- `view/ui/bar.js`'s own fix (step 1
-   of this phase) is what keeps a label wider than that from colliding with
-   the value text beside it, so the column does not have to be as wide as
-   "COPPER PLATE" just to stay legible. */
+   Drawn through `drawBar` alone, so nothing lands in `drawn.panels` and the
+   always-on-UI dispatcher gains no target. Rows order through `byHudOrder`,
+   so a bill and the pockets agree on which pair comes first. */
 const TRIBUTE_BAR_W = 50;
-/* 4, not 2: a LABELLED bar's value text sits beside its own bar (offset from
-   the label's own line), but the AGGREGATE bar below the demand rows has no
-   label, so `drawBar` centres its value text 2 px ABOVE the bar itself
-   (`view/ui/bar.js`'s `barY - 2`) -- with a 2 px gap that lands the
-   aggregate's "N%" flush against the demand row bar's own bottom edge,
-   caught by eye once actually drawn rather than by the arithmetic alone. */
+/* 4, not 2: the aggregate bar has no label, so `drawBar` centres its value
+   text 2 px ABOVE the bar. A 2 px gap lands its "N%" flush against the demand
+   row's bottom edge. */
 const TRIBUTE_ROW_GAP = 4;
 
 function tribute(g, f, x, y, W) {
@@ -310,12 +222,9 @@ function tribute(g, f, x, y, W) {
       .map(d => ({ ...d, so: S[d.sub], fo: F[d.form] }))
       .sort((a, b) => byHudOrder({ sub: a.so, form: a.fo }, { sub: b.so, form: b.fo }));
 
-    /* The aggregate below is clamped PER ROW (`Math.min(have, d.n)`) even
-       though the ledger itself is not (`model/run.js#tributeMet`'s own
-       comment: over-delivery is accepted, invariant 5's "material that falls
-       in is free" applied to a receiver) -- a display fraction that could
-       exceed 1 across several over-filled rows would read as "more than
-       done", which is not a state this trial has. */
+    /* Clamped PER ROW, though the ledger itself accepts over-delivery: a
+       fraction over 1 across several over-filled rows would read as "more
+       than done", which is not a state a trial has. */
     let have = 0, need = 0;
     for (const d of rows) {
       const h = tributeHave(d.sub, d.form);
@@ -329,15 +238,13 @@ function tribute(g, f, x, y, W) {
       ry = bar.y + bar.h + TRIBUTE_ROW_GAP;
     }
 
-    /* THE BATCH CLAUSE IS A DEMAND ROW, AND IT COUNTS TOWARDS THE AGGREGATE.
-       `model/run.js#tributeMet` is every demand row AND this clause, so an
-       aggregate summed over the demand rows alone read 100% on an unpaid
-       cycle 4 while the clock ran out (docs/SPEC.md section 18.10).
+    /* The batch clause is a demand row and counts towards the aggregate.
+       `tributeMet` is every demand row AND this clause, so an aggregate over
+       the rows alone reads 100% on an unpaid cycle.
 
-       CLAMPED AT `batch.n`, and that is not cosmetic: `batchHave()` saturates
-       near that value because `prunedCredits` discards surplus entries, so a
-       raw "X delivered" readout would print a number smaller than the player
-       handed over. The clamped fraction is exact. */
+       Clamped at `batch.n` because `batchHave()` saturates near it --
+       `prunedCredits` discards surplus -- so a raw count would print less than
+       the player handed over. */
     const batch = cyc.batch;
     if (batch) {
       const h = Math.min(batchHave(), batch.n);
@@ -374,14 +281,11 @@ function tribute(g, f, x, y, W) {
   return ry === y ? y : ry + 2;
 }
 
-/* THE BATCH ROW'S LABEL, MEASURED AGAINST THE COLUMN IT HAS (D8). It is the
-   widest row TRIBUTE draws, because it names a pair AND a window, and at the
+/* The widest row TRIBUTE draws, because it names a pair AND a window. At the
    200 px floor the full name ran its value text under the FAVOUR bars.
-   FAVOUR's own x cannot be read here -- `favour()` draws after this -- so the
-   budget is the left half of the viewport, which is the split the right-hand
-   stack has always been anchored to. Over budget it falls back to
-   `data/forms.js#shortLabelOf`, the abbreviation the boon stack already uses
-   for exactly this, rather than to a runtime truncation. */
+   FAVOUR's x cannot be read here, since it draws after this, so the budget is
+   the left half of the viewport. Over budget it falls back to `shortLabelOf`
+   rather than to a runtime truncation. */
 function batchLabel(batch, valueText, x, W) {
   const span = ' IN ' + mmss(batch.secs);
   const full = labelOf(S[batch.sub], F[batch.form]) + span;
@@ -389,15 +293,13 @@ function batchLabel(batch, valueText, x, W) {
   return rowW <= (W >> 1) - x ? full : shortLabelOf(S[batch.sub], F[batch.form]) + span;
 }
 
-/* HOW CLOSE THE RUN IS TO ENDING ON THE CALENDAR RATHER THAN ON HEARTS.
-   Drawn only once a deadline has actually expired, at the foot of the
-   TRIBUTE column and in the heart colour, because the second miss tops the
-   bar off to zero outright (`rules/cycles.js#miss`). It stays up between
-   trials, so the frame `run.tribute` is null does not blink it away.
+/* How close the run is to ending on the calendar rather than on hearts. Drawn
+   only once a deadline has expired, in the heart colour, because the second
+   miss empties the bar outright. Stays up between trials, so the frame
+   `run.tribute` is null does not blink it away.
 
-   ONE LINE OR TWO, measured against the same left-half budget the batch
-   row uses and for the same reason: at the 200 px floor the warning on one
-   line reaches the FAVOUR bars, and the warning is the half that matters. */
+   One line or two, against the same left-half budget the batch row uses: at
+   the 200 px floor a single line reaches the FAVOUR bars. */
 function missTally(g, x, y, W) {
   if (!run.misses) return y;
   const count = 'MISSED ' + run.misses;
@@ -417,17 +319,13 @@ function missTally(g, x, y, W) {
    lookup, entirely from the pointer and the model; this just lays out
    whatever it returns and remembers it in `hoverInfo` for the test hook. */
 function tooltip(g, f) {
-  /* A panel may already have drawn its own tooltip this frame
-     (`view/ui/tooltip.js`'s `drawn.tooltip` is a SINGLE slot, per that
-     file's own header: only one tooltip can be under the cursor at once).
-     When it has, this world-hover tooltip must yield rather than overwrite
-     it -- both read the same pointer position, and the panel's own grids sit
-     visually on top of the world when the menu is open. */
+  /* `drawn.tooltip` is a single slot, so a panel that already drew one this
+     frame wins. Both read the same pointer, and a panel's grids sit over the
+     world. */
   if (uiDrawn.tooltip) return;
-  /* No HUD hitboxes of its own to check first (the one panel that used to
-     supply them, `invPanel`, is retired -- see `docs/FINDINGS.md`), so this
-     always falls straight through to `resolveHover`'s world-hover path:
-     falling item, then machine, then bare tile. */
+  /* No HUD hitboxes of its own, so this falls straight through to
+     `resolveHover`'s world path: falling item, then machine, then bare
+     tile. */
   const info = resolveHover(f, []);
   hoverInfo.active = !!info;
   hoverInfo.x = info ? info.x : 0;
@@ -451,16 +349,13 @@ function tooltip(g, f) {
   lines.forEach((l, i) => drawText(g, l, bx + 4, by + 3 + i * 8, i === 0 ? UI.ink : UI.ink2, 1, 1));
 }
 
-/* One tile reads one metre, measured from the SPAWN band's ground line — so
-   depth is a fact about the world and not about which band you happen to be in.
+/* One tile reads one metre, measured from the SPAWN band's ground line, so
+   depth is a fact about the world rather than about which band you are in.
 
-   MEASURED AT THE FEET, `player.y + PH`. `player.y` is the TOP of the 16 px
-   body, so measuring it put the reading two tiles above the ground the player
-   is standing on and the spawn floor read `+2M` instead of `0M`
-   (docs/PLAYTEST.md B4). THE DATUM IS UNCHANGED: `worldY(ref, floorTy)` is the
-   same expression `model/run.js#placementCheck` gates `minDepth` on, per
-   CLAUDE.md D9, and that one measures a TILE ROW rather than a body, so it has
-   no `PH` to add and did not move. */
+   Measured at the FEET, `player.y + PH`, because `player.y` is the TOP of the
+   16 px body and measuring it read `+2M` on the spawn floor. The datum is
+   `worldY(ref, floorTy)`, the same expression `placementCheck` gates
+   `minDepth` on -- that one measures a tile row, so it has no `PH` to add. */
 function depth(g, W, y) {
   const ref = bandOf(SPAWN_BAND);
   if (!ref) return;
@@ -469,36 +364,20 @@ function depth(g, W, y) {
   const s = (d >= 0 ? d : '+' + -d) + 'M';
   const w = textWidth(s) + 8;
   panel(g, W - w - 6, y - 2, w, 11);
-  /* `dim` IS LOAD-BEARING HERE (§2.3 #9): it says the reading is at or above
-     the spawn datum, i.e. the '+32M'/'0M' case, where the number is a fact
-     about the surface rather than about a descent. Left on the state tone
-     deliberately; it is legible because `uiDim` was raised, and because this
-     one sits inside `panel()` above. */
+  /* `dim` encodes a state here: the reading is at or above the spawn datum,
+     so the number is a fact about the surface rather than about a descent. */
   drawText(g, s, W - w - 2, y, d > 0 ? UI.ink : UI.dim, 1, 1);
 }
 
-/* ---------- the band ruler's HUD mount ----------
-   ANCHORED, NEVER HARDCODED (CLAUDE.md D8, whose own example of the failure is
-   the mockup's FAVOUR panel overrunning its frame). Both ends of this ruler are
-   measured rather than chosen:
+/* Both ends are measured, never chosen. The TOP is `boonStack`'s return, the
+   y just past what it drew, so the ruler moves with the live boon rows. The
+   BOTTOM is the quickbar's REAL rect out of `drawn`, not a copy of its
+   arithmetic -- two panels that must not overlap share the rectangle one of
+   them actually painted.
 
-     the TOP     is `boonStack`'s own return value -- the y just past whatever it
-                 actually drew -- so the ruler starts under the depth readout and
-                 under however many boon rows are live, and moves when they do.
-     the BOTTOM  is the quickbar's REAL rect, read back out of
-                 `view/ui/state.js#drawn` (it is drawn immediately before this),
-                 not a copy of `view/ui/quickbar.js`'s arithmetic. Two panels
-                 that must not overlap should share one number, and the one they
-                 share is the rectangle one of them actually painted.
-
-   NO NAMES AND NO FOOTER HERE (`labels` defaults false): the depth figure and
-   the band name already exist top-right and in the overview's own footer, and
-   D8's whole point is that a second copy of a fact is two panels restating one
-   thing. What the HUD gains is the SHAPE -- how deep this run goes, and how far
-   down it you are.
-
-   Skipped outright when the gap is too short to read: a 20 px bar covering 416
-   rows of world is a smear, not a scale. */
+   No names and no footer: the depth figure and band name already exist
+   top-right. What the HUD gains is the shape. Skipped when the gap is too
+   short to read, since a 20 px bar over 416 rows is a smear. */
 const HUD_RULER_MIN_H = 40;
 
 function hudRuler(g, f, W, H, boonBottom) {
@@ -509,19 +388,14 @@ function hudRuler(g, f, W, H, boonBottom) {
   drawRuler(g, { id: 'hud-ruler', x: W - rulerWidth() - 2, y, h: bottom - y, vw: W, vh: H });
 }
 
-/* ---------- the timed-boon stack ----------
-   Top-right, newest at top -- `boons.active` is append-order (grant order,
-   never reordered on refresh, `model/boons.js`'s own header), so walking it
-   backwards puts the most recently granted boon on top. Capped at 5 visible
-   rows with a '+N' overflow line, because a HUD that grows without bound off
-   a draft system that does not exist yet is a bug waiting for content.
+/* Top-right, newest at top: `boons.active` is append-order and never
+   reordered on refresh, so walking it backwards puts the newest on top.
+   Capped at 5 rows with a '+N' overflow line.
 
-   Nothing here is clickable (docs/DESIGN.md: "a boon is not a resource you
-   spend; it is weather"). The bar's fill and the last-5-seconds flash derive
-   ONLY from `f.t` (== `clock.t`) and the boon's own `left` -- never `rand()`,
-   per CLAUDE.md's own record of the furnace flame bug this would otherwise
-   repeat. Returns the y just past whatever it drew, so `drawHUD` can keep a
-   debug panel clear of it. */
+   Nothing here is clickable. The fill and the last-5-seconds flash derive
+   only from `f.t` and the boon's `left`, never `rand()`, or a screenshot
+   would depend on how many times the HUD had been drawn. Returns the y just
+   past what it drew. */
 const BOON_ROWS_MAX = 5;
 const BOON_ROW_H = 9;
 
@@ -568,35 +442,15 @@ function boonStack(g, f, W, startY) {
   return y;
 }
 
-/* ---------- FAVOUR, D8, D-F, D1(decision I) ----------
-   Right column, inserted into the boon stack's own anchor chain: `drawHUD`
-   hands this `boonBottom + 3`, and THIS function's return (`favourBottom`)
-   is what now reaches `hudRuler` and `debug` instead of `boonBottom` --
-   skip that thread and either one draws straight through this panel.
+/* Right column, in the boon stack's anchor chain: given `boonBottom + 3`, and
+   its own return reaches `hudRuler` and `debug`.
 
-   One `drawBar` per god in `data/cycles.js#ASKERS` (the closed set this
-   table lets ask for anything, derived rather than listed there so a fifth
-   cycle by a fourth god needs no edit here either). The display name comes
-   from `data/gods.js#godName`, the same reader `view/ui/draft.js` uses, so
-   a god named on a card and a god named on a bar cannot drift apart -- and
-   a god with no row still reads as the id uppercased rather than blank.
-
-   MASKED WITH THE SAME PREDICATE THE RULER OWNS (`view/ui/ruler.js#masked`,
-   the ONE place CLAUDE.md D8 says that predicate may live), not a second
-   one: a god is "known" once `run.favour[god] !== undefined`, i.e. dealt
-   with at least once this run -- `rules/cycles.js#complete`/`#miss` both
-   call `write.favour(cyc.god, ...)` unconditionally (`reward.favour` is
-   documented "always present"; `punishment.favour` fires on every miss that
-   has a punishment at all), so the FIRST resolution of any cycle a god asks
-   for is what takes their mask off, win or lose.
-
-   SCALED AGAINST THE TABLE'S OWN CEILING, not a made-up round number:
-   `FAVOUR_MAX` is the sum of every shipped cycle's `reward.favour`, i.e.
-   "every trial in this table went your way". A fixed guess would drift the
-   moment a fifth cycle's reward changes; deriving it means this bar can
-   never imply a ceiling the content does not actually have. Negative
-   favour (a missed trial's punishment) clamps the BAR to empty without
-   hiding the real number, which is still drawn as `valueText`. */
+   Masked with `view/ui/ruler.js#masked`, the one place that predicate lives. A
+   god is known once `run.favour[god] !== undefined`, and both `complete` and
+   `miss` write favour unconditionally, so the first resolution of a cycle
+   takes the mask off, win or lose. `FAVOUR_MAX` is derived from the table, so
+   the bar cannot imply a ceiling the content lacks; negative favour clamps
+   the BAR to empty while `valueText` prints the real number. */
 const FAVOUR_MAX = CYCLES.reduce((s, c) => s + (c.reward.favour || 0), 0);
 const FAVOUR_ROW_GAP = 2;
 
@@ -614,24 +468,16 @@ function favour(g, W, startY) {
     };
   });
 
-  /* THE BAR IS AS WIDE AS THE WIDEST NAME (or the mask), not a fixed small
-     width -- `view/ui/bar.js` draws a bar's own value text beside the BAR at
-     a y that sits inside the LABEL's own line above it (fine when the label
-     is empty, as `burden`'s own bar's always is). A bar much narrower than
-     its label ("HEPHAESTUS" is 59 px, a 30 px bar is not) put the value
-     number hard against the label's own tail instead, reading as a floating
-     exponent ("HEPHAESTUS<sup>3</sup>") -- caught by looking at the actual
-     pixels, not by the arithmetic, which drew nothing overlapping either
-     string. Matching the bar's width to the label removes that mismatch.
+  /* The bar is as wide as the widest name, or the mask. `drawBar` puts a
+     bar's value text beside the BAR at a y inside the LABEL's line above, so
+     a bar narrower than its label ("HEPHAESTUS" is 59 px) pushed the number
+     against the label's tail and read as an exponent.
 
-     THE PANEL'S OWN X still has to clear the WIDEST VALUE actually on
-     screen this frame, or the first fix just moves the same collision to
-     the viewport's right edge: with the bar already flush to `vw - 6`,
-     `drawBar`'s own vw-clamp (step 1 of this phase) pulls a value text
-     that has nowhere else to go back OVER the bar it was supposed to clear.
-     `rowW` below is measured from what is actually being drawn, not
-     guessed, so the reserved margin is exactly as wide as it needs to be
-     and no wider. */
+     The panel's x must also clear the widest value on screen this frame, or
+     the same collision moves to the viewport edge: with the bar flush to
+     `vw - 6`, `drawBar`'s clamp pulls the value text back over it. `rowW` is
+     measured from what is drawn, so the margin is exactly as wide as
+     needed. */
   let labelW = 0, valueW = 0;
   for (const r of rows) {
     labelW = Math.max(labelW, textWidth(r.label));
@@ -652,48 +498,25 @@ function favour(g, W, startY) {
   return y;
 }
 
-/* ---------- the dig queue's marks, docs/SPEC.md section 28 ----------
-   Three states, and telling them apart is the whole feature:
+/* Three states, and telling them apart is the whole feature:
+     WORKED     the tile mining is committed to. X in a 1 px frame, primary
+                ink, at most one per frame.
+     IN REACH   a mark inside `eff('reach')`. The whole X, primary ink.
+     DEFERRED   beyond reach. Two px of each of the X's four ends, state tone.
 
-     WORKED     the tile `rules/mining.js` is committed to. The X inside a
-                1 px frame, primary ink. At most one per frame.
-     IN REACH   a mark waiting inside `eff('reach')`. The whole X, primary
-                ink.
-     DEFERRED   a mark beyond reach. Two pixels of each of the X's four ends,
-                on the STATE tone. It resumes when the player walks over, so
-                it is the same glyph gone sparse rather than a different one
-                in the refusal colour -- `uiDim` already means "inactive,
-                waiting" at every other site in this file.
-
-   DENSITY AND TONE CARRY THE READ, AND ALPHA DOES NOT. 16 px, 22 px and 48 px
-   of opaque mark are three states at a glance; the same ladder drawn at
-   0.5 / 0.7 / 1.0 alpha lost the deferred state entirely over grass, measured
-   at 7x on the spawn shelf.
-
-   AN X, BECAUSE THE OTHER TWO WORLD OVERLAYS ARE NOT ONE. `reticle` below
-   draws corner elbows and `drawFootprintGhost` fills the tile; three things
-   that can coincide must not share a shape.
-
-   REACH IS READ ONCE AND HANDED TO BOTH TESTS. `committedWithin` and
-   `withinReach` take `reach` as a parameter rather than reading `eff`
-   themselves (`model/digqueue.js`'s own note) precisely so this pass and the
-   rules step cannot measure against different numbers. */
+   Density and tone carry the read, not alpha, which lost the deferred state
+   over grass. An X, because `reticle` draws elbows and `drawFootprintGhost`
+   fills the tile. `committedWithin` and `withinReach` take `reach` as a
+   parameter, so this pass and the rules step cannot disagree. */
 
 /* The X, inset a pixel so it reads as a mark on the tile rather than a border
    of it, over a shadow of itself one row lower. `tips` keeps two pixels of
    each end and drops the middle.
 
-   THE SHADOW IS WHAT MAKES A DIAGONAL READ ON ANY GROUND. `uiShade` is the
-   tone `core/font.js#drawText` already uses against the same problem, a 1 px
-   figure drawn straight onto rendered world with nothing behind it -- the
-   light pixels carry on unlit rock and the dark ones carry on lit grass, where
-   an unshadowed sparse glyph measured mean 27 of luminance against the ground
-   and could not be found at 1x (docs/SPEC.md section 28.7). Shadows go down
-   FIRST, in their own pass, so one can never land on top of a mark pixel, and
-   the lowest falls on row `t - 1` and therefore never leaves the tile.
-
-   A band's tile is 8 px everywhere today; under 4 px there is no room for a
-   diagonal and the tile fills. */
+   The shadow is what makes a diagonal read on any ground, since light pixels
+   carry on unlit rock and dark ones on lit grass. Shadows go down FIRST, in
+   their own pass, so one never lands on a mark pixel, and the lowest falls on
+   row `t - 1` and never leaves the tile. Under a 4 px tile the tile fills. */
 function markGlyph(g, x, y, t, col, tips) {
   const n = t - 2;
   if (n < 2) { R(g, x, y, t, t, col); return; }
@@ -716,7 +539,7 @@ function digMarks(g, f) {
 
   for (const m of set.values()) {
     /* A stale mark is collected by `rules/mining.js` on its next substep, not
-       here: reads never mutate (section 28.2). `markedAt` is the model's own
+       here, because reads never mutate. `markedAt` is the model's own
        staleness predicate, so this pass cannot invent a second answer. */
     if (!markedAt(m.band, m.tx, m.ty)) continue;
 
@@ -754,16 +577,12 @@ function reticle(g, f) {
   g.globalAlpha = 1;
 }
 
-/* ---------- the build ghost ----------
-   Preview the ARMED pair's footprint at the aim reticle -- snapped to the
-   grid, tinted by whether `model/run.js#placementCheck` (the SAME query
-   `rules/placement.js#placeMachine` calls before ever touching the world)
-   says the exact spot placing it now would land is legal, with the ONE-WORD
-   reason drawn beside it when it is not. VIEW MAY NOT IMPORT RULES, so this
-   reads a MODEL query and nothing else. The footprint is anchored EXACTLY the
-   way `shell/main.js#applyIntents` anchors a real placement (bottom row at
-   the aimed tile), so the preview can never show a spot the real placement
-   would not also choose. See docs/DEVELOPER_GUIDE.md#one-decision-two-readers */
+/* Preview the armed pair's footprint at the reticle, snapped to the grid and
+   tinted by `model/run.js#placementCheck` -- the same query
+   `rules/placement.js#placeMachine` calls before touching the world. `view`
+   may not import `rules`, so this reads a model query and nothing else.
+   Anchored bottom row at the aimed tile, exactly as a real placement is, so
+   the preview can never show a spot the placement would not choose. */
 function drawFootprintGhost(g, f, band, tx, ty, tw, th, ok, why) {
   const t = band.tile;
   const col = ok ? UI.good : UI.heart;
@@ -784,25 +603,13 @@ function drawFootprintGhost(g, f, band, tx, ty, tw, th, ok, why) {
   }
 }
 
-/* THE ONE PLACE A GHOST PUTS A WORD BESIDE ITSELF. Extracted
-   when the feed preview below became a second caller: "the reason, in the
-   ghost's own colour, one line above the top-left of what it is talking
-   about, with a shadow so it survives being drawn over lit rock" is a single
-   presentation decision and there is no version of this project where two
-   ghosts should disagree about it.
+/* The reason, in the ghost's own colour, one line above the top-left of its
+   subject, shadowed so it survives lit rock. Clamped to the viewport, because
+   a refusal off the edge is a refusal nobody reads.
 
-   `below` (`feedPrompt`'s own third callsite) puts the line
-   one row UNDER `y` instead -- `feedGhost`'s machine-anchored label and
-   `feedPrompt`'s player-anchored one both fire in the same frame, and
-   `handFeed.reach` is small enough (a tile or two) that the two subjects sit
-   almost on top of each other on screen; stacking both labels above would
-   print one over the other.
-
-   CLAMPED TO THE VIEWPORT, per D8 and for the reason `cableGhost` below
-   already states: a refusal drawn off an edge at a narrow base buffer is a
-   refusal nobody reads. Inert for a ghost near the camera centre, which is
-   where both callers' subjects almost always are -- the clamp is here for
-   the machine at the screen edge, not for the common case. */
+   `below` puts the line one row UNDER `y`. `feedGhost`'s machine-anchored
+   label and `feedPrompt`'s player-anchored one fire in the same frame a tile
+   or two apart, so stacking both above would print one over the other. */
 function ghostLabel(g, f, x, y, text, col, below = false) {
   const w = textWidth(text);
   const ly = below ? y + 2 : y - 8;
@@ -810,41 +617,16 @@ function ghostLabel(g, f, x, y, text, col, below = false) {
            Math.max(2, Math.min(ly, f.H - 10)), col, 1, 1, UI.shade);
 }
 
-/* ---------- the feed preview ----------
-   THE FOURTH BRANCH OF `buildGhost` (docs/PLAN-phase16-interaction-model-v2.md
-   §5 D16-E #3). With something armed and a machine under the reticle, LMB
-   FEEDS rather than places (`shell/input.js`'s rule 2, above rule 3), so this
-   is what the next press would actually do -- and before this the only
-   feedback for it was four particles and a click AFTER the fact
-   (`shell/notify.js`'s `'accept'` chips; there is still no `TEXT` row).
+/* With something armed and a machine under the reticle, LMB feeds rather than
+   places. `model/machines.js#feedCheck` is the query `handOne` enforces and
+   this previews. An outline, not a fill, because a machine already has art, a
+   badge and a buffer bar.
 
-   ONE DECISION, TWO READERS, exactly as the footprint and cable ghosts
-   already are: `model/machines.js#feedCheck` is the query
-   `rules/machines.js#handOne` ENFORCES and this previews. `view` may not
-   import `rules`, and `feedCheck` lives in `model`
-   specifically so this preview would be legal rather than a second copy of
-   the accept rule.
-
-   AN OUTLINE, NOT A FILL, and the argument is `cableGhost`'s own about its
-   corner brackets: a machine has art, a status badge and a buffer bar of its
-   own, and a 35%-alpha slab over all three trades the information the player
-   came for against the information they already have from the reticle.
-
-   REACH IS NOT CHECKED HERE, DELIBERATELY, and `feedCheck`'s own header is
-   the argument: reach is a fact about where the player's body is at the
-   instant of a press, `model/machines.js#feedTarget` asks it exactly once,
-   there, and a query that folded it in would be unusable for a ghost -- whose
-   whole job is to answer for a machine the player has not walked to. So this
-   states a property of the MACHINE AND THE PAIR ("it wants this, and it is 3
-   of 8 full"), never a promise about this particular press. Walking closer
-   never changes what it says.
-
-   `have`/`cap` ARE THE MATCHED SELECTOR'S, not the machine's total, because
-   the cap is per clause -- the furnace's 8-ore/2-fuel asymmetry is only
-   expressible that way, and `feedCheck` returns them already resolved for
-   whichever clause this pair landed in. Both are 0 on an 'IT DOES NOT WANT
-   THAT' refusal (no clause was found to measure), which is why the refusal
-   branch prints the reason instead of the numbers. */
+   Reach is deliberately NOT checked: it is a fact about the body at the
+   instant of a press, which `feedTarget` asks once, there. So this states a
+   property of the machine and the pair, and walking closer never changes it.
+   `have`/`cap` are the matched CLAUSE's, not the machine's total, since the
+   furnace's 8-ore/2-fuel asymmetry needs that. Both are 0 on a refusal. */
 function feedGhost(g, f, m, armed) {
   const check = feedCheck(m, armed.sub, armed.form);
   const col = check.ok ? UI.good : UI.heart;
@@ -861,44 +643,25 @@ function feedGhost(g, f, m, armed) {
   ghostLabel(g, f, x, y, check.ok ? check.have + '/' + check.cap : check.why, col);
 }
 
-/* THE FEED PROMPT: a reminder, at the PLAYER rather than the machine, that
-   LMB is live right now. `feedGhost` above already answers "would this
-   machine take it" from anywhere the reticle reaches, deliberately without
-   checking reach (its header explains why); this answers the complementary
-   question -- "is a press physically live this instant" -- which needs
-   `model/machines.js#feedTarget`'s reach check, the same one `shell/input.js`
-   asks before setting `cmd.feed`. Feeding is LMB, not a bound key (there is
-   no keyboard key to name), so the label spells the button the way
-   `view/ui/quickbar.js`'s legend already does ("LMB ACT").
+/* At the PLAYER rather than the machine: `feedGhost` answers "would this
+   machine take it" from anywhere the reticle reaches, and this answers "is a
+   press live this instant", which needs `feedTarget`'s reach check -- the same
+   one `shell/input.js` asks before setting `cmd.feed`. Feeding is LMB with no
+   bound key, so the label spells the button.
 
-   BELOW THE PLAYER'S FEET, not above their head -- `feedGhost`'s own label
-   already occupies the row above the MACHINE, and at `handFeed.reach`'s
-   small distance the player and the machine are close enough on screen that
-   "one row above" would be the same row for both. */
+   Below the feet, not above the head, because `feedGhost`'s label occupies the
+   row above the MACHINE and the two subjects sit close on screen. */
 function feedPrompt(g, f) {
   const x = (player.x - f.cam.x) | 0, y = (player.y + PH - f.cam.y) | 0;
   ghostLabel(g, f, x, y, 'LMB FEED', UI.good, true);
 }
 
-/* THE COLLECT PROMPT: the pickup-verb analogue of `feedPrompt` above, and the
-   reason it exists is the same tutorial line `rules/tutorial.js`'s beat 2
-   comment already spells out -- pickup has been opt-in since Phase 12b
-   (docs/PLAN-phase12.md §3 D-E/D-F), so standing over the stock pickaxe (or
-   any resting item) collects nothing on its own, and nothing else in the HUD
-   said a press was live.
-
-   `items`/`eff('pickupR')` mirror `rules/items.js#step`'s own `near()` gate
-   exactly (distance from the player's centre, not the reticle -- collect has
-   no aim), but that check is `rules` and `view` may not import it, so the
-   handful of lines are repeated here rather than exported for one caller on
-   each side of the wall.
-
-   SILENT WHILE AUTO COLLECT IS ON: the reminder is for a press that has to
-   happen, and with autocollect on, one never does.
-
-   ABOVE THE PLAYER'S HEAD, not below -- the opposite of `feedPrompt`, so
-   neither row is a lie if some future scene ever makes both prompts true in
-   the same frame (an item resting beside a machine being fed). */
+/* The pickup analogue of `feedPrompt`. Pickup is opt-in, so standing over a
+   resting item collects nothing, and this is silent while auto collect is on.
+   `items`/`eff('pickupR')` mirror `rules/items.js#step`'s `near()` gate,
+   measured from the player's centre since collect has no aim, repeated here
+   because `view` may not import `rules`. Above the head, the opposite of
+   `feedPrompt`, so neither row lies if both are ever true. */
 function collectPrompt(g, f) {
   if (f.ui.autoCollect) return;
   const c = playerCentre(), r = eff('pickupR');
@@ -911,29 +674,15 @@ function collectPrompt(g, f) {
   ghostLabel(g, f, x, y, 'C COLLECT', UI.good);
 }
 
-/* ---------- the miracle ghost ----------
-   THE FIFTH BRANCH, and the one that closes a real hole rather than adding
-   polish (docs/PLAN-phase16-interaction-model-v2.md §3.6 #2): an armed
-   `phial` is `shell/input.js`'s RULE 1 -- it outranks feeding, placing and
-   mining, so it silently converts LMB from "dig" to "spend a one-shot" -- and
-   it was the ONE arming state that drew nothing at all. A mode that overrides
-   every other verb and shows no pixel for it is the worst combination
-   available.
+/* An armed `phial` is the top LMB rule, so it silently converts LMB from
+   "dig" to "spend a one-shot". Drawn in the divine gold, not good/red: those
+   mean "this placement is legal / is not", and a miracle has no legality to
+   report.
 
-   DRAWN IN `UI.relic`, THE DIVINE GOLD, and not in `UI.good`/`UI.heart`. The
-   other two ghosts use green/red to mean "this placement is legal / is not",
-   and a miracle has no legality to report: rule 1 fires wherever the reticle
-   is valid. A third colour is the honest way to say "this is not that
-   question", and gold is the colour a divine object already carries
-   everywhere else in this HUD (see `UI.relic` above).
-
-   A TILE FILL PLUS FOUR SPOKES. The fill is the same 35%-alpha single-tile
-   idiom `drawFootprintGhost` uses for a tile-capable form, so the "here"
-   reads identically to every other ghost; the spokes are what make it not
-   look like a placement at a glance. Static geometry derived from `aim`
-   alone -- no `clock.t` pulse and emphatically no `rand()` (invariant 7): a
-   ghost that animated would make this file's own screenshots depend on when
-   they were taken. */
+   A tile fill plus four spokes -- the fill is `drawFootprintGhost`'s own
+   35%-alpha idiom, the spokes are what stop it reading as a placement. Static
+   geometry from `aim` alone, no `clock.t` pulse and no `rand()`, or a
+   screenshot would depend on when it was taken. */
 const MIRACLE_SPOKE = 3;
 function miracleGhost(g, f) {
   const b = aim.band, t = b.tile;
@@ -951,40 +700,21 @@ function miracleGhost(g, f) {
   R(g, x + t, cy, MIRACLE_SPOKE, 1, UI.relic);
 }
 
-/* ---------- the cable ghost ----------
-   THE THIRD BRANCH OF `buildGhost`, and the same "one decision, two readers"
-   arrangement the footprint ghost above already is: with a hub armed by the
-   first `l` press (`shell/ui.js#ui.linkFrom`, handed over on the frame
-   context because `view` may not import `shell`), this draws the cable the
-   second press would create, tinted by `model/segments.js#linkCheck` -- THE
-   SAME query `rules/placement.js#linkSegment` calls before it mutates
-   anything. `view` may not import `rules`; `linkCheck` is a model query and
-   reading it is what stops the ghost and the verb from ever disagreeing.
-
-   FOUR THINGS ARE DRAWN, and each answers a different question:
-     the armed end       WHICH hub is the gesture anchored to
-     the cable           WHERE would it run, and is it legal (good/red)
-     the reach limit     HOW FAR can this hub reach, when the answer is "not
-                         that far" -- the cable is clipped there rather than
-                         drawn to a point it could never reach
-     the blocked sample  WHICH tile is in the way, from `linkCheck`'s own
-                         `at` field, because "THE PATH IS BLOCKED" without a
-                         position is a puzzle rather than an answer
-
-   AIMING AT NOTHING IS A THIRD STATE, not a refusal. With no machine under
-   the reticle there is no pair to check, so the cable is drawn DIM and no
-   `why` is printed: this file states only refusals `linkCheck` actually
-   returned, and inventing 'TOO FAR APART' for a bare point would be a second
-   implementation of the rule. The reach clip still shows, because reach is a
-   fact about the armed hub alone. */
+/* Draws the cable the second `l` press would create, tinted by
+   `model/segments.js#linkCheck` -- the same query `linkSegment` calls before
+   it mutates anything. Four things, each a different question:
+     the armed end       WHICH hub the gesture is anchored to
+     the cable           WHERE it would run, and whether it is legal
+     the reach limit     HOW FAR this hub reaches; the cable clips there
+     the blocked sample  WHICH tile is in the way, from `linkCheck`'s `at`
+   Aiming at nothing is a third state, not a refusal: no machine means no pair
+   to check, so the cable is dim and no `why` is printed. The reach clip still
+   shows, because reach is a fact about the armed hub alone. */
 function cableGhost(g, f) {
   const from = f.ui.linkFrom;
-  /* THE FOOTPRINT CENTRE, which must stay the same point
-     `model/segments.js#anchorOf` picks -- a ghost anchored anywhere else would
-     preview a cable at an offset from the one the link actually creates. It is
-     re-derived here rather than imported because it is two additions on a box
-     `view` already holds, and `anchorOf` is private to the model's own
-     geometry. */
+  /* Must stay the same point `model/segments.js#anchorOf` picks, or the ghost
+     previews a cable offset from the one the link creates. Re-derived rather
+     than imported, since it is two additions on a box `view` already holds. */
   const ax = from.box.x + from.box.w / 2, ay = from.box.y + from.box.h / 2;
 
   const to = machineAt(aim.band, aim.tx, aim.ty);
@@ -1035,10 +765,8 @@ function cableGhost(g, f) {
     R(g, sx - 1, sy - 1, 3, 3, UI.hi);
   }
 
-  /* CLAMPED TO THE VIEWPORT, per D8: a refusal drawn off the right edge at a
-     narrow base buffer is a refusal nobody reads, and the same clamp the
-     tooltip and the panels already apply is the one to reuse rather than a
-     hardcoded origin. */
+  /* Clamped to the viewport, because a refusal drawn off the right edge at a
+     narrow buffer is a refusal nobody reads. */
   if (check && !check.ok) {
     const w = textWidth(check.why);
     drawText(g, check.why, Math.max(2, Math.min(x1 + 5, f.W - w - 2)),
@@ -1055,39 +783,29 @@ function buildGhost(g, f) {
      quickbar is not what the player is doing. */
   if (f.ui.linkFrom) { cableGhost(g, f); return; }
 
-  /* Preview the ARMED pair, if any, at the aim reticle -- the same
-     footprint-tint idiom above, generalised to a
-     single-tile footprint for a tile-capable form. `view` may not import
-     `rules`, so a tile's own placement rule (`rules/placement.js#placeTile`'s
-     "needs something to hang from") is not re-proven here; the one fact this
-     CAN check without that import is whether the tile itself is currently
-     clear, which is enough to warn against the common case (aiming at solid
-     rock) without a second implementation of that rule. */
+  /* The same footprint tint, generalised to a single tile. `view` may not
+     import `rules`, so `placeTile`'s "needs something to hang from" is not
+     re-proven; what this can check is whether the tile is clear, which
+     covers the common case of aiming at solid rock. */
   const armed = f.ui.armedPlace;
   if (!armed) return;
 
-  /* THE BRANCH ORDER BELOW IS `shell/input.js`'s LMB DISPATCH ORDER, and it
-     has to be: a ghost that previewed a lower-priority rule than the one the
-     press will actually fire is worse than no ghost, because it is confidently
-     wrong. That file's rules, in its own numbering (docs/SPEC.md §23.2):
+  /* This branch order IS `shell/input.js`'s LMB dispatch order, and must be:
+     a ghost previewing a lower-priority rule than the press will fire is
+     confidently wrong.
        1  an armed miracle always wins            -> `miracleGhost`
        2  a machine under the reticle, in reach   -> `feedGhost`
        3  open ground, something armed            -> the footprint ghosts
        4  otherwise mine                          -> no ghost
-     `view` may not import `shell`, so this is a mirrored order rather than a
-     shared one; it is the reason both lists are written out in full, each
-     naming the other. */
+     `view` may not import `shell`, so the order is mirrored rather than
+     shared, which is why both lists are written out in full. */
   if (armed.form === F.phial) { miracleGhost(g, f); return; }
 
-  /* `def.handFeed` IS PART OF THE TEST, not an afterthought -- the same first
-     half of `model/machines.js#feedTarget`'s own two questions. A gear, an
-     axle or a hub is a machine with no hand-feed clause at all, so rule 2
-     cannot fire on it and the press falls through to rule 3; previewing a
-     feed there would preview a rule that does not exist for that machine.
-     `feedGhost` deliberately answers without the SECOND half of
-     `feedTarget` -- reach -- for the reason it and `feedCheck` both state;
-     `feedTarget(armed)` is called again just below, reach and all, purely to
-     decide whether `feedPrompt` (the player-side reminder) is warranted. */
+  /* `def.handFeed` is part of the test: it is the first half of `feedTarget`'s
+     two questions. A gear, an axle or a hub has no hand-feed clause, so rule
+     2 cannot fire on it and the press falls to rule 3. `feedTarget(armed)` is
+     called again below, reach and all, only to decide whether `feedPrompt` is
+     warranted. */
   const target = machineAt(aim.band, aim.tx, aim.ty);
   if (target && defOf(target).handFeed) {
     feedGhost(g, f, target, armed);
@@ -1108,21 +826,12 @@ function buildGhost(g, f) {
   }
 }
 
-/* ---------- the bottom line ----------
-   A transient toast (`view/fx.js#frontToast`, drained out of the journal by
-   `shell/notify.js`) always wins -- it is a fact that just happened and it
-   is more urgent than standing guidance. The FRONT of that queue and not the
-   back: two facts can arrive in one frame and they are shown in the order they
-   happened, which is the whole of `view/fx.js`'s toast queue. With none showing, the callout
-   falls back to whichever SPEC section 5 beat the player has not finished
-   yet (`model/tutorial.js#beat`, a read-only query, and
-   `data/callouts.js#CALLOUTS`, indexed by it). Two indices are `null` and
-   simply show nothing: 4 (beat 5 fires a frame later with no action in
-   between) and 10 (cycle 2 paid -- the sheet is genuinely over there, see
-   that file's own header).
+/* A transient toast always wins, because it is a fact that just happened and
+   is more urgent than standing guidance. The FRONT of the queue, not the
+   back, so two facts arriving in one frame show in the order they happened.
 
-   The two draw either side of the main panel; `drawHUD`'s own call site
-   says why. */
+   With none showing, the callout falls back to whichever tutorial beat the
+   player has not finished. Two indices are `null` and show nothing. */
 const CALLOUT_FADE_SECS = 0.4;
 const calloutFade = { beat: -1, since: 0 };
 
@@ -1136,31 +845,26 @@ function calloutLine(g, f, W, H) {
   const b = beat(run);
   const text = CALLOUTS[b];
   if (!text) return;
-  /* Queued, not overlapping: only one line is ever drawn, so a beat change
-     cannot show two instructions at once. The fade is purely cosmetic --
-     derived from `f.t` (== `clock.t`) plus the beat it last changed at,
-     never a frame counter or `rand()` (CLAUDE.md invariant 7). */
+  /* Queued, not overlapping: only one line is drawn, so a beat change cannot
+     show two instructions at once. The fade derives from `f.t` plus the beat
+     it last changed at, never a frame counter and never `rand()`. */
   if (b !== calloutFade.beat) { calloutFade.beat = b; calloutFade.since = f.t; }
   bottomLine(g, f, W, H, text,
              Math.min(1, Math.max(0, (f.t - calloutFade.since) / CALLOUT_FADE_SECS)));
 }
 
-/* WRAPPED, BECAUSE THE PANEL CLAMPS AND `drawText` DOES NOT CLIP. The width
-   below is capped at `W - 4`, but text drawn at `x + 6` runs as far as it
-   likes, so a row wider than the viewport used to spill off the right edge.
-   At the 200 px base buffer that was 8 of the 9 rows in `data/callouts.js`,
-   which is how 'CLICK YOUR ORE, THEN THE ALTAR -- 10 COPPER' reached a
-   player as '... THEN THE ALTAR -' with the quantity gone.
+/* Wrapped because the panel clamps and `drawText` does not clip. The width is
+   capped at `W - 4`, but text drawn at `x + 6` runs as far as it likes, so at
+   the 200 px buffer 8 of the 9 callout rows spilled off the right edge.
 
-   `LINE_PITCH * n + 4` is 12 for one line, which is the single-row height
-   this panel has always had, so nothing moves at the desktop buffer where
-   every row already fits. */
+   `LINE_PITCH * n + 4` is 12 for one line, the height this panel has always
+   had, so nothing moves where every row already fits. */
 const LINE_PITCH = 8;
 const CALLOUT_PAD = 12;
 
-/* Exported so `tools/check.mjs` section 8n can assert every
-   `data/callouts.js` row fits at `core/canvas.js#BASE_W_MIN` using the same
-   budget the renderer uses, rather than a second copy of these two numbers. */
+/* Exported so the harness can assert every callout row fits at
+   `core/canvas.js#BASE_W_MIN` against the budget the renderer uses, rather
+   than a second copy of these two numbers. */
 export const calloutLines = (text, W) => wrap(text, W - 4 - CALLOUT_PAD);
 
 function bottomLine(g, f, W, H, text, fadeAlpha) {
@@ -1177,20 +881,16 @@ function bottomLine(g, f, W, H, text, fadeAlpha) {
   g.globalAlpha = 1;
 }
 
-/* HOW FAR DOWN THE CALLOUT MAY REACH (D8). It is centred and the quickbar is
-   pinned right, so the two only meet when the text is wide enough to run
-   under the strip -- which is what happens at the 200 px floor and not at
-   the desktop buffer. Both neighbours' rectangles are read back out of
-   `view/ui/state.js#drawn` (`drawQuickbar` runs earlier in `drawHUD`), never
-   re-derived, and the callout lifts only where it actually overlaps one in
-   x. A scene with room sits at `H - 4`; the widget grew downward from the
-   old `H - 16` centre line when it stopped being a bare line of text, so
-   every callout moved once and none moves again for want of clearance.
+/* How far down the callout may reach. It is centred and the quickbar is
+   pinned right, so the two meet only when the text runs under the strip,
+   which happens at the 200 px floor. Both neighbours' rects are read out of
+   `drawn`, never re-derived, and the callout lifts only where it overlaps one
+   in x. With room it sits at `H - 4`.
 
-   The reserve above the quickbar's own rect is `view/ui/quickbar.js`'s
-   `HAND_GAP` of 10 px plus 2 px of air: the IN HAND line lives in that gap
-   and is not part of the grid's rectangle. Held whether or not a pair is
-   armed, so the callout does not hop when one is. */
+   The reserve above the quickbar's rect is its `HAND_GAP` of 10 px plus 2 px
+   of air, because the IN HAND line lives in that gap and is not part of the
+   grid's rectangle. Held whether or not a pair is armed, so the callout does
+   not hop. */
 const QUICKBAR_RESERVE = 12;
 
 function calloutBottom(H, x, w) {
@@ -1223,36 +923,24 @@ function debug(g, f, W, top = 22) {
   rows.forEach((r, i) => drawText(g, r, W - w - 7, panelY + 4 + i * 9, UI.debug, 1, 1));
 }
 
-/* THE RESTART BUTTON, docs/PLAN-phase12.md §3 D-C: restart moved off `r`
-   (now the crank/action hold, D-J) onto a real, discoverable control, since
-   the key it lived on stopped meaning "restart" and a printed instruction
-   naming a key that no longer does the thing is worse than no instruction at
-   all. Sized from its own measured label (D8's "positioned by an anchored
-   layout pass over measured text, never by hardcoded pixel origins"), and
-   registered into `drawn.panels` under `'death-restart'` -- the identical
-   idiom `view/ui/quickbar.js`'s hints-toggle already uses -- so
-   `shell/input.js#onDeathRestart`'s hit-test finds what was actually drawn,
-   never a second copy of this layout math. */
+/* Sized from its own measured label, never a hardcoded origin, and registered
+   into `drawn.panels` under `'death-restart'` so
+   `shell/input.js#onDeathRestart` hit-tests what was actually drawn rather
+   than a second copy of this layout arithmetic. */
 const RESTART_LABEL = 'BEGIN THE NEXT TORMENT';
 
-/* THERE ARE TWO END-OF-RUN SCREENS AND ONE IMPLEMENTATION OF ONE.
-   `deathScreen` and `winScreen` below differ only in their wash, their lines
-   and the id their button records -- everything about the layout, the
-   measured button and the `drawn.panels` registration is HERE, once, because
-   a second copy of it is a second thing `shell/input.js`'s hit-test would
-   have to be taught about separately. `id` is what makes the two hit-testable
-   apart at all; the geometry it records is identical in shape either way. */
+/* Two end-of-run screens, one implementation. `deathScreen` and `winScreen`
+   differ only in wash, lines and the id their button records; the layout, the
+   measured button and the `drawn.panels` registration are here once. `id` is
+   what makes the two hit-testable apart. */
 function endScreen(g, W, H, { wash, lines, id }) {
   g.globalAlpha = 0.78; R(g, 0, 0, W, H, wash); g.globalAlpha = 1;
   let y = (H >> 1) - 26;
   for (const [s, col, want] of lines) {
-    /* A DOUBLE-SIZE HEADLINE DROPS TO SINGLE RATHER THAN OVERFLOWING, per D8
-       ("positioned by an anchored layout pass over measured text") and its own
-       warning that the mockup's overflow is a bug to fix and not a target to
-       copy. `THE EAGLE COMES` is 164 px at scale 2 and fits the 200 px phone
-       floor (`core/canvas.js#resize`); `THE GODS ARE ANSWERED` is 252 px and
-       does not, and it clipped mid-word until this clause existed. Measured,
-       so no line has to be kept short by hand. */
+    /* A double-size headline drops to single rather than overflowing.
+       `THE EAGLE COMES` is 164 px at scale 2 and fits the 200 px buffer floor;
+       `THE GODS ARE ANSWERED` is 252 px and clipped mid-word. Measured, so no
+       line has to be kept short by hand. */
     const sc = want > 1 && textWidth(s, want) > W - 8 ? want - 1 : want;
     drawText(g, s, Math.max(4, (W - textWidth(s, sc)) >> 1), y, col, sc, 1);
     y += sc === 2 ? 22 : 13;
@@ -1263,12 +951,9 @@ function endScreen(g, W, H, { wash, lines, id }) {
   drawText(g, RESTART_LABEL, btn.x + 4, btn.y + 2, UI.good, 1, 1);
 }
 
-/* Depth reached, in the SAME datum `depth()` above draws off and
-   `model/run.js#placementCheck` gates on (CLAUDE.md D9) -- never a second
-   arithmetic. `run.deepest` is the deepest `player.y`, the top of the body, so
-   it takes `depth()`'s own `+ PH` for the same reason: two readings of the
-   player's depth that differed by two tiles would be worse than either.
-   Shared by both end screens. */
+/* Depth reached, in the same datum `depth()` draws off and `placementCheck`
+   gates on. `run.deepest` is the deepest `player.y`, the top of the body, so
+   it takes the same `+ PH`. Shared by both end screens. */
 function depthReached() {
   const ref = bandOf(SPAWN_BAND);
   const datum = ref ? worldY(ref, ref.cfg.floorTy ?? 0) : 0;
@@ -1306,16 +991,13 @@ function deathScreen(g, W, H) {
   });
 }
 
-/* THE WIN SCREEN, docs/SPEC.md section 20.2. `run.won` is set once by
-   `rules/cycles.js#ensureLiveCycle` the frame `run.cycle` passes the last
-   shipped row, so this draws for the rest of the process's life and the run
-   is over -- `shell/main.js#step` stops stepping, exactly as `run.dead`
-   already stops most of it.
+/* `run.won` is set once, the frame `run.cycle` passes the last shipped row,
+   so this draws for the rest of the process's life and `shell/main.js#step`
+   stops stepping.
 
-   NOT A SECOND UI MECHANISM: it is `endScreen` above with a different wash,
-   different lines and the id `'win-restart'`, and `shell/input.js` hit-tests
-   it through the same `drawn.panels` lookup the death button uses. Its two
-   totals come from `tallyLines` above, which the death screen also draws. */
+   `endScreen` with a different wash, different lines and the id
+   `'win-restart'`, hit-tested through the same `drawn.panels` lookup the
+   death button uses. */
 function winScreen(g, W, H) {
   endScreen(g, W, H, {
     /* A pale gold wash rather than the death screen's near-black red: the two
