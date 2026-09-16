@@ -77,29 +77,22 @@ export function aimAtWorld(wx, wy) {
 
 /* Keyboard fallback: the tile the player faces, or the one under/over them.
 
-   STRAIGHT DOWN (`cmd.down` with no horizontal key) is special-cased below,
-   not resolved through the generic centre-x `resolve()`. Every other
-   direction picks a single column fine, because the player is never wedged
-   BY it — but straight down is exactly the tile `boxSolid` (`rules/player.js`)
-   tests both columns of, and `PW` (6px, `model/player.js`) is narrower than a
-   tile (8px), so continuous, never-grid-snapped walk physics almost never
-   leaves `player.x` a multiple of the tile size. A fixed centre-x column
-   breaks one of the two columns the hitbox straddles and leaves the other
-   solid forever: the player is wedged standing on what reads as open air
-   from directly overhead (docs/FINDINGS.md, "Machine status/hover/
-   right-click-deconstruct pass"). */
+   TWO DIRECTIONS ARE SPECIAL-CASED BELOW, and for one reason in two axes. The
+   hitbox is 6 x 16 px on an 8 px tile, so it straddles two columns and fills
+   two rows, and a single point at the centre picks the wrong one of the pair.
+   `resolveStraightDown` picks the column and `resolveFacing` picks the row.
+   Up, and down-and-sideways, go through the generic centre-x `resolve()`. */
 export function aimAtKeys(cmd) {
   const c = playerCentre();
   const b = player.band;
   if (!b) return;
 
   if (cmd.down && !cmd.left && !cmd.right) { resolveStraightDown(c, b); return; }
+  if (!cmd.down && !cmd.up) { resolveFacing(c, b); return; }
 
   let px = c.x, py = c.y;
-  if (cmd.down)    py += b.tile;
-  else if (cmd.up) py -= b.tile;
-  else             px += player.face * b.tile;
-  if (cmd.down && (cmd.left || cmd.right)) px += player.face * b.tile;
+  if (cmd.down) { py += b.tile; px += player.face * b.tile; }
+  else          py -= b.tile;
   resolve(px, py);
 }
 
@@ -112,7 +105,15 @@ export function aimAtKeys(cmd) {
    once for the price of one. When the player is tile-aligned (the two
    columns coincide) or neither column is currently blocking (e.g. digging
    ahead of a fall), this degenerates to the same centre-x column the old
-   unconditional `resolve()` always used, so aligned play is unchanged. */
+   unconditional `resolve()` always used, so aligned play is unchanged.
+
+   `PW` (6px, `model/player.js`) is narrower than a tile (8px), and continuous,
+   never-grid-snapped walk physics almost never leaves `player.x` a multiple of
+   the tile size, so a fixed centre-x column breaks one of the two columns
+   `boxSolid` (`rules/player.js`) tests and leaves the other solid forever —
+   the player then stands wedged on what reads as open air from directly
+   overhead (docs/FINDINGS.md, "Machine status/hover/right-click-deconstruct
+   pass"). */
 function resolveStraightDown(c, b) {
   const py = c.y + b.tile;                       // the row just below the feet
   const bb = bandAt(c.x, py);
@@ -125,6 +126,40 @@ function resolveStraightDown(c, b) {
     else if (solidAt(bb, tx1, ty)) target = tx1;
   }
   aw.set(bb, target, ty, inBounds(bb, target, ty));
+}
+
+/* The bare horizontal aim, which is also the aim with no direction held at
+   all. `PH` is 16 px on an 8 px tile, so the body fills two rows and only one
+   of them need hold the tile in the way, and this takes the first OCCUPIED of
+   the two in the faced column. The centre row comes first and the row above it
+   second, so a wall comes down belly-height and then head-height.
+
+   PROBING ONLY THE CENTRE ROW IS WHY A KEYBOARD PLAYER COULD NOT CLEAR
+   ANYTHING TWO TILES TALL. Holding right + dig broke the belly tile, the aim
+   then found the air it had just made, and the head-height tile was never
+   targeted, so 400 s of right + dig moved the player exactly as far as `right`
+   alone on 12 seeds (docs/FINDINGS.md, phase 6e-2). The second probe is what
+   makes the aim ADVANCE through an obstacle rather than expire on its own
+   work. docs/SPEC.md section 2.1.
+
+   BOTH PROBES SIT INSIDE `eff('reach')` BY CONSTRUCTION, so neither is
+   clamped. The centre row contains `c.y` and the row above it ends at or below
+   `player.y`, so both overlap the hitbox, and the furthest tile centre either
+   can name is hypot(12, 11) = 16.3 px against a reach of 25.6.
+
+   OCCUPIED MEANS NOT AIR RATHER THAN `solidAt`. A non-solid tile in the faced
+   column is a legitimate thing to swing at — a pegged rung, a sapling — and it
+   is what the centre-row probe has always hit, so preferring a solid tile one
+   row above it would retarget swings that already land. */
+function resolveFacing(c, b) {
+  const px = c.x + player.face * b.tile;
+  for (const py of [c.y, c.y - b.tile]) {
+    const bb = bandAt(px, py);
+    if (!bb) continue;
+    const tx = tileX(bb, px), ty = tileY(bb, py);
+    if (tileAt(bb, tx, ty) !== AIR) { aw.set(bb, tx, ty, inBounds(bb, tx, ty)); return; }
+  }
+  resolve(px, c.y);
 }
 
 function resolve(px, py) {

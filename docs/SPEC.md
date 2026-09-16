@@ -110,6 +110,70 @@ from the distance they need and `eff('climb')`. They used to spend a fixed 260
 substeps each, which is exactly what 30 px/s needed for 64 px, and that literal
 blocked this number for a wave.
 
+### 2.1 The keyboard aim probes both rows of the body (Phase 6y)
+
+The body is 16 px on an 8 px tile, so it fills two rows, and the tile blocking
+a step sideways can be in either of them. `rules/mining.js#aimAtKeys`'s bare
+horizontal branch therefore probes the faced column twice and takes the first
+row that is not AIR.
+
+| order | row | what it is |
+|---|---|---|
+| 1 | `tileY(centre.y)` | the belly row, the one row the old single probe used |
+| 2 | one row above that | the head row |
+
+Three properties the rule has to keep:
+
+- **A wall comes down belly-height first and head-height second.** Each tile
+  costs its own full `hard`, because `model/mining.js`'s work map is per tile
+  and nothing here touches it. Two tiles are never bought for the price of one.
+- **The aim ADVANCES instead of expiring.** Once the belly tile is air the
+  second probe names the head tile, which is the whole defect being fixed. A
+  keyboard-only player could not clear ANYTHING two tiles tall before it — no
+  tree trunk, no rock face — and 400 s of `right` + `dig` from spawn moved them
+  exactly as far as `right` alone, to the pixel, on 12 seeds (§16.2.1,
+  `docs/FINDINGS.md` phase 6e-2). With the second probe, all 12 seeds walk the
+  7,827 px from spawn to the east wall, in **213–413 s, median 255 s**, against
+  the 174–271 s a mouse-aimed player takes. Eleven seeds land inside 290 s; the
+  slowest is 413 s, which fits §18.4's 480 s deadline and not its 360 s one.
+- **Reach is unchanged and unclamped.** Both probes land on rows the hitbox
+  itself overlaps, so the furthest tile centre either can name is
+  hypot(12, 11) = 16.3 px from the player's centre against `eff('reach')` of
+  25.6 px. The mouse path (`aimAtWorld`) still clamps to that same number and
+  is untouched.
+
+**Not AIR, rather than solid.** A pegged rung or a sapling in the faced column
+is a legitimate thing to swing at, and it is what the belly probe has always
+hit, so a solidity test would retarget swings that already land.
+
+**The price, paid knowingly.** The reticle names the first OCCUPIED tile, so
+with no pointer on the canvas the place verb can no longer target a side cell
+that is air at belly height and rock at head height — the reticle sits on the
+rock and §23.2's rule 3 refuses. Measured: an armed rung and a bare
+`cmd.place` put a rung in that cell before 6y and put nothing in it after.
+The reticle telling the truth about a swing is worth more than that cell,
+because every gesture that places is a pointer gesture (`cmd.place` has no key
+bound to it, and a pointer resolves the aim through `aimAtWorld`), while
+`cmd.dig` is the only intent the keyboard aim exists to serve.
+
+**The other directions are untouched, and that is measured rather than
+asserted.** Straight down keeps `resolveStraightDown`'s column choice; up, and
+down-and-sideways, keep the generic centre-x resolve. Over 20,000 sampled poses
+per direction in mixed terrain, the aim is identical to the pre-6y aim for
+`up`, `up+left`, `up+right`, `down`, `down+left`, `down+right` and `down+up` —
+0 differences of 20,000 each. In the horizontal branch the aim differs in
+18,260 of 80,000 poses and in every one of them the old aim was pointing at
+AIR or off the world. A shaft driven 240 px straight down from spawn takes the
+same time to the millisecond as before at all eight of the harness's
+framerates, on three seeds.
+
+**Digging straight up still cannot reach a ceiling, and that is a separate
+defect.** `cmd.up` resolves to `centre.y - tile`, which is always the topmost
+row the body itself fills, so it only ever names the player's own head row.
+That row is air unless something non-solid is pegged in it, which is why a
+player on a ladder can mine the rung at head height and a player under rock
+cannot break it. `docs/FINDINGS.md` phase 6y records it.
+
 ## 3. Fall damage
 
 Discrete hearts, derived from impact velocity. With `g = 320 px/s²`,
@@ -574,6 +638,23 @@ appears in `src/view/`.
 Tile-byte headroom: adding the `auger` relic substance is the 10th
 substance row, dropping headroom from 14 to 13 substances still allowed
 before the tile-id byte overflows (`src/data/forms.js`'s guard).
+
+**What it costs to cut through a two-tile obstacle, by hand, from adjacent.**
+The keyboard and the mouse now pay the same `hard` per tile and differ only by
+the walk-in, because the keyboard aim reaches one tile and the mouse aim
+reaches 3.2 (§2.1). Measured on a flat corridor with a stock pick, holding
+`right` + `dig` from two columns away:
+
+| obstacle | keyboard, both rows clear | mouse, both rows clear | keyboard walks past |
+|---|---|---|---|
+| 5-tall `timber` trunk | 0.89 s | 0.69 s | 1.13 s |
+| 2-tall `stone` face | 3.41 s | 3.21 s | 3.65 s |
+| 2-tall `soil` face | 1.19 s | — | 1.43 s |
+| 2-tall `granite` face | never | never | never |
+
+Granite is `tile.tier:2` and refuses a tier-1 stock pick, which is this
+section's gate doing its job and not a reach defect. Before §2.1's second
+probe every keyboard row read "never", because only the belly tile ever broke.
 
 ## 13. Buildable machine costs (Phase 3)
 
@@ -3272,6 +3353,13 @@ already does.
 **A held rule-4 press also paints the dig queue** (§28.5). Nothing above
 changes: the stroke is armed inside rule 4's own branch, so a press that
 decided 1, 2 or 3 can never become one.
+
+**All four rules read `aim`, and which aim that is depends on the pointer.**
+`shell/schedule.js` resolves the reticle through `aimAtWorld` while
+`cmd.hasMouse` holds and through `aimAtKeys` otherwise, and `pointerleave`
+drops `hasMouse`, so a press arriving with no prior pointer move dispatches
+against the keyboard aim. §2.1 states what that aim names and what rule 3
+loses by it. The pointer path itself is unchanged by 6y.
 
 **Rule 2 sits above rule 3 deliberately**, and the precedent is
 `shell/input.js`'s own RMB branch, which already puts "a machine is under the

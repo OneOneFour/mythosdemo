@@ -3976,3 +3976,63 @@ one-line exception, one design question handed back, and four things parked.
   `tools/content.mjs` is where a strata-row shape check belongs and it was not
   in this block; the new density floor in `tools/worldgen-check.mjs` catches
   the case for every row that has a floor declared, which is all of them today.
+
+## Phase 6y — the keyboard aim reaches both rows of the body
+
+`rules/mining.js#aimAtKeys`'s bare horizontal branch now probes the faced
+column twice, belly row first and head row second, and takes the first tile
+that is not AIR (`docs/SPEC.md` §2.1). Five things found outside the block, and
+one cost taken knowingly inside it.
+
+- **Digging straight UP can never reach a ceiling, and never could.**
+  `src/rules/mining.js:95`'s `cmd.up` branch resolves to `centre.y - b.tile`,
+  which is `player.y` exactly — always the topmost row the 16 px body itself
+  fills, never the row above it. That row is air unless something non-solid is
+  pegged in it, so `up` + `dig` under rock breaks nothing: measured at 0 tiles
+  broken in 20 s of held `up` + `dig` in a carved pocket, against 2 tiles for
+  `down` + `dig` in the same scene. It reads as working only because a player
+  on a ladder mines the rung at head height. The fix is the mirror of
+  `resolveStraightDown` — probe the two columns the hitbox straddles at
+  `player.y - 1` — and this phase's brief said to leave every non-horizontal
+  direction byte-identical, which it did (20,000 poses per direction, 0
+  differences).
+
+- **No key is bound to `cmd.dig` at all**, so a keyboard-only player still
+  cannot mine, aim or no aim. `src/shell/input.js:120-125`'s `KEYS` table maps
+  only wasd/arrows, and `src/shell/ui.js:75` states the verb as `LMB` — mining
+  reaches `rules/mining.js` through `cmd.mouse` or through the dig queue.
+  `cmd.dig` is the "some other device asked" channel and today only the test
+  handle and `tools/check.mjs` write it. The keyboard aim is still what a real
+  player SEES, because `pointerleave` clears `cmd.hasMouse`
+  (`src/shell/input.js:882`) and `src/shell/schedule.js:285` then resolves the
+  reticle through `aimAtKeys`. `src/shell/` was not in this block.
+
+- **Nothing in `tools/check.mjs` probes the horizontal aim.** The defect was a
+  total no-op on any obstacle two tiles tall, it predates wave 6, and both
+  gates were blind to it — every behavioural probe that mines drives the mouse
+  aim, the model, or `resolveStraightDown`. A section-8 probe worth having is
+  "a 2-tall face two columns away, `right` + `dig` held, both rows break in
+  their own `hard` and the player walks past", which fails hard on the
+  single-probe aim. `tools/` was not in this block.
+
+- **`docs/SPEC.md` §16.2.1's traversal figure is a MOUSE figure.** Its
+  174–271 s, median 211 s for crossing the band while felling was measured with
+  a pointer, and before 6y a keyboard player could not cross at all. The
+  keyboard figure is now 213–413 s, median 255 s over the same 12 seeds
+  (`docs/SPEC.md` §2.1). §16 was not in this block, so the cross-reference goes
+  one way only.
+
+- **`tests/visual.spec.js:2546` passes on terrain luck.** The scene carves one
+  open cell at `(tx+1, ty)` and places into it with no pointer, and the head
+  row `(tx+1, ty-1)` happens to be AIR in the seed it boots, so the new head
+  probe falls through to the belly row and the placement still lands. Carve
+  that cell into rock and the same test would refuse the placement. The test's
+  own comment describes the centre row as the only probe. No pixels moved, so
+  the file stayed out of the diff.
+
+- **THE COST TAKEN INSIDE THE BLOCK: a no-pointer place verb loses one cell.**
+  With the reticle naming the first occupied tile, an armed rung and a bare
+  `cmd.place` can no longer fill a side cell that is air at belly height and
+  rock at head height — measured as a rung placed before 6y and nothing placed
+  after. `docs/SPEC.md` §2.1 records it as deliberate, because the reticle must
+  tell the truth about a swing and every placing gesture is a pointer gesture.
