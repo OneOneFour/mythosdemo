@@ -1,76 +1,44 @@
 /* LAYER rules — THE DRIVETRAIN AND THE CARRIERS. Cranks make torque, gears
-   carry it, segments move, and the player may ride one.
-   Imports `core`, `data`, `model`. Imports no other `rules` module.
+   carry it, segments move, and the player may ride one. Imports `core`,
+   `data`, `model`, and no other `rules` module.
 
-   REPLACES THE STAGED WINCH, which was deleted -- module, machine row,
-   substance, recipe, grant, tunables and placement branch -- in the same commit
-   this file started moving anything. Read CLAUDE.md invariant 4 (as reworded),
-   D4 (as amended), D10, and docs/SPEC.md section 17 before changing anything
-   here.
+   A CARRIER RISES ONLY WHILE SOMETHING IS ACTIVELY TURNING IT AND SLIDES BACK
+   DOWN UNDER ITS OWN WEIGHT FOR NOTHING. Nothing here could grow into a
+   world-spanning elevator: motion is per SEGMENT, a segment joins exactly two
+   hubs, and a chain is a derived query nothing in this file reads.
 
-   INVARIANT 4: A CARRIER RISES ONLY WHILE SOMETHING IS ACTIVELY TURNING IT AND
-   SLIDES BACK DOWN UNDER ITS OWN WEIGHT FOR NOTHING. There is no object in this
-   file that could grow into a world-spanning elevator: motion is per SEGMENT,
-   a segment joins exactly two hubs, and a chain is a derived query
-   (`model/segments.js#chains`) that nothing here reads.
+   MANUAL ONLY. The only power source is a crank the player is standing at and
+   holding down -- no heart-powered fallback, no banked charge, no passive
+   source. `active()` below is the whole of it.
 
-   MANUAL ONLY (D10, and docs/PLAN-gears-and-winches.md A5, explicitly
-   REJECTED by the user). The only power source in the game is a crank the
-   player is standing at and holding down. There is no heart-powered fallback,
-   no banked charge and no passive source of any kind: the cost of raising
-   anything is the player's own attention, and `active()` below is the whole of
-   it. A generator, when it exists, is one more predicate in that function and
-   changes nothing else in this file (docs/PLAN section 8).
+   LOAD IS PHYSICAL, NOT A PERMISSION. Boarding is never refused at any weight;
+   an over-cap rider is real mass in `massOf`, so the carrier slows, stalls and
+   runs backwards under them. The only thing said out loud is
+   `'TOO HEAVY TO LIFT'`, and only when a crank IS being turned and the thing
+   is going down anyway.
 
-   LOAD IS PHYSICAL, NOT A PERMISSION (D4 as amended). Boarding is never
-   refused at any weight. An over-cap rider is real mass in `massOf` below, so
-   the carrier slows, stalls and then runs backwards under them -- the premise
-   enforced by arithmetic instead of by a refusal. The only thing said out loud
-   is `'TOO HEAVY TO LIFT'`, and only in the one state that is otherwise
-   baffling: a crank is being turned and the thing is going DOWN anyway.
+   THE MOTION LAW:
+     need    = segBase + segLoad * mass * slope
+     supply  = the component's torque, gear loss per hop
+     demand  = the component's total `need`
+     drive   = demand > 0 ? min(1, supply / demand) : 0
+     surplus = supply - need
+     surplus > 0 -> ascend at segUp * min(1, surplus/segBase) * drive
+     surplus = 0 -> hold still
+     surplus < 0 -> descend at segDown * min(1, -surplus/segBase) * slope
 
-   THE MOTION LAW, AND THE ONE PLACE IT DEVIATES FROM docs/PLAN SECTION 4.3.
+   `surplus` is over the WHOLE component supply, UNAPPORTIONED, and decides the
+   DIRECTION; `drive` decides how much capacity an ascending segment gets.
+   Apportioning `supply` per segment makes `surplus`'s sign uniform across a
+   component, so two segments sharing one crank STOP rather than halving.
 
-     need    = segBase + segLoad * mass * slope        (4.3, verbatim)
-     supply  = the component's torque, from active cranks, gear loss per hop
-     demand  = the component's total `need`, summed over its segments
-     drive   = demand > 0 ? min(1, supply / demand) : 0   (4.4, verbatim)
-     surplus = supply - need                           (4.3, verbatim)
+   THERE IS NO `descend()` AND NO CHARGE GATE: at zero supply `surplus` is
+   `-need`, at least `segBase`, so an unpowered vertical segment descends at
+   full `segDown`. A horizontal one multiplies that by `slope = 0` and sits
+   still, with no horizontal special case anywhere.
 
-     surplus > 0  ->  ascend  at segUp * min(1, surplus / segBase) * drive
-     surplus == 0 ->  hold still
-     surplus < 0  ->  descend at segDown * min(1, -surplus / segBase) * slope
-
-   The deviation is the `* drive` factor on the ASCENT case, and it is there
-   because section 4.3 and section 4.4 of the plan cannot both be implemented
-   literally. 4.3 apportions `supply` across a component's segments in
-   proportion to their own `need`, which makes `surplus` identically
-   `need * (supply/demand - 1)`: its SIGN is then uniform across the component
-   and two identical segments sharing one crank do not slow down, they STOP.
-   That contradicts 4.4's own worked example ("one crank feeding three segments
-   through gears turns all three at a third speed") and the phase's own
-   acceptance walkthrough. Conversely 4.4's `drive` alone cannot make a loaded
-   carrier run BACKWARDS, which is the load-bearing correction in the brief.
-
-   So: `surplus` (over the WHOLE component supply, unapportioned) decides the
-   DIRECTION and the descent magnitude; `drive` decides how much of the
-   drivetrain's capacity an ascending segment gets. Sharing a crank between two
-   segments halves `drive` and therefore halves the climb, and no combination
-   of the two can ever exceed `eff('segUp')`. Recorded in docs/SPEC.md section
-   17.8 and docs/FINDINGS.md.
-
-   THERE IS NO `descend()` FUNCTION AND NO CHARGE GATE. Weighted descent is
-   what the expression above already produces at zero supply -- `surplus` is
-   then `-need`, which is at least `segBase`, so an unpowered vertical segment
-   descends at the full `segDown`. A second code path for it would be two
-   rules for one fact. A horizontal segment gets that same descent multiplied
-   by `slope = 0` and therefore sits still, with no horizontal special case
-   anywhere.
-
-   DETERMINISM: no `rand()`. Iteration is `segments` order (link
-   order) and `machines` order (placement order), and `m.turn` accumulates from
-   `dt` alone, so a gear's rotation phase is reproducible from the seed and the
-   frame count. */
+   DETERMINISM: no `rand()`. Iteration is link order and placement order, and
+   `m.turn` accumulates from `dt` alone. */
 
 import { clamp, overlaps } from '../core/math.js';
 import { push } from '../model/journal.js';
@@ -155,28 +123,16 @@ export function step(dt, cmd) {
     }
 }
 
-/* the crank: a HOLD, and nothing is spent but presence
-   `cmd.action` is a hold in the exact shape `cmd.craft` already has
-   (`shell/input.js`, bound to `r` -- renamed from `turn`/`f` in Phase 12d,
-   docs/PLAN-phase12.md §3 D-J, since the brief asked for a generic "hold to
-   operate a placed machine" verb, not a crank-specific one), not an edge:
-   `rules/crafting.js`
-   accumulates while it is true and forgets on release, and a crank is that
-   with a proximity test instead of a recipe.
+/* THE CRANK IS A HOLD, and nothing is spent but presence. `cmd.action` is a
+   hold in the exact shape `cmd.craft` has, not an edge, so a crank is
+   `rules/crafting.js` with a proximity test instead of a recipe.
 
-   `overlaps(playerBox(), m.box, def.crank.reach)` is the SAME `core/math.js`
-   call `rules/machines.js#handFeed` makes, so "close enough to turn" and
-   "close enough to feed" cannot disagree about touching. Every crank within
-   reach turns -- holding one key at a junction of two cranks turns both,
-   which is a legitimate build and not a loophole: each still contributes only
-   its own `torque`.
-
-   THE CRANK'S OWN ACTIVITY IS DELIBERATELY NOT CACHED, unlike the partition
-   below. It changes on the frame a key goes down and on the frame the player
-   walks one pixel out of reach, i.e. potentially every frame, and it is two
-   floats and an AABB test per crank over a list that is tens long. A cache
-   keyed on anything that changes every frame is a slower way to compute the
-   same number. */
+   `overlaps(playerBox(), m.box, def.crank.reach)` is the SAME call
+   `rules/machines.js#handFeed` makes, so "close enough to turn" and "close
+   enough to feed" cannot disagree about touching. EVERY crank within reach
+   turns -- holding one key at a junction of two turns both, which is a
+   legitimate build rather than a loophole, since each still contributes only
+   its own torque. */
 function supplyOf(comps, cmd) {
   const turning = !!(cmd && cmd.action) && !run.dead && !!player.band;
   if (!turning) return;
@@ -210,11 +166,9 @@ function drive(s, dt) {
 
   /* WHICH COMPONENT DRIVES A CROSS-COMPONENT SEGMENT: the one supplying more
      torque, `seg.a`'s on a tie. A segment's two hubs can sit in different
-     bands and therefore in different components (a surface-to-astral span is
-     the ordinary case), and both ends are pulling on the same cable. Taking
-     the GREATER rather than the SUM is the conservative reading and the one
-     invariant 4 wants: two half-fed drivetrains at opposite ends of a cable do
-     not add up to a free ride. */
+     bands and so in different components, and both ends pull on the same
+     cable. Taking the GREATER rather than the SUM is the conservative reading
+     -- two half-fed drivetrains do not add up to a free ride. */
   const c = pick(s.ca, s.cb);
   const supply = c ? c.supply : 0;
   const throttle = c ? c.drive : 0;
@@ -225,10 +179,10 @@ function drive(s, dt) {
   if (surplus > 0) v = eff('segUp') * Math.min(1, surplus / base) * throttle;
   else if (surplus < 0) v = -eff('segDown') * Math.min(1, -surplus / base) * seg.slope;
 
-  /* THE ONE THING SAID OUT LOUD (D4 as amended): a crank is being turned and
-     the carrier is going down anyway. Rate-limited with the `WeakMap` gap
-     idiom `rules/machines.js`'s tier refusal uses, keyed by the segment
-     record, because more than one segment can be losing at once. */
+  /* THE ONE THING SAID OUT LOUD: a crank is being turned and the carrier is
+     going down anyway. Rate-limited with the `WeakMap` gap idiom the tier
+     refusal uses, keyed by the SEGMENT record, because more than one can be
+     losing at once. */
   if (c && c.turning && v < 0 && refusalDue(seg))
     push('refused', carrierPos(seg), { why: 'TOO HEAVY TO LIFT' });
 
@@ -281,15 +235,12 @@ function drive(s, dt) {
 
 const pick = (a, b) => (!a ? b : !b ? a : (b.supply > a.supply ? b : a));
 
-/* the haul
-   the retired winch's own `carry()` generalised to two axes: a segment runs at any
-   angle, so `it.y += dy` becomes both. Items are world-positioned, so this is
-   two additions per item -- no parenting and no transform stack.
+/* A segment runs at any angle, so the haul is two additions per item. Items
+   are world-positioned, so there is no parenting and no transform stack.
 
-   A BAND HANDOFF IS A RESPAWN AT THE SAME WORLD PIXEL, which is the only
-   sanctioned way to change an item's band (the retired `deposit()`, verbatim
-   in shape). Done the moment the carrier's own band changes rather than only
-   on arrival, because `it.band` is which band's tiles an item collides
+   A BAND HANDOFF IS A RESPAWN AT THE SAME WORLD PIXEL, the only sanctioned way
+   to change an item's band. Done the moment the CARRIER's band changes rather
+   than on arrival, because `it.band` is which band's tiles an item collides
    against and a resting item on the wrong side of a seam is a wake-up waiting
    to happen. */
 function haul(s, dx, dy) {
@@ -322,77 +273,28 @@ function haul(s, dx, dy) {
   return out;
 }
 
-/* the rider
-   Translated AFTER `rules/player.js` has already resolved collision this
-   frame -- the identical freshness relationship `items before belts` has, and
-   the reason `shell/schedule.js` states `player before drive`. The ride
-   DECISION (is the player standing on a carrier at all) is
-   `model/segments.js#riddenSegment`, one query both this module and
-   `rules/player.js` call, because `rules` siblings may not import each other
-   and two copies of that predicate would eventually disagree.
+/* Translated AFTER `rules/player.js` has resolved collision this frame, which
+   is why `shell/schedule.js` states `player before drive`. The ride DECISION
+   is `model/segments.js#riddenSegment`, one query both modules call, because
+   siblings may not import each other.
 
-   The carrier is NOT terrain and does not become terrain: this
-   is a translation of a position the tile grid has already had its say about,
-   and nothing here writes to any band's `mat`. */
+   The carrier is NOT terrain and does not become terrain: this is a
+   translation of a position the tile grid has already had its say about, and
+   nothing here writes to any band's `mat`. */
 function ride(s, dx, dy) {
   if (!s.rider || (!dx && !dy)) return;
   const b = player.band;
   const nx = player.x + dx, ny = player.y + dy;
-  /* A TRANSLATION IS NOT A MOVE, so it has to ask the tile grid itself. A
-     carrier's cable can run within a pixel of solid rock (a 1-tile shaft is
-     the ordinary case), and pushing an unresolved position across a tile
-     boundary is the ONE way this file could put the player inside rock --
-     which the 7,200-frame fuzz in `tools/check.mjs` asserts never happens and
-     which invariant 1 forbids on principle. Refused rather than resolved: the
-     carrier keeps going, the rider does not, and by the next frame they are
-     not over it any more and gravity has them. That is the same answer
-     docs/PLAN section 4.6 gives for being carried into a ceiling.
+  /* A TRANSLATION IS NOT A MOVE, so it asks the tile grid itself: pushing an
+     unresolved position across a tile boundary is the ONE way this file could
+     put the player inside rock. REFUSED rather than resolved -- the carrier
+     keeps going, the rider does not. `boxSolid` is DUPLICATED from
+     `rules/player.js`, because siblings may not import each other.
 
-     `boxSolid` is DUPLICATED from `rules/player.js` rather than shared,
-     because `rules` siblings may not import each other -- the identical trade
-     `rules/machines.js`'s own `HARD_BREAK` mirror already accepted, and for
-     the identical reason. Both read `model/tiles.js#solidAt` and the hitbox
-     from `model/player.js`, so the two can only disagree if someone edits one
-     of them alone.
-
-     THE ONE EXCEPTION IS THIS SEGMENT'S OWN TWO HEADFRAMES, and it is Phase
-     10a's cable exemption applied to the rider (docs/FINDINGS.md #17,
-     docs/SPEC.md 17.6). Measured before the fix, a 12-tile vertical pair built
-     on real footing tiles with the player aboard and a crank held: the rider
-     stopped dead at world y 1632 with the carrier still climbing, **34 px --
-     4.25 tile rows -- below the deck it was supposed to arrive on**, then
-     detached and fell back down the shaft. The cause is the same three facts
-     that blocked the cable, one of them swapped: the anchor sits on a tile
-     COLUMN boundary, the player's 6 px box straddles that boundary, and
-     `footing:1` requires a solid tile directly under the upper hub's
-     footprint. So a rider approaching the top of a segment always has that
-     footing tile inside their box, whichever of the two columns holds it, and
-     the translation was always refused. That made
-     docs/PLAN-phase10.md 4.4 -- "the player rides up and steps off onto
-     astral's floor" -- physically unreachable, which is what makes this
-     load-bearing and not a nicety.
-
-     WHY IT IS THE SAME NARROW EXEMPTION AND NOT A COLLISION CHANGE. The
-     exempt tiles are `model/segments.js#headframe`'s, unchanged and imported
-     rather than re-derived, so the rider may pass exactly the tiles the cable
-     may pass and not one more: the two endpoint hubs' own footprint columns,
-     from the anchor's row down to the footprint's bottom plus one. Of those,
-     the rows inside the footprint are required CLEAR by `placementCheck`, so
-     the only tile that can actually be solid is the footing row -- one row,
-     two tiles, per endpoint. `solidAt` is untouched; `rules/player.js`'s own
-     `boxSolid` is untouched; nothing outside a ride translation on THIS
-     segment sees any of it.
-
-     AND A RIDER CANNOT GET STUCK IN THE TILE THEY PASS THROUGH, which is the
-     one thing that would make this a worse bug than the one it fixes. The
-     rows above the footing row are required clear, so a box overlapping it
-     always has its top half in proven air, and every way out resolves in one
-     frame through code this exemption does not touch: gravity moves them down
-     into the clear row below (`rules/player.js#moveY`, step > 0, no
-     exemption); a hop bonks the ceiling case and snaps them flush to the
-     footing row's own lower boundary, also clear; and `moveX` refuses, so
-     they cannot walk further in. Measured: a rider who hops mid-headframe is
-     out of the tile on the next frame. */
+     THE ONE EXCEPTION IS THIS SEGMENT'S OWN TWO HEADFRAMES, imported so the
+     rider passes exactly the tiles the cable does. Without it a rider stopped
+     34 px below the deck, because `footing:1` puts a solid tile inside the box
+     of anyone approaching the top. The rows above it are required CLEAR. */
   const exempt = [headframe(s.seg.a), headframe(s.seg.b)];
   if (b && boxSolid(b, nx, ny, exempt)) return;
   pw.move(nx, ny);
@@ -441,23 +343,16 @@ function adjacent(a, b) {
       || (overY && (ax1 === b.tx || bx1 === a.tx));
 }
 
-/* THE CACHE, exactly `rules/light.js`'s own `bandState`/`isDirty` idiom: a
+/* THE CACHE, exactly `rules/light.js`'s `bandState`/`isDirty` idiom: a
    module-local `WeakMap` keyed by the BAND OBJECT and invalidated by a
-   SIGNATURE recomputed every frame. Keyed by the object and not by `b.ord`
-   deliberately -- `newRun()` always hands out fresh band records, so a stale
-   entry can never be read back into a live run and there is no reset call to
-   wire up or forget.
+   signature recomputed every frame. Keyed by the OBJECT and not `b.ord`, so a
+   stale entry cannot be read back into a live run and there is no reset call
+   to forget.
 
-   WHAT IS CACHED IS THE TOPOLOGY ONLY: the component partition and, per crank,
-   the path of nodes between it and its nearest hub. Every NUMBER on that path
-   is still read through `eff()` per frame (see `supplyOf`), so a modifier is
-   never one frame stale. The partition changes only when a machine is placed
-   or removed; the crank's own activity changes every frame and is deliberately
-   not cached at all.
-
-   Node counts are in the TENS, so the flood is O(n^2) and the path search is a
-   plain BFS. `model/segments.js#chains` makes the same call about union-find,
-   for the same reason, and says so. */
+   WHAT IS CACHED IS THE TOPOLOGY ONLY. Every NUMBER is still read through
+   `eff()` per frame, so a modifier is never one frame stale, and the crank's
+   own activity is deliberately not cached at all. Node counts are in the TENS,
+   so the flood is O(n^2) and the path search a plain BFS. */
 const bandState = new WeakMap();
 
 function partitionFor(b) {
