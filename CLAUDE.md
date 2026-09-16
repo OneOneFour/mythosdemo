@@ -258,9 +258,9 @@ comment that only makes sense with another document open is not a comment —
 state the constraint itself, in terms of the code.
 
 **Ten lines is the cap for one block**, and most should be one or two. A
-file-top block gets 30, because a `data/` table's field key and
+file-top block gets 36, because a `data/` table's field key and
 `shell/schedule.js`'s step order are reference tables a reader needs in the
-file. Prose does not qualify at either length — cut it to the constraint or
+file, and `data/machines.js`'s 22 keys at one line each come to 34. Prose does not qualify at either length — cut it to the constraint or
 move it to `.claude/brain/`. `npm run lint:comments` enforces both caps.
 
 Delete everything else:

@@ -33,9 +33,10 @@ const MAX_BLOCK_LINES = 10;
 
 /* A file-top block gets more room, because a `data/` table's field key and
    `shell/schedule.js`'s one-row-per-pair order are reference tables a reader
-   of the file needs in the file. Prose still does not qualify -- 30 lines is
-   about 20 keys at one line each, which is the shape being allowed. */
-const MAX_HEADER_LINES = 30;
+   of the file needs in the file. 36 is `data/machines.js`'s 22-key table at
+   one line per key plus its layer declaration, which is the largest honest
+   one in the tree. Prose does not qualify at any length. */
+const MAX_HEADER_LINES = 36;
 
 /* More than this many consecutive `//` lines is a block wearing a disguise. */
 const MAX_RUN = 4;
@@ -43,7 +44,9 @@ const MAX_RUN = 4;
 const RULES = [
   [/\b[A-Za-z][A-Za-z0-9_-]*\.md\b/, 'references a document; state the constraint instead'],
   [/\u00a7\s*\d|\bsections?\s+\d/i, 'cites a document section'],
-  [/\b[Pp]hases?\s?\d|\bgate\s?\d|\bwave\s?\d/, 'names a phase, gate or wave'],
+  /* Capital-P `Phase 13d`, or a lowercase one with a letter suffix (`phase 6e`).
+     Bare lowercase `phase 0` is a gear's rotational phase, not a project one. */
+  [/\bPhases?\s?\d|\bphases?\s?\d+[a-z]\b|\bgate\s?\d|\bwave\s?\d/, 'names a phase, gate or wave'],
   [/(?<![A-Za-z])D1?\d(-[A-Z]\b|\b(?!\s*(px|ms|s\b|tiles?|talents?)))/, 'cites a decision number'],
   [/\binvariants?\s+\d/i, 'cites an invariant by number'],
   [/\bassertion\s+\d/i, 'cites an assertion by number'],
