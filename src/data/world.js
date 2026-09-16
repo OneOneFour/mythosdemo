@@ -51,7 +51,7 @@ export const BANDS = [
      No heat: nothing burns up here, which is a content statement made by
      omitting one array entry. ---- */
   { id:'astral', name:'THE MINOR HEAVENS',
-    tw:128, th:40, tile:8, chunk:16,
+    tw:1024, th:40, tile:8, chunk:16,
     origin:{ x:0, y:0 },
     floorTy:30,
     fields:[],
@@ -65,7 +65,7 @@ export const BANDS = [
      column the player starts in. Both are band-local -- nothing in the project
      converts them to a world constant. ---- */
   { id:'surface', name:'THE SUN\'S FLOOR',
-    tw:128, th:56, tile:8, chunk:16,
+    tw:1024, th:56, tile:8, chunk:16,
     origin:{ x:0, y:320 },
     floorTy:20, spawnTx:42, spawn:true,
     fields:['heat'],
@@ -170,7 +170,7 @@ export const BANDS = [
      surface so a shaft continues cleanly across the seam; that is a content
      choice, not a constraint. ---- */
   { id:'topsoil', name:'THE TOPSOIL',
-    tw:128, th:320, tile:8, chunk:16,
+    tw:1024, th:320, tile:8, chunk:16,
     origin:{ x:0, y:768 },
     floorTy:0,
     fields:['heat'],

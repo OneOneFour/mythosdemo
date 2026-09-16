@@ -2822,7 +2822,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     const cols = [];
     for (const b of world.bands) {
       const midY = b.origin.y + (b.cfg.th * b.tile) / 2;
-      for (let tx = 0; tx < 128; tx++)
+      for (let tx = 0; tx < b.tw; tx++)
         if (!world.bandAt(tx * 8 + 4, midY)) cols.push(`${b.id} x${tx}`);
     }
     if (cols.length) {
@@ -2832,13 +2832,18 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
       bad++;
     }
 
-    /* 3b. `topsoil` column 127 with a `tw:2` footprint: the second column is
-       out of bounds, so the anchor lands on world x 1024, one pixel past the
-       world's right edge. */
-    const h = handSpan(8802, ['topsoil', 120, 100], ['topsoil', 127, 100]);
-    if (h.eb.x !== 1024) {
-      fail(`LINK LEGALITY (cross-band): the off-world hub anchors at x ${h.eb.x}, not 1024 -- the ` +
-           `world is not 1024 px wide any more and this case is testing something else`);
+    /* 3b. `topsoil`'s LAST column with a `tw:2` footprint: the second column is
+       out of bounds, so the anchor lands one pixel past the world's right edge.
+       Derived from `b.tw`, never hardcoded -- the columns moved once already,
+       when wave 6.3 widened the bands, and a literal here does not fail, it
+       silently starts testing an interior column. */
+    const top = world.bandOf('topsoil');
+    const edge = top.tw - 1, near = edge - 7, past = world.widthPx(top);
+    const h = handSpan(8802, ['topsoil', near, 100], ['topsoil', edge, 100]);
+    if (h.eb.x !== past) {
+      fail(`LINK LEGALITY (cross-band): the off-world hub anchors at x ${h.eb.x}, not ${past} -- a ` +
+           `hub on the last column no longer reaches past the world's edge and this case is ` +
+           `testing something else`);
       bad++;
     }
     expect('a span whose far anchor is past the world\'s right edge', h.A, h.B, 'OUTSIDE THE WORLD');
@@ -2846,8 +2851,8 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     /* CASE 4 -- and when a span is BOTH blocked and off-world, 17.6's order
        says it reports the blockage: the rock is the thing the player can do
        something about. */
-    const h2 = handSpan(8802, ['topsoil', 120, 100], ['topsoil', 127, 100]);
-    tiles.write.set(world.bandOf('topsoil'), 123, 100, STONE);
+    const h2 = handSpan(8802, ['topsoil', near, 100], ['topsoil', edge, 100]);
+    tiles.write.set(world.bandOf('topsoil'), edge - 4, 100, STONE);
     expect('a span that is both blocked and off-world', h2.A, h2.B, 'THE PATH IS BLOCKED');
   }
 

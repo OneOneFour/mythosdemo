@@ -28,7 +28,7 @@
    inside each level's bucket, so two runs of the same seed relight identically.
 
    RECOMPUTE ONLY WHEN SOMETHING THAT MATTERS ACTUALLY CHANGED, never per
-   frame -- a full-band flood over 40,000-odd tiles is not a per-frame cost.
+   frame -- a flood over a band's worth of tiles is not a per-frame cost.
    "Changed" is two independent things, both cheap to check every frame even
    when nothing did: the band's own chunk versions (`b.ver`, already bumped by
    every tile write, so a dug tunnel opens a new path THIS check) summed over
@@ -50,7 +50,7 @@ import { eff } from '../model/mods.js';
 import { player, playerBox } from '../model/player.js';
 import { invCount, run, write as rw } from '../model/run.js';
 import { solidAt } from '../model/tiles.js';
-import { bandAt, bandSpans, bands, hasOwnSky, idx, inBounds, lightAt, tileX, tileY, worldX,
+import { bandAt, bandSpans, bands, hasOwnSky, inBounds, lightAt, tileX, tileY, worldX,
          write as ww } from '../model/world.js';
 
 /* THE SEAM CASCADE. `recompute` carries light down across a band seam, so a
@@ -94,9 +94,9 @@ function tickBrand(dt) {
 }
 
 /* ---------- emitters ----------
-   Every source this band's flood seeds from, besides open sky (handled
-   directly in `recompute`). NO MACHINE NAME APPEARS HERE -- `def.light` is a
-   generic `{ level, whileRunning }` key any row may carry, read exactly like
+   Every source this band's flood seeds from, besides open sky and the seam
+   carry (both in `forEachSeed`). NO MACHINE NAME APPEARS HERE -- `def.light` is
+   a generic `{ level, whileRunning }` key any row may carry, read exactly like
    every other interpreter key in `rules/machines.js`. `level:'max'` is the
    one sentinel, for a fixture (the hearth) whose brightness must track
    `eff('lightMax')` itself rather than a fixed number -- data cannot call
@@ -171,25 +171,101 @@ function isDirty(b, sig) {
    brightest level the first time a live (non-stale) entry for it is popped.
    A tile can be pushed more than once, at different levels, before its best
    one is processed -- `best[i] !== lvl` on pop is the cheap way to ignore a
-   since-beaten, now-stale entry rather than searching a bucket to remove it. */
+   since-beaten, now-stale entry rather than searching a bucket to remove it.
+
+   THE SCRATCH FIELD IS THE LIT REGION'S BOUNDING BOX, NOT THE BAND. `best`
+   was `Int8Array(b.tw * b.th)` per recompute, which is 320 KB for `topsoil`
+   at 1,024 columns -- allocated, walked and thrown away every time a tile
+   broke anywhere (docs/PLAN-horizontal-chunks-SCOPE.md 3.4). It is now sized
+   to the seeds' bounding box grown by `reach`, and `topsoil` with no shaft to
+   the surface and no lit machine has no seeds at all, so it allocates nothing
+   and floods nothing. Indices in `best` and in the buckets are WINDOW-LOCAL;
+   the only absolute coordinates are the ones handed to `solidAt` and
+   `setLight`. */
 function recompute(b, emitters) {
   const max = Math.max(1, Math.round(eff('lightMax')));
   const air = eff('lightFalloffAir'), rock = eff('lightFalloffRock');
-  const best = new Int8Array(b.tw * b.th).fill(0);
+
+  /* HOW FAR ONE SEED CAN POSSIBLY REACH, in tiles. `relax` charges at least
+     `min(air, rock)` per hop and drops a tile below 1 rather than seeding it,
+     so a seed at `max` dies after `(max - 1) / step` hops: 14 at the shipped
+     15/1/3. A tile outside the box is further than that from EVERY seed in
+     Chebyshev distance and therefore in hops, so it can be neither lit nor a
+     live relay -- which is what makes the window bit-identical to the whole
+     band rather than an approximation of it. A zero or negative falloff would
+     spread without bound, so it falls back to the band. */
+  const step = Math.min(air, rock);
+  const reach = step > 0 ? Math.floor((max - 1) / step) : b.tw + b.th;
+
+  let tx0 = b.tw, ty0 = b.th, tx1 = -1, ty1 = -1;
+  forEachSeed(b, emitters, max, air, rock, (tx, ty) => {
+    if (tx < tx0) tx0 = tx;
+    if (tx > tx1) tx1 = tx;
+    if (ty < ty0) ty0 = ty;
+    if (ty > ty1) ty1 = ty;
+  });
+
+  ww.clearLight(b);
+  if (tx1 < 0) { ww.touchLight(b); return; }        // nothing lights this band
+
+  const win = {
+    tx0: Math.max(0, tx0 - reach), ty0: Math.max(0, ty0 - reach),
+    tx1: Math.min(b.tw - 1, tx1 + reach), ty1: Math.min(b.th - 1, ty1 + reach),
+    w: 0
+  };
+  win.w = win.tx1 - win.tx0 + 1;
+  const best = new Int8Array(win.w * (win.ty1 - win.ty0 + 1));
   const buckets = Array.from({ length: max + 1 }, () => []);
 
-  const seed = (tx, ty, level) => {
-    const lvl = Math.min(max, Math.max(0, Math.round(level)));
-    if (lvl < 1) return;
-    const i = idx(b, tx, ty);
+  forEachSeed(b, emitters, max, air, rock, (tx, ty, lvl) => {
+    const i = (ty - win.ty0) * win.w + (tx - win.tx0);
     if (lvl > best[i]) { best[i] = lvl; buckets[lvl].push(i); }
+  });
+
+  for (let lvl = max; lvl >= 1; lvl--) {
+    const q = buckets[lvl];
+    for (let qi = 0; qi < q.length; qi++) {
+      const i = q[qi];
+      if (best[i] !== lvl) continue;                    // stale: already beaten
+      const tx = win.tx0 + (i % win.w), ty = win.ty0 + ((i / win.w) | 0);
+      relax(b, win, tx - 1, ty, lvl, air, rock, best, buckets, max);
+      relax(b, win, tx + 1, ty, lvl, air, rock, best, buckets, max);
+      relax(b, win, tx, ty - 1, lvl, air, rock, best, buckets, max);
+      relax(b, win, tx, ty + 1, lvl, air, rock, best, buckets, max);
+    }
+  }
+
+  for (let i = 0; i < best.length; i++)
+    if (best[i] > 0)
+      ww.setLight(b, win.tx0 + (i % win.w), win.ty0 + ((i / win.w) | 0), best[i]);
+  ww.touchLight(b);
+}
+
+/* Every tile this band's flood starts from, with the level it starts at, in a
+   fixed order. Called TWICE per recompute -- once to measure the bounding box,
+   once to fill it -- rather than materialising a seed list, because a band with
+   sky of its own seeds tens of thousands of tiles and a list of them costs more
+   than the scratch field the box exists to shrink. Both passes see the same
+   seeds in the same order, so the flood is unaffected by which one is running.
+
+   Levels are clamped and a seed under 1 is dropped here, so the box never grows
+   around a seed that would not have seeded. */
+function forEachSeed(b, emitters, max, air, rock, cb) {
+  /* `max` is already an integer at least 1 (`recompute` clamps it once), so the
+     sky pass calls `cb` directly and only the two sources that can hand over a
+     fractional or out-of-range level pay for `emit`. That matters: the sky pass
+     is tens of thousands of seeds in a band with sky of its own, and this is
+     walked twice. */
+  const emit = (tx, ty, level) => {
+    const lvl = Math.min(max, Math.max(0, Math.round(level)));
+    if (lvl >= 1) cb(tx, ty, lvl);
   };
 
   /* SKY, and only a band that carries sky of its own gets any
      (`model/world.js#hasOwnSky`). Walk DOWN from row 0 once per column and
      stop after the first solid tile, exactly `rules/reveal.js#passA`'s own
      loop -- `worldSkyAt` and `skyExposedAt` both walk a whole column, and
-     running either per tile over a 128x320 band is close to quadratic, so
+     running either per tile over a band this deep is close to quadratic, so
      this calls neither. Every tile from row 0 to and including that first
      solid tile has nothing solid above it and therefore a clear path to the
      band's own sky, so all of them seed at `max`, not just the ground line.
@@ -200,7 +276,7 @@ function recompute(b, emitters) {
   if (hasOwnSky(b))
     for (let tx = 0; tx < b.tw; tx++)
       for (let ty = 0; ty < b.th; ty++) {
-        seed(tx, ty, max);
+        cb(tx, ty, max);
         if (solidAt(b, tx, ty)) break;
       }
 
@@ -222,37 +298,22 @@ function recompute(b, emitters) {
   for (let tx = 0; tx < b.tw; tx++) {
     const wx = worldX(b, tx) + b.tile / 2;
     const a = bandAt(wx, wyAbove);
-    if (!a || a.ord >= b.ord) { seed(tx, 0, max); continue; }
+    if (!a || a.ord >= b.ord) { emit(tx, 0, max); continue; }
     const lvl = lightAt(a, tileX(a, wx), tileY(a, wyAbove));
-    if (lvl > 0) seed(tx, 0, lvl - (solidAt(b, tx, 0) ? rock : air));
+    if (lvl > 0) emit(tx, 0, lvl - (solidAt(b, tx, 0) ? rock : air));
   }
 
-  for (const e of emitters) if (inBounds(b, e.tx, e.ty)) seed(e.tx, e.ty, e.level);
-
-  for (let lvl = max; lvl >= 1; lvl--) {
-    const q = buckets[lvl];
-    for (let qi = 0; qi < q.length; qi++) {
-      const i = q[qi];
-      if (best[i] !== lvl) continue;                    // stale: already beaten
-      const tx = i % b.tw, ty = (i / b.tw) | 0;
-      relax(b, tx - 1, ty, lvl, air, rock, best, buckets, max);
-      relax(b, tx + 1, ty, lvl, air, rock, best, buckets, max);
-      relax(b, tx, ty - 1, lvl, air, rock, best, buckets, max);
-      relax(b, tx, ty + 1, lvl, air, rock, best, buckets, max);
-    }
-  }
-
-  ww.clearLight(b);
-  for (let i = 0; i < best.length; i++)
-    if (best[i] > 0) ww.setLight(b, i % b.tw, (i / b.tw) | 0, best[i]);
-  ww.touchLight(b);
+  for (const e of emitters) if (inBounds(b, e.tx, e.ty)) emit(e.tx, e.ty, e.level);
 }
 
-function relax(b, nx, ny, lvl, air, rock, best, buckets, max) {
-  if (!inBounds(b, nx, ny)) return;
+/* `win` is clamped inside the band, so the window test IS the bounds test --
+   there is no second `inBounds` call and an out-of-band neighbour is rejected
+   by the same four comparisons. */
+function relax(b, win, nx, ny, lvl, air, rock, best, buckets, max) {
+  if (nx < win.tx0 || nx > win.tx1 || ny < win.ty0 || ny > win.ty1) return;
   const cost = solidAt(b, nx, ny) ? rock : air;
   const nlvl = Math.min(max, Math.floor(lvl - cost));
   if (nlvl < 1) return;
-  const ni = idx(b, nx, ny);
+  const ni = (ny - win.ty0) * win.w + (nx - win.tx0);
   if (nlvl > best[ni]) { best[ni] = nlvl; buckets[nlvl].push(ni); }
 }

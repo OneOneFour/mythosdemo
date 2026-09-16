@@ -51,7 +51,8 @@
 import { eff } from '../model/mods.js';
 import { player, playerBox } from '../model/player.js';
 import { solidAt, worldSkyAt } from '../model/tiles.js';
-import { bandSpans, chunkOf, chunkVer, inBounds, lightAt, write as ww } from '../model/world.js';
+import { bandAbove, bandSpans, chunkOf, chunkVer, inBounds, lightAt,
+         write as ww } from '../model/world.js';
 
 /* Perf-only cache for Pass B, MODULE-LOCAL AND DELIBERATELY NOT IN `model/`
    (docs/DEVELOPER_GUIDE.md#module-local-perf-caches): keyed by the band
@@ -62,6 +63,11 @@ import { bandSpans, chunkOf, chunkVer, inBounds, lightAt, write as ww } from '..
    nothing here should rely on that) can't leave a stale reference pointing at
    a dead one. */
 let lastBand = null, lastKey = NaN, lastVer = NaN;
+
+/* Pass A's own cache, same shape and same reason: the band OBJECT keys it, so
+   a restart is already a miss. It holds the chunk-version sum the last full
+   sky scan ran against -- see `passA`. */
+const skylineVer = new WeakMap();
 
 /* EVERY BAND THE HITBOX OVERLAPS, never `player.band` alone. A player whose
    feet are in `topsoil` and whose head is in `surface` has a `player.band` of
@@ -92,7 +98,7 @@ export function step() {
    `skyExposedAt` stops at row 0 of whatever band it was handed, and
    `topsoil`'s row 0 is buried under 28 rows of surface rock, so a player
    38 tiles down their own shaft satisfied it and un-fogged the band's whole
-   row 0 -- 128 columns of rock nothing had ever seen. */
+   row 0 -- a whole band width of rock nothing had ever seen. */
 function passA(b, tx0, ty0, tx1, ty1) {
   let exposed = false;
   for (let ty = ty0; ty <= ty1 && !exposed; ty++)
@@ -100,13 +106,39 @@ function passA(b, tx0, ty0, tx1, ty1) {
       if (worldSkyAt(b, tx, ty)) { exposed = true; break; }
   if (!exposed) return;
 
+  /* THEN RUN THE SCAN AT MOST ONCE PER TERRAIN CHANGE, not once per frame.
+     The scan below is O(band width) and its result is monotone -- it only ever
+     sets `seen` bits, and which bits it would set is a pure function of the
+     tile grid -- so re-running it against an unchanged grid reveals nothing it
+     did not reveal the first time. `b.ver` summed over every chunk is the same
+     whole-band change signal `rules/light.js#isDirty` uses, and it is the whole
+     band rather than the player's neighbourhood because a shaft dug anywhere
+     lengthens that column's scan. The player walking into and out of sunlight
+     is NOT a reason to rerun: the scan never depended on where they stood.
+
+     EVERY BAND ABOVE THIS ONE IS IN THE SUM TOO, because `worldSkyAt` walks up
+     through their rock for a band carrying no sky of its own -- a tile broken
+     in `surface` can open a `topsoil` column to daylight without touching one
+     `topsoil` chunk version, and a sum over this band alone would skip the
+     rescan that notices.
+
+     This is deliberately a throttle and not a radius cull. Pass A's contract
+     (docs/SPEC.md section 11.1) is that open air obstructs nothing, so a radius
+     would change what the player sees; the throttle changes only how often the
+     same answer is computed, which at 1,024 columns is the whole cost. */
+  let verSum = 0;
+  for (let up = b; up; up = bandAbove(up))
+    for (let i = 0; i < up.ver.length; i++) verSum += up.ver[i];
+  if (skylineVer.get(b) === verSum) return;
+  skylineVer.set(b, verSum);
+
   /* THE WHOLE POINT: reveal the band's entire sky-exposed silhouette, not
      just where the player stands. ONE `worldSkyAt` PER COLUMN, at row 0,
      which is the cheapest row to ask about -- its in-band walk is empty, so a
      band with sky of its own answers in one test and a band without answers
      in one solidity test per band above it (see `model/tiles.js`). Never ask
      per TILE: that walks the column every call and is close to quadratic over
-     a 128x320 band.
+     a band as deep as `topsoil`.
 
      Then walk DOWN from row 0 and stop AFTER the first solid tile. REVEAL,
      THEN CHECK SOLID, in that order: the ground you are standing on -- the

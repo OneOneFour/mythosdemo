@@ -3801,3 +3801,85 @@ Four things found outside the ownership block.
   the input path is already free, and that the cost is in `drawTerrain`'s run
   coalescing, which computes a run's width as `(tx - run) * cell` and would
   overshoot by the decimation factor at a sub-tile scale.
+
+---
+
+## Phase 6e — the world becomes 1,024 tiles wide
+
+One out-of-block edit taken under `CLAUDE.md`'s one-line exception, and five
+things parked.
+
+- **THE ONE OUT-OF-BLOCK EDIT: `tools/check.mjs:2836-2852`, the off-world span
+  case.** It placed a hub on `topsoil` column **127** so its `tw:2` footprint
+  anchored at world x 1024, one pixel past the world's edge, and asserted
+  `'OUTSIDE THE WORLD'`. At 1,024 tiles column 127 is interior, the span is
+  legal, and `npm run check` failed — the literal's own guard (`h.eb.x !== 1024`)
+  could not fire, because the anchor is still at 1024 and it is 1024 that stopped
+  being the edge. The columns are now derived from `top.tw`, and section 3a's
+  `tx < 128` loop is now `tx < b.tw` so it tests every column rather than an
+  eighth of them. `tools/` belongs to 6g; this was taken because the alternative
+  was committing a red `check`, and it is the smallest change that restores what
+  the assertion claims.
+
+- **ORE AND HOLLOWS ARE NOW 6-8x SPARSER PER TILE, AND NOTHING FAILED.** A
+  `blobs` or `hollows` row's `count` (`src/data/world.js`) buys an ABSOLUTE
+  number of attempts, so widening the bands 8x left the same content in eight
+  times the rock. Measured on seed 1337's `topsoil`, before and after:
+
+  | | 128 tiles (40,960) | 1,024 tiles (327,680) |
+  |---|---|---|
+  | copper cells | 296 — 0.72% of tiles | 320 — **0.098%** |
+  | tin | 260 | 271 |
+  | granite | 205 | 228 |
+  | adamant | 114 | 126 |
+  | open (hollow) tiles | 3,867 — 9.44% | 5,576 — **1.70%** |
+
+  Absolute counts barely moved, which is why `npm run check:worldgen`'s 200-seed
+  sweep is green: every property it holds is a floor or a reachability claim, and
+  `docs/SPEC.md` §16.5 holds total ore UNITS near constant, which is exactly what
+  did not change. What changed is ore and rooms PER SCREEN, and that is the thing
+  a player feels. `hollow-unlit.png` photographs it: the old baseline is a field
+  of dark pockets, the new one has two. Re-pricing it means scaling those counts
+  and re-taking §16.5 and §19.7's measured tables, which is neither this phase's
+  ownership (§16 and §19 are not in it) nor its decision.
+
+- **Two visual scenes were photographing terrain that no longer existed**, and
+  both are fixed in `tests/visual.spec.js`. `hollowScene`'s sealed pocket at
+  `topsoil` tx 17-21 ty 102-104 is solid rock at the new width, so
+  `hollow-unlit.png`, `hollow-relic-unlit.png` and `hollow-lit.png` were three
+  baselines of a wall; the pocket is now found by a flood fill in the test.
+  `an ore blob against pale stone` needed a copper cell beside a granite one,
+  and at the new density **no copper cell in seed 1337's whole topsoil band lies
+  within eight tiles of granite** — 2 of the first 200 seeds put the pair close
+  enough to frame, and the scene now runs on seed 65. Both had a hardcoded
+  address and a comment describing what it used to hold; that pattern is the one
+  to distrust after any generator or dimension change.
+
+- **`map-scroll-topsoil.png` and `map-scroll-deep.png` came out BYTE-IDENTICAL**
+  when the baselines were first re-accepted. The overview's default zoom fell
+  from 4 to 1, which puts 93% of the world's depth on screen (`docs/SPEC.md`
+  §31.1), so `mapMoveTo(0, 1400)` and `mapMoveTo(0, 4000)` clamp to nearly the
+  same window. The test now scrolls the axis the map actually windows — X — by a
+  FRACTION of the scrollable range read off `mapView`, and asserts the three
+  canvas hashes are distinct so it cannot collapse silently again. The three
+  baselines are renamed `map-scroll-left/mid/right.png`.
+
+- **`shell/main.js:948-951`'s clamp comment is stale.** It says "Bands differ in
+  width (astral is inset), so X still clamps to the CURRENT band only" — astral
+  has been full width since Phase 10b and all three bands are now
+  `0..8192` exactly. The clamp itself is correct at the new width and needed no
+  change: `widthPx(b)` is 8192 against a 640-800 px viewport, and the player and
+  camera both stop dead at 8186 and 7392 (measured at both edges). Only the
+  comment lies. `shell/` was not in this block.
+
+- **The remaining packed coordinate keys did not need the fix, and here is the
+  headroom.** `docs/PLAN-horizontal-chunks-SCOPE.md` §3.2 names four; 6f did
+  `view/paint.js`. Of the other three, `model/world.js#idx` is exact for any
+  `tw * th` a browser allocates, and `model/space.js:20`'s `STRIDE = 100000`
+  holds a cell x of 255 against a world 8,192 px wide. The real ceiling is the
+  `b.ord * 0x1000000` slot that `model/mining.js:42`, `model/growth.js:72` and
+  `model/digqueue.js:64` all embed: 16,777,216 against topsoil's 327,680 tiles,
+  **51x of headroom**, and aliasing rather than a crash if it is ever crossed.
+  `model/world.js#allocate` now refuses a band over that slot at boot, which is
+  the only place in this block that can see it; raising the slot itself means
+  editing those three files.

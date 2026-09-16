@@ -21,10 +21,30 @@ import { bump } from './epoch.js';
 
 export const bands = [];               // allocated band records, in row order
 
+/* THE CEILING ON A BAND-LOCAL TILE INDEX, and it is not this file's own -- a
+   ceiling is not a dimension, so the header above still holds. `idx` below is
+   exact for any `tw * th` a browser will allocate, but three ledgers pack it
+   into a per-band slot of this size -- `model/mining.js`,
+   `model/growth.js` and `model/digqueue.js` all key by
+   `b.ord * 0x1000000 + idx(b, tx, ty)`. A band with more tiles than the slot
+   holds would alias band N's deep rows onto band N+1's shallow ones, which is
+   a wrong answer rather than a crash: mining progress, a growing seed and a dig
+   mark would all read off another band's tile. So the widening fails HERE,
+   at allocation, where the number is still a content decision.
+
+   1,024 x 320 is 327,680, so there is 51x of headroom at the shipped width
+   (docs/PLAN-horizontal-chunks-SCOPE.md 3.2). Raise the three ledgers' slot
+   before raising this. */
+const IDX_SLOT = 0x1000000;
+
 export const write = {
   /* Called once per band from `shell/boot.js` with a `data/world.js` row.
      Allocation is here and not at import, which is the whole fix. */
   allocate(cfg) {
+    if (cfg.tw * cfg.th > IDX_SLOT)
+      throw new Error(`band "${cfg.id}" is ${cfg.tw}x${cfg.th} = ` +
+                      `${cfg.tw * cfg.th} tiles, over the ${IDX_SLOT} a packed ` +
+                      `band-local tile index holds`);
     const b = {
       id: cfg.id, name: cfg.name,
       ord: bands.length,               // stable index, used as a Map key prefix

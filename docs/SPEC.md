@@ -15,7 +15,7 @@ from one array.
 | | value |
 |---|---|
 | tile size | **8 px** |
-| world width | **1024 px = 128 tiles**, fixed, independent of viewport |
+| world width | **8192 px = 1024 tiles**, fixed, independent of viewport |
 | chunk size | 16x16 tiles = 128x128 px |
 | storage | `Uint8Array` material id + `Uint8Array` damage, per chunk |
 
@@ -23,10 +23,31 @@ World coordinates are absolute and never depend on `innerWidth`. The camera
 windows onto them. Resizing the window changes only the camera, never the world
 — this is the single biggest departure from the mockup.
 
+**The width is bounded on purpose.** It was 128 tiles until wave 6.3, and the
+request it answers asked for unbounded horizontal extent
+(`docs/PLAN-horizontal-chunks-SCOPE.md`). Bounded-but-large is what U3 chose,
+because it keeps storage dense and eager and `rules/generate.js` whole-band: the
+generator's three global passes — the height map, the outward step sweep and the
+ore-body unseal fixpoint — have no chunk-local form, so generating in visit
+order would give one seed a different world per playthrough and invariant 7
+would have to weaken. Nothing here weakens it. A band carries its own dimensions
+(invariant 2), which is what made the widening one number per row.
+
+| | value |
+|---|---|
+| bands | 1024 x 40 `astral`, 1024 x 56 `surface`, 1024 x 320 `topsoil` |
+| tiles | 425,984, spanning world x 0..8192 and world y 0..3328 |
+| typed arrays | **2.70 MB** — 1.23 MB of `mat`/`seen`/`light`/`ver` and 1.47 MB of `heat` |
+| allocation | 0.09 ms, all three bands |
+| worldgen | **129 ms**, all three bands, inside a 160 ms `newRun()` |
+
+Worldgen is 8.4x its cost at 128 tiles, which is the column count and nothing
+else. It is paid once per run, behind the title card.
+
 **Rendering.** Each chunk paints to its own offscreen canvas using the mockup's
 painting functions (`noiseFill`, `walk`, hash-jittered edges). A dig marks its
-chunk dirty and only that chunk repaints: 128x128 px instead of 1024x2520, i.e.
-~1/1500th of a full bake. The look is inherited; whether it *survives* being cut
+chunk dirty and only that chunk repaints: 128x128 px instead of 8192x3328, i.e.
+~1/1660th of a full bake. The look is inherited; whether it *survives* being cut
 into chunks is a visual question only a human can answer.
 
 **The chunk canvas cache is bounded, and the bound is in bytes.**
@@ -38,12 +59,13 @@ until residency is under budget, and never drops one the last frame drew.
 |---|---|
 | one chunk canvas | `px * px * 4` = **64 KB** at 16x16 tiles and `tile:8` |
 | the budget | **24 MB** = 384 chunks |
-| the whole world, resident | **216 chunks = 13.5 MB** at 128 tiles wide |
-| the whole world at 1,024 tiles | **1,728 chunks = 108 MB** |
+| the whole world, resident | **1,728 chunks = 108 MB** at 1,024 tiles wide |
+| the same world at 128 tiles, before wave 6.3 | **216 chunks = 13.5 MB** |
 
-So nothing is evicted in today's world — the budget is a ceiling the narrow
-world never reaches — and at 1,024 tiles the cache holds about 30% of the
-world's chunks instead of all of it. 384 is more than eight times the 45
+So the cache holds about 30% of the world's chunks rather than all of them, and
+`stats.evictedTotal` is non-zero in ordinary play — which it never was while the
+world was narrow enough that the budget was a ceiling it could not reach. 384 is
+more than eight times the 45
 chunks the largest base buffer `core/canvas.js#resize` produces can cover, so a
 player has to leave eight screens behind before turning round costs a re-bake.
 
@@ -415,7 +437,7 @@ row 0 is buried under 28 rows of surface rock.
 | `topsoil` | 0 | no | 0 |
 
 **Content states a band's sky, not occlusion.** The astral floor slab is solid
-across all 128 columns and sits 19 tiles over the surface band's own sky, so a
+across every column and sits 19 tiles over the surface band's own sky, so a
 pure "is anything solid above it in the world" test darkens the spawn band
 whole. `hasOwnSky` is the statement that the surface has a sky; occlusion
 decides everything under it.
@@ -441,6 +463,36 @@ Pass B seeds over **every band the hitbox overlaps** (`model/world.js#bandSpans`
 so a player straddling a seam has their own tiles revealed on both sides.
 
 `tools/check.mjs` section 8o holds all four facts.
+
+### 11.2 How far one seed reaches, and what the recompute allocates
+
+`relax` charges at least `min(lightFalloffAir, lightFalloffRock)` per hop and
+drops a tile below level 1 rather than seeding it, so **a seed at `lightMax`
+dies after `(lightMax - 1) / min(air, rock)` hops — 14 tiles at 15/1/3.** That
+number is derived, not tuned, and it is what bounds the recompute: the scratch
+field `rules/light.js#recompute` allocates is the seeds' bounding box grown by
+14 tiles and clamped to the band, not the band. A tile outside that box is
+further than 14 hops from every seed, so it can be neither lit nor a live relay,
+and the window is therefore bit-identical to the whole band rather than an
+approximation of it.
+
+What that buys at 1,024 columns: a `topsoil` recompute with no shaft to the
+surface and no lit machine has no seeds, allocates nothing and floods nothing.
+A band with sky of its own seeds every column, so its window is the full width
+and only its rows narrow. Medians over three runs of the same probe, one band
+dirtied at a time, `rules/light.js#step` end to end:
+
+| dirtied band | before | after |
+|---|---|---|
+| `topsoil` | 0.45 ms, 320 KB | **0.02 ms, nothing** |
+| `surface` (and `topsoil` carried) | 1.98 ms | **1.80 ms** |
+| `astral` (and both below carried) | 4.40 ms | **4.68 ms** |
+
+`astral` pays 7% for the second seed enumeration the bounding box needs, on a
+band whose window was already the whole of it. A recompute is not a per-frame
+cost — it fires when a tile changes or an emitter turns over — so the trade is
+worth it for the band a digging player actually dirties. A clean frame is
+0.0024 ms whatever the width, because `isDirty` answers first.
 
 ## 12. Mining tiers and the automated line (Phase 2c)
 

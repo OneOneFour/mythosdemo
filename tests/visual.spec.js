@@ -1229,7 +1229,13 @@ test('the map overview shows explored terrain and leaves unexplored terrain undr
     const surface = bandOf('surface');
     const topsoil = bandOf('topsoil');
     const sx = 100, sy = 30;           // an arbitrary surface tile, forced to stone
-    const hx = 100, hy = 300;          // a topsoil tile nobody has ever stood near
+    /* A topsoil tile nobody has ever stood near, and SHALLOW ENOUGH TO BE ON
+       SCREEN. The overview is depth-complete only above about 387 rows at the
+       desktop buffer (docs/SPEC.md section 31.1), so row 300 sits below the
+       body once the map is parked at the top -- and the sample then landed on
+       the frame and read as drawn rather than void. The `inBody` guard below is
+       what says so instead of passing on a clamp. */
+    const hx = 100, hy = 250;
 
     tw.set(surface, sx, sy, S.stone);
     pw.band(surface);
@@ -1256,12 +1262,13 @@ test('the map overview shows explored terrain and leaves unexplored terrain undr
        a hand-copied formula would. */
     const { mapView } = await import('/src/view/overview.js');
     const c = document.getElementById('stage');
-    const mapPx = (wx, wy) => ({
-      x: Math.min(c.width - 1, Math.max(0,
-        Math.round(mapView.vx + (wx - mapView.wx) * mapView.scale))),
-      y: Math.min(c.height - 1, Math.max(0,
-        Math.round(mapView.vy + (wy - mapView.wy) * mapView.scale)))
-    });
+    const mapPx = (wx, wy) => {
+      const x = Math.round(mapView.vx + (wx - mapView.wx) * mapView.scale);
+      const y = Math.round(mapView.vy + (wy - mapView.wy) * mapView.scale);
+      return { x, y,
+               inBody: x >= mapView.vx && x < mapView.vx + mapView.vw &&
+                       y >= mapView.vy && y < mapView.vy + mapView.vh };
+    };
     const revealed = mapPx(worldX(surface, sx) + surface.tile / 2, worldY(surface, sy) + surface.tile / 2);
     const hidden = mapPx(worldX(topsoil, hx) + topsoil.tile / 2, worldY(topsoil, hy) + topsoil.tile / 2);
 
@@ -1271,6 +1278,7 @@ test('the map overview shows explored terrain and leaves unexplored terrain undr
 
     return {
       seenSurface: seenAt(surface, sx, sy), seenTopsoil: seenAt(topsoil, hx, hy),
+      inBody: revealed.inBody && hidden.inBody,
       revealedRGB: [rr, rg, rb], hiddenRGB: [hr, hg, hb],
       stoneBase: P.irC, voidBase: P.abyC
     };
@@ -1280,6 +1288,7 @@ test('the map overview shows explored terrain and leaves unexplored terrain undr
 
   expect(info.seenSurface).toBe(true);
   expect(info.seenTopsoil).toBe(false);
+  expect(info.inBody).toBe(true);                         // both probes are on the map, not its frame
   expect(info.revealedRGB).toEqual(hex(info.stoneBase));  // explored stone paints its own colour
   expect(info.hiddenRGB).toEqual(hex(info.voidBase));     // unexplored tile draws nothing at all
 });
@@ -5464,27 +5473,37 @@ test('a soil/stone contact zone at full frame', async ({ page }) => {
    substance that actually reads as PALE -- lavender-grey against copper's
    warm orange (`cuA`/`cuB`). `data/world.js`'s topsoil band overlaps a
    copper `blobs` row (rows 4-180) with a granite one (rows 120-320), so the
-   two are found together rather than placed by hand: at seed 1337 a real
-   copper cluster (tx 96-108) sits immediately beside a real granite patch
-   (tx 109-111), ty 120-130 -- found by scanning the generated tile grid, not
-   asserted against a specific arm, worldgen's own cruciform scatter being
-   the point rather than a hand-drawn shape.
+   two are found together rather than placed by hand: at SEED 65 a real copper
+   cluster (tx 228-231) sits five columns west of a real granite patch (tx
+   236-240), rows 143-149 -- found by scanning the generated tile grid, not
+   asserted against a specific arm, worldgen's own cruciform scatter being the
+   point rather than a hand-drawn shape.
 
-   SAME DARKNESS FACT AS THE CONTACT ZONE ABOVE: 128 tiles down, `revealAll`
-   alone screenshots black -- sky light does not reach anywhere near this
-   deep (`eff('lightMax')` 15 / `eff('lightFalloffAir')` 1 per tile of open
-   air), so a real brazier is placed instead of a shaft, the same move
-   `shaft-lit.png` above already makes. The room it lights is carved
-   directly on the copper/granite BOUNDARY (tx 103-109) with the brazier
-   centred in it (tx 106), so both walls -- copper to the west, granite one
-   tile past the east wall -- land in `view/scene.js#drawDarkness`'s middle
-   bucket (`lightAt` ~5, `DARK_ALPHA[1]` 0.55) rather than one side blazing
-   and the other unreadable. Framed at the narrow floor's tighter 200x180
+   IT WAS SEED 1337, AND WAVE 6.3 IS WHY IT IS NOT. A `blobs` row's `count`
+   buys an absolute number of cells, so widening the bands by 8x left the same
+   ore in eight times the rock: seed 1337's topsoil holds 320 copper cells in
+   327,680 tiles where it held 296 in 40,960, and NO copper cell in the whole
+   band now lies within eight tiles of granite. Two of the first 200 seeds put
+   the pair close enough to frame together, and 65 is the first.
+   See docs/FINDINGS.md.
+
+   SAME DARKNESS FACT AS THE CONTACT ZONE ABOVE: 140-odd tiles down,
+   `revealAll` alone screenshots black -- sky light does not reach anywhere
+   near this deep (`eff('lightMax')` 15 / `eff('lightFalloffAir')` 1 per tile
+   of open air), so a real brazier is placed instead of a shaft, the same move
+   `shaft-lit.png` above already makes. The room it lights is carved straight
+   through the gap BETWEEN the two bodies (tx 232-236), destroying neither, with
+   the brazier centred in it -- so the west wall IS copper for three rows and
+   the east wall IS granite for two, and both land in `view/scene.js#drawDarkness`'s middle bucket (`lightAt`
+   ~5, `DARK_ALPHA[1]` 0.55) rather than one side blazing and the other
+   unreadable. Framed at the narrow floor's tighter 200x180
    (`core/canvas.js#resize`) so the boundary fills the frame instead of
    getting lost in 640x400 of mostly unlit rock. */
+const BLOB_SEED = 65;
+
 test('an ore blob against pale stone', async ({ page }) => {
   await boot(page);
-  await settle(page);
+  await settle(page, BLOB_SEED);
   await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
@@ -5498,11 +5517,11 @@ test('an ore blob against pale stone', async ({ page }) => {
 
     while (run.tutorialBeat < 4) rw.advanceBeat();
     const band = bandOf('topsoil');
-    for (let ty = 121; ty <= 125; ty++)
-      for (let tx = 103; tx <= 109; tx++) tw.clear(band, tx, ty);
-    tw.set(band, 106, 125, S.stone);      // a floor for the brazier
+    for (let ty = 144; ty <= 148; ty++)
+      for (let tx = 232; tx <= 236; tx++) tw.clear(band, tx, ty);
+    tw.set(band, 234, 148, S.stone);      // a floor for the brazier
 
-    const brazier = mw.place(band, M.brazier, 106, 124);
+    const brazier = mw.place(band, M.brazier, 234, 147);
     mw.take(brazier, S.timber, F.log, 4);
 
     __mf.revealAll(band);
@@ -5510,8 +5529,8 @@ test('an ore blob against pale stone', async ({ page }) => {
     __mf.frames(700);         // > 6s honest-fuel recipe, then settle
 
     __mf.resize(200, 180);
-    __mf.cam.x = Math.round(worldX(band, 106) - VIEW.w / 2);
-    __mf.cam.y = Math.round(worldY(band, 123) - VIEW.h / 2);
+    __mf.cam.x = Math.round(worldX(band, 234) - VIEW.w / 2);
+    __mf.cam.y = Math.round(worldY(band, 146) - VIEW.h / 2);
     __mf.draw();
   });
   await shot(page, 'ore-against-pale-stone.png');
@@ -5607,30 +5626,44 @@ test('the chunk cache is bounded by its byte budget, and eviction is what bounds
   });
 
   const CHUNK_BYTES = 128 * 128 * 4;             // one 16x16-tile chunk at tile:8
+  const SHIPPED = 384;                           // 24 MB / 64 KB, docs/SPEC.md section 1
+  const GRACE = 64;   // twice the 24 chunks a 640x400 viewport covers, for two frames of it
+
+  /* HOW MANY CHUNKS THE WORLD HAS AT ALL, which is what makes the shipped leg
+     below non-vacuous: read off the bands rather than written down, because it
+     moved by 8x when wave 6.3 widened them. */
+  const worldChunks = await page.evaluate(async () => {
+    const { bands } = await import('/src/model/world.js');
+    return bands.reduce((n, b) => n + b.cx * b.cy, 0);
+  });
 
   await reset(page, 24 * 1024 * 1024);           // the shipped budget
   await sweepWorld(page);
-  const control = await read(page);
+  const shipped = await read(page);
 
   await reset(page, 32 * CHUNK_BYTES);           // forced well under one world
   await sweepWorld(page);
   const forced = await read(page);
 
-  /* THE CONTROL LEG IS THE "NOT VACUOUS" HALF: at today's width the whole
-     world fits the shipped budget, so nothing is evicted and the cache holds
-     every chunk the sweep asked for. That is the leak this phase bounds. */
-  expect(control.evictedTotal).toBe(0);
-  expect(control.cached).toBeGreaterThan(200);
-  expect(control.bytes).toBe(control.cached * CHUNK_BYTES);
+  /* THE SHIPPED LEG, AND AT 1,024 TILES IT IS AN EVICTING ONE. The world is
+     1,728 chunks and 108 MB against a 384-chunk budget, so a whole-world sweep
+     sheds everything it cannot hold -- the case that did not exist at 128
+     tiles, where the whole world fitted the budget and `evictedTotal` stayed 0
+     no matter how far the camera walked. What is left is the budget plus what
+     the last two frames drew, which eviction may never take
+     (`view/paint.js#evict`). */
+  expect(worldChunks).toBeGreaterThan(SHIPPED * 2);   // or the leg proves nothing
+  expect(shipped.evictedTotal).toBeGreaterThanOrEqual(worldChunks - SHIPPED - GRACE);
+  expect(shipped.cached).toBeLessThanOrEqual(SHIPPED + GRACE);
+  expect(shipped.bytes).toBeLessThanOrEqual(shipped.cap + GRACE * CHUNK_BYTES);
 
-  /* AND THE FORCED LEG: the same sweep under a 2 MB budget evicts, and what is
-     left is the budget plus what the last two frames drew -- which eviction
-     may never take (`view/paint.js#evict`). 64 chunks of allowance is twice
-     the 24 a 640x400 viewport covers, for the two frames of grace. */
-  expect(forced.evictedTotal).toBeGreaterThanOrEqual(control.cached - 32 - 64);
-  expect(forced.cached).toBeLessThanOrEqual(32 + 64);
-  expect(forced.cached).toBeLessThan(control.cached / 2);
-  expect(forced.bytes).toBeLessThanOrEqual(forced.cap + 64 * CHUNK_BYTES);
+  /* AND THE FORCED LEG: the same sweep under a 2 MB budget holds an order of
+     magnitude less, which is what says residency tracks the BUDGET rather than
+     some incidental ceiling of its own. */
+  expect(forced.evictedTotal).toBeGreaterThanOrEqual(worldChunks - 32 - GRACE);
+  expect(forced.cached).toBeLessThanOrEqual(32 + GRACE);
+  expect(forced.cached).toBeLessThan(shipped.cached / 2);
+  expect(forced.bytes).toBeLessThanOrEqual(forced.cap + GRACE * CHUNK_BYTES);
 });
 
 /* AND THE PROPERTY THAT MAKES EVICTION SAFE: a chunk thrown away and baked
@@ -5765,22 +5798,38 @@ test('a dig under a full, evicting cache repaints the same chunks and draws the 
   }, bytes);
 
   const capped = await dig(page, 32 * 128 * 128 * 4);
-  const uncapped = await dig(page, 24 * 1024 * 1024);
+  const shipped = await dig(page, 24 * 1024 * 1024);
 
-  expect(capped.swept).toBeGreaterThan(0);       // the forced budget really evicted
-  expect(uncapped.swept).toBe(0);                // and the shipped one never does
+  /* BOTH BUDGETS EVICT AT 1,024 TILES -- the world is 1,728 chunks against a
+     384-chunk shipped budget -- so the two legs differ in HOW HARD they evict
+     rather than in whether they do. The property under test is unchanged and is
+     the three equalities below: the same dig repaints the same chunks and draws
+     the same pixels however much the sweep before it shed. */
+  expect(capped.swept).toBeGreaterThan(shipped.swept);
+  expect(shipped.swept).toBeGreaterThan(0);
   expect(capped.repainted).toBeGreaterThan(0);   // the dig really did invalidate
-  expect(capped.repainted).toBe(uncapped.repainted);
-  expect(capped.skipped).toBe(uncapped.skipped);
-  expect(capped.hash).toBe(uncapped.hash);
+  expect(capped.repainted).toBe(shipped.repainted);
+  expect(capped.skipped).toBe(shipped.skipped);
+  expect(capped.hash).toBe(shipped.hash);
 });
 
 /* ---------- a natural hollow (worldgen's own generator), three ways ----------
-   Found by flood-filling seed 1337's topsoil tile grid for a sealed air
-   pocket clear of the spawn column -- `docs/BUILD_PLAN.md` Phase 11's own
-   preference for a GENERATED room over a hand-carved shaft, where one is
-   reachable at a fixed seed. tx 17-21, ty 102-104 (31 open cells, walled on
-   every side, never reaching row 0 -- confirmed by the same flood fill).
+   A GENERATED room rather than a hand-carved shaft (`docs/BUILD_PLAN.md`
+   Phase 11's own preference), and THE FLOOD FILL THAT FINDS IT RUNS IN THE
+   TEST. It used to be seed 1337's tx 17-21, ty 102-104, found by the same
+   fill and then written down -- and wave 6.3's widening regenerated the band,
+   so the three baselines below went on photographing solid rock with the word
+   "hollow" in their names. A found address cannot go stale that way.
+
+   FIVE CONDITIONS, EACH ONE THE SCENE'S OWN. The pocket must be sealed (never
+   reaching row 0, or it is a shaft and daylight would light it); at least 6
+   columns and 4 rows across, or the frame holds a crack rather than a room;
+   60 rows below the band's ceiling, since the desktop buffer shows 25 tiles
+   above the centre and the band seam must stay out of shot; centred at least
+   45 columns in from either edge, for the same reason on the other axis; and
+   carrying its own centre column open in its widest row and the row above,
+   for the brazier and the player standing over it. First match in scan order
+   wins, and the scan is row-major, so the answer is one number per seed.
 
    THREE BASELINES, ON THE SAME PAIR-PROOF RULE `shaft-unlit.png`/
    `shaft-lit.png` above already uses: `hollow-unlit.png` is dark with
@@ -5791,8 +5840,9 @@ test('a dig under a full, evicting cache repaints the same chunks and draws the 
    LIGHT). Against `hollow-lit.png` the only difference legal to exist is
    the light itself, from a real brazier. */
 async function hollowScene(page) {
-  await page.evaluate(async () => {
+  const at = await page.evaluate(async () => {
     const { bandOf, worldX, worldY, write: ww } = await import('/src/model/world.js');
+    const { solidAt } = await import('/src/model/tiles.js');
     const { write: rw, run } = await import('/src/model/run.js');
     const { write: pw } = await import('/src/model/player.js');
     const { banner } = await import('/src/view/fx.js');
@@ -5800,14 +5850,64 @@ async function hollowScene(page) {
 
     while (run.tutorialBeat < 4) rw.advanceBeat();
     const band = bandOf('topsoil');
+    const W = band.tw, H = band.th;
+    const seen = new Uint8Array(W * H);
+    let found = null;
+    for (let ty = 0; ty < H && !found; ty++)
+      for (let tx = 0; tx < W && !found; tx++) {
+        const i = ty * W + tx;
+        if (seen[i] || solidAt(band, tx, ty)) continue;
+        /* One flat array as a stack, x and y interleaved: a pocket is tens of
+           cells and a pair of arrays per push would allocate thousands. */
+        const stack = [tx, ty], cells = [];
+        seen[i] = 1;
+        let sky = false, x0 = tx, x1 = tx, y0 = ty, y1 = ty;
+        while (stack.length) {
+          const cy = stack.pop(), cx = stack.pop();
+          cells.push(cx, cy);
+          if (cy === 0) sky = true;
+          if (cx < x0) x0 = cx;
+          if (cx > x1) x1 = cx;
+          if (cy < y0) y0 = cy;
+          if (cy > y1) y1 = cy;
+          for (const [nx, ny] of [[cx - 1, cy], [cx + 1, cy], [cx, cy - 1], [cx, cy + 1]]) {
+            if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+            const j = ny * W + nx;
+            if (seen[j] || solidAt(band, nx, ny)) continue;
+            seen[j] = 1;
+            stack.push(nx, ny);
+          }
+        }
+        if (sky || x1 - x0 < 5 || y1 - y0 < 3 || y0 < 60) continue;
+        const mid = (x0 + x1) >> 1;
+        if (mid < 45 || mid > W - 45) continue;
+        /* THE BRAZIER GOES IN THE POCKET'S WIDEST ROW, not in its lowest cell.
+           A hollow generated by overlapping discs tapers to one column at top
+           and bottom, and a brazier in that notch is walled on three sides --
+           light leaves it at `eff('lightFalloffRock')` and the room stays dark,
+           which is the picture `hollow-unlit.png` already holds. */
+        const wide = new Map();
+        for (let k = 0; k < cells.length; k += 2)
+          wide.set(cells[k + 1], (wide.get(cells[k + 1]) ?? 0) + 1);
+        let best = -1, bestN = 0;
+        for (const [row, n] of wide)
+          if (n > bestN) { bestN = n; best = row; }
+        if (best > y0 && !solidAt(band, mid, best) && !solidAt(band, mid, best - 1))
+          found = { tx: mid, ty: best - 1, cells: cells.length / 2, wide: bestN };
+      }
+
     pw.band(band);
-    pw.move(worldX(band, 19), worldY(band, 103));   // inside the hollow's own open core
+    pw.move(worldX(band, found.tx), worldY(band, found.ty));
     ww.revealAll(band);
     banner.fade = 0;
     __mf.cmd.hasMouse = false;
-    __mf.cam.x = Math.round(worldX(band, 19) + 4 - VIEW.w / 2);
-    __mf.cam.y = Math.round(worldY(band, 103) + 4 - VIEW.h / 2);
+    __mf.cam.x = Math.round(worldX(band, found.tx) + 4 - VIEW.w / 2);
+    __mf.cam.y = Math.round(worldY(band, found.ty) + 4 - VIEW.h / 2);
+    return found;
   });
+  expect(at.cells).toBeGreaterThan(12);   // a room, and the fill really found one
+  expect(at.wide).toBeGreaterThan(4);     // wide enough that the brazier is not in a notch
+  return at;
 }
 
 test('a natural hollow, unlit', async ({ page }) => {
@@ -5821,18 +5921,18 @@ test('a natural hollow, unlit', async ({ page }) => {
 test('a glowing relic lying in the unlit hollow', async ({ page }) => {
   await boot(page);
   await settle(page);
-  await hollowScene(page);
-  await page.evaluate(async () => {
+  const at = await hollowScene(page);
+  await page.evaluate(async at => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { bandOf, worldX, worldY } = await import('/src/model/world.js');
     const { write: iw } = await import('/src/model/items.js');
 
     const band = bandOf('topsoil');
-    const it = iw.spawn(band, worldX(band, 19) + 4, worldY(band, 103) + 4, S.bellows, F.relic, 0, 0);
+    const it = iw.spawn(band, worldX(band, at.tx) + 4, worldY(band, at.ty) + 4, S.bellows, F.relic, 0, 0);
     if (it) it.rest = 1;
     __mf.draw();
-  });
+  }, at);
   await shot(page, 'hollow-relic-unlit.png');
 });
 
@@ -5862,17 +5962,17 @@ test('the glowing relic in the unlit hollow is not a no-op', async ({ page }) =>
   await page.evaluate(() => __mf.draw());
   const bare = await hashOf();
 
-  await hollowScene(page);
-  await page.evaluate(async () => {
+  const at = await hollowScene(page);
+  await page.evaluate(async at => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { bandOf, worldX, worldY } = await import('/src/model/world.js');
     const { write: iw } = await import('/src/model/items.js');
     const band = bandOf('topsoil');
-    const it = iw.spawn(band, worldX(band, 19) + 4, worldY(band, 103) + 4, S.bellows, F.relic, 0, 0);
+    const it = iw.spawn(band, worldX(band, at.tx) + 4, worldY(band, at.ty) + 4, S.bellows, F.relic, 0, 0);
     if (it) it.rest = 1;
     __mf.draw();
-  });
+  }, at);
   const withRelic = await hashOf();
 
   expect(withRelic).not.toBe(bare);
@@ -5881,18 +5981,18 @@ test('the glowing relic in the unlit hollow is not a no-op', async ({ page }) =>
 test('the same natural hollow lit by a brazier', async ({ page }) => {
   await boot(page);
   await settle(page);
-  await hollowScene(page);
-  await page.evaluate(async () => {
+  const at = await hollowScene(page);
+  await page.evaluate(async at => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { M } = await import('/src/data/machines.js');
     const { bandOf } = await import('/src/model/world.js');
     const { write: mw } = await import('/src/model/machines.js');
 
-    const brazier = mw.place(bandOf('topsoil'), M.brazier, 19, 104);
+    const brazier = mw.place(bandOf('topsoil'), M.brazier, at.tx, at.ty + 1);
     mw.take(brazier, S.timber, F.log, 4);
     __mf.frames(700);          // > 6s honest-fuel recipe, then settle -- same margin `shaft-lit.png` uses
-  });
+  }, at);
   await shot(page, 'hollow-lit.png');
 });
 
@@ -5981,14 +6081,14 @@ test('the turf bank is not a no-op', async ({ page }) => {
    NOT chamfer, so the picture holds a real cliff and banked one-tile steps
    side by side.
 
-   SEED 58, tx 70 -> 71, rows 10 -> 12, and the step assertion below is what
-   keeps that sentence true. It was seed 1337 / tx 109 until wave 6. The
-   landform pipeline left that seed with no step over one tile anywhere in
-   the surface band, so the test went on photographing a region with no cliff
-   in it and only the comment noticed. 21 of the first 400 seeds carry a big
-   step outside the spawn shelf and its `SAFE_R`; 58 puts its own at tx 70,
-   which centres in frame at every viewport this suite uses. */
-const CLIFF_SEED = 58, CLIFF_TX = 70;
+   SEED 58 CARRIES EXACTLY ONE, AND THE COLUMN IS FOUND RATHER THAN WRITTEN
+   DOWN. It was seed 1337 / tx 109, then seed 58 / tx 70, and wave 6.3's
+   widening moved it again to tx 888 -- twice now a literal has gone on
+   photographing a region with no cliff in it and only the comment noticed. So
+   the scan below IS the address: it asserts the band holds one big step, reads
+   which column it is at, and points the camera there. 21 of the first 400
+   seeds carry one outside the spawn shelf and its `SAFE_R`. */
+const CLIFF_SEED = 58;
 
 test('a cliff face', async ({ page }) => {
   await boot(page);
@@ -5998,7 +6098,7 @@ test('a cliff face', async ({ page }) => {
      same way `tools/worldgen-check.mjs#groundRow` reads it -- topmost solid
      row per column, skipping timber so a trunk is never mistaken for
      ground. */
-  const steps = await page.evaluate(async tx0 => {
+  const steps = await page.evaluate(async () => {
     const { bandOf } = await import('/src/model/world.js');
     const { solidAt, subAt } = await import('/src/model/tiles.js');
     const { S } = await import('/src/data/substances.js');
@@ -6008,12 +6108,17 @@ test('a cliff face', async ({ page }) => {
         if (solidAt(band, c, ty) && subAt(band, c, ty) !== S.timber) return ty;
       return band.th;
     };
-    let big = 0;
-    for (let c = 0; c < band.tw - 1; c++) if (Math.abs(ground(c + 1) - ground(c)) > 1) big++;
-    return { at: ground(tx0 + 1) - ground(tx0), big, row: ground(tx0) };
-  }, CLIFF_TX);
+    const big = [];
+    for (let c = 0; c < band.tw - 1; c++)
+      if (Math.abs(ground(c + 1) - ground(c)) > 1) big.push(c);
+    const tx0 = big.length === 1 ? big[0] : -1;
+    return { tx0, big: big.length, edge: Math.min(tx0, band.tw - 1 - tx0),
+             at: tx0 < 0 ? 0 : ground(tx0 + 1) - ground(tx0),
+             row: tx0 < 0 ? 0 : ground(tx0) };
+  });
+  expect(steps.big).toBe(1);       // the band holds exactly one, so tx0 is unambiguous
   expect(steps.at).toBe(2);        // descending away from spawn, so positive
-  expect(steps.big).toBe(1);       // and it is the only one in the band
+  expect(steps.edge).toBeGreaterThan(60);   // and it is interior, so the frame is not half sky
 
   await page.evaluate(async ({ tx0, row }) => {
     const { bandOf, worldX, worldY } = await import('/src/model/world.js');
@@ -6028,50 +6133,77 @@ test('a cliff face', async ({ page }) => {
     __mf.cam.x = Math.round(worldX(band, tx0) - VIEW.w / 2);
     __mf.cam.y = Math.round(worldY(band, row + 2) - VIEW.h / 2);
     __mf.draw();
-  }, { tx0: CLIFF_TX, row: steps.row });
+  }, { tx0: steps.tx0, row: steps.row });
   await shot(page, 'cliff-face.png');
 });
 
-/* THE MAP OVERVIEW AT THREE SCROLL POSITIONS. `map.png` above never
-   scrolls -- `flags.showMap` with `follow` left at its default `true`,
-   centred wherever `settle()` happens to leave the player. `mapMoveTo`
-   (`shell/ui.js`) is the identical model-level scroll the fog test above
-   already drives the overview through; three calls to it, far enough
-   apart in world-Y, make the SAME map read as three different pictures:
-   the Heavens at the very top, a mid-topsoil stretch thick with hollows
-   and ore, and the world's own deepest rows. All three bands are fully
-   revealed for the same reason `map.png` is -- the point is the overview's
-   layout at different offsets, not fog. */
+/* THE MAP OVERVIEW AT THREE SCROLL POSITIONS, AND THEY SCROLL ACROSS RATHER
+   THAN DOWN. `map.png` above never scrolls -- `flags.showMap` with `follow`
+   left at its default `true`, centred wherever `settle()` happens to leave
+   the player. `mapMoveTo` (`shell/ui.js`) is the identical model-level scroll
+   the fog test above already drives the overview through.
+
+   THE AXIS IS THE ONE THE MAP WINDOWS, and at 1,024 tiles that is X.
+   docs/SPEC.md section 31.1 puts 93% of the world's depth on screen at zoom 1
+   and 59% of its width, so the three positions used to be world-Y 0, 1400 and
+   4000 and wave 6.3 collapsed them: `map-scroll-topsoil.png` and
+   `map-scroll-deep.png` came out BYTE-IDENTICAL, two baselines for one
+   picture. Left edge, mid-scroll and past the right edge are three genuinely
+   different slices, and the hash guard below is what says so rather than
+   leaving it to be noticed a third time. All three bands are fully revealed for the
+   same reason `map.png` is -- the point is the overview's layout at different
+   offsets, not fog. */
 test('the map overview at three scroll positions', async ({ page }) => {
   await boot(page);
   await settle(page);
+  const hashOf = () => page.evaluate(() => {
+    const c = document.getElementById('stage');
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let h = 2166136261;
+    for (let i = 0; i < d.length; i += 4) {
+      h ^= d[i] | (d[i + 1] << 8) | (d[i + 2] << 16);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  });
+  /* A FRACTION OF THE SCROLLABLE RANGE, not a world x. `ui.map.x` is the
+     window's LEFT edge and `view/overview.js#fit` clamps it to
+     `worldW - vw / scale`, so world x 4000 and world x 9999 are the SAME
+     picture -- the first pass at this test parked at both and got two
+     baselines for one frame. The range is read off `mapView`, which records
+     what the last draw used. */
+  const park = k => page.evaluate(async k => {
+    const { mapMoveTo } = await import('/src/shell/ui.js');
+    const { mapView } = await import('/src/view/overview.js');
+    const range = mapView.worldW - mapView.vw / mapView.scale;
+    mapMoveTo(Math.round(range * k), 900);
+    __mf.draw();
+  }, k);
+
   await page.evaluate(async () => {
     const { bands, write } = await import('/src/model/world.js');
     const { write: rw, run } = await import('/src/model/run.js');
-    const { mapMoveTo } = await import('/src/shell/ui.js');
 
     while (run.tutorialBeat < 4) rw.advanceBeat();
     for (const b of bands) write.revealAll(b);
     __mf.flags.showMap = true;
-    mapMoveTo(0, 0);
-    __mf.draw();
   });
-  await shot(page, 'map-scroll-heavens.png');
 
-  await page.evaluate(async () => {
-    const { mapMoveTo } = await import('/src/shell/ui.js');
-    mapMoveTo(0, 1400);
-    __mf.draw();
-  });
-  await shot(page, 'map-scroll-topsoil.png');
+  await page.evaluate(() => __mf.draw());     // so `mapView` has a range to read
+  await park(0);
+  const left = await hashOf();
+  await shot(page, 'map-scroll-left.png');
 
-  await page.evaluate(async () => {
-    const { mapMoveTo } = await import('/src/shell/ui.js');
-    mapMoveTo(0, 4000);         // past the world's own bottom edge -- `fit()`
-                                 // in `view/overview.js` clamps it there
-    __mf.draw();
-  });
-  await shot(page, 'map-scroll-deep.png');
+  await park(0.5);
+  const mid = await hashOf();
+  await shot(page, 'map-scroll-mid.png');
+
+  await park(2);                  // past the world's own right edge -- `fit()`
+                                  // in `view/overview.js` clamps it there
+  const right = await hashOf();
+  await shot(page, 'map-scroll-right.png');
+
+  expect(new Set([left, mid, right]).size).toBe(3);
 });
 
 /* OVERVIEW WITH A BROKEN LIFT CHAIN. Reuses the exact hub layout `winch:
@@ -6105,21 +6237,26 @@ test('overview with a broken lift chain', async ({ page }) => {
 
    The overview fits the world's DEPTH and WINDOWS its width, so at any zoom
    where the width does not fit, the body shows a slice and the ribbon says
-   which slice. At 128 tiles the default zoom still fits the whole width, which
-   is exactly why the ribbon is not in `map.png`: ZOOM 8 IS THE CASE THAT
-   EXISTS TODAY, where the world is 8,192 px wide against a 609 px body, and it
-   is the same case 1,024 tiles makes the DEFAULT.
+   which slice. At 1,024 tiles no zoom fits: the world is 8,192 px wide against
+   a 609 px body at the desktop buffer, so the ribbon is present at the DEFAULT
+   zoom and `map.png` carries it.
 
    THREE CLAIMS, AND THE FIRST IS WHAT KEEPS THE OTHER TWO HONEST: the widget
    is ABSENT when the width fits. A ribbon drawn always, with its thumb always
    spanning its whole track, is a widget that has never once been wrong and
-   would photograph identically either way.
+   would photograph identically either way. Since no zoom fits at this width,
+   the case has to be reached the only other way the predicate can be
+   satisfied -- a body wide enough to hold the world at one pixel per tile,
+   which needs about 1,024 of them. `__mf.resize(iw, ih)` is
+   `core/canvas.js#resize` and takes its dimensions as arguments, so the leg
+   widens the BUFFER rather than the playwright viewport and hands it back
+   afterwards.
    ============================================================ */
 test('the overview extent ribbon appears only when the width does not fit, and tracks the scroll', async ({ page }) => {
   await boot(page);
   await settle(page);
 
-  const at = (page, zoom, x) => page.evaluate(async ({ zoom, x }) => {
+  const at = (page, zoom, x, iw = 1280) => page.evaluate(async ({ zoom, x, iw }) => {
     const { bands, write } = await import('/src/model/world.js');
     const { mapMoveTo, setMapZoom } = await import('/src/shell/ui.js');
     const { write: rw, run } = await import('/src/model/run.js');
@@ -6129,6 +6266,7 @@ test('the overview extent ribbon appears only when the width does not fit, and t
 
     while (run.tutorialBeat < 4) rw.advanceBeat();
     for (const b of bands) write.revealAll(b);
+    __mf.resize(iw, 800);
     __mf.flags.showMap = true;
     setMapZoom(zoom);
     mapMoveTo(x, 900);
@@ -6156,20 +6294,26 @@ test('the overview extent ribbon appears only when the width does not fit, and t
       ui: colour('ui'),
       trackTone: mix(colour('uiBack'), colour('uiDim'), 0.5)
     };
-  }, { zoom, x });
+  }, { zoom, x, iw });
 
   const hex = h => [h.slice(1, 3), h.slice(3, 5), h.slice(5, 7)].map(x => parseInt(x, 16));
   const rgbStr = s => s.match(/\d+/g).map(Number);
 
-  /* THE DEFAULT ZOOM AT 128 TILES FITS THE WHOLE WIDTH, so there is nothing to
-     say and nothing is drawn. */
-  const fits = await at(page, 0, 0);
+  /* ONE PIXEL PER TILE IN A 2,400 px BUFFER FITS THE WHOLE WIDTH, so there is
+     nothing to say and nothing is drawn. */
+  const fits = await at(page, 0, 0, 2400);
+  expect(fits.fraction).toBeGreaterThanOrEqual(1);
   expect(fits.track).toBe(null);
   expect(fits.win).toBe(null);
-  expect(fits.fraction).toBeGreaterThanOrEqual(1);
 
-  /* ZOOM 8 DOES NOT. The thumb is the window's share of the world's width, and
-     it is painted rather than merely recorded. */
+  /* AND THE SAME ZOOM IN THE BUFFER THIS SUITE ACTUALLY PHOTOGRAPHS DOES NOT,
+     which is why the ribbon is in every overview baseline. */
+  const narrow = await at(page, 0, 0);
+  expect(narrow.fraction).toBeLessThan(1);
+  expect(narrow.track).not.toBe(null);
+
+  /* ZOOM 8 DOES NOT EITHER. The thumb is the window's share of the world's
+     width, and it is painted rather than merely recorded. */
   const mid = await at(page, 8, 400);
   expect(mid.fraction).toBeLessThan(1);
   expect(mid.win.w / mid.track.w).toBeCloseTo(mid.fraction, 1);
@@ -7093,16 +7237,16 @@ const SCENES = {
   surface: async () => {},
 
   'hollow with a relic': async page => {
-    await hollowScene(page);
-    await page.evaluate(async () => {
+    const at = await hollowScene(page);
+    await page.evaluate(async at => {
       const { S } = await import('/src/data/substances.js');
       const { F } = await import('/src/data/forms.js');
       const { bandOf, worldX, worldY } = await import('/src/model/world.js');
       const { write: iw } = await import('/src/model/items.js');
       const band = bandOf('topsoil');
-      const it = iw.spawn(band, worldX(band, 19) + 4, worldY(band, 103) + 4, S.bellows, F.relic, 0, 0);
+      const it = iw.spawn(band, worldX(band, at.tx) + 4, worldY(band, at.ty) + 4, S.bellows, F.relic, 0, 0);
       if (it) it.rest = 1;
-    });
+    }, at);
   },
 
   'the draft modal': async page => { await payTrial(page, 3); },
