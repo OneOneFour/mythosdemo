@@ -22,17 +22,21 @@
 import { VIEW, stage } from '../core/canvas.js';
 import { AIR, F } from '../data/forms.js';
 import { aim, write as aw } from '../model/aim.js';
+import { write as dqw } from '../model/digqueue.js';
+import { push as journalPush } from '../model/journal.js';
 import { feedTarget, machineAt } from '../model/machines.js';
 import { invCount, run } from '../model/run.js';
 import { tileAt } from '../model/tiles.js';
+import { bandAt, tileX, tileY, worldX, worldY } from '../model/world.js';
 import { drawn as uiDrawn } from '../view/ui/state.js';
 import { slotForDigit } from '../view/ui/quickbar.js';
 import { MAP_ZOOM, mapClamp, mapView } from '../view/overview.js';
 import { audio, unlockAudio } from './audio.js';
 import {
-  armPlace, clearArmedPlace, clearLink, closeTop, isOpen, mapDragEnd, mapDragStart,
-  mapDragTo, mapMoveTo, mapPark, mapScroll, setMapZoom, setSearch, setSearchFocus,
-  toggleMapFollow, toggleMapLayer, top, toggle, ui
+  KEYMAP, armPlace, clearArmedPlace, clearLink, closeMenu, closeTop, isOpen, mapDragEnd,
+  mapDragStart, mapDragTo, mapMoveTo, mapPark, mapScroll, menuMove, menuPage, menuScrollTo,
+  setMapZoom, setMenuSeed, setMenuSeedFocus, setSearch, setSearchFocus, toggleMapFollow,
+  toggleMapLayer, top, toggle, ui
 } from './ui.js';
 
 /* The command set the rules read. One object, mutated by property, per
@@ -96,8 +100,15 @@ export const cmd = {
    asks for a second look at the same tier. The three are separate fields
    rather than one because they are three different verbs, and the last two
    are the only intents `applyIntents` still dispatches while the run is
-   frozen behind the modal. */
-export const wants = { restart: false, draft: null, takeCard: null, reroll: false };
+   frozen behind the modal.
+
+   `menuRow` is the ID of the main-menu row a key or a click has taken, out of
+   `view/ui/state.js#drawn.menu.rows`. It is an intent rather than a direct
+   call because taking a row starts a run, loads a save or applies a scenario,
+   which means `shell/boot.js`, `shell/save.js` and `rules/scenarios.js` --
+   and `shell/boot.js` imports THIS file, so reaching them from here would be
+   a cycle inside `shell`. `shell/main.js#applyMenuIntents` dispatches it. */
+export const wants = { restart: false, draft: null, takeCard: null, reroll: false, menuRow: null };
 
 /* Presentation toggles. Read by `view` through the frame context — `view` may
    not import `shell`, so they are passed in rather than imported. `showMap` is
@@ -184,6 +195,153 @@ function set(k, down) {
      `l` is free -- the old `L` machine-spawn key was retired in `66ad0e7`. */
   if (key === 'l')                  { if (down && !linkHeld) cmd.link = true; linkHeld = down; }
 }
+
+/* ============================================================================
+   THE MAIN MENU'S OWN INPUT (docs/SPEC.md section 30).
+
+   THE MENU TAKES THE WHOLE KEYBOARD AND THE WHOLE POINTER, and it is the first
+   branch of both handlers below -- above the draft modal, which is otherwise
+   the topmost thing the game can raise. The run is frozen behind the menu
+   (`shell/main.js#step`) and the menu covers the screen, so there is nothing
+   under it for a key to mean. Every key it does not recognise is swallowed,
+   for the reason the search field's branch already gives: a stray 'g' toggling
+   an overlay the player cannot see is worse than a dropped keystroke.
+
+   THE FOUR VERBS COME FROM `shell/ui.js#KEYMAP` rather than from key literals,
+   so the CONTROLS page the menu draws and the handler that obeys it cannot
+   disagree. The rest of this file still dispatches on key literals, which
+   docs/SPEC.md section 30.3 states and does not excuse.
+   ============================================================================ */
+const MENU_VERBS = ['menuMove', 'menuPage', 'menuSelect', 'menuBack'];
+
+/* Lowercased `e.key` -> the menu verb it means. Built once at import; `KEYMAP`
+   is frozen. First declaration wins, which is what keeps 'a' paging rather
+   than being claimed by `move`'s own row. */
+const MENU_BIND = new Map();
+for (const group of KEYMAP)
+  for (const row of group.rows ?? [])
+    if (MENU_VERBS.includes(row.id))
+      for (const c of row.codes ?? []) if (!MENU_BIND.has(c)) MENU_BIND.set(c, row.id);
+
+/* Both directional verbs run their two axes the same way round, so one list
+   covers "the previous one" for the cursor and for the page. */
+const MENU_PREV = ['w', 'a', 'arrowup', 'arrowleft'];
+
+/* Ten digits covers every seed the game can pick for itself --
+   `shell/boot.js#newRun`'s default is `(Math.random() * 1e9) | 0`, which is
+   nine -- and bounds the field against a held key. */
+const SEED_DIGITS = 10;
+
+/* WHAT THE MENU ACTUALLY DREW, or null. The record carries its own `page` and
+   it is tested against the live one, so a key can never take a CONTROLS row
+   while the DEBUG page is showing (docs/SPEC.md section 30.2). Row indices are
+   never recomputed here: the focused row is the one that says it is. */
+const menuDrawn = () => {
+  const rec = uiDrawn.menu;
+  return rec && rec.page === ui.menu.page ? rec : null;
+};
+
+function menuKey(e, k) {
+  /* A browser shortcut passes through untouched. No menu verb uses a modifier,
+     and swallowing ctrl/cmd here would take reload with it. */
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+  const rec = menuDrawn();
+  const rows = rec ? rec.rows : [];
+  e.preventDefault();
+
+  /* THE SEED FIELD CAPTURES KEYS, above the navigation verbs and for the same
+     reason the CRAFTING search field pre-empts movement: with the field
+     focused, 's' is not "move down". Digits only -- a seed is a number, and a
+     field that accepted a letter would then have to reject it. */
+  if (ui.menu.seedFocus) {
+    if (k === 'escape' || k === 'enter') setMenuSeedFocus(false);
+    else if (k === 'backspace') setMenuSeed(ui.menu.seed.slice(0, -1));
+    else if (k >= '0' && k <= '9') setMenuSeed((ui.menu.seed + k).slice(0, SEED_DIGITS));
+    return;
+  }
+
+  switch (MENU_BIND.get(k)) {
+    case 'menuMove': menuMove(MENU_PREV.includes(k) ? -1 : 1, rows.length); break;
+    /* Paging is the CONTROLS table's only movement, and a no-op everywhere
+       else because a page that does not page reports one page. */
+    case 'menuPage':
+      menuScrollTo(ui.menu.scroll + (MENU_PREV.includes(k) ? -1 : 1), rec ? rec.pages : 1);
+      break;
+    case 'menuSelect': {
+      const row = rows.find(r => r.focused);
+      if (row && row.live) wants.menuRow = row.id;
+      break;
+    }
+    /* ESC is BACK, THEN PLAY, which is `KEYMAP`'s own label for it: a sub-page
+       returns to the root, and the root closes the menu into the run already
+       standing behind it. */
+    case 'menuBack':
+      if (ui.menu.page === 'root') closeMenu(); else menuPage('root');
+      break;
+  }
+}
+
+/* ============================================================================
+   THE DIG QUEUE'S DRAG-PAINT (docs/SPEC.md section 28, wave 6 U5).
+
+   A DRAG THAT STARTED ON RULE 4 PAINTS; ONE THAT STARTED ON RULES 1-3 DOES
+   NOT. Which rule fired is decided once at `pointerdown` (section 23.2), and
+   `paintAt` is set in that one branch and nowhere else -- so a press that meant
+   "place" or "feed" cannot turn into a paint stroke by moving the mouse. That
+   is the same decide-once hysteresis that stops mining starting on a tile the
+   press just placed.
+
+   THE POINTER, NOT THE RETICLE. `model/aim.js` is clamped to `eff('reach')`
+   (`rules/mining.js#aimAtWorld`) and U5's whole point is marking well past
+   where you stand, so the tile is resolved from the pointer's own world
+   position instead.
+   ============================================================================ */
+
+/* The tile under the pointer, in whichever band it is over, or null off the
+   world. `cmd.mx`/`my` are WORLD px and `toWorld` has already set them. */
+function tileUnderPointer() {
+  const b = bandAt(cmd.mx, cmd.my);
+  return b ? { b, tx: tileX(b, cmd.mx), ty: tileY(b, cmd.my) } : null;
+}
+
+/* `paintAt` is the last tile this stroke painted, and null when no stroke is
+   live -- which is also how the pointer handlers know whether the button is
+   still down for painting purposes. `paintFull` is a once-per-stroke latch on
+   the cap's refusal, so a 256-tile drag into a full queue says so once rather
+   than 256 times (docs/SPEC.md section 28.3 makes the same argument for
+   granite). */
+let paintAt = null, paintFull = false;
+
+/* `model/digqueue.js` cannot push the row itself: no `model` module imports
+   `model/journal.js`, so the cap's refusal is the caller's (section 28.5). */
+function markOne(b, tx, ty) {
+  if (dqw.mark(b, tx, ty) !== 'full' || paintFull) return;
+  paintFull = true;
+  journalPush('refused', { x: worldX(b, tx), y: worldY(b, ty) }, { why: 'DIG QUEUE FULL' });
+}
+
+/* Every tile on the straight line between two pointer samples, both ends
+   included. A fast drag reports positions several tiles apart, and a gap in a
+   painted run reads as dropped input rather than as a stroke. */
+function paintLine(b, x0, y0, x1, y1) {
+  const dx = x1 - x0, dy = y1 - y0;
+  const n = Math.max(Math.abs(dx), Math.abs(dy));
+  if (!n) { markOne(b, x0, y0); return; }
+  for (let i = 0; i <= n; i++)
+    markOne(b, x0 + Math.round(dx * i / n), y0 + Math.round(dy * i / n));
+}
+
+function paintTo() {
+  const t = tileUnderPointer();
+  if (!t) return;
+  if (paintAt.b !== t.b) markOne(t.b, t.tx, t.ty);
+  else if (paintAt.tx !== t.tx || paintAt.ty !== t.ty)
+    paintLine(t.b, paintAt.tx, paintAt.ty, t.tx, t.ty);
+  paintAt = t;
+}
+
+const paintEnd = () => { paintAt = null; paintFull = false; };
 
 /* ============================================================================
    THE OVERVIEW'S OWN INPUT (docs/BUILD_PLAN.md Phase 9 section 2).
@@ -306,6 +464,11 @@ export function installInput() {
     unlockAudio();
 
     const k = e.key.toLowerCase();
+
+    /* THE MENU IS ABOVE EVERYTHING, including the draft modal below: it is the
+       state the game boots into, the run is frozen behind it, and nothing else
+       can be standing when it is. See `menuKey`'s own header. */
+    if (ui.menu.open) { menuKey(e, k); return; }
 
     /* THE DRAFT MODAL CLAIMS THE WHOLE KEYBOARD, above the search field and
        above the map, because it is the topmost thing the game can raise and
@@ -484,6 +647,7 @@ export function installInput() {
     cmd.uiCtrl = false; cmd.uiShift = false; cmd.uiWheel = 0;
     hopHeld = false; dropHeld = false; deconHeld = false; linkHeld = false;
     mapDragEnd();
+    paintEnd();
   });
 
   const cv = stage.cv;
@@ -500,28 +664,32 @@ export function installInput() {
   };
   pointer.toWorld = toWorld;
 
-  /* The quickbar's KEYS/legend toggle is drawn ALWAYS, not only while a panel
-     is open (`view/ui/quickbar.js`'s own header: "a quickbar is part of the
-     permanent HUD"), so a click on it needs the identical "cannot also dig
-     through to the world" guarantee `isOpen(top())` gives every other UI
-     control below -- otherwise the button is visible but a click on it just
-     falls through to an ordinary mine/place at whatever the reticle happens
-     to be aimed at. Hit-tested in SCREEN space (pre-camera), matching exactly
-     the space `view/ui/state.js#drawn` records rects in -- this is the same
-     conversion `toWorld` below does, minus the `cam` offset it adds. */
   /* Pointer position in the SCREEN space `view/ui/state.js#drawn` records its
      rectangles in: the same conversion `toWorld` above does, minus the camera
-     offset it adds. Shared by the always-on-UI test and by the map, which has
-     no camera at all and could not use `toWorld`'s answer if it wanted to. */
+     offset it adds. Shared by the always-on-UI test, by the menu and by the
+     map, which has no camera at all and could not use `toWorld`'s answer if it
+     wanted to. */
   const toScreen = e => {
     const r = cv.getBoundingClientRect();
     return { sx: (e.clientX - r.left) / VIEW.scale, sy: (e.clientY - r.top) / VIEW.scale };
   };
 
+  const inRect = (r, sx, sy) => sx >= r.x && sx < r.x + r.w && sy >= r.y && sy < r.y + r.h;
+
+  /* THE TWO CONTROLS DRAWN WITH NO PANEL OPEN: the quickbar and its KEYS
+     legend toggle (`view/ui/quickbar.js`'s own header -- "a quickbar is part of
+     the permanent HUD"). A click on either needs the identical "cannot also dig
+     through to the world" guarantee `isOpen(top())` gives every control inside
+     a panel; without it the control is visible and a click on it falls through
+     to an ordinary mine at whatever the reticle happens to be aimed at, which
+     is what made a quickbar cell click-inert. The rects are the ones those
+     widgets really drew, which is also how `view/hud.js`'s ruler finds the
+     quickbar rather than re-deriving where it "should" be. */
   const onAlwaysOnUi = e => {
     const { sx, sy } = toScreen(e);
     const p = uiDrawn.panels.find(p => p.id === 'hints-toggle');
-    return !!p && sx >= p.x && sx < p.x + p.w && sy >= p.y && sy < p.y + p.h;
+    const q = uiDrawn.grids.find(g => g.id === 'quickbar');
+    return (!!p && inRect(p, sx, sy)) || (!!q && inRect(q, sx, sy));
   };
 
   /* THE END-SCREEN RESTART BUTTON (docs/PLAN-phase12.md §3 D-C). Restart
@@ -575,13 +743,29 @@ export function installInput() {
       const { sx, sy } = toScreen(e);
       mapDragTo(sx, sy, mapView.scale);
     }
+    if (paintAt) paintTo();
   });
   cv.addEventListener('pointerdown', e => {
     unlockAudio();
     toWorld(e, pointer.cam);
 
-    /* THE MAP TAKES THE POINTER TOO, and it is the first branch for the same
-       reason it is the first branch on the keyboard: there is no world to dig
+    /* THE MENU TAKES THE POINTER FIRST, for the reason `menuKey` gives about
+       the keyboard: the run is frozen behind it and the menu covers the world.
+       A press on a live row takes it; a press on the wash, or on a dead row
+       (CONTINUE with no save), does nothing at all rather than falling through
+       to the world under the menu. */
+    if (ui.menu.open) {
+      const { sx, sy } = toScreen(e);
+      const rec = menuDrawn();
+      const row = rec && rec.rows.find(r => inRect(r, sx, sy));
+      if (row && row.live) wants.menuRow = row.id;
+      cv.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      return;
+    }
+
+    /* THE MAP TAKES THE POINTER TOO, and it claims it above the world for the
+       same reason it claims the keyboard: there is no world to dig
        or place into while the run is frozen behind a full-screen map. A press
        on the ruler jumps; a press anywhere else grabs the map and drags it. */
     if (flags.showMap) {
@@ -653,12 +837,20 @@ export function installInput() {
       } else {
         aw.mode('dig');                   // rule 4 -- mine, exactly as today
         cmd.mouse = true;
+        /* AND ONLY RULE 4 ARMS THE PAINT STROKE (docs/SPEC.md section 28.5).
+           The press itself marks nothing: a stroke starts on the first
+           `pointermove` that leaves this tile, so an ordinary mining click
+           does not leave a mark behind on the tile it is already breaking. */
+        paintAt = tileUnderPointer();
+        paintFull = false;
       }
     }
     cv.setPointerCapture(e.pointerId);
     e.preventDefault();
   });
   cv.addEventListener('pointerup', e => {
+    paintEnd();
+    if (ui.menu.open) return;
     if (flags.showMap) { mapDragEnd(); return; }
     if (isOpen(top()) || onAlwaysOnUi(e)) {
       if (e.button === 2) cmd.uiRight = false; else { cmd.uiClick = false; cmd.uiDown = false; }
@@ -672,6 +864,7 @@ export function installInput() {
   cv.addEventListener('pointerleave', () => {
     cmd.hasMouse = false; cmd.mouse = false;
     mapDragEnd();
+    paintEnd();
   });
 
   /* Wheel scrolls a panel's grid, never the page -- only routed, and only
@@ -721,4 +914,5 @@ export function clearEdges() {
   wants.draft = null;
   wants.takeCard = null;
   wants.reroll = false;
+  wants.menuRow = null;
 }

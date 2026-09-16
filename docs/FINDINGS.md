@@ -3660,3 +3660,63 @@ Four HUD items, and three things found outside the ownership block.
   across the inventory grid. `docs/SPEC.md` §18.9 places the draft modal above
   the banner and says nothing about the panel. Not fixed here: it is a z-order
   change with baselines behind it and it is not one of this phase's four items.
+
+---
+
+## Phase 6o — the wiring phase
+
+Four built features reached a player, and five things were found or deliberately
+not done.
+
+- **The `KEYMAP` dispatch was NOT landed, and the interim net needs `tools/`.**
+  `shell/input.js` now dispatches the menu's four verbs off `KEYMAP`'s own rows
+  (`MENU_BIND`, built at import), and every other verb still runs on an
+  `if (key === 'x')` literal. Finishing it needs a machine-readable context per
+  group: `when` is display prose, and `escape`, `r`, `a` and the digits each
+  mean different things in the menu, on foot, under the map and under a draft,
+  so the table would gain a context key and the file would gain a two-level
+  lookup — a refactor of every branch of a 900-line input handler, next to a
+  phase that already changed the boot state. The net named in the brief,
+  **a `tools/check.mjs` assertion that every single-key literal in
+  `shell/input.js` appears in some row's `codes`**, is not written here because
+  `tools/` was not in this phase's ownership block. `docs/SPEC.md` §30.3 states
+  the split.
+
+- **There is no binding that opens the menu from inside a run.** Adding one
+  means a `KEYMAP` row, the CONTROLS page is generated from `KEYMAP`, and the
+  row therefore moves `menu-controls.png` and `menu-controls-floor.png` — two
+  committed baselines this phase does not own the right to re-accept. A player
+  leaves a run by reloading, which is also what writes the save (§27.8). The
+  row and the two re-accepted baselines are one small phase.
+
+- **`shell/save.js#load` restores nothing about the camera, and says so, but
+  `shell/main.js` was the only caller that could honour it.** `snapCam()` now
+  exists for exactly the three callers that need it (boot, NEW RUN, CONTINUE);
+  the dead `clampCam()` that stood before the assignment in the old boot block
+  went with it, since the two lines after it overwrote both fields.
+
+- **A stale-header save presents as NO SAVE, not as STALE SAVE.**
+  `docs/SPEC.md` §27.3 is deliberate about it — `hasSave()` checks `v`, `world`
+  and `content`, so a payload from another build makes CONTINUE dead and
+  `load()` is never called to name the reason. Only the `gen` mismatch (a
+  worldgen change) reaches the player as a sentence, `WORLD MOVED`. That is
+  right for a version bump and slightly wrong for a content rename, where the
+  player sees an empty slot rather than "that save is from another build". A
+  `staleReason()` on the header check would close it in about five lines;
+  `src/shell/save.js` was not in this phase's ownership block.
+
+- **`data/scenarios.js` rows carry no seed**, so `?scenario=<id>` picks one:
+  `?seed=` if given, else 1337, shared with `?test=1` (`DEBUG_SEED` in
+  `shell/main.js`). A diorama whose terrain changed between two runs would be
+  a poor fixture, which is why it is fixed rather than random — but the seed is
+  the entry point's choice and not the row's, and a row that wanted a
+  particular landform could not say so. One optional `seed` field on the row
+  schema, in the phase that owns `src/data/scenarios.js`.
+
+- **A restart does not snap the camera, and now there is a function for it.**
+  `shell/main.js#frame`'s `wants.restart` branch calls `newRun()` and nothing
+  else, so the death screen's RESTART button leaves the camera easing across
+  the map from wherever the player died for about a second. `snapCam()` is one
+  line away from it and was deliberately not added: a screenshot scene that
+  drives the restart button would move, and the slide is not a bug this phase
+  ships on top of.

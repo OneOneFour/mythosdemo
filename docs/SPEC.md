@@ -3060,6 +3060,22 @@ releasing.
 
 Every rule but 4 additionally requires `aim.valid && aim.band`.
 
+**An always-drawn HUD rect takes the press before any of the four rules**
+(Phase 6o). `shell/input.js#onAlwaysOnUi` names the two controls drawn with no
+panel open — the quickbar strip and the KEYS legend toggle — and a press inside
+either routes to the UI intents, exactly as an open panel does. Until 6o it
+named only the toggle, so a click on a quickbar cell fell through to rule 4 and
+mined: §23.1's "any occupied slot arms" was true of the digit keys always and
+of a click only while the Character tab happened to be open. Both rects are the
+ones those widgets recorded in `view/ui/state.js#drawn`, so the hit area cannot
+drift from what was painted. A press on an empty cell arms nothing and still
+does not dig through the strip, which is what every control inside a panel
+already does.
+
+**A held rule-4 press also paints the dig queue** (§28.5). Nothing above
+changes: the stroke is armed inside rule 4's own branch, so a press that
+decided 1, 2 or 3 can never become one.
+
 **Rule 2 sits above rule 3 deliberately**, and the precedent is
 `shell/input.js`'s own RMB branch, which already puts "a machine is under the
 reticle, so deconstruct" above "place": a machine under the reticle means the
@@ -3687,6 +3703,38 @@ Only `WORLD MOVED` discards a valid save, and it discards one that describes
 ground that no longer exists. The player is left standing in a clean run of the
 same seed.
 
+### 27.8 When the slot is written (Phase 6o)
+
+**There is no save key, and the trigger is the page going away.** `save()`
+costs about 25 ms of baseline regenerate (§27.5), which is three dropped frames
+wherever it lands, so `shell/main.js#persist` is hung on the two events where
+there is no next frame to drop: `visibilitychange` to `hidden`, which fires on
+a reload, a tab switch and a close alike, with `pagehide` behind it for the
+browsers that skip it. Both firing on one reload costs a second identical
+write and nothing else.
+
+| condition | what happens to the slot |
+|---|---|
+| a live run, menu closed | written |
+| `run.dead` or `run.won` | **cleared** |
+| the menu is standing | untouched |
+| no band allocated yet | untouched |
+| `?test=1` | no triggers are installed at all |
+
+**A dead or won run clears the slot rather than writing it.** Health is five
+hearts with no respawn (invariant 6), and a slot that resumes the run from
+before the fall is a respawn with extra steps. Leaving the previous slot in
+place would be the same thing one save older.
+
+**Nothing persists while the menu stands**, because the run behind it is either
+one nobody has played yet or the one CONTINUE just refused, and neither is
+worth the player's only slot (§30.5).
+
+**The triggers are not installed under `?test=1`.** There is no RAF loop there
+and the page is a harness: a hidden-page autosave would overwrite the slot a
+save test had just written, in the gap between the write and the reload it is
+measuring. `tests/save.spec.js` drives `save()` itself for that reason.
+
 ## 28. The dig queue (Phase 6i)
 
 Locked with `docs/PLAN-wave6.md` U5. Holding the dig button and sweeping
@@ -3795,9 +3843,11 @@ breaking it on the frame they arrive.
 
 Invariant 8. Two mechanisms, and the first is the belt:
 
-1. `write.clearAll()` is what `shell/boot.js#newRun` must call, beside
-   `digw.clearAll()` and `growthw.clearAll()`. It drops the committed target
-   with the marks, because a commitment names one of them.
+1. `write.clearAll()` is what `shell/boot.js#newRun` calls, beside
+   `digw.clearAll()` and `growthw.clearAll()` (wired in 6o). It drops the
+   committed target with the marks, because a commitment names one of them.
+   The second mechanism below makes this line's absence **unobservable**, which
+   is exactly why it is written down here and commented there.
 2. A mark holds its **band record**, and `newRun` replaces every band record
    (`model/world.js#write.clear`, then `allocate` per row). So a mark of a
    previous run fails `bands[ord] === m.band` and is stale by construction,
@@ -3813,19 +3863,45 @@ same seed regenerates the same bytes at the same coordinates, so a byte test
 alone would find every mark of the previous run perfectly valid. That is the
 determinism bug `docs/FINDINGS.md` (8d, #2) records happening to `segments`.
 
-### 28.5 What is not wired yet
+### 28.5 The drag-paint gesture (Phase 6o)
 
-Phase 6i lands the model and the rules only (`docs/PLAN-wave6.md` §3, S2).
-**Until phase 6o wires input, no player gesture can mark a tile**, and phase 6n
-draws nothing. Two things 6o owes this section:
+Phase 6i landed the model and the rules with no input at all
+(`docs/PLAN-wave6.md` §3, S2). This is the gesture 6o wired, and it lives
+entirely in `shell/input.js`.
 
-- the drag-paint gesture on LMB, which must not disturb §23.2's four-rule
-  pointerdown dispatch: a drag that starts on rule 4 paints, a drag that starts
-  on rules 1–3 does not.
-- a `'refused'` journal row carrying `DIG QUEUE FULL` when `write.mark`
-  returns `'full'`. No `model` module imports `model/journal.js`, so the cap's
-  refusal is the caller's to report, and every other refusal in this game is a
-  journal row.
+**A drag that started on rule 4 paints; one that started on rules 1–3 never
+does.** Which rule fired is decided once at `pointerdown` (§23.2) and the
+stroke is armed in rule 4's own branch, so a press meaning "place" or "feed"
+cannot become a stroke by moving the mouse.
+
+**The press alone marks nothing.** A stroke begins on the first `pointermove`
+that leaves the tile the press landed on, and that first line includes the
+press tile — so a sweep is contiguous and an ordinary mining click leaves no
+mark behind on the tile it is already breaking.
+
+**The tile comes from the pointer, not from the reticle.** `model/aim.js` is
+clamped to `eff('reach')` (`rules/mining.js#aimAtWorld`) and U5's whole point
+is marking well past where you stand, so `shell/input.js` resolves the tile
+from the pointer's own world position through `bandAt`/`tileX`/`tileY`.
+
+**Consecutive samples are joined by a straight line, both ends included.** A
+fast drag reports positions several tiles apart, and a gap in a painted run
+reads as dropped input rather than as a stroke. A sample in another band ends
+the line and marks only the tile it landed on.
+
+**The cap's refusal is one journal row per stroke.** `write.mark` returning
+`'full'` pushes `'refused'` with `DIG QUEUE FULL` at that tile — no `model`
+module imports `model/journal.js`, so the refusal is the caller's — and a
+latch holds it until the stroke ends, for the reason §28.3 gives for granite: a
+256-tile drag into a full queue says it once.
+
+**The stroke ends on `pointerup`, on `pointerleave`, or on window blur**, which
+is the same "losing focus must release everything" rule `shell/input.js` states
+for the keyboard.
+
+The hand still wins while the button is down (§28.3). A drag therefore mines at
+the reticle and paints at the pointer at the same time, and the queue takes the
+marks over the moment the button is released.
 
 ### 28.6 The queue commits to one tile (Phase 6i-2)
 
@@ -4017,9 +4093,9 @@ it is the one slab row no headframe exemption covers (§17.6).
 
 `docs/PLAN-wave6.md` request 2. `src/view/ui/menu.js` draws it, canvas-drawn
 per `CLAUDE.md` D2: `R()`, the 5x7 bitmap font, integer pixels, no `fillText`,
-no DOM. It reports the rectangles it drew and hit-tests nothing. **Phase 6l
-wires no input** (`docs/PLAN-wave6.md` §3 S2), so until 6o lands the menu is
-reachable only through `shell/ui.js`'s accessors.
+no DOM. It reports the rectangles it drew and hit-tests nothing. Phase 6l wired
+no input (`docs/PLAN-wave6.md` §3 S2); §30.5 is the boot state, the navigation
+and the dispatch 6o added over it.
 
 ### 30.1 Four pages
 
@@ -4043,7 +4119,11 @@ option teaches nothing (D17-B).
 **A refused load names its reason.** `ui.menu.notice` carries
 `shell/save.js#loadError.reason` verbatim — §27.7's five strings — and the menu
 draws it in `uiAmber`, wrapped, under a rule. `NO SAVE` and `CORRUPT SAVE:
-bands[0].edits` are different events and the player is told which.
+bands[0].edits` are different events and the player is told which. 6o widened
+the field to every refusal the boot path can raise, on the same terms: a
+`?scenario=` naming no row parks `NO SCENARIO: <id>` and a `?seed=` that is not
+a number parks `BAD SEED: <text>` (§30.5). The field is a refusal reason, not
+specifically the save's.
 
 The SETTINGS page shows only what `frameCtx` already carries: `f.flags`'s
 `showGrid`/`showChunks`/`showDebug` and `f.ui`'s
@@ -4097,10 +4177,20 @@ already hands `ui` to every render. `shell/input.js` imports `KEYMAP` directly.
 `shell/input.js`'s prose header would have drifted from it the first time a
 letter moved.
 
-**What 6o owes this table:** `shell/input.js` must derive its dispatch from
-`id`/`codes` rather than from its present `if (key === 'x')` clauses, so the
-declaration is the binding and not a description of one. Until it does, the
-table and the handler are two statements of one fact and can drift.
+**What 6o did with this table, and what it did not.** The menu's four verbs
+are dispatched off their own rows: `shell/input.js#MENU_BIND` is built at
+import from the rows whose `id` is `menuMove`, `menuPage`, `menuSelect` or
+`menuBack`, so the CONTROLS page and the handler that obeys it cannot disagree
+about which key moves the cursor. **Every other verb in `shell/input.js` still
+dispatches on an `if (key === 'x')` literal**, so for those the table and the
+handler remain two statements of one fact and can drift. Finishing it needs a
+machine-readable context per group — the `when` strings are display prose, and
+`escape`, `r`, `a` and the digits each mean different things in the menu, on
+foot, under the map and under a draft — which is a refactor of every branch of
+that file and was deliberately not landed beside the rest of 6o.
+`docs/FINDINGS.md` (6o) carries the interim net: a `tools/check.mjs` assertion
+that every single-key literal in `shell/input.js` appears in some row's
+`codes`.
 
 ### 30.4 It survives the 200 px floor
 
@@ -4124,3 +4214,84 @@ from a hardcoded origin.
 every drawn row lies inside the buffer at both sizes with exactly one focused,
 and every `KEYMAP` id is drawn exactly once across the CONTROLS page's pages.
 Dropping one column of the table fails that second assertion by 16 bindings.
+
+### 30.5 Boot, navigation and dispatch (Phase 6o)
+
+**The world stands behind the menu rather than after it.** `boot()` generates a
+run in the order `shell/boot.js`'s header locks and the menu is opened over the
+result, so there is one boot path rather than two, `view/scene.js` always has a
+world to draw under the wash, and NEW RUN is the same `newRun()` call a restart
+already makes. The cost is one worldgen that a CONTINUE then throws away, which
+is about 25 ms against the load's own 16 ms.
+
+**The menu is the default boot state and a URL that names a world is the
+exception.**
+
+| URL | boots into | seed |
+|---|---|---|
+| `/` | the menu, `root` page | random, behind the menu |
+| `/?test=1` | a live run, **no menu** | 1337 |
+| `/?seed=<int>` | a live run, no menu | the integer |
+| `/?scenario=<id>` | the diorama, no menu | `?seed=` if given, else 1337 |
+| `/?scenario=<unknown>` | the menu, `debug` page, `NO SCENARIO: <id>` | 1337 |
+| `/?seed=<not a number>` | the menu, `root` page, `BAD SEED: <text>` | random |
+| a headless import | a live run, no menu | random |
+
+`?test=1` must reach a live run without passing through the menu, and that is
+the load-bearing row: `shell/main.js#installTestHook` exposes `__mf.newRun`,
+which starts a run directly, and every one of the ~148 screenshot baselines
+photographs a scene rather than a menu. The menu tests open the menu
+themselves through `shell/ui.js`'s accessors. A **headless** import has no
+`location` and no player at all — `tools/check.mjs` stands in a `document` and
+drives `step()` itself — so the menu, which freezes `step()`, must not open in
+front of it.
+
+**The menu freezes the run.** `shell/main.js#step` and `#applyIntents` both
+return while `ui.menu.open`, the same guard `flags.showMap` and `run.won`
+already have and in the same place, so the pause is a fact about `step()` and
+not something only the RAF loop honours. `clock.t` does not advance, so a run
+started after ten minutes on the CONTROLS page starts at t = 0.
+
+**`newRun()` deliberately does not close the menu.** `ui.menu` is session
+state, not run state, and `shell/save.js#load` calls `newRun` while the menu is
+still standing precisely so a refusal can be drawn on it (§27.7). `shell` closes
+the menu itself once a row has been taken and succeeded.
+
+**Navigation.** The menu claims the whole keyboard above everything, the draft
+modal included, and swallows what it does not recognise. The four verbs come
+from `KEYMAP` (§30.3): `menuMove` W/S and the up/down arrows, `menuPage` A/D and
+the left/right arrows, `menuSelect` ENTER or SPACE, `menuBack` ESC. ESC is back
+**then** play — a sub-page returns to the root, and the root closes the menu
+into the run already standing behind it. The SEED field captures keys above the
+verbs once ENTER has been taken on the SEED row, accepts digits only, holds ten
+of them, and is left by ENTER or ESC. A key with ctrl, cmd or alt held passes
+through untouched, so reload still reloads.
+
+**The pointer.** A press inside a recorded row's rect takes that row; a press
+on a dead row (CONTINUE with no save) or on the wash does nothing at all rather
+than reaching the world under the menu. The rects are hit-tested in the screen
+space `drawn` records in, and the record's own `page` is checked against the
+live one, so a press cannot take a CONTROLS row while DEBUG is showing.
+
+**The dispatch**, `shell/main.js#applyMenuIntents`, by row id:
+
+| id | consequence |
+|---|---|
+| `new` | `newRun(<seed field>)`, camera snapped, menu closed |
+| `seed` | the SEED field takes the keyboard |
+| `continue` | `load(newRun)`; on success the menu closes, on refusal the reason is parked and `hasSave` re-mirrored |
+| `controls`, `settings`, `debug` | that page |
+| `back` | the `root` page |
+| `set-*` | the matching `flags` or `ui` toggle, per `SETTING` in `shell/main.js` |
+| `scenario-<id>` | `newRun(<seed field> or 1337)`, then `rules/scenarios.js#apply(id)` |
+
+`ui.menu.hasSave` is re-mirrored from `shell/save.js#hasSave()` on every frame
+the menu stands, which is affordable because that call parses a 58-byte header
+and never reads the body (§27.3).
+
+**The menu is not reachable from inside a run.** There is no binding that
+opens it, because adding one means a `KEYMAP` row, and the CONTROLS page is
+generated from `KEYMAP` — so the row would move two committed baselines, which
+is a decision for a phase that owns them. A player leaves a run by reloading
+the page, which is also what writes the save (§27.8). `docs/FINDINGS.md` (6o)
+records it.

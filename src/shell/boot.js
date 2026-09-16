@@ -37,6 +37,7 @@ import { S } from '../data/substances.js';
 import { BANDS, SPAWN_BAND } from '../data/world.js';
 import { write as aimw } from '../model/aim.js';
 import { write as boonw } from '../model/boons.js';
+import { write as dqw } from '../model/digqueue.js';
 import { write as fieldw } from '../model/fields.js';
 import { write as growthw } from '../model/growth.js';
 import { write as itemw } from '../model/items.js';
@@ -79,6 +80,13 @@ export function newRun(seed = (Math.random() * 1e9) | 0) {
                        // determinism bug invariant 8 exists to name
   itemw.clear();
   digw.clearAll();
+  dqw.clearAll();      // docs/SPEC.md section 28.4: a mark holds its band
+                       // record, so `worldw.clear()` above already makes every
+                       // mark of the previous run stale by construction -- and
+                       // that makes the absence of this line UNOBSERVABLE,
+                       // which is why it is written down. A queue surviving a
+                       // restart is invariant 8's determinism bug whether or
+                       // not a test can currently see it.
   growthw.clearAll();  // Phase 15 (docs/PLAN-phase15-trees.md D15-B): the one
                        // ledger `model/tiles.js#write.setByte` cannot clear
                        // for itself here, because `worldw.clear()` above
@@ -116,6 +124,13 @@ export function newRun(seed = (Math.random() * 1e9) | 0) {
                           // whether a trial gets paid. A toggle surviving a
                           // restart would make two runs from the same seed
                           // diverge on what the player clicked before dying.
+  /* `ui.menu` IS DELIBERATELY NOT CLEARED HERE, and it is the one `shell`
+     field on this teardown that is not. The menu stands AROUND a run rather
+     than inside one: `shell/main.js` closes it itself once a row has been
+     taken, and `shell/save.js#load` calls this function while the menu is
+     still up so that a refusal can be drawn on it (docs/SPEC.md section 27.7).
+     Closing it here would shut the menu before the reason reached the player,
+     leaving them in a clean run wondering why CONTINUE did nothing. */
   resetChunks();               // canvases holding the previous world
   resetFx();                   // chips and toasts from the previous world
   resetAudio();

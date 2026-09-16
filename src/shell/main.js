@@ -17,6 +17,7 @@ import { F } from '../data/forms.js';
 import { M, MACH } from '../data/machines.js';
 import { RECIPES } from '../data/recipes.js';
 import { aim } from '../model/aim.js';
+import { activeCount as digCount, isFull as digFull, queued as digMarks } from '../model/digqueue.js';
 import { items } from '../model/items.js';
 import { peek as journalPeek, push as journalPush } from '../model/journal.js';
 import { machineAt, machines } from '../model/machines.js';
@@ -28,16 +29,19 @@ import * as draft from '../rules/draft.js';
 import { dropHeaviest } from '../rules/items.js';
 import { handOne } from '../rules/machines.js';
 import { deconstruct, linkSegment, placeMachine, placeTile, placeableFromPockets, unlinkSegment } from '../rules/placement.js';
+import { apply as applyScenario } from '../rules/scenarios.js';
 import { step as stepFx } from '../view/fx.js';
 import { render } from '../view/scene.js';
 import { boot, newRun } from './boot.js';
 import { clearEdges, cmd, flags, pointer, wants } from './input.js';
 import { drainJournal } from './notify.js';
+import { clearSave, hasSave, load, loadError, save } from './save.js';
 import { boons, grants, miracles, stepAll, trinkets } from './schedule.js';
 import {
   armLink, armPlace, cancelQueued, clearArmedPlace, clearDrag, clearLink,
-  close as closePanel, closeTop, isOpen, open as openPanel, pausesRun,
-  queueCraft, scrollBy, setDrag, setSearchFocus, setTab, toggleAutoCollect, toggleAutoFeed,
+  close as closePanel, closeMenu, closeTop, isOpen, menuPage, open as openPanel,
+  openMenu, pausesRun, queueCraft, scrollBy, setDrag, setMenuNotice, setMenuSave,
+  setMenuSeedFocus, setSearchFocus, setTab, toggleAutoCollect, toggleAutoFeed,
   toggleHints, ui
 } from './ui.js';
 import { hoverInfo } from '../view/hud.js';
@@ -80,6 +84,15 @@ export function step(dt) {
      `clock.acc` even though it does nothing, so no backlog of catch-up frames
      is waiting the instant the map closes. */
   if (flags.showMap) return;
+
+  /* AND THE MENU FREEZES IT HARDER, because the menu is the state the game
+     boots into and the world is generated BEHIND it (see `applyMenuIntents`).
+     Guarded here for the reason the map freeze above gives: under `?test=1`
+     there is no RAF loop, so the pause has to be a fact about `step()` itself.
+     Nothing advances -- not the clock, not the camera -- so the run a player
+     takes NEW RUN or CONTINUE into starts at t = 0 however long they spent
+     reading the CONTROLS page. */
+  if (ui.menu.open) return;
 
   /* A WON RUN IS OVER (Phase 13d, docs/SPEC.md section 20.2). `run.won` is
      set by `rules/cycles.js` the frame `run.cycle` passes the last shipped
@@ -193,6 +206,13 @@ export function step(dt) {
    a second copy of this dispatch, and `frame()` and `__mf.frames`/`hold`
    still call it exactly as they did. */
 export function applyIntents() {
+  /* THE MENU'S OWN INTENTS RESOLVE ABOVE THE FREEZE THEY SIT BEHIND, exactly
+     as the draft modal's do below: taking a row is the only thing that ends
+     the pause, so it cannot be gated on the pause. Everything after this call
+     is a WORLD intent and none of it may happen while the menu stands. */
+  applyMenuIntents();
+  if (ui.menu.open) return;
+
   /* Same freeze as `step()`, and the same reason: placing a machine or
      drafting a boon resolves against `aim`, which is a reading of the world
      the player cannot currently see -- the map covers it. A press that lands
@@ -382,6 +402,96 @@ export function applyIntents() {
   applyUiIntents();
 }
 
+/* ---------- the main menu (docs/SPEC.md section 30) ----------
+   THE WORLD STANDS BEHIND THE MENU RATHER THAN AFTER IT. `boot()` generates a
+   run in the order `shell/boot.js`'s header locks, and the menu is opened over
+   the result -- so there is one boot path rather than two, `view/scene.js`
+   always has a world to draw under the wash, and NEW RUN is the same
+   `newRun()` call a restart already makes. The cost is one worldgen that a
+   CONTINUE then throws away.
+
+   A ROW IS TAKEN BY ID, never by index: `shell/input.js` reports the id off
+   `view/ui/state.js#drawn.menu` and this dispatches it, which is the
+   record-what-you-drew idiom `applyUiIntents` below already runs on panels. */
+
+/* The ids `view/ui/menu.js#settingsRows` draws, and the only coupling between
+   the two files. A row this table does not name is a row that does nothing. */
+const SETTING = {
+  'set-grid':    () => { flags.showGrid = !flags.showGrid; },
+  'set-chunks':  () => { flags.showChunks = !flags.showChunks; },
+  'set-debug':   () => { flags.showDebug = !flags.showDebug; },
+  'set-collect': toggleAutoCollect,
+  'set-feed':    toggleAutoFeed,
+  'set-hints':   toggleHints
+};
+
+/* The seed typed into the menu's own field, or undefined for "pick one" --
+   which is `shell/boot.js#newRun`'s own default parameter, so blank means
+   random without this function knowing what random is. */
+const menuSeed = () => {
+  const n = Number.parseInt(ui.menu.seed, 10);
+  return Number.isFinite(n) ? n : undefined;
+};
+
+/* The seed a debug entry point uses when nothing names one. Shared with
+   `?test=1` deliberately: a diorama you cannot reproduce is a diorama you
+   cannot report a bug against. */
+const DEBUG_SEED = 1337;
+
+function startRun(seed) {
+  newRun(seed);
+  snapCam();
+  setMenuNotice(null);
+  closeMenu();
+}
+
+/* CONTINUE. `load()` calls `newRun` itself with the stored seed, so a payload
+   can never be applied to a world it did not generate (docs/SPEC.md section
+   27.4) -- and a refusal therefore leaves the menu standing over a clean run
+   of that seed, with the reason on it. `loadError.reason` is verbatim: NO SAVE
+   and CORRUPT SAVE are different events and the player can act on the
+   difference. */
+function continueRun() {
+  const ok = load(newRun);
+  snapCam();
+  setMenuNotice(ok ? null : loadError.reason);
+  if (ok) closeMenu(); else setMenuSave(hasSave());
+}
+
+/* A DIORAMA IS A SCENARIO APPLIED TO A CLEAN RUN, never a second boot path
+   (docs/SPEC.md section 29.1). A row naming content that cannot be built says
+   so on the menu rather than dropping the player into a world that silently
+   ignored the request -- which is only reachable from `?scenario=`, since the
+   DEBUG page is generated from the table itself. */
+function startScenario(id) {
+  newRun(menuSeed() ?? DEBUG_SEED);
+  const ok = applyScenario(id);
+  snapCam();
+  setMenuNotice(ok ? null : 'NO SCENARIO: ' + id);
+  if (ok) closeMenu();
+}
+
+function applyMenuIntents() {
+  if (!ui.menu.open) return;
+  /* THE MIRROR, REFRESHED WHILE THE MENU STANDS. Storage is a device: `view`
+     may not reach `localStorage`, so `shell` answers and parks the answer
+     (docs/SPEC.md section 30.2). Affordable every frame because `hasSave()`
+     parses a 58-byte header and never reads the body. */
+  setMenuSave(hasSave());
+
+  const id = wants.menuRow;
+  if (!id) return;
+  wants.menuRow = null;
+
+  if (id === 'new') startRun(menuSeed());
+  else if (id === 'seed') setMenuSeedFocus(true);
+  else if (id === 'continue') continueRun();
+  else if (id === 'controls' || id === 'settings' || id === 'debug') menuPage(id);
+  else if (id === 'back') menuPage('root');
+  else if (SETTING[id]) SETTING[id]();
+  else if (id.startsWith('scenario-')) startScenario(id.slice('scenario-'.length));
+}
+
 /* ---------- the draft (D17-A/D17-B/D17-F) ----------
    SHELL IS THE ONLY LAYER THAT MAY SEE ALL FOUR TIERS AT ONCE. Each tier's
    `draftable()` lives in its own `rules` module and those four are siblings
@@ -555,14 +665,29 @@ function applyUiIntents() {
     prevUiDown = false;
     if (ui.drag) clearDrag();
     dragStart = null;
-    /* The quickbar's KEYS/legend toggle is drawn ALWAYS (`view/ui/quickbar.js`),
-       not gated on the main panel being open, and `shell/input.js` now routes
-       a click on it as a UI click regardless -- give it the one dispatch it
-       needs here rather than let the early return above swallow it silently.
-       Nothing else is live with no panel open: tabs, slots and search all
-       belong to the window this branch has already established is closed. */
-    if (cmd.hasMouse && cmd.uiClick && uiHitPanel(cmd.mx - drawCam.x, cmd.my - drawCam.y)?.id === 'hints-toggle')
-      toggleHints();
+    /* THE TWO CONTROLS DRAWN WITH NO PANEL OPEN, and the only dispatch this
+       branch owes: the KEYS legend toggle and the quickbar's own cells
+       (`view/ui/quickbar.js`'s header -- a quickbar is part of the permanent
+       HUD). `shell/input.js#onAlwaysOnUi` routes a press on either as a UI
+       click, so without a dispatch here the early return below swallows it and
+       a cell click arms nothing. Nothing else is live: tabs, the other grids
+       and search all belong to the window this branch has established is
+       closed.
+
+       ANY OCCUPIED CELL ARMS (docs/SPEC.md section 23.1), the identical gate
+       the digit keys carry in `shell/input.js` -- and it must be, because
+       `view/ui/quickbar.js#DIGITS`'s "press 3 and the slot showing 3 cannot
+       disagree" property only holds while both ways into a slot accept the
+       same slots. Armed on the PRESS, not on the release: the click-vs-drag
+       threshold below is the panel's, and with no panel open a drag out of a
+       cell has no second meaning to be told apart from a click. */
+    if (cmd.hasMouse && cmd.uiClick) {
+      const sx = cmd.mx - drawCam.x, sy = cmd.my - drawCam.y;
+      const hit = uiHitSlot(sx, sy);
+      if (uiHitPanel(sx, sy)?.id === 'hints-toggle') toggleHints();
+      else if (hit?.gridId === 'quickbar' && hit.slot.sub != null)
+        armPlace(hit.slot.sub, hit.slot.form);
+    }
     cmd.uiClick = false;
     return;
   }
@@ -817,6 +942,17 @@ function clampCam() {
                           : top + (totalH - VIEW.h) / 2;
 }
 
+/* THE CAMERA, PUT WHERE A FRESH OR FRESHLY LOADED RUN NEEDS IT. `updateCamera`
+   only EASES toward the player, so a camera still parked over the previous
+   world spends a second sliding across the map. `shell/save.js` deliberately
+   restores nothing about the camera, because the follow and the clamp are this
+   file's (docs/SPEC.md section 27.2). */
+function snapCam() {
+  cam.x = player.x + PW / 2 - VIEW.w / 2;
+  cam.y = player.y + PH / 2 - VIEW.h / 2;
+  clampCam();
+}
+
 /* ---------- draw ---------- */
 export function draw() {
   const g = stage.ctx;
@@ -902,6 +1038,20 @@ function installTestHook() {
        returning a record across the boundary. */
     segments,
 
+    /* THE DIG QUEUE, PROJECTED RATHER THAN HANDED OVER, which is the one way
+       it differs from `segments` above: `model/digqueue.js#queued()` returns
+       the live `Map`, and a mark holds its band RECORD, which holds typed
+       arrays -- so none of it survives `page.evaluate`'s structured clone.
+       `ord` identifies the band instead (docs/SPEC.md section 28.2). A
+       getter, so every read is current. */
+    get digQueue() {
+      return {
+        activeCount: digCount(),
+        isFull: digFull(),
+        marks: [...digMarks().values()].map(m => ({ ord: m.ord, tx: m.tx, ty: m.ty }))
+      };
+    },
+
     /* Read-back of `view/hud.js`'s own last-frame output: what a WORLD-hover
        tooltip (a bare tile, a falling item, a machine) would show right now.
        A panel's OWN tooltip (hovering a slot inside the Character/Crafting
@@ -982,7 +1132,17 @@ function installTestHook() {
         tabs: uiDrawn.tabs.map(t => ({ ...t, hits: t.hits.map(h => ({ ...h })) })),
         grids: uiDrawn.grids.map(gr => ({ ...gr, slots: gr.slots.map(s => ({ ...s })) })),
         bars: uiDrawn.bars.map(b => ({ ...b })),
-        tooltip: uiDrawn.tooltip ? { ...uiDrawn.tooltip, lines: uiDrawn.tooltip.lines.slice() } : null
+        tooltip: uiDrawn.tooltip ? { ...uiDrawn.tooltip, lines: uiDrawn.tooltip.lines.slice() } : null,
+        /* THE MENU, BOTH HALVES AND NOT ONE MERGED VIEW: `shell/ui.js#ui.menu`
+           is the session state and `drawn.menu` is what was painted from it,
+           and a disagreement between the two is exactly the bug worth being
+           able to see. Null while the menu drew nothing. */
+        menu: { ...ui.menu },
+        menuDrawn: uiDrawn.menu
+          ? { ...uiDrawn.menu,
+              rows: uiDrawn.menu.rows.map(r => ({ ...r })),
+              keys: uiDrawn.menu.keys.map(k => ({ ...k })) }
+          : null
       };
     },
 
@@ -1103,17 +1263,80 @@ function installTestHook() {
   };
 }
 
+/* ---------- the save triggers (docs/SPEC.md section 27.8) ----------
+   THE SLOT IS WRITTEN WHEN THE PAGE GOES AWAY, and there is no save key. A
+   `save()` costs about 25 ms of baseline regenerate (section 27.5), which is
+   three dropped frames wherever it lands, so it lands where there is no next
+   frame to drop: `visibilitychange` to hidden, which fires on a reload, a tab
+   switch and a close alike, with `pagehide` behind it for the browsers that
+   skip it. Two triggers can both fire on one reload, which costs a second
+   identical write and nothing else.
+
+   A DEAD OR WON RUN CLEARS THE SLOT INSTEAD OF WRITING IT. Health is five
+   hearts with no respawn (invariant 6), and a slot that resumes the run from
+   before the fall is a respawn with extra steps.
+
+   NOTHING PERSISTS WHILE THE MENU STANDS: the run behind it is either one
+   nobody has played yet or the one CONTINUE has just refused, and neither is
+   worth the player's only slot. */
+function persist() {
+  if (!player.band || ui.menu.open) return;
+  if (run.dead || run.won) clearSave(); else save();
+}
+
+/* Both listeners are optional, the same way `shell/boot.js`'s resize listener
+   is: `tools/check.mjs` stands in a `document` with `getElementById` and
+   nothing else. */
+function installSaveTriggers() {
+  if (typeof addEventListener === 'function') addEventListener('pagehide', persist);
+  if (typeof document.addEventListener === 'function')
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') persist();
+    });
+}
+
 if (typeof document !== 'undefined' && document.getElementById('stage')) {
-  const testMode = typeof location !== 'undefined'
-                && new URLSearchParams(location.search).has('test');
-  boot(testMode ? 1337 : undefined);
+  /* THE MENU IS THE DEFAULT BOOT STATE AND A URL THAT NAMES A WORLD IS THE
+     EXCEPTION, which is the whole of the rule. `?test=1` must reach a live run
+     without passing through the menu: the test hook drives a run directly and
+     every screenshot baseline photographs a scene rather than a menu.
+     `?seed=` and `?scenario=` skip it for the same reason at a keystroke's
+     cost, which is what makes a diorama one URL.
+
+     AND A HEADLESS IMPORT HAS NO URL AND NO PLAYER: `tools/check.mjs` stands
+     in a `document` and drives `step()` itself, and the menu freezes `step()`,
+     so the menu must not open in front of a harness that never asked for
+     it. */
+  const inPage = typeof location !== 'undefined';
+  const q = new URLSearchParams(inPage ? location.search : '');
+  const testMode = q.has('test');
+  const scenario = q.get('scenario');
+  const seedText = q.get('seed');
+  const seedNum = seedText === null ? null : Number.parseInt(seedText, 10);
+  const named = Number.isFinite(seedNum);
+
+  boot(named ? seedNum : (testMode || scenario !== null ? DEBUG_SEED : undefined));
   pointer.cam = cam;
-  clampCam();
-  cam.x = player.x + PW / 2 - VIEW.w / 2;
-  cam.y = player.y + PH / 2 - VIEW.h / 2;
-  clampCam();
+  snapCam();
   if (typeof addEventListener === 'function')
     addEventListener('resize', () => clampCam());
+
+  if (scenario !== null) {
+    /* A `?scenario=` naming no row lands on the DEBUG page with the reason,
+       which is the one place every real id is listed. */
+    if (!applyScenario(scenario)) {
+      openMenu('debug');
+      setMenuNotice('NO SCENARIO: ' + scenario);
+    }
+  } else if (inPage && !testMode && !named) {
+    openMenu('root');
+    /* A `?seed=` that is not a number does not silently become a random one. */
+    if (seedText !== null) setMenuNotice('BAD SEED: ' + seedText);
+  }
+
+  /* NOT UNDER `?test=1`. There is no RAF loop there and the page is a harness:
+     a hidden-page autosave would overwrite the slot a save test had just
+     written, between the write and the reload it is measuring. */
   if (testMode) { installTestHook(); draw(); }
-  else requestAnimationFrame(frame);
+  else { installSaveTriggers(); requestAnimationFrame(frame); }
 }
