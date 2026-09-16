@@ -1564,6 +1564,46 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
+  /* ---- 28. EVERY STRATA WINDOW LIES INSIDE ITS OWN BAND (Phase 6g,
+     docs/FINDINGS.md phase 6e-2).
+
+     `rules/generate.js#attempts` is `dens x (bot - top) x tw / 1e4` over a
+     window clamped to `0 .. b.th`, so a row declaring `fromTy:400` on a
+     320-row band resolves to an empty window, buys 0 attempts, and scatters
+     nothing at all -- no throw, no warning, and a band that simply has no ore
+     in it. A `contact` row's `at` has the same shape and the same silence.
+
+     THE WINDOW IS CHECKED AS DECLARED, not as shifted. `heightmap()` moves
+     both bounds by the same per-column offset, so a declared window inside
+     the band can still clamp at a hilltop -- that is worldgen's business and
+     `tools/worldgen-check.mjs`'s density floor measures it. What no tool saw
+     is a row whose window is outside the band before a single column is
+     shifted. ---- */
+  for (const cfg of BANDS) {
+    for (const row of cfg.strata) {
+      const { fromTy, toTy } = row;
+      if (fromTy !== undefined || toTy !== undefined) {
+        checks++;
+        if (!(Number.isInteger(fromTy) && Number.isInteger(toTy) &&
+              fromTy >= 0 && fromTy < toTy && toTy <= cfg.th))
+          fail(`band "${cfg.id}": "${row.kind}" row declares the window ${fromTy}..${toTy} in a ` +
+               `${cfg.th}-row band. rules/generate.js clamps it to 0..th, so anything outside that ` +
+               `resolves to an empty window and the row scatters nothing`);
+      }
+      if (row.at !== undefined) {
+        checks++;
+        if (!(Number.isInteger(row.at) && row.at >= 0 && row.at < cfg.th))
+          fail(`band "${cfg.id}": "${row.kind}" row sits at row ${row.at} in a ${cfg.th}-row band`);
+      }
+      if (row.dens !== undefined) {
+        checks++;
+        if (!(row.dens > 0))
+          fail(`band "${cfg.id}": "${row.kind}" row declares dens ${row.dens}, so it buys 0 ` +
+               `attempts per 10,000 window tiles and never places anything`);
+      }
+    }
+  }
+
   if (!quiet) {
     for (const v of violations) console.error(`  FAIL ${v}`);
     const verdict = violations.length ? 'FAIL' : 'ok  ';

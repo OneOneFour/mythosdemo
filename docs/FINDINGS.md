@@ -4073,3 +4073,54 @@ because a third sits 29.8 px from the player's centre and `eff('reach')` is
   3-tall pocket alike. It is the exact mirror of the cost `docs/SPEC.md` §2.1
   already took for the horizontal branch, and it costs a real player nothing:
   no key is bound to `cmd.place` and a pointer resolves through `aimAtWorld`.
+
+---
+
+## Phase 6g — the band edge and the keyboard aim get gates
+
+`tools/check.mjs` gains sections **8s** (five claims) and **8t** (two claims),
+`tools/content.mjs` gains **assertion 28**, and the terrain-luck test at
+`tests/visual.spec.js` now asserts its own reticle. Every one of the eight was
+made to fail on purpose by breaking the source it checks. Five things parked.
+
+- **A BAND'S RESTING x PROVES ALMOST NOTHING ON ITS OWN, AND THE FRAMERATE
+  SWEEP IS WHAT CAUGHT THE CLAMP.** Out of bounds reads as BEDROCK, so
+  `boxSolid` stops a walking body on the last column whether
+  `rules/player.js`'s clamp exists or not. Deleting the clamp left the same
+  resting 8186 on every band and showed up only as substeps spent OUTSIDE the
+  bound — 190 of 480 at 120 fps, 305 of 576 at 144, and **none at all at 30 or
+  60 fps.** A single-rate probe at either of the two rates a developer would
+  reach for would have passed a deleted clamp. Section 8s claim 2 counts
+  per-substep excursions at four rates for that reason.
+
+- **`view/overview.js`'s own fit-to-width claim is still ungated.** 6f landed
+  the projection; `docs/PLAN-horizontal-chunks-SCOPE.md` §3.8 is the only §3
+  item this phase touched nothing of. A gate belongs in `tests/visual.spec.js`
+  as a picture, not in `check.mjs` as a number, and it is a `ui` judgement about
+  what the overview is now for rather than a harness one.
+
+- **A BAND'S WIDTH CHANGING CANNOT BE GATED FROM `tools/`.**
+  §3.12 asks for two things and this phase closed one. `data/world.js` is
+  frozen, `shell/boot.js` builds every band from `BANDS` unconditionally, and
+  `model/world.js#write.allocate` has no injection seam — so a harness can only
+  test a second width by pushing a synthetic 4th band onto `world.bands` with no
+  strata, no fields and an `ord` past the last, which is a fabricated world and
+  a weaker claim than the one it would be making. §3.5's other half — "it
+  silently teleports x on any `tw` shrink" — is unreachable for the same reason.
+  Closing it means a source change, either a `boot.newRun` that takes a band
+  list or an `allocate` that a tool may call with its own row.
+
+- **`clampCam` is private, and every camera claim therefore runs through
+  `main.step`.** That is the right way round (a fixed-`dt` harness cannot see a
+  framerate bug), but it means the camera assertions are about the converged
+  resting position and about per-substep bounds, never about one call. The
+  centring branch needed a 16,400 px viewport to reach at the shipped width;
+  claim 5 pays that price rather than fabricating a narrow band.
+
+- **`docs/SPEC.md` has no section for the band edge.** Sections 8s and 8t cite
+  `docs/PLAN-horizontal-chunks-SCOPE.md` §3.5/§3.6/§3.12 and `docs/SPEC.md`
+  §2.1 respectively, and the three measured edge numbers (the player stops at
+  `origin.x + widthPx - PW`, the camera window ends flush with
+  `origin.x + widthPx`, and all 3,072 band-columns resolve to their own band)
+  live only in the harness's own `ok` line. `docs/SPEC.md` §1 owns the width
+  row and would be the place for them; §1 was not in this block.

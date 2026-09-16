@@ -2529,35 +2529,50 @@ test('fog of war: hovering an unseen tile shows nothing; the same tile shows its
 test('opening the panel then placing closes it, and the placement still succeeds (Polish 6)', async ({ page }) => {
   await boot(page);
   await settle(page);
-  await page.evaluate(async () => {
+  const scene = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
-    const { F } = await import('/src/data/forms.js');
+    const { F, AIR } = await import('/src/data/forms.js');
     const { bandOf, worldX, worldY } = await import('/src/model/world.js');
-    const { write: tw } = await import('/src/model/tiles.js');
+    const { tileAt, write: tw } = await import('/src/model/tiles.js');
     const { write: pw } = await import('/src/model/player.js');
     const { open } = await import('/src/shell/ui.js');
 
     /* A small room (5 rows tall -- PH is 16px = 2 tile rows, so this is
        generous headroom, the same margin the pre-existing "overloaded past
-       40 T" test's own ladder shaft uses) carved into solid rock, plus ONE
-       open cell beside it to place into -- backed on its far side by the
-       untouched wall, `rules/placement.js#placeTile`'s own "needs something
-       to hang from" rule. Player centred exactly mid-row `ty` (`- 4`, half
-       a tile) so `rules/mining.js#aimAtKeys` (no up/down held, facing right)
-       resolves to that row and not the one below it. */
+       40 T" test's own ladder shaft uses) carved into solid rock, plus TWO
+       open cells beside it -- backed on their far side by the untouched wall,
+       `rules/placement.js#placeTile`'s own "needs something to hang from"
+       rule.
+
+       BOTH ROWS OF THE FACED COLUMN ARE CARVED, AND THE RETICLE IS ASSERTED
+       BELOW. `rules/mining.js#resolveFacing` takes the first OCCUPIED of the
+       two rows the 16 px body fills, so rock at head height would name that
+       tile instead and the placement into the belly cell would refuse. This
+       scene used to carve the belly cell alone and pass on the head cell
+       happening to be AIR in seed 1337 (docs/FINDINGS.md, phase 6y). */
     const band = bandOf('topsoil');
     const tx = 10, ty = 40;
     for (let dy = -2; dy <= 2; dy++) tw.clear(band, tx, ty + dy);
     tw.clear(band, tx + 1, ty);
+    tw.clear(band, tx + 1, ty - 1);
     pw.band(band);
     pw.move(worldX(band, tx), worldY(band, ty) - 4);
 
     __mf.give(S.timber, F.rung, 5);
     __mf.cmd.hasMouse = false;
     open('main');
-    __mf.hold({ right: 1 }, 6);     // face right, toward the open cell at (tx+1,ty)
+    __mf.hold({ right: 1 }, 6);     // face right, toward the open cells at tx+1
     __mf.frames(1);
+    return {
+      belly: tileAt(band, tx + 1, ty) === AIR,
+      head: tileAt(band, tx + 1, ty - 1) === AIR,
+      aimed: __mf.aim.valid && __mf.aim.tx === tx + 1 && __mf.aim.ty === ty
+    };
   });
+
+  /* The precondition, stated rather than trusted: both cells of the faced
+     column are open and the reticle names the one the placement fills. */
+  expect(scene).toEqual({ belly: true, head: true, aimed: true });
 
   let isOpen = await page.evaluate(() => __mf.ui.open.includes('main'));
   expect(isOpen).toBe(true);

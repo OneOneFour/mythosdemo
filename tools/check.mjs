@@ -8927,6 +8927,493 @@ function richRun(seed) {
 
 globalThis.localStorage = defaultStore();
 
+console.log('\n8s. THE BAND EDGE (Phase 6g, docs/PLAN-horizontal-chunks-SCOPE.md 3.5/3.6/3.12)');
+
+/* NOTHING TESTED A BAND EDGE BEFORE THIS SECTION. The scoping document says so
+   in 3.12, and phase 6e then widened all three bands from 128 tiles to 1,024
+   with the edges measured by hand and no gate written. Every expected value
+   below comes off the live band record -- `b.origin.x`, `widthPx(b)`, `b.tw`,
+   `b.tile` -- and off `VIEW.w`. A literal column number is what broke
+   `tools/worldgen-check.mjs#keyOf` at the same width (docs/FINDINGS.md, phase
+   6e-2), so there is not one here. */
+
+/* A row deep inside a band, in world px. Every band is at least 40 rows tall,
+   so the middle row is always interior. */
+const bandMidY = b => b.origin.y + Math.floor(world.heightPx(b) / 2);
+
+/* A FLAT CORRIDOR ALONG ONE EDGE, so a probe measures a clamp and never a
+   fall. Three rows of headroom over a stone floor, `EDGE_RUN` columns of
+   run-up, and the player set down at the INNER end facing the edge. `side` is
+   +1 for the right edge and -1 for the left.
+
+   `boot.newRun` re-allocates every band, so the record is re-read from
+   `bandOf` afterwards rather than carried in. */
+const EDGE_RUN = 6;
+function edgeScene(bandId, side) {
+  boot.newRun(4242);
+  const b = world.bandOf(bandId);
+  const fy = b.th - 4;
+  const lo = side > 0 ? b.tw - 1 - EDGE_RUN : 0;
+  const hi = side > 0 ? b.tw - 1 : EDGE_RUN;
+  for (let tx = lo; tx <= hi; tx++) {
+    for (let dy = -3; dy <= -1; dy++) tiles.write.clear(b, tx, fy + dy);
+    tiles.write.set(b, tx, fy, D_sub.S.stone, D_form.NATIVE);
+  }
+  const scene = { b, fy, startTx: side > 0 ? lo : hi, startX: 0 };
+  edgeStand(scene);
+  return scene;
+}
+
+/* Back to the inner end of the corridor with no fall in progress. Separate
+   from `edgeScene` so the framerate sweep re-runs the WALK without paying for
+   another whole-world `newRun` -- the corridor it carved is still there. */
+function edgeStand(scene) {
+  const { b, fy, startTx } = scene;
+  player.write.band(b);
+  player.write.move(world.worldX(b, startTx), world.worldY(b, fy - 2));
+  player.write.vel(0, 0);
+  player.write.set('onGround', true);
+  player.write.set('fallFrom', player.player.y);
+  main.cam.x = world.worldX(b, startTx);
+  main.cam.y = world.worldY(b, fy - 2);
+  scene.startX = player.player.x;
+  return scene;
+}
+
+/* Substeps to cover the run-up plus a band's worth of overshoot, so the walk
+   cannot end early for want of frames. `eff('walk')` is the speed the clamp
+   has to stop. */
+const edgeFrames = (b, dt) => Math.ceil((EDGE_RUN + 4) * b.tile / mods.eff('walk') / dt) * 3;
+
+/* --- CLAIM 1: `bandAt` ANSWERS FOR EVERY COLUMN OF A BAND AND FOR NO PIXEL
+   OUTSIDE IT.
+
+   `model/world.js#bandAt` tests x as well as y (scoping document 3.6), and it
+   is the function `model/segments.js#sweepSpan` turns into 'OUTSIDE THE
+   WORLD'. Phase 10b's astral widening existed to close two 16-column dead
+   strips that were an artefact of exactly this test, and 6e measured 0 dead
+   columns over all 3,072 band-columns without gating it.
+
+   The two halves prove each other is not vacuous. A `bandAt` that answered
+   `b` for everything fails the outside half; one that answered null for
+   everything fails the column half. --- */
+{
+  boot.newRun(1337);
+  let bad = 0;
+  const notes = [];
+  for (const b of world.bands) {
+    const midY = bandMidY(b);
+    let dead = 0, firstDead = '';
+    for (let tx = 0; tx < b.tw; tx++) {
+      /* Both edges of the column, so a half-open bound off by one is caught. */
+      for (const px of [world.worldX(b, tx), world.worldX(b, tx) + b.tile - 1])
+        if (world.bandAt(px, midY) !== b) {
+          dead++;
+          if (!firstDead) firstDead = `tx ${tx} at x ${px}`;
+        }
+    }
+    const left = world.bandAt(b.origin.x - 1, midY);
+    const right = world.bandAt(b.origin.x + world.widthPx(b), midY);
+    if (dead) {
+      fail(`BAND EDGE (bandAt): ${dead} of ${b.tw * 2} probed pixels across "${b.id}" resolve to ` +
+           `another band or to nothing, first ${firstDead}. The band spans x ` +
+           `${b.origin.x}..${b.origin.x + world.widthPx(b) - 1} by its own tw ${b.tw} x tile ` +
+           `${b.tile}`);
+      bad++;
+    } else if (left || right) {
+      fail(`BAND EDGE (bandAt): x ${b.origin.x - 1} resolves to "${left?.id ?? 'null'}" and x ` +
+           `${b.origin.x + world.widthPx(b)} to "${right?.id ?? 'null'}" at "${b.id}"'s own row. ` +
+           `One pixel past either edge is outside the world, which is what ` +
+           `model/segments.js#sweepSpan refuses on`);
+      bad++;
+    } else {
+      notes.push(`${b.id} ${b.origin.x}..${b.origin.x + world.widthPx(b) - 1}`);
+    }
+  }
+  if (!bad)
+    ok(`BAND EDGE (bandAt): every column of all ${world.bands.length} bands resolves to its own ` +
+       `band and one pixel past either edge resolves to none (${notes.join(', ')})`);
+}
+
+/* --- CLAIM 2: THE PLAYER STOPS DEAD AT EITHER EDGE OF EVERY BAND, AT FOUR
+   FRAMERATES.
+
+   `rules/player.js` clamps `player.x` to
+   `origin.x .. origin.x + widthPx(b) - PW` unconditionally every substep, and
+   that clamp is the only thing between a walking player and the far side of
+   the typed arrays.
+
+   THE PER-SUBSTEP COUNT IS THE HALF THAT MEASURES THE CLAMP, and the resting
+   x is the weaker half. Out of bounds reads as BEDROCK
+   (`model/tiles.js#tileAt`), so `boxSolid` stops the body on the last column
+   whether the clamp exists or not -- deleting the clamp leaves the same
+   resting 8186 and shows up only as substeps spent OUTSIDE the bound.
+   Measured with the clamp removed: 190 of 480 substeps outside at 120 fps and
+   305 of 576 at 144, and none at all at 30 or 60, which is why four rates and
+   not one. --- */
+{
+  const RATES = [30, 60, 120, 144];
+  let bad = 0;
+  const notes = [];
+  for (const b0 of world.bands) {
+    for (const side of [+1, -1]) {
+      const scene = edgeScene(b0.id, side);
+      for (const fps of RATES) {
+        const dt = 1 / fps;
+        const { b, startX } = edgeStand(scene);
+        const bound = side > 0 ? b.origin.x + world.widthPx(b) - player.PW : b.origin.x;
+        const n = edgeFrames(b, dt);
+        let over = 0;
+        for (let f = 0; f < n; f++) {
+          stepReal(dt, side > 0 ? { right: true } : { left: true });
+          if (side > 0 ? player.player.x > bound : player.player.x < bound) over++;
+        }
+        const at = player.player.x;
+        const label = `${b.id} ${side > 0 ? 'right' : 'left'} @${fps}`;
+        if (startX === bound) {
+          fail(`BAND EDGE (player): the ${label} scene starts the player already on the bound ` +
+               `(${bound}), so the walk into it is not under test`);
+          bad++;
+        } else if (over) {
+          fail(`BAND EDGE (player): the player was outside ${bound} on ${over} of ${n} substeps ` +
+               `walking ${label}, ending at ${at}. The bound is origin.x ${b.origin.x} + widthPx ` +
+               `${world.widthPx(b)} - PW ${player.PW}`);
+          bad++;
+        } else if (at !== bound) {
+          fail(`BAND EDGE (player): ${label} came to rest at ${at} against a derived ${bound} ` +
+               `after ${(n * dt).toFixed(2)} s of held walk from ${startX}`);
+          bad++;
+        } else if (player.player.band !== b) {
+          fail(`BAND EDGE (player): ${label} left the band it started in for ` +
+               `"${player.player.band?.id ?? 'nothing'}", so the resting x is another band's bound`);
+          bad++;
+        }
+      }
+      notes.push(`${b0.id} ${side > 0 ? 'right' : 'left'}`);
+    }
+  }
+  if (!bad)
+    ok(`BAND EDGE (player): a held walk stops exactly on origin.x and on ` +
+       `origin.x + widthPx - PW (${player.PW}) in all ${world.bands.length} bands at ` +
+       `${RATES.join('/')} fps, and never crosses either (${notes.join(', ')})`);
+}
+
+/* --- CLAIM 3: THE CAMERA WINDOW NEVER LEAVES THE BAND, AND ENDS FLUSH WITH
+   ITS EDGE.
+
+   `shell/main.js#clampCam`'s one x line IS the world's right-hand edge as far
+   as the camera is concerned (scoping document 3.5). Asserted as the property
+   rather than as a copy of the expression -- the window `cam.x .. cam.x +
+   VIEW.w` stays inside `origin.x .. origin.x + widthPx(b)` on every substep,
+   and at rest against an edge one side of it is exactly flush.
+
+   A band narrower than the viewport centres instead of clamping, so flushness
+   would be impossible and those bands are skipped. The count of skips is
+   reported, and all three being skipped is a failure -- that is the shape the
+   claim goes vacuous in. --- */
+{
+  let bad = 0, tested = 0, skipped = 0;
+  const notes = [];
+  for (const b0 of world.bands) {
+    for (const side of [+1, -1]) {
+      const { b } = edgeScene(b0.id, side);
+      const w = world.widthPx(b);
+      if (w <= canvas.VIEW.w) { skipped++; continue; }
+      tested++;
+      const n = edgeFrames(b, main.STEP);
+      let out = 0, firstOut = '';
+      for (let f = 0; f < n; f++) {
+        stepReal(main.STEP, side > 0 ? { right: true } : { left: true });
+        if (main.cam.x < b.origin.x || main.cam.x + canvas.VIEW.w > b.origin.x + w) {
+          out++;
+          if (!firstOut) firstOut = `substep ${f} at cam.x ${main.cam.x}`;
+        }
+      }
+      const flush = side > 0 ? main.cam.x + canvas.VIEW.w === b.origin.x + w
+                             : main.cam.x === b.origin.x;
+      const label = `${b.id} ${side > 0 ? 'right' : 'left'}`;
+      if (out) {
+        fail(`BAND EDGE (camera): the ${canvas.VIEW.w} px window showed ground outside "${b.id}" ` +
+             `(x ${b.origin.x}..${b.origin.x + w}) on ${out} of ${n} substeps walking ${label}, ` +
+             `first ${firstOut}`);
+        bad++;
+      } else if (!flush) {
+        fail(`BAND EDGE (camera): walking ${label} left cam.x ${main.cam.x} with the window ` +
+             `${side > 0 ? b.origin.x + w - (main.cam.x + canvas.VIEW.w) : main.cam.x - b.origin.x} px ` +
+             `short of the edge, so the camera stops before the world does`);
+        bad++;
+      } else {
+        notes.push(`${label} ${main.cam.x}`);
+      }
+    }
+  }
+  if (!tested)
+    fail(`BAND EDGE (camera): every band is narrower than the ${canvas.VIEW.w} px viewport, so ` +
+         `clampCam centres in all of them and this claim asserts nothing`);
+  else if (!bad)
+    ok(`BAND EDGE (camera): the ${canvas.VIEW.w} px window stays inside the band on every substep ` +
+       `and comes to rest flush with both edges of ${tested / 2} band(s)` +
+       (skipped ? `, ${skipped / 2} centred and skipped` : '') + ` (${notes.join(', ')})`);
+}
+
+/* --- CLAIM 4: A RESIZE AT THE EDGE MOVES THE CAMERA AND NOTHING ELSE
+   (invariant 2).
+
+   The edge is where a resize can do damage, because `VIEW.w` is a term in the
+   camera's own bound and in nothing else. Three viewports, including
+   `core/canvas.js#BASE_W_MIN`'s 200 px floor -- the width CLAUDE.md names as
+   reachable by resizing a desktop window, and the reason a hardcoded click
+   coordinate is banned. `player.y` is deliberately not asserted: the body
+   settles on its floor by a fraction of a pixel per substep, which a resize
+   has nothing to do with. --- */
+{
+  const SIZES = [[400, 800], [2560, 1440], [1600, 900]];
+  const { b } = edgeScene('topsoil', +1);
+  for (let f = 0; f < edgeFrames(b, main.STEP); f++) stepReal(main.STEP, { right: true });
+  const bound = b.origin.x + world.widthPx(b) - player.PW;
+  const right = b.origin.x + world.widthPx(b);
+  let bad = 0;
+  const notes = [];
+  for (const [iw, ih] of SIZES) {
+    canvas.resize(iw, ih);
+    const moved = player.player.x;
+    for (let f = 0; f < 600; f++) stepReal(main.STEP, {});
+    const flush = main.cam.x + canvas.VIEW.w === right;
+    if (moved !== bound) {
+      fail(`BAND EDGE (resize): resizing to ${iw}x${ih} moved the player from ${bound} to ` +
+           `${moved} before a single substep ran`);
+      bad++;
+    } else if (player.player.x !== bound) {
+      fail(`BAND EDGE (resize): at ${canvas.VIEW.w} px of viewport the player rests at ` +
+           `${player.player.x}, not on the band's own bound ${bound}`);
+      bad++;
+    } else if (!flush) {
+      fail(`BAND EDGE (resize): at ${canvas.VIEW.w} px of viewport cam.x is ${main.cam.x}, so the ` +
+           `window ends ${right - (main.cam.x + canvas.VIEW.w)} px short of the band's edge ` +
+           `${right}`);
+      bad++;
+    } else {
+      notes.push(`${canvas.VIEW.w}->${main.cam.x}`);
+    }
+  }
+  if (!bad)
+    ok(`BAND EDGE (resize): three viewports down to core/canvas.js#BASE_W_MIN leave the player on ` +
+       `${bound} and the window flush with ${right} (${notes.join(', ')})`);
+}
+
+
+/* --- CLAIM 5: A VIEWPORT WIDER THAN THE BAND CENTRES IT.
+
+   `clampCam`'s x line has two branches and claim 3 exercises one. The other
+   is what a band narrower than the viewport needs, and it had no test at all
+   -- 16,400 px of window is nobody's monitor, but the branch is reached by a
+   96-tile platform just as well and that is the case the line was written
+   for. Asserted as equal margins with the whole band inside the window,
+   which is the property rather than a copy of the expression.
+
+   Restores the harness viewport on the way out, because 8t runs after this
+   and `VIEW` is module state. --- */
+{
+  const { b } = edgeScene('topsoil', +1);
+  for (let f = 0; f < edgeFrames(b, main.STEP); f++) stepReal(main.STEP, { right: true });
+  const held = player.player.x;
+  const w = world.widthPx(b);
+
+  /* Wide enough that `ceil(iw / scale)` clears the band by a few pixels. */
+  canvas.resize((w + 8) * 2, 900);
+  for (let f = 0; f < 600; f++) stepReal(main.STEP, {});
+  const left = b.origin.x - main.cam.x;
+  const right = (main.cam.x + canvas.VIEW.w) - (b.origin.x + w);
+  canvas.resize(1600, 900);
+
+  if (canvas.VIEW.w >= w)
+    fail(`BAND EDGE (centred): the harness viewport did not come back under the band's ${w} px, ` +
+         `so every claim after this one runs on a centred camera`);
+  else if (left <= 0 || right <= 0)
+    fail(`BAND EDGE (centred): a viewport wider than the ${w} px band left ${left} px of margin on ` +
+         `the left and ${right} on the right, so part of the band is off screen`);
+  else if (left !== right)
+    fail(`BAND EDGE (centred): a viewport wider than the ${w} px band put ${left} px of margin on ` +
+         `the left and ${right} on the right; clampCam centres rather than clamping to a corner`);
+  else if (player.player.x !== held)
+    fail(`BAND EDGE (centred): widening the viewport moved the player from ${held} to ` +
+         `${player.player.x}`);
+  else
+    ok(`BAND EDGE (centred): a viewport wider than the ${w} px band shows all of it with ${left} px ` +
+       `of margin on each side, and the player does not move`);
+}
+
+console.log('\n8t. THE KEYBOARD AIM REACHES WHAT THE BODY OCCUPIES (Phase 6y, docs/SPEC.md section 2.1)');
+
+/* NOTHING PROBED THE KEYBOARD AIM BEFORE THIS SECTION, AND A TOTAL NO-OP
+   SURVIVED THE WHOLE LIFE OF THE PROJECT. `rules/mining.js#aimAtKeys`
+   resolved one tile at the player's centre row while the body fills two, so
+   holding right + dig moved the player exactly as far as right alone, to the
+   pixel, on all 12 seeds (docs/FINDINGS.md, phases 6e-2 and 6y). Every other
+   mining probe in this file drives the mouse aim, the model, or the dig queue,
+   so all of them passed.
+
+   The shape that matters is an obstacle TWO TILES TALL, which is the height a
+   body occupies and the height of both a trunk and a rock face. Timing is
+   asserted against the substance row's own `tile.hard x tile.charge` over
+   `eff('pickPower')` and the held tool's power, never against a measured
+   constant. */
+
+/* A CORRIDOR IN `topsoil`, well away from spawn, with four rows of headroom
+   over a stone floor. The stock pick goes in the pockets deliberately --
+   `rules/generate.js` drops one on the ground rather than granting it, so a
+   probe without this line measures a tile that never breaks. */
+const AIM_TX = 40, AIM_TY = 120;
+function aimScene(seed = 1461) {
+  boot.newRun(seed);
+  const b = world.bandOf('topsoil');
+  for (let dx = -4; dx <= 10; dx++) {
+    for (let dy = -4; dy <= -1; dy++) tiles.write.clear(b, AIM_TX + dx, AIM_TY + dy);
+    tiles.write.set(b, AIM_TX + dx, AIM_TY, D_sub.S.stone, D_form.NATIVE);
+  }
+  mining.write.clearAll();
+  digqueue.write.clearAll();
+  run.write.collect(D_sub.S.pick, D_form.F.relic, 1);
+  player.write.band(b);
+  player.write.move(world.worldX(b, AIM_TX), world.worldY(b, AIM_TY - 2));
+  player.write.vel(0, 0);
+  player.write.set('onGround', true);
+  player.write.set('fallFrom', player.player.y);
+  return { b, tx: AIM_TX, ty: AIM_TY };
+}
+
+/* Seconds one tile of `subId` costs the held pick, from the rows that set the
+   price. The same expression section 8q's framerate claim uses. */
+function digSecs(subId, n = 1) {
+  const row = D_sub.SUB[D_sub.S[subId]].tile;
+  return n * row.hard * (row.charge ?? 1) /
+         (mods.eff('pickPower') * (run.bestTool()?.power ?? 1));
+}
+
+/* --- CLAIM 1: A HELD `right` + `dig` BRINGS DOWN A TWO-TILE WALL AND THE
+   PLAYER WALKS THROUGH IT.
+
+   The wall stands two columns ahead so the player walks into it first, which
+   is the gesture a real keyboard player makes. Both rows must break, in their
+   own hardness each and one after the other, and then the player must end up
+   past the column the wall stood in. A single-row aim breaks the belly tile,
+   finds the air it just made, and stalls forever with the head tile in
+   place. --- */
+{
+  const { b, tx, ty } = aimScene();
+  const wall = tx + 2;
+  const rows = [ty - 1, ty - 2];
+  for (const r of rows) tiles.write.set(b, wall, r, D_sub.S.stone, D_form.NATIVE);
+  const flush = world.worldX(b, wall) - player.PW;
+  const want = digSecs('stone', rows.length);
+
+  let walk = 0;
+  const walkCap = Math.ceil(4 * b.tile / mods.eff('walk') / main.STEP) * 3;
+  while (walk < walkCap && player.player.x < flush) { stepReal(main.STEP, { right: true }); walk++; }
+  const pressed = player.player.x;
+
+  const reach = mods.eff('reach');
+  const c = player.playerCentre();
+  const far = rows.filter(r => Math.hypot(world.worldX(b, wall) + b.tile / 2 - c.x,
+                                          world.worldY(b, r) + b.tile / 2 - c.y) > reach);
+
+  const standing = () => rows.filter(r => tiles.tileAt(b, wall, r) !== D_form.AIR);
+  let n = 0;
+  const cap = Math.ceil(want * 4 / main.STEP);
+  while (n < cap && standing().length) { stepReal(main.STEP, { right: true, dig: true }); n++; }
+  const took = n * main.STEP;
+
+  let past = 0;
+  const pastCap = Math.ceil(3 * b.tile / mods.eff('walk') / main.STEP) * 3;
+  while (past < pastCap && player.player.x < world.worldX(b, wall + 1)) {
+    stepReal(main.STEP, { right: true });
+    past++;
+  }
+
+  const tol = main.STEP * 4;
+  if (pressed !== flush)
+    fail(`KEY AIM (sideways): the player stopped at ${pressed} walking into the wall at ` +
+         `column ${wall}, not flush against it at ${flush}, so nothing below aims at two rows`);
+  else if (far.length)
+    fail(`KEY AIM (sideways): ${far.length} of the ${rows.length} wall rows start outside ` +
+         `eff('reach') (${reach}), so the probe measures reach and not the aim`);
+  else if (standing().length)
+    fail(`KEY AIM (sideways): ${standing().length} of ${rows.length} rows of a two-tile wall are ` +
+         `still standing after ${took.toFixed(2)} s of held right + dig, against a derived ` +
+         `${want.toFixed(2)} s. The aim resolves one row and never retargets the other ` +
+         `(docs/FINDINGS.md, phase 6y)`);
+  else if (Math.abs(took - want) > tol)
+    fail(`KEY AIM (sideways): a two-tile stone wall took ${took.toFixed(4)} s against a derived ` +
+         `${want.toFixed(4)} s (tile.hard x charge / power, twice), outside ${tol.toFixed(4)} s. ` +
+         `Two rows must cost two rows`);
+  else if (player.player.x < world.worldX(b, wall + 1))
+    fail(`KEY AIM (sideways): the wall came down and the player is still at ${player.player.x}, ` +
+         `short of column ${wall + 1} at ${world.worldX(b, wall + 1)} after a further ` +
+         `${(past * main.STEP).toFixed(2)} s of held right`);
+  else
+    ok(`KEY AIM (sideways): a two-tile stone wall two columns ahead comes down in ` +
+       `${took.toFixed(3)} s of held right + dig against a derived ${want.toFixed(3)} s, and the ` +
+       `player then walks through to x ${player.player.x}`);
+}
+
+/* --- CLAIM 2: A HELD `up` + `dig` BREAKS THE CEILING, AND A HELD `down` + `dig`
+   BREAKS THE FLOOR.
+
+   Both directions in one claim, because the DOWN half is what proves the UP
+   half is not vacuous -- the scene, the pick, the loop and the hardness
+   arithmetic are shared, so a red UP with a green DOWN can only be the aim.
+   `cmd.up` had the same single-probe defect the sideways aim had and it was
+   worse: it resolved `centre.y - tile`, which is `player.y` exactly, always
+   the topmost row the body itself fills. That row is air, so up + dig under
+   rock broke nothing at all (docs/FINDINGS.md, phase 6y).
+
+   THE WHOLE ROW IS STONE, ACROSS THE COLUMNS THE HITBOX STRADDLES, so the
+   claim is about reaching the row and not about which of the two columns an
+   aim picks. The player is placed tile-aligned, so the ceiling row is
+   unambiguous. --- */
+{
+  const want = digSecs('stone');
+  const tol = main.STEP * 4;
+  let bad = 0;
+  const notes = [];
+  for (const dir of ['up', 'down']) {
+    const { b, tx, ty } = aimScene();
+    const roof = ty - 3;
+    const cols = [tx - 1, tx, tx + 1];
+    for (const c of cols) tiles.write.set(b, c, roof, D_sub.S.stone, D_form.NATIVE);
+    const target = dir === 'up' ? roof : ty;
+
+    const broke = () => cols.some(c => tiles.tileAt(b, c, target) === D_form.AIR);
+    if (broke()) {
+      fail(`KEY AIM (${dir}): the ${dir === 'up' ? 'ceiling' : 'floor'} row is already open before ` +
+           `a swing, so the scene proves nothing`);
+      bad++;
+      continue;
+    }
+    let n = 0;
+    const cap = Math.ceil(want * 8 / main.STEP);
+    while (n < cap && !broke()) { stepReal(main.STEP, { [dir]: true, dig: true }); n++; }
+    const took = n * main.STEP;
+
+    if (!broke()) {
+      fail(`KEY AIM (${dir}): ${cols.length} columns of solid stone ` +
+           `${dir === 'up' ? 'above the head' : 'under the feet'} survived ${took.toFixed(2)} s of ` +
+           `held ${dir} + dig, against a derived ${want.toFixed(2)} s for one tile. The aim never ` +
+           `reaches the row past the body`);
+      bad++;
+    } else if (Math.abs(took - want) > tol) {
+      fail(`KEY AIM (${dir}): the row broke in ${took.toFixed(4)} s against a derived ` +
+           `${want.toFixed(4)} s, outside ${tol.toFixed(4)} s`);
+      bad++;
+    } else {
+      notes.push(`${dir} ${took.toFixed(3)}s`);
+    }
+  }
+  if (!bad)
+    ok(`KEY AIM (vertical): held up + dig and held down + dig each break their own row in the ` +
+       `derived ${want.toFixed(3)} s (${notes.join(', ')})`);
+}
+
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +
             `journal ${journal.peek ? journal.peek().length : 0} undrained`);
