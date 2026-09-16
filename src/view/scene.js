@@ -115,14 +115,10 @@ export function render(g, f) {
      menu would never be seen. */
   const menu = menuOpen(f);
 
-  /* THE MAP OVERVIEW IS A DIFFERENT RENDER PATH, NOT A CAMERA TRICK, and it
-     is a different FILE: `view/overview.js`, which owns its own
-     scale, scroll, zoom, band ruler and metadata layers. It used to be
-     `drawMap`, thirty-seven lines in this file; the extraction is recorded in
-     that file's own header. Nothing past this point (sky, chunks, machines,
-     items, the walking player sprite, fields, fog, atmosphere, the HUD)
-     executes while the map is open -- the map is a full substitute frame, not
-     an overlay on top of the ordinary one. */
+  /* THE MAP OVERVIEW IS A DIFFERENT RENDER PATH, NOT A CAMERA TRICK, and a
+     different FILE, which owns its own scale, scroll, zoom, ruler and layers.
+     Nothing past this point executes while the map is open -- it is a full
+     substitute frame, not an overlay on the ordinary one. */
   if (f.flags.showMap && !menu) { drawOverview(g, f); return; }
 
   for (const b of bands) {
@@ -193,30 +189,15 @@ function tileWindow(b, cam, W, H) {
   };
 }
 
-/* sky
-   A band's `look.sky` is the colour above its ground line and `look.tint` is
-   what the rock below is made of. A band whose `floorTy` is 0 (the deep ones)
-   has no sky region at all and every function below costs it nothing.
+/* A band's `look.sky` is the colour above its ground line and `look.tint` is
+   the rock below. A band whose `floorTy` is 0 has no sky region and every
+   function below costs it nothing.
 
-   QUANTISED, NOT INTERPOLATED. This was one `createLinearGradient` from `sky`
-   to `sky`-mixed-with-`tint`, which is a smooth 24-bit ramp in a game whose
-   every other pixel comes off a named palette (SPEC section 6). It is now a
-   fixed number of discrete bands, so the sky is a stack of tones you could name
-   rather than a continuous blend, and it gains the two things a two-stop ramp
-   cannot express: a DEEPER ZENITH (the sky's own colour pushed toward `aquA`,
-   because the top of the sky is further from the sun than the horizon is) and a
-   PALE HAZE where it meets the ground.
-
-   The haze is anchored in PIXELS above the horizon rather than as a fraction of
-   the sky, because what it has to sit behind is the terrain silhouette: the
-   surface band's own relief of `amp` tiles, so the hilltops stand well above
-   `floorTy` and the haze has to reach up past them or it only ever shows in the
-   valleys. It reaches as far as `HAZE_PX` and no further, so a tall sky is not
-   all haze.
-
-   THE RAMP IS BUILT ONCE PER BAND, not per frame: it depends on nothing but the
-   band's own two colour names and its own sky height, all three constant for the
-   life of a run. */
+   QUANTISED, NOT INTERPOLATED: discrete bands rather than a 24-bit ramp, so
+   the sky is a stack of tones you could name, and it gains a DEEPER ZENITH
+   and a PALE HAZE that a two-stop ramp cannot express. The haze is anchored
+   in PIXELS above the horizon, because it sits behind a terrain silhouette
+   whose hilltops stand well above `floorTy`. Built once per BAND. */
 const SKY_STEPS = 14;
 const HAZE_PX = 56;
 const skyRamps = new Map();
@@ -260,44 +241,24 @@ function drawSky(g, b, f) {
   }
 
   /* THE SKY REACHES THE SKYLINE, NOT THE HORIZON. Relief may put a valley
-     floor `dip` rows below the ground line (`view/paint.js#skyBottomTy`), and
-     the air over it is sky-exposed, so the backdrop there has to be sky rather
-     than the frame's own `INK.void`. The haziest step simply continues down --
-     the ramp is anchored on the horizon, so a band declaring no `dip` lands
-     `y2` on `y1` and this costs it neither a rect nor a pixel.
-
-     ONE RECT, NOT ONE PER COLUMN. The rows below the horizon are a single
-     tone, so run-length encoding a per-column skyline here would trade this
-     rect for one per run of equal height and save only fill area that opaque
-     rock covers anyway. `excavated` is what decides where rock stops, and the
-     two read the same row. */
+     floor below the ground line and the air over it is sky-exposed, so the
+     backdrop there is sky rather than void. ONE RECT, NOT ONE PER COLUMN --
+     the rows below the horizon are a single tone, so a per-column skyline
+     would save only fill area opaque rock covers anyway. */
   const hz = Math.max(y0, y1);
   if (y2 > hz) R(g, 0, hz, W, y2 - hz, ramp[SKY_STEPS - 1]);
 
   drawClouds(g, b, f, top, horizon, y0, y1);
 }
 
-/* clouds
-   THREE LAYERS, AND WHAT MAKES THEM READ AS THREE IS THAT EVERYTHING VARIES
-   TOGETHER. A single layer of same-sized puffs at one parallax factor is a
-   texture; depth needs size, speed, parallax and opacity to agree. So: large
-   slow cumulus far back, hazy and barely moving with the camera; a middle band;
-   small fast wisps near the ground, opaque and sliding past.
+/* THREE LAYERS, AND WHAT MAKES THEM READ AS THREE IS THAT EVERYTHING VARIES
+   TOGETHER -- size, speed, parallax and opacity must agree, or one layer of
+   same-sized puffs is a texture rather than depth.
 
-   `par` is how much of the CAMERA's HORIZONTAL motion the layer does not take:
-   1 pins a cloud to the screen (infinitely far), 0 pins it to the world (in the
-   same plane as the rock). Horizontal only, and that is deliberate rather than
-   unfinished — walking is where parallax is legible, while the camera's vertical
-   motion is falling and climbing, and a cloud that lagged DOWNWARD out of its
-   band's own sky region would either pop out at the edge or, worse, draw over
-   the band above's rock. Clouds are world-anchored in y. `y` is the layer's
-   vertical band as a fraction of the sky region, which is what keeps the big
-   slow ones up top.
-
-   DETERMINISTIC, and the drift is `f.t` and never `rand()`: two draws of one
-   frame must be identical (ARCHITECTURE invariant 7). Every shape parameter
-   comes from a per-cloud positional hash, so a cloud keeps its own silhouette as
-   it crosses the sky instead of reshuffling every frame. */
+   `par` is how much of the CAMERA's HORIZONTAL motion the layer does not
+   take, and it is HORIZONTAL ONLY: the camera's vertical motion is falling
+   and climbing, and a cloud lagging downward out of its sky region would draw
+   over the band above's rock. The drift is `f.t`, never `rand()`. */
 const CLOUDS = [
   { n: 7,  par: 0.74, w: [40, 80], speed: 1.4, alpha: 0.42, y: [0.04, 0.40] },
   { n: 10, par: 0.52, w: [22, 44], speed: 3.2, alpha: 0.62, y: [0.18, 0.66] },
@@ -363,9 +324,8 @@ function cloud(g, x, y, w, s, layer) {
   R(g, x, y - u, w, u, under);
 }
 
-/* A stepped half-ellipse, one integer row at a time. No `arc`, no fill path: a
-   canvas curve would antialias its own edge, which is the one thing SPEC
-   section 6 forbids outright. */
+/* A stepped half-ellipse, one integer row at a time. No `arc` and no fill
+   path: a canvas curve would antialias its own edge. */
 function dome(g, x, yb, w, h, col) {
   for (let j = 0; j < h; j++) {
     const k = (j + 0.5) / h;
@@ -392,75 +352,16 @@ function drawChunks(g, b, cam, W, H) {
     }
 }
 
-/* the live-tile overlay
-   TWO CUES, ONE PASS, AND THAT IS A REQUIREMENT RATHER THAN A TIDY-UP.
-   `drawDepletion` and the growth cue are the same
-   shape of work: walk the visible tile window of every visible band, ask a
-   sparse `model` `Map` a question about one tile, and paint an integer-pixel
-   cue over whatever the chunk canvas already baked there. Written as two
-   functions they would walk that window twice per frame for one answer each,
-   and the second one added would silently double the cost of the first for
-   no pixels — .claude/brain/phase-plan-conventions.md rule 1 names two
-   overlay passes as a failure even if the resulting pixels are correct. So
-   this is one loop with two guarded cases, and a third live per-tile cue
-   joins it here rather than beside it.
+/* TWO CUES, ONE PASS, AND THAT IS A REQUIREMENT: both walk the visible tile
+   window of every visible band for one answer each, so two functions would
+   walk it twice per frame. The cases are MUTUALLY EXCLUSIVE by construction,
+   so their order is arbitrary.
 
-   THE TWO CASES ARE MUTUALLY EXCLUSIVE BY CONSTRUCTION and the loop relies
-   on it: depletion only ever fires on a NATIVE `deposit` tile (`charge > 1`),
-   growth only ever on a PLACED `tile.roots` form. A tile cannot be both, so
-   the growth case `continue`s and the ordering between them is arbitrary
-   rather than load-bearing.
-
- case 1: depletion
-   HOW SPENT A DEPOSIT IS (Phase 14c, docs/PLAN-phase14-mining-and-drops.md
-   D14-G). Since Phase 14b a `deposit` tile yields `tile.charge` units before
-   it is gone, so a copper wall you have half worked looks exactly like a fresh
-   one -- you have to swing at a tile to find out whether there is anything
-   left in it. This pass is the answer.
-
-   IT IS AN OVERLAY AND NOT A CHUNK BAKE, for the reason
-   `model/world.js`'s own band record states twice, once for `seen` and once
-   for `light`: A CHUNK CANVAS CACHES THE STATIC ROCK TEXTURE, and depletion is
-   a LIVE condition. `model/mining.js#write.add` bumps the epoch and never a
-   chunk version, so a cue painted in `paintTile` would only ever be as fresh
-   as the last time something else in that chunk happened to invalidate it --
-   i.e. it would show what was true several swings ago, which is worse than
-   showing nothing. (That is not a hypothesis: it is exactly what the crack
-   marks in the bake do today, parked with a repro in docs/FINDINGS.md.)
-
-   TWO CUES, BECAUSE ONE OF THEM ALWAYS READS BADLY SOMEWHERE. A pale wash
-   alone is nearly invisible on granite (already a light grey) and a dark notch
-   alone is nearly invisible on adamant (already near-black), so a spent tile
-   gets both: the wash carries the read on the dark rows, the notches carry it
-   on the light ones, and on copper -- warm mid-tone with a bright `glint` --
-   both land. NO SUBSTANCE NAME IS INVOLVED (this file, like `view/paint.js`,
-   names none): the cue is keyed on `charge`, so any future deposit row gets it
-   for free and nothing else gets it at all.
-
-   The wash also does the thing D14-G asks for without having to know how the
-   glint was drawn: a `glint` pip is one bright pixel baked into the chunk, and
-   pale dust laid over the tile MUTES every pip in it at once. Reproducing
-   `view/treatments.js#glint`'s own pip coordinates here to over-paint them one
-   by one was the first design and was rejected -- it is a second copy of a
-   positional formula, and the two would drift the first time either changed.
-
-   QUANTISED PER UNIT, not continuous: `spent / charge`, so the wash steps
-   visibly the instant a unit falls out and holds still while the next one is
-   being worked. Same argument `drawDarkness` below makes for its three fixed
-   alpha steps, and the fractional remainder is deliberately not drawn here at
-   all -- that is the crack's job (`view/paint.js#paintTile`, `unitProgressAt`).
-
-   NO `rand()` AND NO MODEL WRITE (invariants 7 and 9). Notch positions come
-   from `hash2` of the tile's own coordinates, so they sit still between frames
-   and two draws of one frame are identical; the only model calls are
-   `workAt` / `progressAt` and the two `view/paint.js` helpers, all reads.
-
-   READS `model/mining.js` AND, THROUGH `view/paint.js`, `model/tiles.js`.
-   D14-G names those two modules and no others. The hardness and charge
-   helpers live in `paint.js` rather than being inlined twice because the crack
-   in the bake and the cue here must never disagree about which numbers the
-   rule mined the tile by -- see `effHardAt` / `effChargeAt` there. A
-   same-layer `view -> view` import is legal and this file already had one. */
+   BOTH ARE OVERLAYS AND NOT CHUNK BAKES: a chunk canvas caches STATIC ROCK
+   and these are LIVE conditions whose writers bump the epoch, never a chunk
+   version. DEPLETION NEEDS TWO CUES, because a wash is invisible on granite
+   and a notch on adamant, and the wash also mutes every `glint` pip at once.
+   QUANTISED PER UNIT. No `rand()` and no model write. */
 
 /* Alpha of the dust wash when a tile is one unit short of gone. Scaled by
    `spent / charge` below, so a charge-4 copper tile washes at 0.11 / 0.22 /
@@ -512,23 +413,11 @@ function drawLiveTiles(g, f) {
         const charge = effChargeAt(b, tx, ty);
         if (charge <= 1) continue;                  // not a deposit: nothing to spend
         const d = progressAt(b, tx, ty, effHardAt(b, tx, ty), charge);
-        /* UNITS ALREADY OUT OF THE GROUND, derived from the same 0..1 read
-           D14-G names rather than from a second division, and FLOORED WITH NO
-           EPSILON so it can never claim a unit the rule has not actually
-           dropped: `progressAt` is `work / (hard * charge)`, so `d * charge`
-           lands within an ulp of `rules/mining.js`'s own
-           `Math.floor(work / hard)` and errs low rather than high. A tile
-           sitting exactly ON a unit boundary is measure-zero -- work
-           accumulates in `dt * pickPower` increments -- and being one frame
-           late with the cue is invisible where being one unit early would be
-           a lie.
-
-           Capped one short of `charge` for the same reason
-           `model/mining.js#unitsCrossed` caps itself there: the last unit IS
-           the break, and a tile at full charge is a tile that no longer
-           exists. Without the cap the single frame between "work reached
-           total" and "the rule cleared the tile" would flash a fully spent
-           tile. */
+        /* UNITS ALREADY OUT OF THE GROUND, FLOORED WITH NO EPSILON so it can
+           never claim a unit the rule has not dropped. Capped ONE SHORT of
+           `charge`, because the last unit IS the break -- without the cap the
+           frame between "work reached total" and "the rule cleared the tile"
+           flashes a fully spent tile. */
         const spent = Math.min(charge - 1, Math.floor(d * charge));
         if (spent < 1) continue;
 
@@ -554,52 +443,14 @@ function drawLiveTiles(g, f) {
   }
 }
 
-/* case 2's sprite: a seedling
-   THREE DISCRETE SILHOUETTES, NOT A CONTINUOUS INTERPOLATION (Phase 15,
-   docs/PLAN-phase15-trees.md D15-F, docs/SPEC.md section 22): a SEED, a
-   SHOOT, a SAPLING. Quantised for the reason `drawDarkness` quantises its
-   alpha and `drawLiveTiles`'s depletion case quantises its wash -- at 8 px a
-   tile there are about six usable rows, so a continuous height would spend
-   most of 180 seconds not visibly changing and then change by one pixel. A
-   player needs to be able to glance at a seedling and say which third it is
-   in; three states do that and a ramp does not.
+/* THREE DISCRETE SILHOUETTES, NOT A CONTINUOUS INTERPOLATION. At 8 px a tile
+   there are about six usable rows, so a continuous height spends most of 180
+   seconds not visibly changing and then changes by one pixel.
 
-   IT IS AN OVERLAY AND NOT A CHUNK BAKE, for `model/world.js`'s own stated
-   reason and the same one the depletion case above gives: a chunk canvas
-   caches the STATIC ROCK TEXTURE and a growth stage is a LIVE condition.
-   `model/growth.js#write.add` bumps the epoch and never a chunk version, so
-   a sprite painted in `view/paint.js#paintTile` would only ever be as fresh
-   as the last time something ELSE in that chunk happened to invalidate it.
-   The rejected alternative was calling `model/tiles.js#write.touch` at each
-   of the three stage changes so the sprite could bake -- legal, and cheap in
-   the abstract (three repaints per seed over 180 s against a
-   `REPAINT_BUDGET` of 8 per frame) -- and it was rejected because a chunk
-   repaint triggered by something that is not a tile-byte change is exactly
-   the coupling `world.js`'s comments on `seen` and `light` argue against.
-
-   IT DRAWS OVER WHAT THE BAKE ALREADY PUT THERE, AND THAT IS DELIBERATE. A
-   `timber/seed` tile carries no form `look`, so `paintTile` paints it as
-   ordinary terrain: an 8x8 timber cube. This does not erase that (an overlay
-   cannot -- there is no record of what was behind it) and does not need to:
-   at this scale a small dark-brown block reads as a patch of turned earth,
-   which is the correct thing to be growing out of. The sprite is drawn in
-   the CANOPY's own greens (`vdA`/`vdB`/`vdC`, `view/treatments.js#canopy`'s
-   defaults) so a seedling reads as the same plant the crown it will
-   eventually grow belongs to.
-
-   STRICTLY INSIDE ITS OWN TILE. A sapling poking a row or two into the air
-   above would read slightly better and is not worth what it costs: the
-   pixel-scope assertion in `tests/visual.spec.js` ("the growth cue changes
-   pixels, and only on the tile that was planted") is what proves this pass
-   is doing anything at all, and a cue that bleeds into a neighbour makes
-   that assertion either weaker or a second copy of this function's geometry.
-
-   NO `rand()` AND NO MODEL WRITE (invariants 7 and 9). There is no
-   positional hash here either, and unlike the depletion notches it needs
-   none: a seedling's shape is a function of its stage alone, so two
-   seedlings at the same stage are identical -- which is what a row of
-   planted seeds should look like. Nothing on this path can consume the run's
-   stream or move the epoch counter. */
+   IT DRAWS OVER WHAT THE BAKE PUT THERE: a `timber/seed` tile has no form
+   `look`, so it is painted as a timber cube, which at this scale reads as
+   turned earth. STRICTLY INSIDE ITS OWN TILE, because the pixel-scope
+   assertion in the visual suite is what proves this pass does anything. */
 
 /* Fractions of `treeGrowSecs` at which the silhouette steps up. Two numbers
    for three stages, in thirds, so "roughly a third grown" in a test or an
@@ -711,36 +562,16 @@ function drawFields(g, f) {
   }
 }
 
-/* darkness
-   Two separate facts, one pass each: `drawFog` below hides a tile that has
-   NEVER been seen, regardless of what is actually there -- that is memory,
-   `model/world.js#b.seen`, permanent and one-way. This pass renders the OTHER
-   fact, `b.light` -- how lit a tile is RIGHT NOW -- for tiles that already
-   passed the fog test, so a torch burning out darkens a remembered room
-   without erasing the memory of it. Runs after terrain, machines, items, the
-   player, chips and the field overlay (everything it should darken has
-   already been painted) and BEFORE `drawFog`, which is the one pass allowed
-   to win outright -- an unseen tile must stay opaque regardless of light.
+/* TWO SEPARATE FACTS, ONE PASS EACH. `drawFog` hides a tile NEVER seen; this
+   renders how lit one is RIGHT NOW, so a torch burning out darkens a
+   remembered room without erasing the memory. Runs BEFORE fog, the one pass
+   allowed to win outright. QUANTISED to three fixed alpha steps, and
+   `DARK_ALPHA[0]` is close to opaque so a seen tile reads as
+   remembered-but-dark rather than as fog.
 
-   QUANTISED to three fixed alpha steps over the tile's own painted colour,
-   not a gradient: a torch is a prerequisite for reading detail, not a mood
-   dial. `DARK_ALPHA[0]` is deliberately close to opaque -- both "a seen tile
-   reads as remembered-but-dark, not as fog" (some of the true colour still
-   shows through, where fog shows none) and "an ore vein is indistinguishable
-   from rock below light ~4" (that same small remainder swamps a two-pixel
-   glint) are true at once because 6% of a distinct base colour still reads as
-   "differs from flat fog" while looking, at a glance, like plain dark rock.
-
-   ROW-RUN COALESCED exactly like `drawFog` below: one wide rect per
-   contiguous run of tiles sharing a bucket, not one rect per tile.
-
-   NOT ADDITIVE. The existing machine-fire glow in `atmosphere()` paints with
-   `globalCompositeOperation:'lighter'` and is gated on `seenAt` for a stated
-   reason: additive light would shine straight through an opaque fog rect
-   painted UNDER it. This pass is the opposite direction -- it SUBTRACTS
-   brightness with ordinary alpha compositing, runs entirely before `drawFog`,
-   and touches only tiles `seenAt` already allows -- so there is no matching
-   way for it to leak information about an unseen tile from the other side. */
+   NOT ADDITIVE: the machine-fire glow paints with `'lighter'` and is gated on
+   `seenAt`, because additive light shines through an opaque fog rect under
+   it. This SUBTRACTS with ordinary alpha. */
 const DARK = colour('abyC');
 const DARK_ALPHA = [0.94, 0.55, 0.22];   // level 0-4 / 5-9 / 10-14 (>= lightMax: none)
 
@@ -776,27 +607,14 @@ function drawDarkness(g, f) {
   }
 }
 
-/* fog of war
-   The one hard rule this pass exists to enforce: an unrevealed tile is opaque
-   REGARDLESS OF WHAT IS ACTUALLY THERE, so it draws AFTER terrain, machines,
-   items, the player, chips and the field overlay -- everything that could
-   possibly leak a hint about ground the player has not earned the right to
-   see -- and BEFORE `atmosphere`'s machine-fire glow, which is gated on
-   `seenAt` itself for the same reason (see below).
+/* THE ONE HARD RULE: an unrevealed tile is opaque REGARDLESS OF WHAT IS
+   THERE, so it draws AFTER everything that could leak a hint and BEFORE the
+   machine-fire glow, which is gated on `seenAt` itself. `seenAt` is the ONLY
+   model call here.
 
-   `seenAt` IS THE ONLY MODEL CALL HERE. This file never calls
-   `model/world.js#write.reveal` -- that write lives in `rules/reveal.js`,
-   and `view` importing a `write` namespace at all is exactly what the
-   epoch-unchanged-across-a-render check exists to catch.
-
-   VIEWPORT-CULLED through the shared `tileWindow` every live tile pass uses,
-   and RUN-MERGED: a freshly spawned band the player has barely explored is
-   otherwise dozens of 8 px squares wide per row, so this walks
-   each row once and paints one wide rect per contiguous run of unseen tiles
-   instead. `tx <= x1` (not `<`) walks one extra "virtual" column past the
-   visible edge purely as a sentinel that is never itself drawn (`hidden` is
-   forced false there), so a run still open at the edge of the screen flushes
-   without a second copy of the flush logic after the loop. */
+   VIEWPORT-CULLED and RUN-MERGED. `tx <= x1` walks one sentinel column past
+   the visible edge, never drawn, so a run still open at the edge flushes
+   without a second copy of the flush logic. */
 function drawFog(g, f) {
   const { cam, W, H } = f;
   for (const b of bands) {
@@ -818,25 +636,14 @@ function drawFog(g, f) {
   }
 }
 
-/* THE DEPTH TINT IS WORLD-ANCHORED. A world row's alpha is a function of that
-   row's place in the band stack and of nothing else, so the same rock reads the
-   same whatever the camera is doing. A single frame-wide alpha read off the
-   camera centre used to step the whole screen 0.055 -> 0.440 the frame the
-   centre crossed world-Y 768, and an area-weighted mean over the visible bands
-   fixed the step but dimmed surface sky in proportion to how much topsoil
-   happened to be in frame under it.
+/* THE DEPTH TINT IS WORLD-ANCHORED: a row's alpha is a function of its place
+   in the band stack and nothing else, so the same rock reads the same whatever
+   the camera does. A frame-wide alpha off the camera centre stepped the whole
+   screen 0.055 -> 0.440 the frame it crossed world-Y 768.
 
-   Each band's interior takes its own `look.ambient` exactly. Adjacent bands ramp
-   into each other over `TINT_SPAN` world pixels centred on their shared seam,
-   half of the ramp painted by each side, which is what keeps a seam from
-   reading as a drawn line.
-
-   32 world px is 4 tiles at every shipped band's `tile:8`. The widest ambient
-   gap is surface's 0.95 against topsoil's 0.6, which is 0.385 of alpha; over 32
-   rows that is 3 units of 255 per row against the near-black void, under the
-   ~5 units where a 1 px row starts to read as an edge. A rendering constant
-   with no gameplay meaning, so it is not a `data/tuning.js` row -- there is no
-   god whose gift should widen a gradient. */
+   Adjacent bands ramp over `TINT_SPAN` world px centred on the seam, half
+   painted by each side. 32 px is 3 units of 255 per row across the widest
+   ambient gap, under the ~5 where a row reads as an edge. */
 const TINT_SPAN = 32;
 const TINT_HALF = TINT_SPAN / 2;
 
@@ -912,19 +719,14 @@ function atmosphere(g, f) {
   }
 }
 
-/* the arrival
-   `rules/cycles.js` stamps `run.arrival` with the world position and the
-   instant the director put a machine down for the player. Both passes below
-   read that stamp, so neither knows WHICH machine arrived and no machine
-   name reaches this file (ARCHITECTURE section 3).
+/* `rules/cycles.js` stamps `run.arrival` with the world position and instant
+   the director put a machine down. Both passes read that stamp, so neither
+   knows WHICH machine arrived and no machine name reaches this file.
 
-   TIME COMES FROM `run.t`, the fixed 1/120 s accumulator the stamp itself is
-   taken from, so the presentation runs the same length at 30 fps and at
-   144 fps and it ENDS. Variety comes from `hash2` of the arrival's own world
-   position. Nothing here touches `rand()`.
-
-   The presentation is gated on the arrival being on screen, so an altar
-   reaching the surface while the player is 200 m down darkens nothing. */
+   TIME COMES FROM `run.t`, the same fixed accumulator the stamp was taken
+   from, so the presentation runs the same length at 30 and 144 fps and it
+   ENDS. Variety comes from `hash2` of the arrival's own position. Gated on
+   the arrival being on screen. */
 
 const MOTES = 36;
 
@@ -1014,23 +816,13 @@ function overlay(g, cam, W, H, pitch, col, alpha) {
   g.globalAlpha = 1;
 }
 
-/* A one-line band label, so the seam between two bands is legible while the
-   world is still this thin. `drawText` and not `fillText`, always.
+/* A one-line band label. THE WORST CONTRAST CASE IN THE GAME: drawn straight
+   onto rendered terrain with no panel and nothing to back against, so it takes
+   both the secondary body tone and `drawText`'s shadow argument.
 
-   THE WORST CONTRAST CASE IN THE GAME, and the one the acceptance
-   test is written about: it is drawn straight onto rendered terrain with NO
-   panel, no backing block and nothing else near it to back against, so it
-   takes both halves of that phase's fix -- the secondary body tone
-   (`uiInk2`; it encodes nothing, it was grey only to sit quietly) AND
-   `drawText`'s shadow argument, which is the branch of §2.4's rule for a site
-   with nothing to be backed against.
-
-   CAVEAT, FOUND WHILE DOING THAT AND NOT FIXED HERE: this function currently
-   has NO CALLER. It is exported and nothing in `src/`, `tools/` or `tests/`
-   invokes it, so the band name is not on screen at all today and the recolour
-   above is latent. Wiring it back into the draw order is a HUD-layout
-   decision (which anchor, whose bottom edge, D8) and is out of a
-   contrast-only phase's scope; */
+   IT CURRENTLY HAS NO CALLER -- exported, and nothing in `src/`, `tools/` or
+   `tests/` invokes it, so the band name is not on screen today. Wiring it back
+   is a HUD-layout decision about which anchor it hangs from. */
 export function bandLabel(g, f) {
   const b = player.band;
   if (!b) return;
