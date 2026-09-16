@@ -1,34 +1,23 @@
-/* LAYER rules — WORLDGEN. Reads the `strata` array off a `data/world.js` row and
-   writes tiles. Imports `core`, `data`, `model`. Imports no other `rules`
+/* LAYER rules — WORLDGEN. Reads the `strata` array off a `data/world.js` row
+   and writes tiles. Imports `core`, `data`, `model`, and no other `rules`
    module; its place in the boot order is stated in `shell/boot.js`.
 
-   WHY GENERATION IS A `rules` MODULE AND NOT A `model` ONE: "where does a
-   copper blob go" is a decision, and `model` owns the number and the query
-   while `rules` owns the decision and the consequence. `model/world.js`
-   allocates the array; this file decides what is in it. See
-   docs/DEVELOPER_GUIDE.md#bands-and-worldgen
+   Generation is `rules` and not `model` because "where does a copper blob go"
+   is a decision. `model/world.js` allocates the array; this file decides what
+   is in it.
 
-   THE KIND TABLE IS THE WHOLE FILE. `data/world.js` declares strata rows by
-   `kind`, exports `STRATA_KINDS`, and the assertion at the bottom fails at
-   import if a kind has no handler here. So a row with a typo'd kind is a build
-   error rather than a silently missing vein — which is the failure the previous
-   generator had, where an unknown row was skipped without a word.
-
-   Adding a LAYER, a VEIN or an ORE FIELD costs one row in `data/world.js`.
-   Adding a new KIND costs a handler here, once. That trade is the same one
-   `rules/machines.js` makes, and it is deliberate.
+   THE KIND TABLE IS THE WHOLE FILE. `data/world.js` exports `STRATA_KINDS`,
+   and the assertion at the bottom fails at IMPORT if a kind has no handler
+   here, so a typo'd kind is a build error rather than a silently missing vein.
+   A layer, a vein or an ore field costs one row in `data/world.js`; a new KIND
+   costs a handler here, once.
 
    ALL RANDOMNESS THROUGH `rand()`, in a fixed traversal order: bands in
    declaration order, strata rows in row order, columns left to right. A run is
-   therefore bit-reproducible from its seed (ARCHITECTURE invariant 7), and that
-   property is only true because the order is fixed here rather than emergent.
-   `hash2` is deliberately NOT used anywhere below even where a positional hash
-   would be convenient: it is stateless, so it would hand every seed the
-   identical hills and the identical strata fingers. docs/ARCHAEOLOGY.md section
-   7 makes the same point about the passes this file's relief and contact work
-   were ported from.
-
-   THE LOCKED NUMBERS ARE docs/SPEC.md SECTION 16. Change them there first. */
+   bit-reproducible from its seed only because that order is fixed here rather
+   than emergent. `hash2` is deliberately used NOWHERE below, even where a
+   positional hash would be convenient -- it is stateless, so it would hand
+   every seed the identical hills and the identical strata fingers. */
 
 import { clamp } from '../core/math.js';
 import { rand, randInt, randRange } from '../core/rng.js';
@@ -40,18 +29,13 @@ import { write as tw, solidAt, subAt } from '../model/tiles.js';
 import { inBounds } from '../model/world.js';
 
 /* Half-width in tiles of the guaranteed flat shelf around the spawn column.
-   The first two minutes must not depend on the seed: a ragged lip or a tree
-   where the player wakes is the difference between "walk" and "fall". EVERY
-   pass in this file honours it — the relief map pins these columns to the
-   band's own `floorTy`, and `trees` and `hollows` refuse them outright.
+   The first two minutes must not depend on the seed. EVERY pass honours it --
+   the relief map pins these columns to the band's own `floorTy`, and `trees`
+   and `hollows` refuse them outright.
 
-   9, not the 6 it was while the whole surface was flat, and the number is a
-   port: the flat prototype's own `FLAT_LO`/`FLAT_HI` were `SPAWN_TX ± 9`
-   ("guaranteed level ground", docs/ARCHAEOLOGY.md section 2.2). Once the
-   ground either side of the shelf actually undulates, 13 columns is not
-   enough to stand on and place a 3x2 furnace at arm's length -- which is
-   docs/SPEC.md section 5's own beat 6 -- because the aim reticle reaches 3.2
-   tiles and the footprint is three wide. 19 columns is. */
+   9 rather than 6, because 13 columns is not enough to stand on and place a
+   3x2 furnace at arm's length once the ground either side undulates: the aim
+   reticle reaches 3.2 tiles and the footprint is three wide. 19 columns is. */
 const SHELF = 9;
 
 /* Fraction of a layer's top row that is carved away in a band with NO relief
@@ -60,21 +44,14 @@ const SHELF = 9;
    `data/world.js` says it means. */
 const LIP = 0.35;
 
-/* surface relief
+/* Four passes build a landform: a trend octave places the uplands and
+   lowlands, raised-cosine summits sit on top, two 1-2-1 passes smooth the
+   float profile, and a clamp to the row's own budget flattens the extremes.
+   Then the shelf is pinned, the relief blended either side, and the step pass
+   sweeps outward.
 
-   Four passes build a landform. A trend octave decides where the uplands and
-   the lowlands are, discrete raised-cosine summits sit on top of it, two
-   1-2-1 passes smooth the float profile, and a clamp to the strata row's own
-   budget flattens the extremes into a valley floor and the odd plateau. Then
-   the shelf is pinned, the relief is blended in either side of it, and the
-   step pass sweeps outward.
-
-   DO NOT GO BACK TO SUMMING OCTAVES. The three-octave sum this replaced ran a
-   5-tile period and then flipped an independent one-row coin per column, so
-   the ground changed direction 37 to 52 times per 128 columns and read as
-   sawtooth rather than as terrain.
-
-   The locked numbers are docs/SPEC.md section 16.1. */
+   DO NOT GO BACK TO SUMMING OCTAVES. The three-octave sum this replaced
+   changed direction 37 to 52 times per 128 columns and read as sawtooth. */
 
 /* Tiles between trend lattice points. 40 gives a lattice point every 40
    columns, so the trend is one broad feature per two or three screens. */
@@ -151,14 +128,10 @@ const DIRS = [[0, -1], [0, 1], [-1, 0], [1, 0], [-1, -1], [1, -1], [-1, 1], [1, 
 const ORE_LONG = 2.4;
 const ORE_FAT  = 2.8;
 
-/* how much a row scatters
-   `dens` is ATTEMPTS PER 10,000 TILES of the row's own window -- the rows it
-   declares, times the band's width. A density rather than a count, because an
-   absolute count is diluted by every widening: `tw` went from 128 to 1,024 in
-   wave 6 phase 6e and the same ore sat in eight times the rock, at an eighth
-   of the ore per screen, while every worldgen property stayed green because
-   each one is a floor. What a player experiences is content per screen, and
-   that is what this holds fixed. docs/SPEC.md section 16.5. */
+/* `dens` is ATTEMPTS PER 10,000 TILES of the row's own window. A density
+   rather than a count, because an absolute count is diluted by every widening
+   -- the same ore in eight times the rock is an eighth of the ore per screen,
+   and content per screen is what a player experiences. */
 const attempts = (b, top, bot, dens) => Math.round(dens * (bot - top) * b.tw / 1e4);
 
 /* the kind table */
@@ -172,21 +145,16 @@ const KINDS = {
      row is flat, which is what `astral` and `topsoil` want. */
   relief(b, row, ctx) { ctx.off = heightmap(b, row); },
 
-  /* A solid band of one element across the full width, its top and bottom
-     boundaries following `ctx.off`. The bulk of every band is one of these.
-     `fromTy` is the ground line when it is the topmost layer, which is why the
-     top row gets the ragged lip BY DEFAULT -- `lip:false` opts a row out, for
-     a stratum boundary that sits underground and was never exposed to open
-     sky. Without that flag, giving a band's stone layer its own `fromTy` (to
-     sit under a shallow soil cap, say) would punch random air pockets along
-     the seam, because the lip check does not know "top of my own range" from
-     "top of the world". RELIEF DOES NOT RESURRECT THAT BUG: the lip is still
-     the one top row of the row's own range and still opt-out per row; all the
-     height map changes is WHICH row that is, per column.
+  /* A solid band of one element across the full width, boundaries following
+     `ctx.off`. `fromTy` is the ground line when it is the topmost layer, which
+     is why the top row gets the ragged lip BY DEFAULT and `lip:false` opts a
+     row out -- without that flag, a stone layer given its own `fromTy` punches
+     random air pockets along the seam, because the lip check cannot tell "top
+     of my own range" from "top of the world".
 
      Two adjacent layers cannot part company, because a boundary's offset is a
-     function of the DECLARED row (`shift()`), so the upper row's `toTy` and
-     the lower row's `fromTy` resolve to the identical shifted row. */
+     function of the DECLARED row, so the upper row's `toTy` and the lower
+     row's `fromTy` resolve to the identical shifted row. */
   layer(b, row, ctx) {
     const sub = S[row.sub];
     for (let tx = 0; tx < b.tw; tx++) {
@@ -205,21 +173,15 @@ const KINDS = {
     }
   },
 
-  /* THE CONTACT ZONE. A strata boundary is not a line: it is a band `thick`
-     tiles deep where the two materials interdigitate in blocky fingers. Ported
-     in effect from the flat prototype's two `hash2` flip windows,
-     re-expressed as the new strata kind
-     section 7 of that file recommends: a probability ramp rather than a flat
-     35% chance, `rand()` rather than `hash2`, and a per-column bias so the
-     result is fingers rather than static.
+  /* THE CONTACT ZONE. A strata boundary is not a line but a band `thick` tiles
+     deep where the two materials interdigitate in blocky fingers: a
+     probability ramp rather than a flat chance, `rand()` rather than `hash2`,
+     and a per-column bias, so the result is fingers rather than static.
 
-     `at` is the DECLARED boundary row — the same number the lower layer's
-     `fromTy` carries — and `thick` is content's, not the interpreter's, so a
-     gradational soil/stone seam and a sharp granite/adamant one are two rows
-     with two numbers rather than two code paths.
-
-     The consequence is deliberate: a shaft through a contact hits alternating
-     hardness, so the dig slows and speeds unpredictably. Do not smooth it. */
+     `at` is the DECLARED boundary row and `thick` is content's rather than the
+     interpreter's, so a gradational seam and a sharp one are two rows with two
+     numbers rather than two code paths. A shaft through a contact hits
+     alternating hardness, so the dig slows and speeds. Do not smooth it. */
   contact(b, row, ctx) {
     const up = S[row.upper], lo = S[row.lower];
     const half = (row.thick ?? 4) / 2;
@@ -238,18 +200,14 @@ const KINDS = {
   },
 
   /* HIDDEN HOLLOWS: air carved out of solid rock, after the strata and before
-     the ore. Density rises with depth (`bias` < 1 skews the centre draw toward
-     `toTy`); shape is a short random walk stamping a squashed disc at each
-     step, so a hollow is blobby rather than rectangular.
+     the ore. Density rises with depth, and the shape is a short random walk
+     stamping a squashed disc, so a hollow is blobby rather than rectangular.
 
-     NOTHING HERE MARKS A HOLLOW AS HIDDEN, and nothing should. A hollow is
-     unseen because `b.seen` is false, dark because `rules/light.js` says so,
-     and un-flooded because `rules/reveal.js#passB` will not enqueue past its
-     first ring without light. Carve the air; those three make it a discovery.
-
-     A hollow is built as a cell list, then judged, then written — "backfilled
-     entirely" (BUILD_PLAN's ceiling rule) is therefore "never carved", which
-     is the same world and one pass fewer. */
+     NOTHING HERE MARKS A HOLLOW AS HIDDEN, and nothing should: it is unseen
+     because `b.seen` is false, dark because `rules/light.js` says so, and
+     un-flooded because `reveal.js#passB` will not enqueue past its first ring
+     without light. Built as a cell list, then judged, then written, so
+     "backfilled entirely" is "never carved". */
   hollows(b, row, ctx) {
     const top = Math.max(0, row.fromTy), bot = Math.min(b.th, row.toTy);
     if (bot <= top) return;
@@ -313,17 +271,15 @@ const KINDS = {
       star(b, cx + randInt(-2, 2), cy + randInt(0, 2), row.r * 0.8, S[row.sub]);
   },
 
-  /* Standing trunks, grown UP from whatever surface a column happens to have.
+  /* Standing trunks, grown UP from whatever surface a column has.
      `fromTy`/`toTy` is the window a trunk's BASE may sit in, not the extent of
-     the trunk: a 5-tall tree on a 4-row window is a tree, not an error. With
-     relief the ground line moves, so the window has to span every height the
-     map can produce — see the `trees` row's own comment in `data/world.js`.
+     the trunk, so a 5-tall tree on a 4-row window is a tree rather than an
+     error. With relief the ground line moves, so the window has to span every
+     height the map can produce.
 
-     Trees are the only timber above ground, so this loop is still the ladder
-     supply — but at one remove: a felled `log` is feedstock
-     only (CLAUDE.md D12), and `data/recipes.js#peg_rungs` turns 2 of them into
-     4 `timber/rung`, which is the tile-capable form that actually places. See
-     `data/forms.js`. */
+     Trees are the only timber above ground, so this is the ladder supply at
+     one remove: a felled `log` is feedstock only, and `peg_rungs` turns 2 into
+     4 `timber/rung`, which is the form that places. */
   trees(b, row) {
     const sub = S[row.sub];
     const top = Math.max(0, row.fromTy);
@@ -363,35 +319,16 @@ export function generate(b) {
 
 /* ore reachability repair */
 
-/* `star()` (below) OVERWRITES whatever a cell already held, with no memory of
-   what used to be there -- correct for a `blobs` row painting over plain rock,
-   but it means a LATER, higher-tier row (declared later in `data/world.js`,
-   applied later above) can box in an EARLIER, lower-tier ore tile by
-   overwriting its neighbours without ever touching the ore tile itself.
-   `tools/worldgen-check.mjs`'s reachability property found this for real: a
-   copper or tin tile (tier 1) sealed by granite or adamant (tier 2/3), in
-   ~2.5% of seeds -- unreachable by the tool that can mine every OTHER copper
-   or tin tile in the world.
+/* `star()` OVERWRITES whatever a cell held, so a LATER, higher-tier row can
+   box in an EARLIER, lower-tier ore tile without touching the ore tile
+   itself. Measured at about 2.5% of seeds. Scoped to `metal`-tagged
+   substances, not every solid tile, because plain rock surrounded by a higher
+   tier is the ordinary shape of a deposit.
 
-   Scoped to `tags:['metal']` substances specifically, not every solid tile:
-   plain rock (`stone`/`granite`/`soil`) surrounded by a higher tier is the
-   ordinary, expected shape of a deposit and not a defect -- it is the ORE the
-   player is guaranteed a tool-appropriate path to, per docs/SPEC.md section
-   12's tier gate, that this repairs.
-
-   A ONE-HOP FIX WAS TRIED FIRST AND WAS NOT ENOUGH: opening a single
-   neighbour to `stone` fixed 4 of the 5 seeds this was found in, but the
-   5th had a shell more than one tile thick, and a plain "is my immediate
-   neighbour clear" check has no way to know that -- the neighbour it opened
-   was itself still sealed, one layer removed. `reachesAir` below is the
-   HONEST version of that same question: a real flood-fill through tiles
-   already diggable at this ore's own tier, exactly the claim the property
-   test itself checks, so this can never again believe a tile is unsealed
-   when the checker would disagree. When it says no, `carvePathToStone` runs
-   a SECOND, unrestricted flood-fill (through any tile, any tier) to find the
-   nearest existing open air and carves every tile of that shortest path down
-   to plain tier-1 `stone` -- a real, contiguous, always-diggable corridor,
-   not a hope that one opened cell happens to lead somewhere. */
+   `reachesAir` floods through tiles already diggable at this ore's own tier,
+   the same claim the property test checks, so this cannot believe a tile is
+   unsealed when the checker would disagree. When it says no,
+   `carvePathToStone` fills unrestricted to the nearest open air. */
 function unsealOreBodies(b) {
   for (let ty = 0; ty < b.th; ty++) {
     for (let tx = 0; tx < b.tw; tx++) {
@@ -532,17 +469,13 @@ function heightmap(b, row) {
   return off;
 }
 
-/* Add `tw / HILL_SPACING` raised-cosine summits to the profile, in tiles of
-   height. The three draws per summit run centre, height, width, and that
-   order is fixed because seed reproducibility depends on it.
+/* `tw / HILL_SPACING` raised-cosine summits, in tiles of height. The three
+   draws per summit run centre, height, width, and THAT ORDER IS FIXED because
+   seed reproducibility depends on it.
 
-   Each summit takes one column at random from its own slice of the band.
-   Distance between two summits still runs from 1 column to twice the slice,
-   so the spacing reads as irregular, but a uniform scatter over the whole
-   band left one seed in three with a 70-column dead plain.
-
-   A summit the band edge clips is kept as drawn. A hill running off the map
-   is a hill, and rejecting it would bias every band toward flat edges. */
+   Each takes one column at random from its OWN slice of the band, so spacing
+   still reads as irregular while a uniform scatter left one seed in three with
+   a 70-column dead plain. A summit the band edge clips is kept as drawn. */
 function summits(h, tw, up) {
   const n = Math.max(1, Math.round(tw / HILL_SPACING));
   const tall = Math.max(HILL_LOW, up * HILL_SHARE);
@@ -561,18 +494,14 @@ function summits(h, tw, up) {
 
 /* groves */
 
-/* A per-column mask of the columns trees may stand in: one grove centre per
-   slice of `spacing` columns, at a random column inside it, covering `spread`
-   columns either side. Mirrors `summits` -- the slice keeps the spacing
-   irregular without leaving a seed a bare band.
+/* A per-column mask of where trees may stand: one grove centre per slice of
+   `spacing` columns, at a random column inside it, covering `spread` either
+   side. Mirrors `summits`, so the slice keeps spacing irregular.
 
    TREES COME IN STANDS BECAUSE A TRUNK IS A WALL, and the free ground between
-   two stands is the distance a walker covers. docs/SPEC.md section 16.2.1
-   holds the arithmetic and the measurement.
-
-   A centre landing on the spawn shelf is pushed clear of it. `onShelf` would
-   delete such a grove's trees column by column and leave the first two
-   minutes with no timber in reach, which docs/SPEC.md section 5 beat 4 needs. */
+   two stands is the distance a walker covers. A centre landing on the spawn
+   shelf is PUSHED CLEAR rather than filtered -- deleting such a grove column
+   by column would leave the first two minutes with no timber in reach. */
 function groves(b, spacing, spread) {
   const mask = new Uint8Array(b.tw);
   const n = Math.max(1, Math.round(b.tw / spacing));
@@ -677,11 +606,10 @@ function hollowOk(b, cells, top, bot) {
     if (!solidAt(b, c.tx, c.ty) ||
         !solidAt(b, c.tx - 1, c.ty) || !solidAt(b, c.tx + 1, c.ty) ||
         !solidAt(b, c.tx, c.ty - 1) || !solidAt(b, c.tx, c.ty + 1)) return false;
-    /* THE SPAWN SHELF IS SACRED, and so is what hangs off it: the shelf
-       columns carry the tutorial shaft and (via `near:'spawn'`) the guaranteed
-       vein, and `SAFE_R` around the spawn tile is where docs/SPEC.md section 3
-       promises nothing can kill. A hollow is a fall in the dark; neither gets
-       one. */
+    /* THE SPAWN SHELF IS SACRED, and so is what hangs off it: the shelf columns
+       carry the tutorial shaft and the guaranteed vein, and `SAFE_R` around
+       the spawn tile is where nothing may kill. A hollow is a fall in the
+       dark. */
     if (onShelf(b, c.tx) || nearSpawn(b, c.tx, c.ty)) return false;
     if (!solidTop.has(c.tx)) solidTop.set(c.tx, firstSolid(b, c.tx));
     if (c.ty - solidTop.get(c.tx) < HOLLOW_ROOF) return false;      // the ceiling rule
@@ -712,16 +640,12 @@ function lineWalls(b, h, row, sub) {
 /* shared shapes */
 
 /* CRUCIFORM ORE. A centre cell plus 4-8 arms of length 1-2, orthogonals
-   first, so a small cluster is a plus sign and a big one a star: the same
-   species at every size, and no two identical. `r` is the same `r:[min,max]`
-   draw the round disc this replaced used, so tier sizing stayed content.
-
-   docs/ARCHAEOLOGY.md section 2.4: the disc was NOT a regression from
-   anything, it was the shape from the mockup onward, and cruciform ore has
-   never existed here. This is new generation, not a port.
+   first, so a small cluster is a plus sign and a big one a star -- the same
+   species at every size and no two identical. `r` is the same `r:[min,max]`
+   draw the round disc used, so tier sizing stays content.
 
    `onlySolid` keeps ore out of a carved hollow. `hash2` would give every seed
-   the identical arms (invariant 7's other half), so the variation is `rand()`. */
+   the identical arms, so the variation is `rand()`. */
 function star(b, cx, cy, r, sub, onlySolid = false) {
   const put = (tx, ty) => {
     if (!inBounds(b, tx, ty)) return;
@@ -757,10 +681,9 @@ const nearSpawn = (b, tx, ty) => {
   return dx * dx + dy * dy <= SAFE_R * SAFE_R;
 };
 
-/* coverage, asserted at import
-   `data/world.js` exports `STRATA_KINDS` for exactly this. A content row naming
-   a kind nothing implements used to be skipped in silence; now it cannot be
-   committed. This is the cheap half of `tools/content.mjs`, paid at import. */
+/* `data/world.js` exports `STRATA_KINDS` for exactly this, so a content row
+   naming a kind nothing implements cannot be committed. The cheap half of the
+   content lint, paid at import. */
 for (const kind of STRATA_KINDS)
   if (typeof KINDS[kind] !== 'function')
     throw new Error(`generate: no handler for strata kind "${kind}"`);
