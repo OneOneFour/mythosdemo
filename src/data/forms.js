@@ -3,68 +3,35 @@
    Imports `data/substances.js`. May be imported by `data`, `model`, `rules`,
    `view`.
 
-   See docs/DEVELOPER_GUIDE.md#adding-a-form for the rule that decides whether a
-   new thing is a row here or a row in `substances.js`.
+   massK     multiplies the substance's base mass, so an ingot is denser than
+             the ore it came from for every element, with one number.
+   hudOrder  secondary sort in the pocket strip; substance order comes first.
+   tags      matched by selectors exactly as substance tags are, so "any
+             fuel" is expressible without listing fuels.
+   subTags   which substance tags may take this form. `ingot` requires
+             `metal`, which is why there is no stone ingot and no row saying
+             so. This is a POSSIBILITY gate, not a permission: a pair that
+             cannot be expressed beats one someone can forget to check.
+   tile      present -> a PLACED unit of this form is a wall or ladder tile.
+             `block`, `rung`, `stair` and `seed` are the four with one.
+             hardK -> multiplies the substance hardness when placed.
+             roots -> OPTIONAL. A solid tile DIRECTLY BELOW satisfies this
+             form's backing requirement, in addition to the four satisfiers
+             `rules/placement.js#placeTile` already accepts, AND the tile
+             enters `model/growth.js`'s ledger when written. One key because
+             it is one statement about one kind of tile. Absent means the
+             existing rule: solid-below added unconditionally would let a
+             `rung` stand on a floor with nothing beside it.
+   look      OPTIONAL, and only meaningful with a `tile` block. THE FORM
+             DRAWS ITSELF -- `view/paint.js#paintTile` skips every generic
+             cube pass for a tile whose form declares one. Same
+             `{ treatments:[{ fn, ... }] }` shape a substance's `look` uses.
+   climbK    OPTIONAL, multiplies `eff('climb')`. Absent means 1; only
+             `stair` sets it, at ~1.8x.
 
-     massK     multiplies the substance's base mass. An ingot is denser than the
-               ore it came from, for every element, with one number.
-     hudOrder  secondary sort in the pocket strip; substance order comes first.
-     tags      matched by selectors exactly as substance tags are, so
-               "any fuel" is expressible without listing fuels.
-     subTags   which substance tags may take this form. `ingot` requires
-               `metal`, which is why there is no stone ingot and no row saying so.
-     tile      present -> a PLACED unit of this form is a wall/ladder tile.
-               `block`, `rung`, `stair` and `seed` are the four that have one:
-               placing a `rung` or a `stair` is how a ladder is built,
-               placing a `block` is how a hole is filled back in, and
-               placing a `seed` is how a felled tree comes back.
-               hardK -> multiplies the substance hardness when placed.
-               roots -> OPTIONAL, Phase 15. THIS FORM TAKES
-               ROOT, and that has two consequences read in two places.
-               (1) PLACEMENT: a solid tile DIRECTLY BELOW satisfies this
-               form's backing requirement, in ADDITION to the four
-               satisfiers `rules/placement.js#placeTile` already accepts.
-               (2) GROWTH: `model/tiles.js#write.setByte` enters the tile in
-               `model/growth.js`'s ledger the moment it is written and
-               removes it the moment it is overwritten, and
-               `rules/growth.js` is what eventually turns it into something
-               else. The two halves share one key because they are one
-               statement about one kind of tile; a future form that wants
-               floor-backing WITHOUT growing (or the reverse) is the day this
-               splits into two keys, and nothing else needs to change when it
-               does. Absent means the existing rule, unchanged -- which is
-               the whole reason it is a key here rather than a fifth clause
-               in that shared predicate: solid-below added unconditionally
-               would let a `rung` be placed standing on a floor with nothing
-               beside it, a real change to how a ladder is built. `seed` is
-               the only row that carries it, because a seed dropped on open
-               flat ground has soil beneath it and air on every other side.
-               `tools/content.mjs` assertion 24 requires `solid:false`
-               alongside it: a SOLID tile that only needs a floor under it is
-               a free-standing wall, which is a different mechanic nobody
-               asked for.
-
-               A FORM IS EITHER FEEDSTOCK OR BUILDABLE, NEVER BOTH
-               (CLAUDE.md D12). A form carrying a `tile` block may not also be
-               named by any recipe's `in:` selector, any machine's
-               `handFeed.from`, or any tribute demand. `gravel` and `log` both
-               violated that and both lost their `tile` block --
-               see their own rows below, and docs/SPEC.md section 19.
-     look      OPTIONAL, and only meaningful on a form that also has a `tile`
-               block. THE FORM DRAWS ITSELF: `view/paint.js#paintTile` skips
-               every generic cube pass -- base fill, grain, lit top face, cliff
-               faces, bottom shade line and the SUBSTANCE's own treatments --
-               for any tile whose form declares one, and draws this instead
-               over whatever the space would otherwise have been. Same
-               `{ treatments:[{ fn, ...}] }` shape a substance's `look` uses and
-               the same `view/treatments.js#TREAT` table, so `npm run check`
-               validates the `fn` and the colour names here exactly as it does
-               there. `rung` and `stair` are the two rows that have one; a form
-               with no `look` is painted as terrain, as every form once was.
-     climbK    OPTIONAL. Multiplies `eff('climb')` for this form
-               (rules/player.js). Absent means 1; only `stair` sets it
-               (~1.8x), which is the point of a tier-2 ladder buying
-               VERTICAL THROUGHPUT rather than a new capability. */
+   A FORM IS EITHER FEEDSTOCK OR BUILDABLE, NEVER BOTH. A form carrying a
+   `tile` block may not be named by any recipe's `in:`, any machine's
+   `handFeed.from`, or any tribute demand. */
 
 import { S, SUB, byTag } from './substances.js';
 
@@ -76,28 +43,10 @@ export const FORMS = [
     tags:['ore', 'crushable'],
     subTags:['metal'] },
 
-  /* FEEDSTOCK ONLY, NEVER PLACED -- CLAUDE.md D12, applied here first
-     (Phase 14a, docs/PLAN-phase14-mining-and-drops.md D14-A).
-
-     This row used to carry `tile:{ solid:true, climb:false, hardK:0.5 }`, and
-     the comment that went with it argued for the half hardness at length:
-     mined rubble could be shovelled 1:1 straight back into the hole it came
-     out of, softer than any of the four native rocks it drops from. It was
-     deleted, along with that argument, for two reasons that are the same
-     reason twice:
-
-       1. `gravel` was simultaneously CONSUMED -- by `brazier` (2), `crank`
-          (3), `gear` (1) and `belt_r` (4) in `data/recipes.js`, and by
-          `salt-tribute`'s 8 granite/gravel demand in `data/cycles.js` -- and
-          PLACED. That is exactly the double duty D12 forbids.
-       2. While rubble placed 1:1 for free, mined material WAS the placeable
-          unit, so nothing in the game ever had to make it a prerequisite.
-
-     The way back to solid ground is now `data/recipes.js#pack`: 5 rubble of
-     one bulk element -> 1 `block` of that element, recovered at NATIVE
-     hardness rather than half. Backfill costs five tiles' worth per tile and
-     is no longer the easiest dig in the game -- deliberately, and stated in
-     docs/SPEC.md section 19. */
+  /* FEEDSTOCK ONLY, NEVER PLACED. Rubble is consumed by four build recipes and
+     by a tribute demand, so it may not also be a tile. The way back to solid
+     ground is `data/recipes.js#pack`: 5 rubble of one bulk element to 1
+     `block`, at native hardness. */
   { id:'gravel', label:'GRAVEL', short:'GRVL',
     size:3, massK:0.5, hudOrder:2,
     tags:['bakeable', 'spoil'],
@@ -113,118 +62,65 @@ export const FORMS = [
     tags:['refined', 'ingot'],
     subTags:['metal'] },
 
-  /* FEEDSTOCK ONLY, NEVER PLACED -- CLAUDE.md D12, and the row that made the
-     rule worth naming. A log is fuel (`tags:['fuel']`,
-     which the furnace's own `handFeed.from` selects with star-slash-hash-fuel
-     -- spelled in words for the reason the grammar block below gives) and a
-     bare ingredient in five recipes (`hub`,
-     `crank`, `gear`, `axle`, `daedalan`). While it ALSO carried
-     `tile:{ solid:false, climb:true, hardK:0.30 }` it was `gravel`'s exact
-     double-duty shape on a different substance, and nothing ever forced a
-     player through `data/recipes.js#peg_rungs` -- which already existed, is
-     unchanged, and is now the only route to a placeable timber ladder: 2 logs
-     -> 4 `rung`.
+  /* FEEDSTOCK ONLY, NEVER PLACED. A log is fuel and a bare ingredient in five
+     recipes, so it may not also be a tile; `recipes.js#peg_rungs` is the only
+     route to a placeable timber ladder.
 
-     Only a PLACED form has ever climbed: `rules/generate.js#trees` writes
-     trunks as `NATIVE`, and a NATIVE byte reads the SUBSTANCE's own `tile`
-     block, which carries no `climb` key -- `model/tiles.js#tileBlockOf`'s
-     form-wins-over-substance rule and `rules/player.js#boxClimbK`'s own
-     comment both say so. */
+     Only a PLACED form has ever climbed. `rules/generate.js#trees` writes
+     trunks as NATIVE, and a NATIVE byte reads the SUBSTANCE's `tile` block,
+     which carries no `climb` key. */
   { id:'log', label:'LOG',
     size:4, massK:1.0, hudOrder:4,
     tags:['fuel'],
     subTags:['organic'] },
 
-  /* A trinket's only form: not mineable, not smeltable, not tile-capable --
-     `subTags:['relic']` means only a `relic`-tagged substance may cross into
-     it, which is what keeps this from ever matching an ore selector by
-     accident. One form covers every trinket that will ever exist -- see
-     docs/DEVELOPER_GUIDE.md#adding-a-form */
+  /* A trinket's only form: not mineable, not smeltable, not tile-capable.
+     `subTags:['relic']` is what keeps it from matching an ore selector by
+     accident. One form covers every trinket that will ever exist. */
   { id:'relic', label:'RELIC',
     size:4, massK:1.0, hudOrder:5,
     tags:['relic'],
     subTags:['relic'] },
 
-  /* plate: the SECOND compression tier, `docs/DESIGN.md`'s locked
-     12:1 ratio (ore terms) -- `docs/SPEC.md` section 8 spells out that a plate
-     is 3 ingots, since 3 x the 4:1 ingot ratio is 12:1. Same `subTags:['metal']`
-     restriction as `ingot`: a plate is a further-worked ingot, so whatever may
-     not become an ingot may not become a plate either. `massK` is denser than
-     ingot's 1.6 -- a plate is the more compact good, consistent with the
-     compression-ratio thesis that only refined goods are worth lifting.
-     No `tile` block: unlike `block`, a plate is never placed as terrain, only
-     ever held or banked -- there is no "plate wall" to dig back out of.
-     `hudOrder` is appended after `relic` rather than slotted next to `ingot`
-     to avoid renumbering an existing row; it still sorts after ingot within
-     any one substance's group, which is the only ordering `byHudOrder`
-     actually produces (substance first, form second). */
+  /* The SECOND compression tier, 12:1 in ore terms, since a plate is 3 ingots
+     at the 4:1 ingot ratio. Same `subTags:['metal']` as `ingot`, so whatever
+     cannot become an ingot cannot become a plate. Denser than ingot's 1.6,
+     because a plate is the more compact good. No `tile` block: there is no
+     plate wall to dig back out of. `hudOrder` is appended rather than slotted
+     beside `ingot`, to avoid renumbering an existing row. */
   { id:'plate', label:'PLATE', short:'PLT',
     size:4, massK:2.4, hudOrder:6,
     tags:['refined', 'plate'],
     subTags:['metal'] },
 
-  /* brand: the carried light, and the first form whose substance is not
-     metal. A hollow fennel stalk carrying stolen fire (Prometheus) -- held
-     and burned down over `eff('brandSecs')`, never placed, so it carries no
-     `tile` block. `subTags:['organic']` is the same restriction `log`
-     already uses, which is why timber is the only substance that can take
-     it today. Lighter than a log: a brand is a stripped stick, not a whole
-     trunk -- `massK:0.3`, not the ~0.5 an earlier draft of this row used,
-     because `recipes.js#kindle` turns ONE log into THREE brands and
-     `tools/content.mjs`'s mass-conservation check is what caught that at
-     0.5 a kindled log would net MORE mass than it started as (3 x 0.5 = 1.5
-     against the log's massK of 1.0). 0.3 keeps 3 brands (massK sum 0.9) at
-     or under one log (massK 1.0), with no `transmute` tag needed because
-     nothing is actually being created here, only split lighter. */
+  /* The carried light: a hollow fennel stalk of stolen fire, held and burned
+     down over `eff('brandSecs')`, never placed. `subTags:['organic']`, so
+     timber is the only substance that takes it. `massK:0.3` because `kindle`
+     turns ONE log into THREE, and 3 x 0.3 = 0.9 stays under the log's 1.0 --
+     nothing is created here, only split lighter. */
   { id:'brand', label:'BRAND',
     size:3, massK:0.3, hudOrder:7,
     tags:['fuel', 'light'],
     subTags:['organic'] },
 
-  /* phial: the one form a miracle may take (CLAUDE.md "Resolved
-     decisions" D1). Kept separate from `relic` on purpose: `crossable()`'s
-     whole mechanism is the `subTags` gate, and folding a miracle into
-     `relic` would let it satisfy any trinket selector that reads `#relic`
-     by accident. `subTags:['miracle']` means only a miracle-tagged
-     substance (one row per miracle) may ever cross into
-     it. No `tile` block: a miracle is a held one-shot, never terrain. */
+  /* The one form a miracle may take, kept separate from `relic` on purpose:
+     folding a miracle into `relic` would let it satisfy any trinket selector
+     reading `#relic`. No `tile` block -- a held one-shot, never terrain. */
   { id:'phial', label:'PHIAL',
     size:3, massK:0.2, hudOrder:8,
     tags:['miracle'],
     subTags:['miracle'] },
 
-  /* rung: a cheap, dedicated ladder peg (CLAUDE.md D4's own
-     prerequisite -- the encumbrance lockout needs something cheaper than a
-     whole log to climb back out on). `timber/log` used to place as a
-     climbable tile too, so this was originally the SAME `climb:true` idiom at
-     a fraction of the material; now that `log`'s `tile` block is stripped
-     (D12, see that row above) this is the ONLY climbable timber tile there
-     is, and `peg_rungs` is the only way to get one.
-     `recipes.js#peg_rungs` turns TWO logs into FOUR rungs (not the plan's
-     literal one -- see that recipe's own comment for why the quantity is
-     load-bearing against a hand-craft priority collision with `kindle`, a
-     separate problem from the one below). `massK:0.3`: at the plan's
-     original ~0.35 with a 2-log input, 4 x 0.35 = 1.4 stays safely under
-     2 logs' 1.6, so this row no longer needs the sharper cut an earlier
-     1-log draft required -- but 0.3 was kept anyway, matching `brand`'s own
-     massK, since a peg is exactly that same "split lighter, with real
-     waste" shape `tools/content.mjs`'s mass-conservation check already
-     validated for brand (4 x 0.3 = 1.2, under 1.6). `hardK:0.20`
-     was set softer than the placed log's own 0.30: a single peg is the
-     flimsiest climbable in the game, on purpose, and it stays 0.20 now that
-     the log it was measured against no longer places at all. No tag
-     membership: a rung is not
-     fuel, ore or anything else a selector should be able to find by
-     accident.
+  /* A cheap, dedicated ladder peg, and the ONLY climbable timber tile there is
+     now that `log` is feedstock only. `recipes.js#peg_rungs` is the only way
+     to get one. `massK:0.3` matches `brand`, and `hardK:0.20` is softer than
+     the placed log's old 0.30 -- the flimsiest climbable in the game, on
+     purpose. No tag membership, so no selector can find it by accident.
 
-     THE `look` BLOCK IS PHASE 13b, and it
-     is why a placed one no longer reads as a lit wooden cube: 1 px rails inset
-     one pixel from each edge in `woodC`, a `woodA` rung every third BAND ROW
-     (never every third row of the tile -- `view/treatments.js#ladder` states
-     why at length), and nothing in between. `woodD` goes unused at
-     `tread:1` and is named anyway so the row does not have to change shape if
-     a deeper peg is ever wanted. Timber is the only `organic` substance, so
-     these tones are the only ones this form can currently be drawn in. */
+     The `look` block draws 1 px rails inset one pixel in `woodC` with a
+     `woodA` rung every third BAND ROW, never every third row of the tile.
+     `woodD` is named but unused at `tread:1`, so the row need not change
+     shape if a deeper peg is ever wanted. */
   { id:'rung', label:'LADDER',
     size:3, massK:0.3, hudOrder:9,
     tags:[],
@@ -233,37 +129,16 @@ export const FORMS = [
     look:{ treatments:[{ fn:'ladder', body:'woodC', hi:'woodA', lo:'woodD',
                          inset:1, every:3, tread:1 }] } },
 
-  /* stair: the tier-2 ladder, Daedalus's bronze work.
-     `subTags:['metal']` is the same restriction `ingot`/`plate` use, so
-     `copper/stair` is the real pair and no new substance is needed.
-     `climbK` is NEW: a per-form multiplier into `eff('climb')`
-     (`rules/player.js`), so a stair is not a capability gate like a tool
-     tier -- it is a faster VERB, the vertical-throughput axis this phase's
-     header names as the point. Absent on every other form, which is why
-     they all still climb at exactly `eff('climb')`. `massK:3.0` is not a
-     plan-specified number: `recipes.js#daedalan` (2 copper/plate + 4
-     timber/log -> 2 copper/stair) allows up to 4.0 before violating mass
-     conservation (8.0 consumed / 2 produced), and 3.0 leaves real headroom
-     for waste -- some of the timber is scaffolding, not structure, and does
-     not survive into the stair. No `hardK` override: a bronze stair
-     recovers at plain copper hardness, tougher than a rung,
-     which is the other half of "tier 2 costs more and is worth it."
+  /* The tier-2 ladder. `climbK` is a per-form multiplier into `eff('climb')`,
+     so a stair is a faster VERB rather than a capability gate; absent on every
+     other form, which all climb at exactly `eff('climb')`. `massK:3.0` leaves
+     waste headroom under `daedalan`'s ceiling of 4.0. No `hardK` override, so
+     a bronze stair recovers at plain copper hardness.
 
-     THE `look` BLOCK IS THE SAME FUNCTION AS `rung`'S, WITH THREE NUMBERS
-     CHANGED, and that is the point of putting the geometry in one treatment:
-     rails on the tile's own edges (`inset:0`) rather than inset, a tread 2 px
-     deep every FOURTH band row rather than a 1 px rung every third, and copper
-     rather than timber. So the two tiers read apart at a glance -- bright,
-     wider-pitched, heavier-railed -- which docs/SPEC.md section 10 asks for and
-     which nothing but the label used to deliver.
-
-     THE TONES ARE COPPER'S, NOT THE SUBSTANCE'S, and that is a real limitation
-     rather than an oversight: a form `look` cannot see which substance it was
-     crossed with, so a hypothetical `tin/stair` would draw in copper. It is not
-     reachable today -- `recipes.js#daedalan` is the only source of a stair and
-     it produces `copper/stair` -- and threading a substance's resolved (and
-     depth-blended) palette into a form treatment is a wider change than this
-     row. Parked in docs/FINDINGS.md. */
+     The `look` block is `rung`'s treatment with three numbers changed -- rails
+     on the tile's edges rather than inset, a 2 px tread every FOURTH band row,
+     and copper. KNOWN LIMITATION: a form `look` cannot see which substance it
+     was crossed with, so a hypothetical `tin/stair` would draw in copper. */
   { id:'stair', label:'STAIR',
     size:4, massK:3.0, hudOrder:10, climbK:1.8,
     tags:[],
@@ -272,100 +147,43 @@ export const FORMS = [
     look:{ treatments:[{ fn:'ladder', body:'cuC', hi:'cuA', lo:'cuD',
                          inset:0, every:4, tread:2 }] } },
 
-  /* rig: a MACHINE, held. The shared form every machine-item substance
-     takes;
+  /* A MACHINE, held: the shared form every machine-item substance takes.
 
-     No `tile` block, on purpose: a machine is placed as a multi-tile
-     STRUCTURE through `model/machines.js`/`rules/placement.js#placeMachine`,
-     never as grid terrain -- do not confuse this with `rung`/`stair`/`block`,
-     which place as a single terrain tile through `placeTile`.
-     `massK:1.0` so a machine substance's own `item.mass`
-     (`data/substances.js`) IS the carried item's mass directly, with no
-     second multiplier to keep straight -- unlike `ingot`/`plate`, which
-     really do compress a shared element differently per form, a `rig`
-     substance's mass already IS the machine (see each row's own comment for
-     how it derives from the machine's former `cost` bill). */
+     No `tile` block, on purpose. A machine is placed as a multi-tile
+     STRUCTURE through `rules/placement.js#placeMachine`, never as grid
+     terrain -- unlike `rung`/`stair`/`block`, which place one tile through
+     `placeTile`. `massK:1.0`, so a machine substance's own `item.mass` IS the
+     carried mass with no second multiplier. */
   { id:'rig', label:'RIG', short:'RIG',
     size:4, massK:1.0, hudOrder:11,
     tags:['machine', 'placeable'],
     subTags:['machine'] },
 
-  /* block: PACKED EARTH, the way back to solid ground (Phase 14a,
-     docs/PLAN-phase14-mining-and-drops.md D14-B, docs/SPEC.md section 19).
-     One form covers soil AND stone AND any future `bulk` element, because
-     `data/recipes.js#pack`'s `out:[{ subFrom:'#bulk/gravel', ... }]` carries
-     the element across exactly as `smelt` carries it from ore -- there is no
-     `soil_block` row and there never will be.
+  /* PACKED EARTH, the way back to solid ground. One form covers soil AND stone
+     AND any future `bulk` element, because `recipes.js#pack`'s `subFrom`
+     carries the element across as `smelt` does from ore.
 
-     `subTags:['bulk']` IS THE LOAD-BEARING HALF, and it is the whole of
-     "a deposit is never player-placeable". `crossable(granite, block)` is
-     FALSE, so `granite/block` is not a legal pair and cannot be constructed,
-     let alone placed -- the same `subTags` gate that keeps a miracle out of a
-     trinket selector (`phial` above), used for the same reason: a
-     POSSIBILITY that cannot be expressed beats a PERMISSION someone can
-     forget to check. With `gravel` and `log` now feedstock-only, the
-     tile-capable forms are `rung`/`stair`/`block` admitting
-     organic/metal/bulk, and no `deposit` substance has an obtainable
-     crossing into any of them. `rules/placement.js` needed no edit at all.
-
-     `massK:2.0` -- twice the element's base mass, because a block is
-     COMPACTED where rubble is loose (`gravel.massK` 0.5). It is also the
-     largest round value that clears `tools/content.mjs`'s mass-conservation
-     check with real waste in both directions: soil 5 x 0.5 x 0.5 = 1.25 in
-     against 1 x 0.5 x 2.0 = 1.00 out; stone 5 x 0.6 x 0.5 = 1.50 against
-     1 x 0.6 x 2.0 = 1.20. 2.5 is the ceiling.
-
-     `hardK:1.0` -- a packed block recovers at NATIVE hardness (soil 0.50 s,
-     stone 1.60 s), not the retired rubble tile's half. Paired with the 5:1
-     cost, filling a hole is a real decision now rather than free.
-     `climb:false`: it is a wall, not a rung. */
+     `subTags:['bulk']` is the whole of "a deposit is never player-placeable":
+     `crossable(granite, block)` is FALSE, so the pair cannot be constructed,
+     let alone placed. `massK:2.0` is twice the base mass, because a block is
+     COMPACTED where rubble is loose. `hardK:1.0` recovers at NATIVE hardness,
+     and `climb:false` -- a wall, not a rung. */
   { id:'block', label:'BLOCK', short:'BLK',
     size:4, massK:2.0, hudOrder:12,
     tags:['built'],
     subTags:['bulk'],
     tile:{ solid:true, climb:false, hardK:1.0 } },
 
-  /* seed: THE ONLY THING IN THE GAME THAT TURNS INTO SOMETHING ELSE BY
-     ITSELF (Phase 15, docs/PLAN-phase15-trees.md D15-E, docs/SPEC.md
-     section 22). `rules/mining.js` drops one when the LAST remaining trunk
-     tile of a tree is broken; placing it plants it; `rules/growth.js`
-     accumulates simulation seconds against it and, at `eff('treeGrowSecs')`,
-     replaces it with a stack of NATIVE trunk tiles that the existing canopy
-     code crowns for free.
-
-     `subTags:['organic']` -- timber is the only substance that crosses,
-     exactly the restriction `log`, `rung` and `brand` already use. So
-     `timber/seed` is the real pair and there is no `acorn` substance row;
-     spending one of docs/SPEC.md section 15's remaining tile-capable
-     substance ordinals on a seedling would be the worst trade available.
-
-     `massK:0.1` -- the lightest thing in the game, and mass conservation
-     (`tools/content.mjs` assertion 6) is not engaged at all: NO RECIPE
-     PRODUCES A SEED, so there is no input to conserve it against. A tree
-     that yields one 0.035 T seed and 3-5 logs is not creating mass; the drop
-     is not a transformation.
-
-     `solid:false, climb:false` -- you walk straight through a seedling. A
-     seed that blocked movement would be a trap you planted for yourself, and
-     one that could be climbed would be a free ladder rung at a tenth of a
-     rung's mass.
-
-     `hardK:0.05` -- 0.0175 s, near-instant, so a misplaced seed costs
-     nothing to recover: `model/tiles.js#dropOf` returns the pair itself for
-     any placed form, so digging a seedling back up gives the SEED back with
-     no code, and `rules/growth.js`'s own "is the seed still there" check
-     drops the accumulated time with it.
-
-     `roots:true` -- see the `tile` block's own note in this file's header.
-     A seed planted on flat ground has a floor and nothing else.
-
-     `tags:[]` -- deliberately no tag membership, the same reasoning `rung`
-     gives above: a seed is not fuel, not ore, and nothing a selector should
-     be able to find by accident. It is also what keeps `seed` from ever
-     satisfying the furnace's own star-slash-hash-fuel `handFeed.from` and
-     so from colliding with CLAUDE.md D12 -- a form carrying a `tile` block
-     may not also be feedstock, and this one is named by no recipe, no
-     `handFeed.from` and no tribute demand. */
+  /* THE ONLY THING IN THE GAME THAT TURNS INTO SOMETHING ELSE BY ITSELF.
+     `rules/mining.js` drops one when the LAST trunk tile of a tree breaks;
+     placing it plants it; `rules/growth.js` accumulates seconds and at
+     `eff('treeGrowSecs')` replaces it with NATIVE trunk tiles.
+     `subTags:['organic']`, so `timber/seed` is the real pair and there is no
+     `acorn` row. `massK:0.1` engages mass conservation not at all, since NO
+     RECIPE PRODUCES A SEED. `solid:false, climb:false` -- one that blocked
+     movement would be a trap you planted, one that climbed a free rung at a
+     tenth of the mass. `hardK:0.05` is near-instant. `tags:[]`, so no
+     selector finds it. */
   { id:'seed', label:'SEED',
     size:2, massK:0.1, hudOrder:13,
     tags:[],
@@ -388,73 +206,32 @@ export const crossable = (subOrd, formOrd) => {
   return !!need && need.some(t => have.includes(t));
 };
 
-/* tile id packing
-   A tile stores one byte. ARCHITECTURE section 2 names this as the stated cost
-   of substance x form, and here is the whole of it.
-
+/* A tile stores one byte, and this is the whole of it.
      0     AIR
      255   BEDROCK / world edge
      else  1 + subOrd * STRIDE + (formOrd + 1)
 
-   `formOrd === NATIVE` is the element as it comes out of the ground -- a copper
-   vein, a granite wall, a standing trunk. Any other form is a PLACED unit.
-   The stride is `FORM.length + 1` -- 14 at the thirteen forms above -- so a
-   byte holds 17 substances' worth of ordinals and the last one that fits is
-   `PACKABLE_LIMIT`. The guard below fails the build rather than wrapping
-   silently. A FORM is cheap and a tile-capable SUBSTANCE is not appendable at
-   all; that asymmetry is spelled out in `data/substances.js`'s header and in
-   docs/SPEC.md section 15. */
+   `formOrd === NATIVE` is the element as it comes out of the ground. Any other
+   form is a PLACED unit. The stride is `FORM.length + 1`, so a byte holds 17
+   substances' worth of ordinals and the last that fits is `PACKABLE_LIMIT`.
+   The guard below fails the build rather than wrapping silently. A FORM is
+   cheap; a tile-capable SUBSTANCE is not appendable at all. */
 
 export const NATIVE  = -1;
 export const AIR     = 0;
 export const BEDROCK = 255;
 const STRIDE = FORM.length + 1;
 
-/* what the byte actually costs: PACKABLE substances, not every substance.
-   Three things reach `packTile`, and only the first two are constrained by
-   their own caller:
+/* The byte is priced against PACKABLE substances, not every substance: a
+   substance is packable iff it is native terrain OR some tile-capable form is
+   a legal crossing for it, and those forms admit only organic, metal and
+   bulk. Pricing every row as tile-capable read 228 of 255 and refused a new
+   row, where real usage is 108.
 
-     a NATIVE tile   a substance carrying its own `tile` block, written by
-                     worldgen -- `packTile(sub)` with `formOrd === NATIVE`.
-     a PLACED tile   a held pair whose FORM carries a `tile` block --
-                     `rules/placement.js#placeTile` refuses anything else
-                     ('THAT DOES NOT BUILD'), and `#placeableFromPockets`
-                     handles `rig` down a separate path (`placeMachine` writes
-                     a structure through `model/machines.js`, not a tile).
-     a TRANSMUTED    `rules/miracles.js`'s `transmute` kind rewrites an
-     tile            already-solid tile to `effect.sub`'s NATIVE form. It
-                     passes through NEITHER gate above -- the substance comes
-                     off a `data/miracles.js` row, not off worldgen or the
-                     pockets -- so `tools/content.mjs` assertion 26 requires
-                     that substance to be `packable` and to exist at all. A
-                     non-packable ordinal would overflow 255 and WRAP into an
-                     unrelated pair, and a missing one packs to NaN, which a
-                     Uint8Array stores as AIR.
-
-   So a substance is packable iff it is native terrain OR some tile-capable
-   form is a legal crossing for it. Nothing else can be handed to `packTile`:
-   the four tile-capable forms are `rung` (`subTags` organic), `stair`
-   (metal), `block` (bulk) and `seed` (organic), so no `relic`, `miracle` or
-   `machine` substance crosses into any of them -- and no
-   `deposit` substance crosses into one either (`block`'s own comment above).
-   `seed` widened nothing: it admits `organic`, whose only member
-   is `timber`, which was already packable as native terrain, so
-   `PACKABLE_MAX` did not move off `adamant` at ordinal 8.
-
-   The guard used to price EVERY row as if it were tile-capable
-   (`1 + (SUB.length - 1) * STRIDE + FORM.length`), which at 19 substances read
-   228 of 255 and refused the third new row -- while real usage was
-   `1 + 8 * 12 + 11 = 108`, because the highest packable ordinal is `adamant`
-   at 8 and twelve of the nineteen rows (`bellows`, `pick`, `auger`, `chasm`
-   and all eight machine substances) can never be packed at all. That was a
-   cost nothing was paying. The narrowing rests on one fact this file cannot
-   check on its own -- that a crossable-with-a-tile-form substance really is
-   terrain -- so `tools/content.mjs` assertion 16 enforces it, and a substance
-   with no `tile` block placed as terrain would in any case be a wall of
-   `Infinity` hardness (`model/tiles.js#baseHardOf`), unmineable forever.
-
-   `packTile`/`subOfTile`/`formOfTile` are untouched: an ordinal is still an
-   ordinal, and this only changes WHICH ordinal the ceiling is measured from. */
+   `rules/miracles.js`'s transmute is the one writer passing through neither
+   worldgen nor `placeTile`, so the content lint requires its substance to be
+   packable and to exist: a non-packable ordinal overflows 255 and WRAPS into
+   an unrelated pair, and a missing one packs to NaN, stored as AIR. */
 
 const TILE_FORMS = FORM.reduce((a, f, i) => (f.tile ? (a.push(i), a) : a), []);
 
@@ -478,20 +255,19 @@ export const packTile = (subOrd, formOrd = NATIVE) => 1 + subOrd * STRIDE + (for
 export const subOfTile  = byte => ((byte - 1) / STRIDE) | 0;
 export const formOfTile = byte => (byte - 1) % STRIDE - 1;
 
-/* the one selector grammar
-   `subPart` then a slash then `formPart`, where each part is a star, a bare id,
-   or a hash-tag. A missing form part means "any form". There is exactly one
+/* THE ONE SELECTOR GRAMMAR. `subPart` then a slash then `formPart`, each part
+   a star, a bare id, or a hash-tag. A missing form part means "any form". One
    implementation, so the machine interpreter, the catch box and the resolver
    cannot disagree about what "any ore" means.
 
-     star-slash-hash-ore     any element in any ore-tagged form  <- smelt input
+     star-slash-hash-ore     any element in any ore-tagged form
      star-slash-hash-fuel    any element in any fuel-tagged form
      copper-slash-ingot      exactly copper ingots
      timber                  timber in any form
      hash-metal-slash-gravel crushed metal, whatever the metal
 
-   (Spelled out in words rather than symbols because a star followed by a slash
-   closes this comment. The literals themselves appear in `recipes.js`.) */
+   Spelled in words because a star followed by a slash closes this comment.
+   The literals appear in `recipes.js`. */
 
 const idsOf = (part, tagIndex, idIndex) =>
   part === '*' ? null
