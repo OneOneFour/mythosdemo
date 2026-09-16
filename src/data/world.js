@@ -74,7 +74,7 @@ export const BANDS = [
       { kind:'relief', amp:10, dip:2 },
       /* A shallow soil cap over the stone, so the exposed ground reads as
          dirt-with-grass (`soil`'s `hi` look) rather than bare rock. `lip:false`
-         on the stone row is load-bearing: without it, `layer()`'s ragged-edge
+         on the stone row is required: without it, `layer()`'s ragged-edge
          carve treats row 27 as ANOTHER exposed surface and punches random air
          pockets along the soil/stone seam, seven tiles underground where
          nothing should ever look carved. */

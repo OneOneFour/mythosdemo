@@ -95,9 +95,9 @@ export const write = {
    what lets the half-tile sweep below start and end on a legal sample rather
    than needing an end-cap special case.
 
-   `hi` is which end is UP. Ties resolve to 'a', DETERMINISTICALLY: a horizontal segment has no upper end and something still has to be
-   called one, and picking by argument order rather than by, say, x makes the
-   answer a function of the link order alone. */
+   `hi` is which end is UP. Ties resolve to 'a', DETERMINISTICALLY: picking by
+   argument order rather than by x makes the answer a function of the link
+   order alone. */
 const anchorOf = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
 
 function geometryOf(a, b) {

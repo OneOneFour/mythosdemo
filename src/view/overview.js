@@ -44,10 +44,11 @@ import { drawTooltip } from './ui/tooltip.js';
 const INK = {
   void:  colour('abyC'),
   ui:    colour('ui'),
-  /* `ink2` is the SECONDARY BODY tone and `dim` is the STATE tone. Two of the ten load-bearing greys are in this
-     file and both keep `dim`: FOLLOW's off reading in the header and a layer
-     toggled off in the legend. `dim` is also still the geometry tone for the
-     chain bracket's own rules, which are lines and not text. */
+  /* `ink2` is the SECONDARY BODY tone and `dim` is the STATE tone. Two of the
+     ten greys the HUD distinguishes are in this file and both keep `dim`:
+     FOLLOW's off reading in the header and a layer toggled off in the legend.
+     `dim` is also the geometry tone for the chain bracket's own rules, which
+     are lines and not text. */
   ink2:  colour('uiInk2'),
   dim:   colour('uiDim'),
   back:  colour('uiBack'),
@@ -620,7 +621,8 @@ function tileWindow(b, v) {
 }
 
 /* A dashed line, integer pixels, walked parametrically so the dash phase is a
-   function of distance along the line and nothing else -- no `rand()` and no dependence on how many times the map has been drawn. */
+   function of distance along the line and nothing else -- no `rand()` and no
+   dependence on how many times the map has been drawn. */
 function dashTo(g, x0, y0, x1, y1, col, on = 3, off = 3, thick = 1) {
   const dx = x1 - x0, dy = y1 - y0;
   const len = Math.max(1, Math.round(Math.hypot(dx, dy)));

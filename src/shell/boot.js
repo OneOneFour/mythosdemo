@@ -1,4 +1,4 @@
-/* LAYER shell — newRun(). BOOT ORDER IS LOAD-BEARING. Imports every layer,
+/* LAYER shell — newRun(). THE BOOT ORDER BELOW IS A RULE. Imports every layer,
    and is the only file that imports both `rules` and `view`, which is what
    makes the direction in `tools/layers.mjs` a rule rather than a wish.
 

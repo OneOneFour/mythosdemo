@@ -189,8 +189,8 @@ export const write = {
       known: HAND_RECIPES.map(r => r.id),
       /* A FRESH array every run -- `eff('trinketSlots')` at reset time reads
          the base value (`model/mods.js#write.clear()` has already run by
-         the time `shell/boot.js` calls this, per its own load-bearing boot
-         order), rounded because a slot count must be an integer even if a
+         the time `shell/boot.js` calls this, per the order its own header
+         states), rounded because a slot count must be an integer even if a
          future boon ever bent this tunable fractionally. */
       equipped: Array.from({ length: Math.max(0, Math.round(eff('trinketSlots'))) }, () => null)
     });

@@ -95,7 +95,7 @@ export function step(dt) {
     const b = bandByOrd(e.ord);
     if (!b) continue;
 
-    /* IS THE SEED STILL THERE? Defensive rather than load-bearing since
+    /* IS THE SEED STILL THERE? Defensive rather than required, since
        `model/tiles.js#write.setByte` clears an entry the moment the byte at
        that coordinate stops declaring `tile.roots` -- so a seedling mined
        back out, or swallowed by the `chasm` miracle, has already left this

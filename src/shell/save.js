@@ -449,7 +449,7 @@ export function clearSave() {
 
 /* restore
 
-   ORDER IS LOAD-BEARING WITHIN A BAND. `tilew.setByte` clears the dig ledger
+   ORDER MATTERS WITHIN A BAND. `tilew.setByte` clears the dig ledger
    and plants the growth ledger for the coordinate it writes, so both ledgers
    are restored after every tile edit rather than before. */
 

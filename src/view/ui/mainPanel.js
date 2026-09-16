@@ -44,10 +44,10 @@ import { drawn } from './state.js';
 import { drawTabs } from './tabs.js';
 import { drawTooltip } from './tooltip.js';
 
-/* `DIM` IS THE STATE TONE IN THIS FILE, NOT A BODY TONE. Four of the ten load-bearing greys live here and
-   all four keep it: AUTO COLLECT's and AUTO FEED's off reading,
-   the search box's empty
-   placeholder, an undiscovered recipe's frame and notice, and `STATE_COLOUR`'s
+/* `DIM` IS THE STATE TONE IN THIS FILE, NOT A BODY TONE. Four of the ten
+   greys the HUD distinguishes live here and all four keep it: AUTO COLLECT's
+   and AUTO FEED's off reading, the search box's empty placeholder, an
+   undiscovered recipe's frame and notice, and `STATE_COLOUR`'s
    UNFUELLED/IDLE rungs (which `view/overview.js#drawMachines` also reads, so
    whitening either would change the map's glyphs too). `INK2` is the
    secondary body tone and is what the stat rows and the LOGISTICS table now

@@ -395,8 +395,8 @@ function mine(m, def, dt) {
   /* a unit chipped loose, but the face SURVIVES: the miner retreats
      through a vein tile by tile instead of deleting it in one bite. A new
      branch BEFORE the break test, exactly where `rules/mining.js` puts its
-     own, and for the same reason -- the break branch's `rand()` order is
-     load-bearing. `unitsCrossed` caps itself one short of
+     own, and for the same reason: moving it after the break test would reorder
+     that branch's `rand()` draws. `unitsCrossed` caps itself one short of
      `charge` so the last unit is the break's own drop. */
   const crossed = unitsCrossed(before, work, hard, charge);
   if (crossed > 0) {

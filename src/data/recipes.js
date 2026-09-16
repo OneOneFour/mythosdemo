@@ -34,10 +34,9 @@ export const RECIPES = Object.freeze({
      used to charge at placement and produces one `<machine>/rig`. `hand:true`
      on every one: a machine is built by hand, never by another machine.
 
-     DECLARED BEFORE every other hand recipe below, and THAT ORDER IS
-     LOAD-BEARING --
-     Checked pairwise against every other hand:true row below for exactly this
-     containment before this order was picked:
+     DECLARED BEFORE every other hand recipe below, because the first
+     matching row wins. Checked pairwise against every other `hand:true` row
+     for exactly this containment before the order was picked:
        furnace, brazier  -- both a strict superset of smelt (ore+fuel) /
                              peg_rungs / kindle (log alone) -- declared first.
        cyclops_maw       -- a strict superset of talos_head AND
