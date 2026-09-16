@@ -88,6 +88,9 @@ const RULES = [
   [/\bused to (be|say|live|claim|hold|call|return|sit|mean)\b|\bthis (comment|file) used to\b|\ban earlier (version|comment|pass)\b/i, 'describes a previous version'],
   [/^\s*(?:\/\/|\/\*)\s*[=*\-~#_]{4,}/m, 'section banner'],
   [/^\s*\/\/\s*(?:const|let|var|if|for|while|return|function|import|export|class)\b.*[;{)]\s*$/m, 'commented-out code'],
+  /* docs/STYLE.md's miscellany bans both words outright. A comment that calls
+     a line important instead of saying what breaks without it is the reason. */
+  [/\bload-bearing\b|\bcrux\b/i, 'banned word; say what breaks instead'],
 ];
 
 async function walk(dir, out = []) {

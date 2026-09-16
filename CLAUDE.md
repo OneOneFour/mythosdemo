@@ -260,8 +260,14 @@ state the constraint itself, in terms of the code.
 **Ten lines is the cap for one block**, and most should be one or two. A
 file-top block gets 36, because a `data/` table's field key and
 `shell/schedule.js`'s step order are reference tables a reader needs in the
-file, and `data/machines.js`'s 22 keys at one line each come to 34. Prose does not qualify at either length — cut it to the constraint or
-move it to `.claude/brain/`. `npm run lint:comments` enforces both caps.
+file, and `data/machines.js`'s 22 keys at one line each come to 34. Prose does
+not qualify at either length — cut it to the constraint or move it to
+`.claude/brain/`. `npm run lint:comments` enforces both caps.
+
+**`docs/STYLE.md` binds comments too, not just prose replies.** Its two banned
+words, "load-bearing" and "crux", are a comment smell in their own right: both
+label a line important instead of saying what breaks without it. The checker
+rejects them.
 
 Delete everything else:
 
@@ -313,7 +319,8 @@ names get none, and no docstring names a document.
 
 - **Boot order.** `resize()` sets `VIEW.w/h`, `generate()` fills the grid and
   `SITE`, `resetChunks()` drops stale chunk canvases, and `spawnPlayer()` /
-  `resetTutorial()` need `SITE`. The order in `newRun()` is load-bearing.
+  `resetTutorial()` need `SITE`. Reordering `newRun()` throws during boot
+  and renders nothing at all.
 - **`moveY` must report every landing.** It originally returned `false` when the
   player came to rest without a collision step, so fall damage silently never
   fired. A 26-tile drop was survivable and the harness caught it.
@@ -564,8 +571,8 @@ occupied by a non-packable row, and an appended row lands at ordinal 27.
 Spending a row on foliage was already the worst trade available when this
 decision was written and there is now no row to spend: headroom is not the
 argument for D7, paint already being the cheaper and more flexible mechanism
-is. (This paragraph said "12 rows left" until wave 6; the figure was stale and
-never load-bearing on the decision.)
+is. (This paragraph said "12 rows left" until wave 6; the figure was stale, and
+no part of the decision rested on it.)
 
 So: **a trunk stays a `timber/log` tile** — felling is unchanged and §5's "fell
 the olive tree for a ladder" still works — and **canopy, grass fringe, cliff
