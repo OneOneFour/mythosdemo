@@ -257,8 +257,11 @@ number, no phase, wave or gate label, no D-number, no assertion number. A
 comment that only makes sense with another document open is not a comment —
 state the constraint itself, in terms of the code.
 
-**Six lines is the cap for one block.** Past that it is prose, and prose does
-not go in source. Cut it to the constraint or move it to `.claude/brain/`.
+**Ten lines is the cap for one block**, and most should be one or two. A
+file-top block gets 30, because a `data/` table's field key and
+`shell/schedule.js`'s step order are reference tables a reader needs in the
+file. Prose does not qualify at either length — cut it to the constraint or
+move it to `.claude/brain/`. `npm run lint:comments` enforces both caps.
 
 Delete everything else:
 
@@ -302,7 +305,7 @@ One imperative line saying what it does. Then only if non-obvious:
   registers a listener, allocates.
 - `@throws` only for what callers are expected to catch.
 
-No rationale, no design history, no usage tutorials, no prose essays. Six
+No rationale, no design history, no usage tutorials, no prose essays. Ten
 lines is the cap, the same as any other block. Small private helpers with clear
 names get none, and no docstring names a document.
 

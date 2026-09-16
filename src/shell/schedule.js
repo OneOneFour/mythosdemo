@@ -2,8 +2,7 @@
    module.
 
    `rules` modules may not import each other, so STEPS below IS the simulation:
-   reordering the game is reordering that array. The argument behind each pair
-   is in `.claude/brain/rules-order.md`.
+   reordering the game is reordering that array.
 
    aim      -> player    the reticle resolves against where the player IS
    player   -> mining    reach is measured from this frame's position
