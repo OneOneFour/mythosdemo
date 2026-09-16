@@ -10,7 +10,8 @@
 // appearance changing; a human covers appearance being right.
 // See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves
 
-import { fileURLToPath } from 'node:url';
+import { readdirSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { checkLayers } from './layers.mjs';
 import { checkContent } from './content.mjs';
 
@@ -74,6 +75,19 @@ globalThis.performance = { now: () => 0 };
 globalThis.addEventListener = () => {};
 globalThis.requestAnimationFrame = () => 0;
 
+/* `src/shell/save.js` is the only reader, and it guards against storage being
+   absent or throwing. Section 8r installs hostile stand-ins of its own and
+   restores this one afterwards. */
+const defaultStore = () => {
+  const m = new Map();
+  return {
+    getItem: k => (m.has(k) ? m.get(k) : null),
+    setItem: (k, v) => { m.set(k, String(v)); },
+    removeItem: k => { m.delete(k); }
+  };
+};
+globalThis.localStorage = defaultStore();
+
 let failures = 0;
 const fail = m => { console.error('  FAIL: ' + m); failures++; process.exitCode = 1; };
 const ok   = m => console.log('  ok   ' + m);
@@ -121,6 +135,7 @@ const epoch  = await import('../src/model/epoch.js');
 const journal = await import('../src/model/journal.js');
 const modelBoons = await import('../src/model/boons.js');
 const aimModel = await import('../src/model/aim.js');
+const digqueue = await import('../src/model/digqueue.js');
 /* THE ONE `rules` MODULE IMPORTED DIRECTLY, and the reason is written down so
    it does not become a habit. Every other behavioural probe in this file drives
    the game through `shell/main.js#step` and the real `cmd` object, which is the
@@ -151,8 +166,31 @@ const main   = await import('../src/shell/main.js');
 const sched  = await import('../src/shell/schedule.js');
 const input  = await import('../src/shell/input.js');
 const shellUi = await import('../src/shell/ui.js');
+const save   = await import('../src/shell/save.js');
 
-console.log('\n   imported every layer without error');
+/* ---- and every OTHER module, derived from the filesystem ----
+   The named bindings above are there because probes use them. COVERAGE is
+   this sweep's job, and the split matters: the hand-written list omitted
+   `src/shell/save.js`, `src/rules/scenarios.js`, `src/data/scenarios.js` and
+   `src/model/digqueue.js` for a whole wave, so a parse error or a stale
+   import in any of them was invisible to every gate -- `npm run lint`'s
+   `no-undef` sees an identifier and not a module. A new file under `src/` is
+   covered the moment it exists. */
+const SRC_DIR = fileURLToPath(new URL('../src/', import.meta.url));
+const srcFiles = (function walk(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap(e =>
+    e.isDirectory() ? walk(`${dir}${e.name}/`)
+      : (e.name.endsWith('.js') ? [dir + e.name] : []));
+})(SRC_DIR);
+{
+  let bad = 0;
+  for (const f of srcFiles) {
+    try { await import(pathToFileURL(f).href); }
+    catch (e) { fail(`import ${f.slice(SRC_DIR.length)}: ${e.message}`); bad++; }
+  }
+  if (!srcFiles.length) fail('the src/ sweep found no modules at all, so nothing below is under test');
+  else if (!bad) console.log(`\n   imported all ${srcFiles.length} modules under src/ without error`);
+}
 
 /* ============================================================
    THE REAL STEP(), NOT A REIMPLEMENTED LOOP
@@ -7869,6 +7907,1020 @@ const seamCols = (a, b, tx) => {
        `(ty1 >= b.th and ty0 < 0), every tile the hitbox overlaps is revealed in both bands`);
   }
 }
+
+console.log('\n8p. A CATCH BOX CATCHES WHAT FALLS THROUGH ITS MOUTH (Phase 6q, docs/SPEC.md section 18)');
+
+/* Every machine row that declares a catch box, with the pair its OWN ports
+   accept -- read through `expand()` (the validator `data/forms.js` exports for
+   exactly this) and `acceptedBy`, so a row whose selectors change is probed
+   with whatever it now takes rather than with a guess. */
+const CATCHERS = D_mach.MACH.map((def, i) => ({ def, i }))
+  .filter(r => r.def.catchBox)
+  .map(r => {
+    for (const p of r.def.ports ?? [])
+      for (const sel of p.accepts ?? [])
+        for (const q of D_form.expand(sel)) {
+          if (!items.holdable(q.sub, q.form)) continue;
+          if (machs.acceptedBy(r.def, q.sub, q.form) === null) continue;
+          return { ...r, pair: q };
+        }
+    return { ...r, pair: null };
+  });
+
+/* The rect `rules/machines.js#catchFalling` builds, derived from the machine's
+   own mouth and the `catchBox.slack` its data row declares. Closed on all four
+   edges, which is `model/items.js#inRect`'s contract. */
+const catchRect = (m, def) => {
+  const mouth = m.mouth[def.catchBox.mouth];
+  const s = def.catchBox.slack;
+  return { x: mouth.x - s, y: mouth.y - s, w: mouth.w + s * 2, h: mouth.h + s * 2 };
+};
+const inCatch = (r, x, y) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+
+/* An air pocket far from spawn, so no other machine, tile or item is in frame.
+   Returns the band. */
+function catchScene(tx, ty, up, down) {
+  boot.newRun(4242);
+  const b = world.bandOf('surface');
+  for (let y = ty - up; y <= ty + down; y++)
+    for (let x = tx - 14; x <= tx + 14; x++)
+      if (world.inBounds(b, x, y)) tiles.write.clear(b, x, y);
+  return b;
+}
+
+/* --- CLAIM 1: THE CAUGHT REGION IS `mouth ± slack` AND NOTHING WIDER.
+
+   The bug this would have caught shipped for the whole life of the project and
+   is in docs/SPEC.md section 18: `model/space.js#query` visits whole 32 px
+   buckets, so `itemsIn` handed back every occupant of every bucket the rect
+   overlapped and a furnace swallowed ore four tiles to one side of its mouth.
+   Its catch area was 2,048 px of bucket grid; it is 232 positions of declared
+   rect.
+
+   THE EXPECTED VALUE IS DERIVED TWICE OVER, and neither half is a literal.
+   The rect comes off `m.mouth` and the row's own `slack`. The POSITION tested
+   against it comes from a control pass over the same grid with no machine
+   placed, because `shell/schedule.js` runs `items` before `machines`: an item
+   is integrated once before any catch box looks at it, so a position on the
+   rect's lower edge has already fallen out of it by the time it is judged.
+   Measuring that drift through the real loop rather than predicting it is what
+   keeps the claim about the rect instead of about gravity. --- */
+{
+  const PAD = 3;
+  let bad = 0;
+  const notes = [];
+  if (!CATCHERS.length)
+    fail('CATCH REGION: no machine row declares a catchBox, so this section is vacuous');
+  for (const { def, i, pair } of CATCHERS) {
+    if (!pair) {
+      fail(`CATCH REGION: ${def.id} declares a catchBox but no port of its own accepts any ` +
+           `holdable pair, so nothing can ever fall into it`);
+      bad++;
+      continue;
+    }
+    const b = catchScene(60, 30, 14, 16);
+    const probe = machs.write.place(b, i, 60, 30);
+    const box = catchRect(probe, def);
+    machs.write.remove(probe);
+
+    const x0 = box.x - PAD, x1 = box.x + box.w + PAD;
+    const y0 = box.y - PAD, y1 = box.y + box.h + PAD;
+
+    /* Control pass: where does each spawn position sit when `machines` runs? */
+    const at = new Map();
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        items.write.clear();
+        items.write.spawn(b, x, y, pair.sub, pair.form, 0, 0);
+        items.write.reindex();
+        stepReal(main.STEP, {});
+        const it = items.items[0];
+        at.set(`${x},${y}`, it ? { x: it.x, y: it.y } : null);
+      }
+    items.write.clear();
+
+    const m = machs.write.place(b, i, 60, 30);
+    let caught = 0, want = 0, wrong = 0, scanned = 0, first = '';
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        m.buf = {};
+        items.write.clear();
+        items.write.spawn(b, x, y, pair.sub, pair.form, 0, 0);
+        items.write.reindex();
+        journal.write.clear();
+        stepReal(main.STEP, {});
+        const got = journal.peek().some(r => r.kind === 'accept');
+        const p = at.get(`${x},${y}`);
+        const expect = !!p && inCatch(box, p.x, p.y);
+        scanned++;
+        if (got) caught++;
+        if (expect) want++;
+        if (got !== expect && !first) first = `${x},${y}: caught ${got}, rect says ${expect}`;
+        if (got !== expect) wrong++;
+      }
+    machs.write.remove(m);
+    items.write.clear();
+
+    if (!want || caught === scanned) {
+      fail(`CATCH REGION: ${def.id} caught ${caught} of ${scanned} probed positions against a ` +
+           `declared ${box.w}x${box.h} rect -- the scan window does not straddle the boundary, ` +
+           `so the claim would pass on a machine that catches everything`);
+      bad++;
+    } else if (wrong) {
+      fail(`CATCH REGION: ${def.id} disagrees with its own mouth ± slack at ${wrong} of ` +
+           `${scanned} position(s), first ${first}. The rect is ` +
+           `${box.w}x${box.h} at ${box.x},${box.y} from mouth '${def.catchBox.mouth}' and ` +
+           `slack ${def.catchBox.slack}`);
+      bad++;
+    } else {
+      notes.push(`${def.id} ${caught}/${scanned}`);
+    }
+  }
+  if (!bad) {
+    console.log('  ..  ' + notes.join(', '));
+    ok(`CATCH REGION: all ${CATCHERS.length} machine row(s) with a catchBox accept an item at ` +
+       `exactly the positions inside mouth ± slack, on all four edges`);
+  }
+}
+
+/* --- CLAIM 2: NOTHING FALLS THROUGH A MOUTH IT SHOULD HAVE ENTERED.
+
+   Stated as arithmetic first and then measured. `shell/main.js#STEP` is a
+   fixed 1/120 s and `rules/items.js#integrate` clamps to `eff('terminal')`, so
+   the furthest an item can move between two looks at a catch box is
+   `terminal * STEP` -- and while that is under the box's own height the box
+   cannot be stepped over. The measurement drops an item that is ALREADY at
+   terminal from four tiles up, which is the worst case that exists, down every
+   column of the rect and one column outside each edge.
+
+   The outside columns are what keep it honest: a catch box that swallowed
+   everything in its bucket would catch those too. --- */
+{
+  const term = mods.eff('terminal');
+  const perStep = term * main.STEP;
+  let bad = 0;
+  const notes = [];
+  for (const { def, i, pair } of CATCHERS) {
+    if (!pair) continue;
+    const b = catchScene(60, 54, 54, 2);
+    const m = machs.write.place(b, i, 60, 54);
+    const box = catchRect(m, def);
+    if (perStep > box.h) {
+      fail(`TUNNELLING: ${def.id}'s catch box is ${box.h} px tall and an item at ` +
+           `eff('terminal') (${term} px/s) covers ${perStep.toFixed(2)} px per 1/${1 / main.STEP} s ` +
+           `substep, ` +
+           `so a fall can step over the mouth entirely`);
+      bad++;
+    }
+    /* TWO SUB-PIXEL PHASES, because a catch box is sampled once per substep and
+       an aligned drop lands on the same grid of sample positions every time.
+       Offsetting the start by half a substep's travel moves the whole grid,
+       which is what lets the sweep SEE a step over the mouth rather than trust
+       the arithmetic above. Measured on a copy of the tree with `terminal`
+       raised to 2000 px/s: the aligned phase catches every column and the
+       half-phase misses every one of them. */
+    let miss = 0, hit = 0, outside = 0;
+    for (const phaseOff of [0, perStep / 2])
+      for (let x = box.x - 1; x <= box.x + box.w + 1; x++) {
+        const withinRect = x >= box.x && x <= box.x + box.w;
+        m.buf = {};
+        items.write.clear();
+        journal.write.clear();
+        items.write.spawn(b, x, box.y - b.tile * 4 - phaseOff, pair.sub, pair.form, 0, term);
+        items.write.reindex();
+        let got = false;
+        for (let f = 0; f < 600 && items.items.length; f++) {
+          stepReal(main.STEP, {});
+          if (journal.peek().some(r => r.kind === 'accept')) { got = true; break; }
+        }
+        if (withinRect && got) hit++;
+        else if (withinRect) miss++;
+        else if (got) outside++;
+      }
+    machs.write.remove(m);
+    items.write.clear();
+
+    if (miss) {
+      fail(`TUNNELLING: ${def.id} let ${miss} of ${hit + miss} column(s) of its own mouth fall ` +
+           `straight through at eff('terminal')`);
+      bad++;
+    } else if (outside) {
+      fail(`TUNNELLING: ${def.id} caught ${outside} column(s) outside mouth ± slack, so the ` +
+           `sweep is measuring a wider box than the rect declares`);
+      bad++;
+    } else {
+      notes.push(`${def.id} ${hit}`);
+    }
+  }
+  if (!bad) {
+    console.log('  ..  ' + notes.join(', '));
+    ok(`TUNNELLING: an item already at eff('terminal') (${term} px/s, ${perStep.toFixed(2)} px ` +
+       `per substep) dropped down every column of every catch box is swallowed, and no column ` +
+       `outside mouth ± slack is`);
+  }
+}
+
+console.log('\n8q. THE DIG QUEUE DIGS WITH NO BUTTON HELD (Phase 6i, docs/SPEC.md section 28)');
+
+/* Written against BEHAVIOUR and never against the selection policy. Which mark
+   the pick works next, and whether it commits to one until it is done, is
+   `rules/mining.js`'s to change; that a mark breaks with nothing held, that an
+   out-of-reach mark waits, and that no mark survives a restart are the
+   contract docs/SPEC.md section 28 states.
+
+   THE SCENE IS A CORRIDOR IN `topsoil`, well away from spawn: three rows of
+   headroom over a stone floor the player stands on, and the marked tiles go in
+   the row UNDER that floor. Marking the floor itself would drop the player into
+   their own trench and the probe would be measuring a fall.
+
+   The stock pick goes in the pockets deliberately. It is not starting
+   inventory -- `rules/generate.js` drops one on the ground and
+   `model/run.js#hasPick` is `bestTool() !== null` -- so a probe that skipped
+   this would measure a tile that never breaks. */
+const QUEUE_TX = 12, QUEUE_TY = 60, QUEUE_RUN = 14;
+function queueScene(seed = 1461) {
+  boot.newRun(seed);
+  const b = world.bandOf('topsoil');
+  for (let dx = -3; dx <= QUEUE_RUN; dx++) {
+    for (let dy = -3; dy <= -1; dy++) tiles.write.clear(b, QUEUE_TX + dx, QUEUE_TY + dy);
+    tiles.write.set(b, QUEUE_TX + dx, QUEUE_TY, D_sub.S.stone, D_form.NATIVE);
+  }
+  mining.write.clearAll();
+  digqueue.write.clearAll();
+  run.write.collect(D_sub.S.pick, D_form.F.relic, 1);
+  player.write.band(b);
+  player.write.move(world.worldX(b, QUEUE_TX), world.worldY(b, QUEUE_TY - 2));
+  player.write.vel(0, 0);
+  player.write.set('onGround', true);
+  player.write.set('fallFrom', player.player.y);
+  return { b, tx: QUEUE_TX, ty: QUEUE_TY };
+}
+
+/* Distance from the player's centre to a tile's own middle, in world px --
+   `model/digqueue.js#d2`'s measure, so what this probe calls "in reach" is
+   what the queue calls it. */
+const tileReach = (b, tx, ty) => {
+  const c = player.playerCentre();
+  return Math.hypot(world.worldX(b, tx) + b.tile / 2 - c.x,
+                    world.worldY(b, ty) + b.tile / 2 - c.y);
+};
+
+/* Substeps the pick needs for `n` tiles of `subId`, from the rows that set the
+   price: `tile.hard x tile.charge / (pickPower x tool power)`. Times three,
+   because the queue walks its own commitment and section 8e already owns the
+   exact-seconds claim. */
+function digBudget(subId, n) {
+  const row = D_sub.SUB[D_sub.S[subId]].tile;
+  const power = mods.eff('pickPower') * (run.bestTool()?.power ?? 1);
+  return Math.ceil(n * row.hard * (row.charge ?? 1) / power * 3 / main.STEP);
+}
+
+/* --- CLAIM 1: A MARK BREAKS WITH NOTHING HELD, AND THE MATERIAL FALLS.
+
+   `cmd` is empty on every substep -- no `dig`, no `mouse`, no `collect` -- so
+   the only thing that can break these tiles is the queue. Copper rather than
+   soil because soil's `dropChance` is 0.05 and invariant 5 asserted over three
+   soil tiles is a coin flip. The probe asserts all three tiles start inside
+   `eff('reach')` rather than assuming it. --- */
+{
+  const { b, tx, ty } = queueScene();
+  const cells = [[tx - 1, ty + 1], [tx, ty + 1], [tx + 1, ty + 1]];
+  for (const [x, y] of cells) tiles.write.set(b, x, y, D_sub.S.copper, D_form.NATIVE);
+
+  const reach = mods.eff('reach');
+  const far = cells.filter(([x, y]) => tileReach(b, x, y) > reach);
+  const marked = cells.map(([x, y]) => digqueue.write.mark(b, x, y));
+  const inv0 = run.run.inv.filter(Boolean).length;
+  const items0 = items.items.length;
+
+  const budget = digBudget('copper', cells.length);
+  let f = 0;
+  while (f < budget && digqueue.activeCount() > 0) { stepReal(main.STEP, {}); f++; }
+
+  const solid = cells.filter(([x, y]) => tiles.tileAt(b, x, y) !== D_form.AIR).length;
+  const gained = items.items.length - items0;
+  const invGrew = run.run.inv.filter(Boolean).length - inv0;
+
+  if (far.length)
+    fail(`DIG QUEUE (hands-free): ${far.length} of the ${cells.length} marked tile(s) start outside ` +
+         `eff('reach') (${reach}), so the scene tests deferral and not digging`);
+  else if (marked.some(r => r !== 'ok'))
+    fail(`DIG QUEUE (hands-free): write.mark refused a tile of the block (${marked.join(', ')}), so ` +
+         `nothing below is under test`);
+  else if (solid)
+    fail(`DIG QUEUE (hands-free): ${solid} of ${cells.length} marked copper tile(s) are still there ` +
+         `after ${(f * main.STEP).toFixed(2)} simulated seconds with no button held, against a ` +
+         `derived budget of ${(budget * main.STEP).toFixed(2)} s`);
+  else if (digqueue.activeCount())
+    fail(`DIG QUEUE (hands-free): ${digqueue.activeCount()} mark(s) outlived the tiles they named`);
+  else if (!gained)
+    fail('DIG QUEUE (hands-free): every tile broke and nothing fell, so the queue is destroying ' +
+         'material rather than dropping it (invariant 5)');
+  else if (invGrew)
+    fail(`DIG QUEUE (hands-free): ${invGrew} inventory slot(s) filled without a pickup -- a queued ` +
+         `swing is crediting the pockets directly (invariant 5)`);
+  else
+    ok(`DIG QUEUE (hands-free): ${cells.length} marked copper tiles broke in ` +
+       `${(f * main.STEP).toFixed(2)} s with cmd empty on every substep, yielding ${gained} falling ` +
+       `item(s) and 0 direct inventory credits`);
+}
+
+/* --- CLAIM 2: A MARK PAST `reach` WAITS, AND WALKING INTO RANGE RESUMES IT.
+
+   U5's whole shape: no pathfinding and no auto-walk, so attention stays the
+   cost. The player is driven right through the SAME `cmd` object a keystroke
+   writes to, and the probe asserts they did not move during the standing phase
+   -- which is what would go red if the queue ever started walking itself.
+
+   How many of the ten columns start in reach is MEASURED, not assumed, and the
+   claim needs it to be neither none nor all of them. --- */
+{
+  const { b, tx, ty } = queueScene();
+  const row = ty + 1, cols = [];
+  for (let i = 0; i < 10; i++) {
+    tiles.write.set(b, tx + i, row, D_sub.S.soil, D_form.NATIVE);
+    cols.push(tx + i);
+  }
+  for (const x of cols) digqueue.write.mark(b, x, row);
+
+  const reach = mods.eff('reach');
+  const near = cols.filter(x => tileReach(b, x, row) <= reach).length;
+  const x0 = player.player.x;
+  for (let f = 0, n = digBudget('soil', near + 1); f < n; f++) stepReal(main.STEP, {});
+  const brokeStill = cols.filter(x => tiles.tileAt(b, x, row) === D_form.AIR).length;
+  const leftStill = digqueue.activeCount();
+  const drift = Math.abs(player.player.x - x0);
+
+  /* Walk, then stand, ten times over. Standing is not padding: the queue works
+     the nearest in-reach mark, and a player crossing at full walk speed is the
+     nearest thing to a column for about an eighth of a second against soil's
+     own hardness, so nothing finishes while they move. */
+  const dwell = digBudget('soil', 2);
+  for (let i = 0; i < 10; i++) {
+    for (let f = 0; f < 40; f++) stepReal(main.STEP, { right: true });
+    for (let f = 0; f < dwell; f++) stepReal(main.STEP, {});
+  }
+  const brokeWalked = cols.filter(x => tiles.tileAt(b, x, row) === D_form.AIR).length;
+
+  if (!near || near === cols.length)
+    fail(`DIG QUEUE (deferral): ${near} of ${cols.length} marks start inside eff('reach') ` +
+         `(${reach}), so the run does not straddle the boundary and deferral is not under test`);
+  else if (brokeStill !== near)
+    fail(`DIG QUEUE (deferral): standing still broke ${brokeStill} of the ${near} marks that start ` +
+         `inside eff('reach') (${reach}), out of ${cols.length}`);
+  else if (leftStill !== cols.length - brokeStill)
+    fail(`DIG QUEUE (deferral): ${brokeStill} mark(s) broke but ${leftStill} remain of ` +
+         `${cols.length} -- an out-of-reach mark was dropped rather than deferred`);
+  else if (drift > 1)
+    fail(`DIG QUEUE (deferral): the player moved ${drift.toFixed(2)} px with no movement key held. ` +
+         `The queue is walking itself, which U5 forbids`);
+  else if (brokeWalked !== cols.length || digqueue.activeCount())
+    fail(`DIG QUEUE (deferral): walking right through cmd took the count from ${brokeStill} to ` +
+         `${brokeWalked} of ${cols.length} with ${digqueue.activeCount()} mark(s) left, so a ` +
+         `deferred mark is not resumed when the player reaches it`);
+  else
+    ok(`DIG QUEUE (deferral): ${brokeStill} of ${cols.length} marks break from a standing start -- ` +
+       `exactly the ${near} inside eff('reach') (${reach}) -- ${leftStill} wait with the player not ` +
+       `moving 1 px, and walking right clears all ${brokeWalked}`);
+}
+
+/* --- CLAIM 3: NO MARK SURVIVES `newRun()` (invariant 8).
+
+   THE SAME SEED, AND TILES THIS PROBE NEVER EDITED. `model/digqueue.js` records
+   the byte a tile was marked on, and regenerating the same seed writes the same
+   bytes back to the same coordinates -- so a byte comparison alone finds every
+   mark of the previous run perfectly valid and this claim would pass on a
+   determinism bug. The probe asserts that identity first, so the assertion
+   below cannot be satisfied by the terrain having changed. What actually holds
+   it is the band-record identity test in `model/digqueue.js#stale`: `newRun`
+   allocates a fresh record per band, so `m.band !== bands[m.ord]`.
+
+   Asserted through the reads a caller has, so the claim survives whichever
+   mechanism enforces it -- `shell/boot.js#newRun` has no
+   `digqueue.write.clearAll()` today and docs/SPEC.md section 28.4 says it
+   should gain one. --- */
+{
+  const SEED = 1337;
+  const { b, tx, ty } = queueScene(SEED);
+  /* Generated rock, never written by this probe, so regeneration reproduces it
+     byte for byte. */
+  const cells = [];
+  for (let i = 0; tx + i < b.tw && cells.length < 5; i++)
+    if (tiles.tileAt(b, tx + i, ty + 2) !== D_form.AIR) cells.push([tx + i, ty + 2]);
+  const bytes = cells.map(([x, y]) => tiles.tileAt(b, x, y));
+  const marked = cells.map(([x, y]) => digqueue.write.mark(b, x, y));
+  const before = digqueue.activeCount();
+
+  boot.newRun(SEED);
+  const fresh = world.bandOf('topsoil');
+  const same = cells.filter(([x, y], i) => tiles.tileAt(fresh, x, y) === bytes[i]).length;
+  const visible = cells.filter(([x, y]) => digqueue.markedAt(fresh, x, y)).length;
+  const c = player.playerCentre();
+  const nearest = digqueue.nearestWithin(c.x, c.y, 1e6);
+  stepReal(main.STEP, {});
+  const after = digqueue.activeCount();
+
+  if (cells.length < 5 || marked.some(r => r !== 'ok') || before !== cells.length)
+    fail(`DIG QUEUE (restart): the scene marked ${before} of ${cells.length} generated tiles ` +
+         `(${marked.join(', ')}), so nothing below is under test`);
+  else if (same !== cells.length)
+    fail(`DIG QUEUE (restart): regenerating seed ${SEED} put different bytes at ${cells.length - same} ` +
+         `of the ${cells.length} marked coordinates, so a byte comparison alone would have caught ` +
+         `this and the claim is weaker than it reads`);
+  else if (visible)
+    fail(`DIG QUEUE (restart): ${visible} of ${cells.length} marks are still readable through ` +
+         `markedAt() after newRun(${SEED}), and the terrain under them is byte-identical. A mark ` +
+         `of the previous run is being worked in this one (invariant 8)`);
+  else if (nearest)
+    fail(`DIG QUEUE (restart): nearestWithin() still answers ${nearest.tx},${nearest.ty} after ` +
+         `newRun(${SEED}), so the queue would hand rules/mining.js a dead mark`);
+  else if (after)
+    fail(`DIG QUEUE (restart): ${after} mark(s) survived the first substep of the new run`);
+  else
+    ok(`DIG QUEUE (restart): ${cells.length} marks over terrain that regenerates byte-identically ` +
+       `from seed ${SEED} are all unreadable after newRun(), and none survives the first substep`);
+}
+
+/* --- CLAIM 4: A QUEUED TILE COSTS ITS STATED SECONDS AT ANY FRAMERATE
+   (invariant 10).
+
+   Section 8e owns this for a HAND swing. The queue is a second route into the
+   same `swing`, so it gets the same sweep: the expected time is the substance
+   row's own `hard x charge` divided by the pick's power, and the tolerance is
+   one frame of the rate under test plus one fixed substep -- the loop banks
+   leftover dt, so a 20 fps frame can only resolve the break to 1/20 s. --- */
+{
+  const RATES = [20, 30, 60, 90, 107, 120, 144, 240];
+  const row = D_sub.SUB[D_sub.S.stone].tile;
+  let bad = 0;
+  const notes = [];
+  for (const fps of RATES) {
+    const dt = 1 / fps;
+    const { b, tx, ty } = queueScene();
+    tiles.write.set(b, tx, ty + 1, D_sub.S.stone, D_form.NATIVE);
+    digqueue.write.mark(b, tx, ty + 1);
+    const want = row.hard * (row.charge ?? 1) /
+                 (mods.eff('pickPower') * (run.bestTool()?.power ?? 1));
+    const cap = Math.ceil((want * 4) / dt);
+    let n = 0;
+    while (tiles.tileAt(b, tx, ty + 1) !== D_form.AIR && n < cap) { stepReal(dt, {}); n++; }
+    const took = n * dt;
+    const tol = dt + main.STEP;
+    if (Math.abs(took - want) > tol + 1e-9) {
+      fail(`DIG QUEUE (framerate): a queued stone tile took ${took.toFixed(4)} s at ${fps} fps ` +
+           `against a derived ${want.toFixed(4)} s (tile.hard ${row.hard} x charge ` +
+           `${row.charge ?? 1} / power), outside one frame plus one substep (${tol.toFixed(4)} s)`);
+      bad++;
+    } else {
+      notes.push(`${fps}:${took.toFixed(3)}`);
+    }
+  }
+  if (!bad)
+    ok(`DIG QUEUE (framerate): a queued stone tile breaks in its derived ` +
+       `${(row.hard * (row.charge ?? 1) / (mods.eff('pickPower') * (run.bestTool()?.power ?? 1))).toFixed(3)} s ` +
+       `at all ${RATES.length} rates (${notes.join(' ')})`);
+}
+
+/* --- CLAIM 5: THE MARKED SET IS BOUNDED BY `eff('digQueueMax')`, AND THE CAP
+   IS REPORTED RATHER THAN SWALLOWED.
+
+   `write.mark` returns `'full'` and no `model` module imports
+   `model/journal.js`, so the refusal is the caller's to push -- which is why
+   the bound is asserted on the return value and not on a journal row. --- */
+{
+  const { b } = queueScene();
+  const cap = Math.max(1, Math.round(mods.eff('digQueueMax')));
+  let accepted = 0, full = 0, nothing = 0;
+  for (let ty = 30; ty < b.th && full < 5; ty++)
+    for (let tx = 0; tx < b.tw && full < 5; tx++) {
+      if (tiles.tileAt(b, tx, ty) === D_form.AIR) { nothing++; continue; }
+      const r = digqueue.write.mark(b, tx, ty);
+      if (r === 'ok') accepted++;
+      else if (r === 'full') full++;
+    }
+
+  if (accepted !== cap || digqueue.activeCount() !== cap)
+    fail(`DIG QUEUE (cap): ${accepted} mark(s) were accepted and ${digqueue.activeCount()} are live ` +
+         `against eff('digQueueMax') rounded to ${cap}`);
+  else if (!full || !digqueue.isFull())
+    fail(`DIG QUEUE (cap): the set filled to ${cap} and the next mark returned no 'full' ` +
+         `(${full} seen, isFull ${digqueue.isFull()}), so a drag has nothing to report`);
+  else
+    ok(`DIG QUEUE (cap): the marked set stops at eff('digQueueMax') (${cap}) and every further ` +
+       `mark returns 'full' for the caller to turn into a journal row`);
+  digqueue.write.clearAll();
+}
+
+console.log('\n8r. THE SAVE SLOT (Phase 6h/6h-2, docs/SPEC.md section 27)');
+
+/* A STUB `localStorage` AND NOT A BROWSER, AND HERE IS WHAT IT CANNOT SEE.
+   `src/shell/save.js` touches storage through `getItem`/`setItem`/`removeItem`
+   and nothing else, so a Map behind those three is faithful to everything this
+   section asserts -- the payload's shape, the four version hashes, the refusal
+   matrix, and the round trip through every model writer. What it cannot see is
+   a real origin: a real quota, storage disabled by browser policy, and a real
+   page RELOAD rebuilding the module graph from scratch. `tests/save.spec.js`
+   covers the reload in Chromium; the 34 malformed payloads are here because
+   they are arithmetic, not a browser. */
+const SAVE_HEAD = 'mythos-factory/save-head';
+const SAVE_BODY = 'mythos-factory/save';
+
+let saveStore = null;
+function installStore(entries = []) {
+  const m = new Map(entries);
+  saveStore = m;
+  globalThis.localStorage = {
+    getItem: k => (m.has(k) ? m.get(k) : null),
+    setItem: (k, v) => { m.set(k, String(v)); },
+    removeItem: k => { m.delete(k); }
+  };
+  return m;
+}
+
+/* Rolling checksum, `sumBytes`'s job, reused here so a band's 30 k tile bytes
+   are one number in the fingerprint. */
+const saveSnap = () => JSON.stringify({
+  bands: world.bands.map(b => ({ id: b.id, mat: sumBytes(b.mat), seen: sumBytes(b.seen) })),
+  run: run.run,
+  player: Object.fromEntries(Object.entries(player.player)
+    .map(([k, v]) => [k, k === 'band' ? v?.id : (typeof v === 'number' ? +v.toFixed(4) : v)])),
+  items: items.items.map(it => ({ band: it.band?.id, x: +it.x.toFixed(4), y: +it.y.toFixed(4),
+    vx: +it.vx.toFixed(4), vy: +it.vy.toFixed(4), sub: it.sub, form: it.form })),
+  machines: machs.machines.map(m => ({ def: m.def, tx: m.tx, ty: m.ty, buf: { ...m.buf },
+    prog: +m.prog.toFixed(4), made: m.made, charges: m.charges, fire: +m.fire.toFixed(4),
+    running: m.running, torque: +m.torque.toFixed(4), turn: +m.turn.toFixed(4) })),
+  segments: segs.segments.map(s => ({ a: machs.machines.indexOf(s.a), b: machs.machines.indexOf(s.b),
+    t: +s.t.toFixed(6), dir: s.dir, load: +s.load.toFixed(4) })),
+  digs: mining.activeCount(),
+  growth: [...growth.planted().entries()].map(([k, e]) => [k, +e.secs.toFixed(4)]).sort(),
+  boons: modelBoons.boons.active.map(a => ({ id: a.id, left: +a.left.toFixed(4) })),
+  cursor: rng.cursor()
+}, null, 1);
+
+/* A run with something in EVERY part of the payload: tile edits, a partial dig
+   in the ledger, a planted seed part-grown, a loose item mid-flight, two hubs
+   with a buffer and a spent charge, a linked segment with its carrier off the
+   anchor, a stack in the pockets, a heart gone, a live timed boon, and 57
+   `rand()` draws behind the cursor. A round trip that restored eleven of
+   twelve would pass a thinner scene. */
+const SAVE_BOON = Object.keys(D_boon.BOON)[0];
+function richRun(seed) {
+  boot.newRun(seed);
+  const b = world.bandOf('surface');
+  const tx = b.cfg.spawnTx, fy = b.cfg.floorTy;
+  for (let i = -4; i <= 10; i++) tiles.write.clear(b, tx + 3, fy + i);
+  mining.write.add(b, tx + 4, fy + 2, 0.7);
+  tiles.write.set(b, tx - 3, fy - 1, D_sub.S.timber, D_form.F.seed);
+  growth.write.add(b, tx - 3, fy - 1, 42.5);
+  items.write.spawn(b, world.worldX(b, tx) + 4, world.worldY(b, fy - 6),
+                    D_sub.S.copper, D_form.F.ore, 1, -2);
+  items.write.reindex();
+  const h1 = machs.write.place(b, D_mach.M.hub, tx + 3, fy - 2);
+  const h2 = machs.write.place(b, D_mach.M.hub, tx + 3, fy + 8);
+  machs.write.take(h1, D_sub.S.copper, D_form.F.ore, 2);
+  machs.write.charge(h1, 5);
+  machs.write.spendCharge(h1, 2);
+  machs.write.prog(h1, 0.4);
+  machs.write.fire(h1, 3.25);
+  machs.write.running(h1, true);
+  const sg = segs.write.link(h1, h2);
+  if (sg) { segs.write.carrier(sg, 0.37, 1); segs.write.load(sg, 2.5); }
+  run.write.collect(D_sub.S.copper, D_form.F.plate, 3);
+  run.write.tick(88.5);
+  run.write.hurt(2, 'FALL');
+  modelBoons.write.grant(SAVE_BOON, 12.5);
+  for (let i = 0; i < 57; i++) rng.rand();
+  return { b, seg: !!sg };
+}
+
+/* --- CLAIM 1: THE ROUND TRIP IS EXACT, INCLUDING THE `rand()` CURSOR. --- */
+{
+  installStore();
+  const { seg } = richRun(4242);
+  const before = saveSnap();
+  const wrote = save.save();
+  const afterSave = [rng.rand(), rng.rand(), rng.rand()];
+
+  boot.newRun(999999);
+  /* A throw out of the middle of `load()` is the failure 6h-2 repaired, so it
+     is reported as one rather than crashing the checker before the refusal
+     matrix below ever runs. */
+  let loaded = false, threw = null;
+  try { loaded = save.load(boot.newRun); }
+  catch (e) { threw = `${e.constructor.name}: ${e.message}`; }
+  const after = saveSnap();
+  const afterLoad = [rng.rand(), rng.rand(), rng.rand()];
+
+  const diff = (() => {
+    const a = before.split('\n'), c = after.split('\n');
+    for (let i = 0; i < Math.max(a.length, c.length); i++)
+      if (a[i] !== c[i]) return `line ${i}: saved ${a[i]} / loaded ${c[i]}`;
+    return '';
+  })();
+
+  if (!seg)
+    fail('SAVE ROUND TRIP: the scene failed to link a segment, so segment state is not covered');
+  else if (!wrote)
+    fail('SAVE ROUND TRIP: save() refused a working store');
+  else if (threw)
+    fail(`SAVE ROUND TRIP: load() threw part way through its own payload -- ${threw}. A refusal ` +
+         `either touches nothing or leaves a clean run, never a half-applied one`);
+  else if (!loaded)
+    fail(`SAVE ROUND TRIP: load() refused its own payload -- ${save.loadError.reason}`);
+  else if (diff)
+    fail(`SAVE ROUND TRIP: the loaded run differs from the saved one. ${diff}`);
+  else if (afterSave.join() !== afterLoad.join())
+    fail('SAVE ROUND TRIP: every field came back and the rand() cursor did not, so the loaded ' +
+         'run draws a different future from the same world (docs/SPEC.md section 27.2)');
+  else
+    ok(`SAVE ROUND TRIP: tile edits, the dig ledger, a part-grown seed, a loose item, two hubs, ` +
+       `a segment and its carrier, the pockets, hearts, a live boon and the rand() cursor all ` +
+       `survive save/load exactly (${saveStore.get(SAVE_BODY).length} byte body)`);
+}
+
+/* --- CLAIM 2: A MALFORMED PAYLOAD IS REFUSED BY FIELD PATH, AND CHANGES
+   NOTHING.
+
+   The failure this closes is 6h-2's second defect: a `seen` string of `'!!!!'`
+   reached `atob` and threw out of the middle of the restore, with band 0's tile
+   edits already written and no way back. So each case asserts four things --
+   `load()` returned false, it did not throw, `loadError.reason` names the
+   field, the header went with the body, and the run is byte-identical to what
+   it was before the attempt.
+
+   The good payload is built ONCE and mutated per case, because `bodyFault`
+   refuses every one of these before `newRun()` is reached. --- */
+{
+  installStore();
+  richRun(77);
+  const wrote = save.save();
+  const GOOD_BODY = saveStore.get(SAVE_BODY);
+  const GOOD_HEAD = saveStore.get(SAVE_HEAD);
+
+  const CASES = [
+    ['run deleted',           p => { delete p.run; }],
+    ['player deleted',        p => { delete p.player; }],
+    ['player null',           p => { p.player = null; }],
+    ['player.x not a number', p => { p.player.x = 'x'; }],
+    ['player.band unknown',   p => { p.player.band = 'nowhere'; }],
+    ['player.onGround a number', p => { p.player.onGround = 1; }],
+    ['run.t a string',        p => { p.run.t = 'later'; }],
+    ['run.t negative',        p => { p.run.t = -1; }],
+    ['run.inv sub 999',       p => { p.run.inv[0] = { sub: 999, form: 0, n: 1 }; }],
+    ['run.inv form 999',      p => { p.run.inv[0] = { sub: 0, form: 999, n: 1 }; }],
+    ['run.inv n null',        p => { p.run.inv[0] = { sub: 0, form: 0, n: null }; }],
+    ['run.inv not an array',  p => { p.run.inv = 3; }],
+    ['run.hearts -5',         p => { p.run.hearts = -5; }],
+    ['run.misses 1e9',        p => { p.run.misses = 1e9; }],
+    ['run.tutorialBeat 1e9',  p => { p.run.tutorialBeat = 1e9; }],
+    ['run.cycle 0',           p => { p.run.cycle = 0; }],
+    ['run.tribute a string',  p => { p.run.tribute = 'nope'; }],
+    ['run.tribute.id unknown', p => { p.run.tribute = { id: 'no-such-cycle', have: {} }; }],
+    ['run.offer bogus',       p => { p.run.offer = { tier: 'x', god: 'nobody', ids: 3, pool: null }; }],
+    ['run.equipped 999',      p => { p.run.equipped = [999]; }],
+    ['run.granted unknown',   p => { p.run.granted = ['no-such-grant']; }],
+    ['run.charted unknown',   p => { p.run.charted = ['no-such-band']; }],
+    ['run.craftProgress str', p => { p.run.craftProgress = 'x'; }],
+    ['items[0].sub 999',      p => { p.items[0].sub = 999; }],
+    ['items[0].x a string',   p => { p.items[0].x = 'x'; }],
+    ['items not an array',    p => { p.items = 7; }],
+    ['machines[0].buf key',   p => { p.machines[0].buf = { 'not/a/key': 2 }; }],
+    ['machines[0].tx 1e9',    p => { p.machines[0].tx = 1e9; }],
+    ['machines[0].prog str',  p => { p.machines[0].prog = 'x'; }],
+    ['machines[0].id unknown', p => { p.machines[0].id = 'no-such-machine'; }],
+    ['machines[0].charges > made', p => { p.machines[0].charges = p.machines[0].made + 9; }],
+    ['segments not an array', p => { p.segments = 'x'; }],
+    ['segments[0].a oob',     p => { p.segments[0].a = 99; }],
+    ['growth off the band',   p => { p.growth = [{ band: 'surface', tx: 1e9, ty: 1e9, secs: 'x' }]; }],
+    ['boons left a string',   p => { p.boons = [{ id: SAVE_BOON, left: 'x' }]; }],
+    ['boons id unknown',      p => { p.boons = [{ id: 'no-such-boon', left: 1 }]; }],
+    ['bands seen not base64', p => { p.bands[0].seen = '!!!!'; }],
+    ['bands seen too short',  p => { p.bands[0].seen = 'AAAA'; }],
+    ['bands edits odd length', p => { p.bands[0].edits = [1, 2]; }],
+    ['bands edits off the band', p => { p.bands[0].edits = [99999, 99999, 3]; }],
+    ['bands edits byte 999',  p => { p.bands[0].edits = [10, 10, 999]; }],
+    ['bands work secs a string', p => { p.bands[0].work = [4, 4, 'x']; }],
+    ['bands one short',       p => { p.bands.pop(); }],
+    ['cursor a string',       p => { p.cursor = 'x'; }],
+    ['seed disagrees with the header', p => { p.seed = 99; }],
+    ['body is not json',      'not json'],
+    ['body missing',          null]
+  ];
+
+  boot.newRun(555);
+  let bad = 0, named = 0;
+  const firstBad = [];
+  for (const [name, mut] of CASES) {
+    installStore([[SAVE_HEAD, GOOD_HEAD], [SAVE_BODY, GOOD_BODY]]);
+    if (mut === null) saveStore.delete(SAVE_BODY);
+    else if (typeof mut === 'string') saveStore.set(SAVE_BODY, mut);
+    else { const p = JSON.parse(GOOD_BODY); mut(p); saveStore.set(SAVE_BODY, JSON.stringify(p)); }
+
+    const control = saveSnap();
+    let threw = null, r;
+    try { r = save.load(boot.newRun); } catch (e) { threw = `${e.constructor.name}: ${e.message}`; }
+    const reason = save.loadError.reason;
+    const path = typeof reason === 'string' && reason.startsWith('CORRUPT SAVE: ')
+                 && reason.length > 'CORRUPT SAVE: '.length;
+    if (path) named++;
+    const faults = [];
+    if (threw) faults.push(`threw ${threw}`);
+    if (r !== false) faults.push(`returned ${r}`);
+    if (!path) faults.push(`reason "${reason}" names no field`);
+    if (saveStore.has(SAVE_HEAD)) faults.push('kept the header, so a menu offers CONTINUE forever');
+    if (saveSnap() !== control) faults.push('applied part of the payload before refusing');
+    if (faults.length) { bad++; if (firstBad.length < 3) firstBad.push(`${name} -- ${faults.join('; ')}`); }
+  }
+
+  if (!wrote)
+    fail('SAVE REFUSALS: the good payload never got written, so the matrix mutated nothing');
+  else if (bad)
+    fail(`SAVE REFUSALS: ${bad} of ${CASES.length} malformed payload(s) were not refused cleanly. ` +
+         firstBad.join(' | '));
+  else
+    ok(`SAVE REFUSALS: all ${CASES.length} malformed payloads are refused with a field path ` +
+       `(${named} of them), the header goes with the body, nothing throws, and the run is ` +
+       `byte-identical afterwards`);
+}
+
+/* --- CLAIM 3: AN UNKNOWN GOD OR RECIPE ID IS TOLERATED, DELIBERATELY.
+
+   The other half of claim 2, and it is not slack: `shell/save.js`'s validation
+   header says ids only `rules` dereferences, and dereferences optionally, are
+   checked as strings and no further, because refusing a whole run over a
+   renamed recipe is the worse trade. Pinned here so a later tightening is a
+   decision rather than an accident. --- */
+{
+  installStore();
+  richRun(77);
+  save.save();
+  const GOOD_BODY = saveStore.get(SAVE_BODY), GOOD_HEAD = saveStore.get(SAVE_HEAD);
+  const TOLERATED = [
+    ['run.favour names no god', p => { p.run.favour = { nobody: 3 }; }],
+    ['run.craftRecipe unknown', p => { p.run.craftRecipe = 'no-such-recipe'; }]
+  ];
+  let bad = 0;
+  const notes = [];
+  for (const [name, mut] of TOLERATED) {
+    installStore([[SAVE_HEAD, GOOD_HEAD], [SAVE_BODY, GOOD_BODY]]);
+    const p = JSON.parse(GOOD_BODY);
+    mut(p);
+    saveStore.set(SAVE_BODY, JSON.stringify(p));
+    boot.newRun(999999);
+    let threw = null, r;
+    try { r = save.load(boot.newRun); } catch (e) { threw = `${e.constructor.name}: ${e.message}`; }
+    let ran = true;
+    try { runReal(60, main.STEP); } catch (e) { ran = false; threw = threw ?? String(e.message); }
+    if (r !== true || threw || !ran) {
+      bad++;
+      fail(`SAVE TOLERATES: "${name}" was refused (${save.loadError.reason}) or broke the run ` +
+           `(${threw ?? 'stepped fine'}). shell/save.js documents this id as checked as a string ` +
+           `and no further; tightening it is a decision to record, not to make here`);
+    } else {
+      notes.push(name);
+    }
+  }
+  if (!bad) ok(`SAVE TOLERATES: ${notes.join(' and ')} load and then step for half a second`);
+}
+
+/* --- CLAIM 4: THE FOUR VERSION HASHES EACH REFUSE, AND ONLY `gen` DISCARDS.
+
+   docs/SPEC.md section 27 versions four things. `v`, `world` and `content` are
+   in the header, so `hasSave()` can answer without parsing a body and a stale
+   slot is not offered at all. `gen` is per band in the body and can only be
+   checked once a world exists, so `load()` tests it after `newRun()` and then
+   discards -- the player keeps a clean run of the same seed instead of edits
+   replayed onto ground that moved. --- */
+{
+  const seeded = () => {
+    installStore();
+    boot.newRun(77);
+    const b = world.bandOf('surface');
+    for (let i = 0; i < 6; i++) tiles.write.clear(b, b.cfg.spawnTx + 3, b.cfg.floorTy + i);
+    run.write.tick(60);
+    return save.save();
+  };
+
+  let bad = 0;
+  const notes = [];
+  for (const field of ['v', 'world', 'content']) {
+    if (!seeded()) { fail(`SAVE VERSIONS: save() refused before the ${field} case`); bad++; continue; }
+    const h = JSON.parse(saveStore.get(SAVE_HEAD));
+    h[field] = field === 'v' ? h.v + 1 : (h[field] ^ 1) >>> 0;
+    saveStore.set(SAVE_HEAD, JSON.stringify(h));
+    const offered = save.hasSave();
+    const r = save.load(boot.newRun);
+    if (offered || r !== false || save.loadError.reason !== 'STALE SAVE') {
+      fail(`SAVE VERSIONS: moving header.${field} left hasSave() ${offered} and load() ${r} ` +
+           `(${save.loadError.reason}); a slot from another build must read as STALE SAVE and ` +
+           `must not be offered`);
+      bad++;
+    } else {
+      notes.push(`${field} -> STALE SAVE`);
+    }
+  }
+  {
+    if (!seeded()) { fail('SAVE VERSIONS: save() refused before the gen case'); bad++; }
+    else {
+      const p = JSON.parse(saveStore.get(SAVE_BODY));
+      p.bands[0].gen = (p.bands[0].gen ^ 1) >>> 0;
+      saveStore.set(SAVE_BODY, JSON.stringify(p));
+      const offered = save.hasSave();
+      const r = save.load(boot.newRun);
+      const keys = [...saveStore.keys()].length;
+      if (!offered || r !== false || save.loadError.reason !== 'WORLD MOVED' || keys !== 0) {
+        fail(`SAVE VERSIONS: a moved band gen left hasSave() ${offered}, load() ${r} ` +
+             `(${save.loadError.reason}) and ${keys} key(s) in storage. The header cannot see gen, ` +
+             `so it must be offered, refused as WORLD MOVED, and discarded`);
+        bad++;
+      } else if (run.run.seed !== 77 || run.run.t !== 0) {
+        fail(`SAVE VERSIONS: after WORLD MOVED the player is left on seed ${run.run.seed} at ` +
+             `t ${run.run.t}, not a clean run of the stored seed`);
+        bad++;
+      } else {
+        notes.push('gen -> WORLD MOVED, slot discarded, clean run of the same seed');
+      }
+    }
+  }
+  if (!bad) ok(`SAVE VERSIONS: ${notes.join('; ')}`);
+}
+
+/* --- CLAIM 5: A CALLER'S WRONG SEED DOES NOT EAT THE SLOT.
+
+   6h-2's first defect, and it was the expensive one: `load()` used to reach the
+   `gen` check with a world the caller had generated from another seed, fail it,
+   and `clearSave()` the player's only save for a programming error. --- */
+{
+  installStore();
+  boot.newRun(77);
+  const b = world.bandOf('surface');
+  for (let i = 0; i < 6; i++) tiles.write.clear(b, b.cfg.spawnTx + 3, b.cfg.floorTy + i);
+  run.write.tick(60);
+  save.save();
+
+  /* Both loads are guarded for claim 1's reason: a throw here is a failure to
+     report, not a reason to abandon the sections below. */
+  const tried = fn => { try { return fn(); } catch (e) { return `threw ${e.message}`; } };
+  const r = tried(() => save.load(() => boot.newRun(123456)));
+  /* Read before the second load, which clears it on success. */
+  const why = save.loadError.reason;
+  const kept = save.hasSave();
+  const again = tried(() => save.load(boot.newRun));
+
+  if (r !== false || why !== 'WRONG SEED')
+    fail(`SAVE WRONG SEED: load() returned ${r} (${why}) for a newRun that built ` +
+         `another world; it must refuse as WRONG SEED`);
+  else if (!kept)
+    fail('SAVE WRONG SEED: the slot was destroyed by the caller\'s own mistake, which is 6h-2 ' +
+         'defect 1 back');
+  else if (again !== true || run.run.t !== 60)
+    fail(`SAVE WRONG SEED: the kept slot no longer loads (${save.loadError.reason}, run.t ` +
+         `${run.run.t}), so keeping it bought nothing`);
+  else
+    ok('SAVE WRONG SEED: a load() whose newRun builds another world refuses as WRONG SEED, keeps ' +
+       'the slot, and the same slot then loads correctly for a correct caller');
+}
+
+/* --- CLAIM 6: A SAVE THAT FAILS HALF WAY LEAVES NO SLOT AT ALL.
+
+   6h-2's third defect. The header is the claim that a complete body exists, so
+   `save()` removes it first and writes it last. A store that refuses the header
+   write used to leave the PREVIOUS header over an overwritten body, and
+   `hasSave()` then promised a CONTINUE that `load()` refused forever. --- */
+{
+  const m = installStore();
+  boot.newRun(77);
+  const b = world.bandOf('surface');
+  for (let i = 0; i < 6; i++) tiles.write.clear(b, b.cfg.spawnTx + 3, b.cfg.floorTy + i);
+  run.write.tick(60);
+  const first = save.save();
+
+  let refuseHead = false;
+  globalThis.localStorage = {
+    getItem: k => (m.has(k) ? m.get(k) : null),
+    setItem: (k, v) => {
+      if (refuseHead && k === SAVE_HEAD) {
+        const e = new Error('quota'); e.name = 'QuotaExceededError'; throw e;
+      }
+      m.set(k, String(v));
+    },
+    removeItem: k => { m.delete(k); }
+  };
+  refuseHead = true;
+  run.write.tick(60);
+  const second = save.save();
+  refuseHead = false;
+
+  if (!first) fail('SAVE TORN: the first save() refused, so the case never arose');
+  else if (second !== false)
+    fail(`SAVE TORN: save() returned ${second} while the store refused the header write`);
+  else if (m.size)
+    fail(`SAVE TORN: ${[...m.keys()].join(' and ')} survived a failed save, so hasSave() and ` +
+         `load() can disagree forever`);
+  else if (save.hasSave())
+    fail('SAVE TORN: hasSave() still promises a save after a failed write');
+  else
+    ok('SAVE TORN: a save whose header write is refused clears both keys, and hasSave() then ' +
+       'reads false');
+}
+
+/* --- CLAIM 7: HOSTILE OR ABSENT STORAGE IS "NO SAVE", NEVER AN EXCEPTION.
+
+   Wave 6 U1 accepted that the game may fail in a sandboxed embed. What it did
+   not accept is the game failing to RUN there, so every guard is asserted with
+   the loop actually stepping afterwards. --- */
+{
+  const HOSTILE = {
+    absent: () => { delete globalThis.localStorage; },
+    throwing: () => {
+      globalThis.localStorage = {
+        getItem() { throw new Error('denied'); },
+        setItem() { throw new Error('denied'); },
+        removeItem() { throw new Error('denied'); }
+      };
+    },
+    quota: () => {
+      const m = new Map();
+      globalThis.localStorage = {
+        getItem: k => (m.has(k) ? m.get(k) : null),
+        setItem() { throw new Error('quota'); },
+        removeItem: k => { m.delete(k); }
+      };
+    },
+    garbage: () => installStore([[SAVE_HEAD, '{{{'], [SAVE_BODY, 'not json']]),
+    headerOnly: () => installStore([[SAVE_HEAD, '{"v":2}']])
+  };
+
+  let bad = 0;
+  const notes = [];
+  for (const [name, go] of Object.entries(HOSTILE)) {
+    go();
+    boot.newRun(77);
+    let threw = null, had, loaded;
+    try {
+      had = save.hasSave();
+      loaded = save.load(boot.newRun);
+      save.save();
+      runReal(40, main.STEP);
+    } catch (e) { threw = `${e.constructor.name}: ${e.message}`; }
+    if (threw || had !== false || loaded !== false || run.run.t <= 0) {
+      fail(`SAVE GUARDS: ${name} storage gave hasSave ${had}, load ${loaded}, threw ${threw}, ` +
+           `run.t ${run.run.t}. Every one of these must read as "no save" and the loop must keep ` +
+           `stepping`);
+      bad++;
+    } else {
+      notes.push(`${name} -> ${save.loadError.reason}`);
+    }
+  }
+  if (!bad) ok(`SAVE GUARDS: ${notes.join(', ')}, and the loop steps in all five`);
+}
+
+/* --- CLAIM 8: `run.inv` IS POSITION-SIGNIFICANT, AND NO VERSION HASH COVERS
+   THE TUNABLE THAT SETS ITS SHAPE.
+
+   The reviewer's unrepaired 6h-6. `applyRun` restores the pockets BY INDEX and
+   `run.mainSlots` is `Math.round(eff('invSlots'))` at reset, so raising that
+   tunable lands a saved quickbar stack in a main slot -- and validation cannot
+   see it, because the payload stays internally consistent and only the number
+   moved. This pins both halves of the gap: the index really is what carries the
+   stack, and the header really does claim nothing about the slot count. The
+   `slots` field the repair would add makes the second half go red on purpose.
+   --- */
+{
+  installStore();
+  boot.newRun(77);
+  const derived = Math.round(mods.eff('invSlots'));
+  run.write.collect(D_sub.S.copper, D_form.F.ore, 3);
+  const at = run.run.inv.findIndex(s => s && s.sub === D_sub.S.copper && s.form === D_form.F.ore);
+  const total = run.run.inv.length;
+  save.save();
+  const head = JSON.parse(saveStore.get(SAVE_HEAD));
+
+  boot.newRun(999999);
+  const loaded = save.load(boot.newRun);
+  const back = run.run.inv.findIndex(s => s && s.sub === D_sub.S.copper && s.form === D_form.F.ore);
+  const fields = Object.keys(head).sort().join(',');
+
+  if (run.run.mainSlots !== derived)
+    fail(`SAVE SLOT SHAPE: run.mainSlots is ${run.run.mainSlots} where eff('invSlots') rounds to ` +
+         `${derived}, so this claim is no longer about the tunable it names`);
+  else if (at < derived)
+    fail(`SAVE SLOT SHAPE: the collected stack landed in main slot ${at}, not the quickbar. ` +
+         `docs/SPEC.md section 24 fills the quickbar first, so the index this claim is about is ` +
+         `not being exercised`);
+  else if (!loaded || back !== at)
+    fail(`SAVE SLOT SHAPE: a stack saved in inventory index ${at} of ${total} came back at ` +
+         `${back} (load ${loaded})`);
+  else
+    ok(`SAVE SLOT SHAPE: a stack in quickbar index ${at} of ${total} round-trips by index, and the ` +
+       `header versions {${fields}}` + (head.slots === undefined
+         ? ` -- no slot count, so raising eff('invSlots') (${derived}) still mis-restores an old ` +
+           `save silently (docs/FINDINGS.md 6h-2, item 2)`
+         : ` -- including a slot count, so that gap is closed and docs/SPEC.md section 27.3 ` +
+           `should list the fifth version`));
+}
+
+globalThis.localStorage = defaultStore();
 
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +
             `drawImage ${calls.drawImage.toLocaleString()}, ` +

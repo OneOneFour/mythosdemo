@@ -15,6 +15,7 @@
     "preview": "esbuild --servedir=dist --serve=5174",
     "parity": "node tools/build.mjs && playwright test -g parity",
     "test:visual": "playwright test",
+    "test:save": "playwright test tests/save.spec.js",
     "test:visual:update": "playwright test --update-snapshots",
     "lint": "oxlint src tools tests",
     "test": "npm run check && npm run check:worldgen && npm run build && npm run test:visual"

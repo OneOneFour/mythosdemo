@@ -3539,3 +3539,94 @@ Four things parked. Nothing was changed outside the ownership block
   dash run for its own use, and it is the only reader of those names today. A
   second reader (a tooltip, a toast) would need the same fold, at which point it
   belongs in `core/font.js` beside `textWidth` rather than copied.
+
+## Wave 6, phase 6p (the wave's verification, committed)
+
+Four scratchpad probe families became committed assertions: `tools/check.mjs`
+sections **8p** (the catch region and tunnelling), **8q** (the dig queue) and
+**8r** (the save slot), plus `tests/save.spec.js` for the one thing a stub
+cannot see. Every assertion was made to fail on purpose against a copy of the
+tree in the scratchpad, never against `src/` in the working directory, because
+two other agents were committing to `src/` at the time.
+
+Seven things found or left outside the block.
+
+- **`player.digging` is a `clock.t`-derived blink that the payload carries and
+  restores, and the two facts do not sit well together.**
+  `src/shell/main.js:163` sets it to
+  `digging && ((clock.t * 9) | 0) % 2 === 0`, a two-frame sprite flicker;
+  `src/shell/save.js:256,419,559` stores, validates and restores it. `clock.t`
+  is `shell`-owned and deliberately absent from the payload, so a reloaded run
+  gets the saved parity and then immediately disagrees with it. 6h-2's own
+  two-process reload script reported exactly this and nothing else
+  (`same future after 600 more frames: false`, `.player.digging: saved true
+  loaded false`), which is why `tests/save.spec.js` puts `clock.t` back itself
+  before the continuation and says so. The honest repair is one of two lines,
+  and it belongs to whoever owns the payload's shape next: drop `digging` from
+  `playerRow`/`applyPlayer` because it is a render flag, or add `clock.t` beside
+  it. Not both.
+
+- **`__mf.hold` leaves `cmd` set after it returns, which makes the input itself
+  a hidden part of any scene a test hands on.** `shell/main.js#hold` writes only
+  the keys it is given and clears only `hop` and `place` per substep, so
+  `hold({ left: 1 }, 100)` followed by `hold({ dig: 1 }, 200)` walks left while
+  it digs. That is fine for a screenshot and fatal for a reload test, where the
+  second process starts from a fresh `cmd` and therefore replays different
+  input. `tests/save.spec.js#phase` names all thirteen fields every time for
+  that reason. Any test comparing two processes needs the same discipline.
+
+- **`shell/boot.js#newRun` still has no `digqueue.write.clearAll()`** (6i's
+  first item, `docs/SPEC.md` §28.4). Section 8q claim 3 passes today on the
+  band-record identity test in `model/digqueue.js#stale` alone, and that was
+  verified rather than assumed: deleting `m.band !== bands[m.ord]` from `stale`
+  in a copy of the tree turns the claim red with all five marks still readable
+  through `markedAt` over byte-identical terrain. The assertion is written
+  against the reads a caller has, so it will keep holding when the explicit
+  clear lands.
+
+- **`shell/main.js#installTestHook` still has no dig-queue projection**, so 6i's
+  third item stands. Section 8q reaches `model/digqueue.js` as a direct import
+  from `tools/check.mjs`, which is the same module instance `rules/mining.js`
+  holds and needs no browser. A *browser* test of a mark would still have to
+  know that the dev server serves untransformed modules;
+  `activeCount()`/`isFull()`/a `[{ord,tx,ty}]` list on `__mf` is still the
+  right three reads.
+
+- **`data/tuning.js#invSlots` is still uncovered by any version hash**, and
+  section 8r claim 8 now pins both halves of the gap rather than repairing it:
+  a stack really does round-trip by index, and the header really does version
+  only `{v, world, content, seed}`. The claim reads `head.slots` and reports
+  which of the two worlds it is in, so adding the `slots` field changes the
+  wording of a passing line instead of turning a correct change red. An
+  `eff('invSlots')` override cannot be used to *demonstrate* the mis-restore,
+  because `run.mainSlots` is fixed at `write.reset` and `newRun` clears
+  `mods.rows` first — so the demonstration needs a `data/tuning.js` edit, which
+  is why claim 8 pins rather than proves.
+
+- **A catch box is sampled once per substep, so an aligned drop tests one phase
+  of the sample grid and no more.** Section 8p claim 2 states the bound
+  arithmetically first — `eff('terminal') * STEP` is 3.33 px against the
+  smallest box's 8 px — and then sweeps. The sweep needed a second drop offset
+  by half a substep's travel to have any teeth at all: with `terminal` raised
+  to 2000 px/s in a copy of the tree, the aligned phase still caught every
+  column of every machine and the half-phase missed every one of them. A
+  future probe that drops from a tile boundary is measuring alignment, not
+  physics.
+
+- **What was NOT ported from the scratchpad, and why.**
+  `winch6j.mjs`, `ascent.mjs` and `beltline.mjs` drive the `winch`, `ascent`
+  and `belt-line` scenarios end to end, and sections 5, 8b and 8c already drive
+  segment transport, a broken chain and the dock delivery through the same real
+  `cmd`. More to the point, 6q left two `rules/drive.js` / `rules/belts.js`
+  defects open and measured (a haul re-grabbed at a dead-end hub, a belt lip
+  over solid ground spending a charge every other frame), so a faithful port
+  would commit a gate that is red on a known unscheduled bug — which is worse
+  than no gate. `measure.mjs` and `measure2.mjs` are measurements of the
+  ladder-versus-cable trade rather than assertions, and the numbers they
+  produced are already in `docs/SPEC.md`; 6t-2 derived the seam budgets from
+  them. `d4-cursor-proof.mjs` proves the property `core/rng.js#cursor` rests on
+  — that mulberry32's state word reseeds its own stream — and claim 1 asserts
+  the observable consequence of it, which is the half a regression would break.
+  `sigs.mjs` recomputes the world and content signatures by hand and claim 4
+  moves each of them instead; `stale-ids.mjs` is claim 2's `run.granted` and
+  `boons[0].id` rows.
