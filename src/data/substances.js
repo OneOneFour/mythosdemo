@@ -108,8 +108,8 @@
 
 export const SUBSTANCES = [
 
-  /* ---- the commented row. Every row below is this shape with different
-          literals; copy the nearest one and change the words. ---- */
+  /* the commented row. Every row below is this shape with different
+          literals; copy the nearest one and change the words. */
   { id:'copper', name:'COPPER', short:'CU', tags:['metal', 'mineable', 'deposit'],
 
     tile:{ solid:true,
@@ -123,7 +123,7 @@ export const SUBSTANCES = [
            item:['cuA', 'cuC'],
            treatments:[ { fn:'glint', col:'veinA', n:2 } ] } },
 
-  /* ---- tin: see docs/DEVELOPER_GUIDE.md#adding-a-substance ---- */
+  /* tin: see docs/DEVELOPER_GUIDE.md#adding-a-substance */
   { id:'tin', name:'TIN', tags:['metal', 'mineable', 'deposit'],
     tile:{ solid:true, hard:1.10, drops:'ore', charge:4 },
     item:{ mass:1.0, hud:{ order:2 } },
@@ -131,7 +131,7 @@ export const SUBSTANCES = [
            item:['snA', 'snC'],
            treatments:[ { fn:'glint', col:'snA', n:2 } ] } },
 
-  /* ---- timber: the fuel and the ladder STOCK. `organic` is its terrain
+  /* timber: the fuel and the ladder STOCK. `organic` is its terrain
           classification (see the header): neither `bulk` nor `deposit`, and
           docs/PLAN-phase15-trees.md owns the regrowth.
 
@@ -139,7 +139,7 @@ export const SUBSTANCES = [
           recipe ingredient, never a placed tile (CLAUDE.md D12). Felling a
           tree and building a ladder are one noun apart,
           `data/recipes.js#peg_rungs`, which turns 2 logs into 4 `rung`. See
-          `forms.js#log`. ---- */
+          `forms.js#log`. */
   { id:'timber', name:'TIMBER', short:'WOOD', tags:['organic', 'mineable'],
     tile:{ solid:true, hard:0.35, drops:'log' },
     item:{ mass:0.8, hud:{ order:3, always:true } },
@@ -162,8 +162,8 @@ export const SUBSTANCES = [
               read as a lit box rather than a lit crown. */
            canopy:{ leaves:['vdC', 'vdB', 'vdA'], w:6, h:4 } } },
 
-  /* ---- stone: the bulk of the world. Mines to gravel, never to ore, and has
-          no ingot -- see docs/DEVELOPER_GUIDE.md#adding-a-form ---- */
+  /* stone: the bulk of the world. Mines to gravel, never to ore, and has
+          no ingot -- see docs/DEVELOPER_GUIDE.md#adding-a-form */
   { id:'stone', name:'STONE', tags:['rock', 'mineable', 'spoil', 'bulk'],
     tile:{ solid:true, hard:1.60, drops:'gravel' },
     item:{ mass:0.6, hud:{ order:4 } },
@@ -175,10 +175,10 @@ export const SUBSTANCES = [
               glance, with no new rendering code. */
            treatments:[ { fn:'banded', col:'irD', every:8 } ] } },
 
-  /* ---- bellows: the trinket tier. See
+  /* bellows: the trinket tier. See
           docs/DEVELOPER_GUIDE.md#the-four-gift-tiers. Divine glow per the same
           rule every relic/miracle substance carries -- see `pick` below and
-          `tools/content.mjs` assertion 17. ---- */
+          `tools/content.mjs` assertion 17. */
   { id:'bellows', name:'BELLOWS OF THE FORGE', short:'BELLOWS', tags:['relic'],
     item:{ mass:0.4, hud:{ order:5 } },
     /* `sprite:'bellows'` (`view/sprites.js`), the same treatment `pick`
@@ -188,14 +188,14 @@ export const SUBSTANCES = [
     look:{ item:['ichor', 'vioHi'], sprite:'bellows',
            treatments:[ { fn:'halo', col:'ichor', r:7, a:0.22 } ] } },
 
-  /* ---- pick: the first gift, same shape as any other relic. `model/run.js`'s
+  /* pick: the first gift, same shape as any other relic. `model/run.js`'s
           `hasPick()` is `invCount(S.pick, F.relic) > 0` -- a capability GATE
           rather than a `data/trinkets.js` modifier, which is why it is not a
           row in that table: nothing in `model/mods.js` needs to know a pick
           exists. `shell/boot.js` plants one near spawn on every `newRun()`,
           and walking over it is an ordinary pickup -- the same "material never
           teleports into your hands" idiom mining already uses, extended to the
-          one tool the game hands you rather than one you find. ---- */
+          one tool the game hands you rather than one you find. */
   { id:'pick', name:'STOCK PICKAXE', short:'PICK', tags:['relic'],
     item:{ mass:0.5, hud:{ order:6 }, tool:{ tier:1, power:1.0 } },
     /* THE GLOW IS A RECOVERY, and a content-only one. docs/ARCHAEOLOGY.md
@@ -221,7 +221,7 @@ export const SUBSTANCES = [
     look:{ item:['irB', 'woodC'], sprite:'pick',
            treatments:[ { fn:'halo', col:'ichor', r:8, a:0.2 } ] } },
 
-  /* ---- soil: the shallow cap `data/world.js`'s surface band wears over its
+  /* soil: the shallow cap `data/world.js`'s surface band wears over its
           stone, so the first few dug tiles read as dirt rather than rock. Its
           `hi` is a grass tone rather than a lighter version of `base` -- every
           other substance's `hi` is that, but this one leans on `paintTile`'s
@@ -229,7 +229,7 @@ export const SUBSTANCES = [
           cap wherever soil meets open air, with no new rendering code. Softer
           than stone (a shovel's depth, not a pick's), and drops the same
           `gravel` any `rock`-tagged substance does -- no new form for a second
-          kind of rubble. ---- */
+          kind of rubble. */
   { id:'soil', name:'SOIL', tags:['rock', 'mineable', 'bulk'],
     tile:{ solid:true, hard:0.50, drops:'gravel' },
     item:{ mass:0.5, hud:{ order:7 } },
@@ -256,12 +256,12 @@ export const SUBSTANCES = [
            grassCap:{ col:'grassA', low:'grassB', dark:'grassC',
                       lowH:3, drape:4, grain:0.16 } } },
 
-  /* ---- granite: the first ROCK harder than stone, for the deep strata pick
+  /* granite: the first ROCK harder than stone, for the deep strata pick
           tiers gate against. `tile.tier:2` is the new optional key
           documented above -- absent means tier 1, so every existing
           substance (copper, tin, timber, stone, soil) is unaffected. Mines
           to `gravel`, same as stone and soil, so no new rubble form is
-          needed for it. ---- */
+          needed for it. */
   { id:'granite', name:'GRANITE', short:'GRNT', tags:['rock', 'mineable', 'deposit'],
     tile:{ solid:true, hard:2.4, drops:'gravel', tier:2, charge:3 },
     item:{ mass:0.9, hud:{ order:8 } },
@@ -270,14 +270,14 @@ export const SUBSTANCES = [
            item:['graniteA', 'graniteC'],
            treatments:[ { fn:'banded', col:'graniteD', every:8 } ] } },
 
-  /* ---- adamant: the hardest rock in the game, tier 3. The first ROCK
+  /* adamant: the hardest rock in the game, tier 3. The first ROCK
           substance also tagged `metal` -- `tags` carries both `rock`
           (mines like stone/granite, to `gravel`, per `tile.drops` below)
           and `metal` (`crossable()` will let a future ore/ingot/plate form
           cross into it once a smelt path is designed for that; nothing in
           this phase adds that recipe, and mining it still only ever yields
           gravel). `tile.tier:3` gates it behind the auger/Talos-head
-          tools -- a bronze pickaxe cannot scratch it. ---- */
+          tools -- a bronze pickaxe cannot scratch it. */
   { id:'adamant', name:'ADAMANT', short:'ADMT', tags:['rock', 'metal', 'mineable', 'deposit'],
     tile:{ solid:true, hard:5.0, drops:'gravel', tier:3, charge:2 },
     item:{ mass:1.4, hud:{ order:9 } },
@@ -286,7 +286,7 @@ export const SUBSTANCES = [
            item:['adamantA', 'adamantC'],
            treatments:[ { fn:'glint', col:'adamantA', n:2 } ] } },
 
-  /* ---- auger: the T2 hand tool. See
+  /* auger: the T2 hand tool. See
           docs/DEVELOPER_GUIDE.md#tools-are-relic-substances
 
           `tool:{tier:2, power:1.8}` is the ONE number this whole tier's
@@ -304,7 +304,7 @@ export const SUBSTANCES = [
     look:{ item:['adamantA', 'irB'],
            treatments:[ { fn:'halo', col:'ichor', r:9, a:0.2 } ] } },
 
-  /* ---- chasm: the one miracle this phase ships (Phase 4,
+  /* chasm: the one miracle this phase ships (Phase 4,
           `docs/BUILD_PLAN.md`), same shape as `bellows`/`pick`/`auger`
           above -- a miracle is a HELD PAIR, per the substance x form rule
           (CLAUDE.md "Resolved decisions" D1), and needs an element of its
@@ -313,14 +313,14 @@ export const SUBSTANCES = [
           what lets it cross into `forms.js#phial` and NOTHING else --
           `phial`'s own `subTags:['miracle']` is the whole reason that form
           exists separately from `relic`, so a miracle can never satisfy a
-          trinket selector by accident. ---- */
+          trinket selector by accident. */
   { id:'chasm', name:'RIFT OF HADES', tags:['miracle'],
     item:{ mass:0.2, hud:{ order:11 } },
     look:{ item:['abyC', 'vioHi'],
            treatments:[ { fn:'halo', col:'ichor', r:10, a:0.24, pulse:0.12 } ] } },
 
-  /* ---- MACHINE SUBSTANCES: one row per machine.
-          See docs/DEVELOPER_GUIDE.md#a-machine-is-a-held-item ---- */
+  /* MACHINE SUBSTANCES: one row per machine.
+          See docs/DEVELOPER_GUIDE.md#a-machine-is-a-held-item */
 
   /* 12 copper/ore + 6 timber/log, `model/items.js#massOfPair` summed:
      12x1.0 + 6x0.8 = 16.8 T (`docs/SPEC.md` section 13's own number,
@@ -361,7 +361,7 @@ export const SUBSTANCES = [
     look:{ item:['ochreB', 'ochreA'] } },
 
   /* 2 copper/plate: 2x2.4 = 4.8 T -- `hearth`'s own former bill was
-     deliberately the smallest in the game (docs/FINDINGS.md), and stays so
+     deliberately the smallest in the game, and stays so
      here. */
   { id:'hearth', name:'HEARTH', tags:['machine'],
     item:{ mass:4.8, hud:{ order:17 } },
@@ -383,9 +383,8 @@ export const SUBSTANCES = [
     item:{ mass:50.7, hud:{ order:19 } },
     look:{ item:['adamantB', 'adamantD'] } },
 
-  /* ---- SEGMENT TRANSPORT (Phase 8d, docs/PLAN-gears-and-winches.md section
-     4.1). Four machine substances, priced as one family against the 40 T
-     `burden` cap (docs/SPEC.md section 9) and section 8's compression tiers.
+  /* SEGMENT TRANSPORT. Four machine substances, priced as one family against the 40 T
+     `burden` cap and section 8's compression tiers.
      Every mass below is `Σ substance.item.mass x form.massK x n` over the
      build recipe in `data/recipes.js` -- the identical
      `model/items.js#massOfPair` arithmetic every other row here uses, never a
@@ -403,7 +402,7 @@ export const SUBSTANCES = [
      These carry no `tile` block and their only tag is `machine`, so no
      tile-capable form crosses into them and none of them ever reaches the
      tile byte -- see `data/forms.js`'s packing block and
-     `tools/content.mjs` assertion 16. ---- */
+     `tools/content.mjs` assertion 16. */
 
   /* 3 copper/plate + 1 copper/ingot + 2 timber/log:
      3x2.4 + 1x1.6 + 2x0.8 = 10.4 T. REFINED, not raw -- the same class that
@@ -453,11 +452,11 @@ export const SUBSTANCES = [
     item:{ mass:15.2, hud:{ order:24 } },
     look:{ item:['marbleB', 'ichor'] } },
 
-  /* ---- two more trinkets and two more miracles, so each tier is a real
+  /* two more trinkets and two more miracles, so each tier is a real
           draft rather than one row handed over every time. Appended, which is
           safe for exactly the reason the header states: `relic` and `phial`
           cross only with `relic`/`miracle`-tagged substances, so none of
-          these four is packable and `PACKABLE_MAX` does not move. ---- */
+          these four is packable and `PACKABLE_MAX` does not move. */
 
   { id:'owl', name:'OWL OF ATHENA', short:'OWL', tags:['relic'],
     item:{ mass:0.3, hud:{ order:25 } },
@@ -496,8 +495,8 @@ export const SUBSTANCES = [
      number nobody set. */
 ];
 
-/* ---- derived indices, built once, frozen. Nothing scans this table on a hot
-        path ever again. ---- */
+/* derived indices, built once, frozen. Nothing scans this table on a hot
+        path ever again. */
 
 export const SUB = Object.freeze(SUBSTANCES.map(Object.freeze));
 
@@ -510,12 +509,11 @@ export const byTag = Object.freeze(SUB.reduce((m, s, i) => {
   return m;
 }, {}));
 
-/* ---- the two bytes that are NOT substance x form ----------------------------
+/* the two bytes that are NOT substance x form
    Air and the world edge are not elements and must never be rows above: `air`
    has no atoms and `bedrock` is a boundary condition. They are pseudo-rows so
    that `model/tiles.js` can ask ANY tile byte for a `tile` block with no
-   boundary special-case. Out of bounds reads bedrock; above a band reads air.
-   ---------------------------------------------------------------------------- */
+   boundary special-case. Out of bounds reads bedrock; above a band reads air. */
 export const VOID_SUB = Object.freeze({
   id:'air', name:'AIR', tags:[],
   tile:Object.freeze({ solid:false, climb:false, hard:0, drops:null }),

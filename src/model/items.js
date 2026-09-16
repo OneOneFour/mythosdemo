@@ -25,10 +25,10 @@ import { clearGrid, insert, makeGrid, query } from './space.js';
 export const items = [];
 const grid = makeGrid();
 
-/* ---- the one key for a pair -------------------------------------------------
+/* the one key for a pair
    Machine buffers and the player's pockets are both keyed by this string. The
    slower representation, chosen on purpose -- see
-   docs/DEVELOPER_GUIDE.md#buffers-and-pockets ---- */
+   docs/DEVELOPER_GUIDE.md#buffers-and-pockets */
 export const keyOf = (sub, form) => `${SUB[sub].id}/${FORM[form].id}`;
 
 export const parseKey = k => {
@@ -38,7 +38,7 @@ export const parseKey = k => {
 
 export const keyOfItem = it => keyOf(it.sub, it.form);
 
-/* ---- derived properties. Two rows multiplied, never a per-item copy. ---- */
+/* derived properties. Two rows multiplied, never a per-item copy. */
 export const massOf = it => it.mod?.mass ?? SUB[it.sub].item.mass * FORM[it.form].massK;
 export const sizeOf = it => it.mod?.size ?? FORM[it.form].size;
 export const massOfPair = (sub, form) => SUB[sub].item.mass * FORM[form].massK;

@@ -27,15 +27,15 @@ import { activeCount as growingCount, write as groww } from './growth.js';
 import { write as digw } from './mining.js';
 import { bandAt, hasOwnSky, idx, inBounds, tileX, tileY, worldX } from './world.js';
 
-/* ---- raw byte ---- */
+/* raw byte */
 export function tileAt(b, tx, ty) {
   if (ty < 0) return AIR;
   if (!inBounds(b, tx, ty)) return BEDROCK;
   return b.mat[idx(b, tx, ty)];
 }
 
-/* ---- the pair a byte denotes. `form === NATIVE` is the element as it comes
-        out of the ground; anything else is a placed unit. ---- */
+/* the pair a byte denotes. `form === NATIVE` is the element as it comes
+        out of the ground; anything else is a placed unit. */
 export const subOf  = byte => byte === AIR || byte === BEDROCK ? -1 : subOfTile(byte);
 export const formOf = byte => byte === AIR || byte === BEDROCK ? NATIVE : formOfTile(byte);
 
@@ -55,9 +55,9 @@ export const formRowOf = byte => {
   return f === NATIVE ? null : FORM[f];
 };
 
-/* ---- physical properties. The FORM's `tile` block wins where it exists, which
+/* physical properties. The FORM's `tile` block wins where it exists, which
         is what makes a placed log a climbable ladder while a native trunk is
-        still just the element in the ground. ---- */
+        still just the element in the ground. */
 
 const tileBlockOf = byte => formRowOf(byte)?.tile ?? rowOf(byte).tile;
 

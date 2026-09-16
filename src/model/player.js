@@ -54,7 +54,7 @@ export const write = {
   set(k, v)    { player[k] = v; bump(); }
 };
 
-/* ---- the fall-damage table, from docs/SPEC.md section 3 --------------------
+/* the fall-damage table, from docs/SPEC.md section 3
    With g = 320 px/s^2 and v = sqrt(2gh):
 
      drop 40 px  =  5 tiles -> 160 px/s -> 0 hearts

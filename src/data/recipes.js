@@ -40,12 +40,12 @@
 
 export const RECIPES = Object.freeze({
 
-  /* ---- MACHINE-BUILD RECIPES. Each spends the exact bill `data/machines.js`
+  /* MACHINE-BUILD RECIPES. Each spends the exact bill `data/machines.js`
      used to charge at placement and produces one `<machine>/rig`. `hand:true`
      on every one: a machine is built by hand, never by another machine.
 
      DECLARED BEFORE every other hand recipe below, and THAT ORDER IS
-     LOAD-BEARING -- see docs/DEVELOPER_GUIDE.md#hand-recipe-declaration-order
+     LOAD-BEARING --
      Checked pairwise against every other hand:true row below for exactly this
      containment before this order was picked:
        furnace, brazier  -- both a strict superset of smelt (ore+fuel) /
@@ -94,7 +94,7 @@ export const RECIPES = Object.freeze({
      (Both of these were originally placed after the retired WINCH STAGE row,
      whose {6 plate, 4 log, 2 ingot} bill contained them both. That row is gone;
      the positions are unchanged, since removing a superset can
-     only ever relax an ordering constraint.) ---- */
+     only ever relax an ordering constraint.) */
 
   furnace: Object.freeze({
     id:'furnace', name:'CRUDE FURNACE',
@@ -115,11 +115,11 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* ---- SEGMENT TRANSPORT, part 1 of 2: the two timber-and-gravel rows.
+  /* SEGMENT TRANSPORT, part 1 of 2: the two timber-and-gravel rows.
      Declared HERE, right after `brazier`, for the containment reasons
      spelled out in this block's own header -- `crank` after `brazier`, `gear`
-     after both. See docs/PLAN-gears-and-winches.md section 4.1 and
-     docs/SPEC.md section 17. ---- */
+     after both..1 and
+     docs/SPEC.md section 17. */
 
   crank: Object.freeze({
     id:'crank', name:'HAND CRANK',
@@ -141,14 +141,14 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* ---- SEGMENT TRANSPORT, part 2 of 2: the two refined rows. Declared HERE,
+  /* SEGMENT TRANSPORT, part 2 of 2: the two refined rows. Declared HERE,
      where the retired WINCH STAGE row used to sit, because both bills
      were strict subsets of its own and had to follow it. That row is gone,
      so the containment it forced no longer exists -- but the position
      is kept, since `hearth`'s {2 plate} is a strict subset of `hub`'s bill and
-     `hearth` being declared LAST OF ALL is what covers that. ---- */
+     `hearth` being declared LAST OF ALL is what covers that. */
 
-  /* ---- cloud_dock: the tribute receiver in astral, and DECLARED BEFORE
+  /* cloud_dock: the tribute receiver in astral, and DECLARED BEFORE
      `hub` BECAUSE ITS BILL STRICTLY CONTAINS THE HUB'S. {5 plate, 1 ingot,
      2 log} against the hub's {3 plate, 1 ingot, 2 log}: any pockets that
      satisfy this one also satisfy the hub, so with `hub` first
@@ -169,7 +169,7 @@ export const RECIPES = Object.freeze({
      wants ore, `brazier` and `crank` want more logs than this). See
      docs/DEVELOPER_GUIDE.md#hand-recipe-declaration-order
 
-     14.0s: the hub's own 10.0 plus 4.0 for the deck, in `crank`'s class. ---- */
+     14.0s: the hub's own 10.0 plus 4.0 for the deck, in `crank`'s class. */
   cloud_dock: Object.freeze({
     id:'cloud_dock', name:'THE CLOUD DOCK',
     in:{ 'copper/plate':5, 'copper/ingot':1, 'timber/log':2 },
@@ -232,7 +232,7 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* ---- the commented row ----
+  /* the commented row
      `docs/DESIGN.md`'s locked compression table fixes ingot at 4:1 (four ore
      become one ingot), so `in` reads 4 here and not the round-number 2 an
      earlier draft shipped with -- `docs/SPEC.md` names this explicitly so the
@@ -245,7 +245,7 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* ---- press: the SECOND compression tier. `docs/DESIGN.md` locks plate at
+  /* press: the SECOND compression tier. `docs/DESIGN.md` locks plate at
      12:1 against raw ore; since one ingot already costs 4 ore, three ingots
      is the same 12:1 expressed in ingot terms, so `in` reads 3 rather than a
      fresh ore-relative number. The input selector is star-slash-hash-ingot,
@@ -265,7 +265,7 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* ---- peg_rungs: timber/log -> timber/rung, the cheap dedicated ladder.
+  /* peg_rungs: timber/log -> timber/rung, the cheap dedicated ladder.
      NOT the plan's literal "1 timber/log -> 4 timber/rung", because `kindle`
      also fires off nothing but one log, and two hand recipes with an
      IDENTICAL trigger set is a tie `rules/crafting.js#choose` cannot see --
@@ -283,7 +283,7 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* ---- daedalan: 3 copper/plate + 1 timber/log -> 2 copper/stair, the
+  /* daedalan: 3 copper/plate + 1 timber/log -> 2 copper/stair, the
      tier-2 ladder. Vertical throughput as an upgradeable axis: see
      `forms.js#stair`'s `climbK`. hand:true for the same reason `peg_rungs`
      is -- no machine builds a ladder, ever.
@@ -311,7 +311,7 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* ---- auger: the T2 hand tool. hand:true with no machine ever naming it
+  /* auger: the T2 hand tool. hand:true with no machine ever naming it
      -- same shape as `peg_rungs`/`daedalan` above, nothing builds a tool but
      a pair of hands.
 
@@ -331,7 +331,7 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* ---- kindle: timber/log -> timber/brand. THE ONLY ROW WHOSE OUTPUT FORM
+  /* kindle: timber/log -> timber/brand. THE ONLY ROW WHOSE OUTPUT FORM
      IS NOT A COMPRESSION TIER -- smelt and press both compress toward
      density; kindling does the opposite, one log splitting into lighter,
      burnable brands. hand:true because no machine performs it; this is how
@@ -357,7 +357,7 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* ---- hearth: 2 copper/plate -> hearth/rig, DECLARED LAST OF EVERY
+  /* hearth: 2 copper/plate -> hearth/rig, DECLARED LAST OF EVERY
      PLATE-CONSUMING ROW, after even `auger` -- see the machine-recipe block's
      own header comment above
      for why: this bill (2 plate, nothing else) is a strict SUBSET of every
@@ -376,7 +376,7 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* ---- pack: 5 rubble of one BULK element -> 1 `block` of that element, the
+  /* pack: 5 rubble of one BULK element -> 1 `block` of that element, the
      only way back to solid ground now that `data/forms.js#gravel` has no
      `tile` block (Phase 14a, docs/PLAN-phase14-mining-and-drops.md D14-A/B,
      docs/SPEC.md section 19). One row covers soil AND stone AND any future
@@ -432,7 +432,7 @@ export const RECIPES = Object.freeze({
      invents a number to dodge it.
 
      `secs:2.5` -- in `gear`/`kindle`'s cheap class. The cost of a block is
-     the five tiles of rubble, not the time. ---- */
+     the five tiles of rubble, not the time. */
   pack: Object.freeze({
     id:'pack', name:'PACK EARTH',
     in:{ '#bulk/gravel':5 },

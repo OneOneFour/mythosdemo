@@ -53,7 +53,7 @@
                  `model/segments.js#linkCheck` and journals a refusal.
      items       [{ sub, form, n, dx, dy, band? }] -- `n` falling items spawned
                  at the centre of that tile. Material that arrives as an item
-                 rather than a pocket credit (invariant 5), and the only way to
+                 rather than a pocket credit, and the only way to
                  put cargo on a carrier: `rules/drive.js` reads whatever is in
                  `model/segments.js#carrierBox`.
      give        [{ sub, form, n }] -- straight into `run.inv`. Bypasses mining
@@ -63,28 +63,26 @@
                  ten seconds of every use -- and `belt-line`'s own belt drags
                  that one into the furnace pit.
 
-   ============================================================================
    THE COORDINATE DATUM, AND WHY IT IS NOT A BARE TILE. `dx` is tiles right of
    the SPAWN band's own `spawnTx`; `dy` is tiles below the NAMED band's own
    `floorTy`, so `dy:0` is that band's first solid row and `dy:-1` the air just
    above it. One column datum serves all three bands because all three share
-   the same width and tile size (docs/SPEC.md section 18.2), which
+   the same width and tile size, which
    `tools/content.mjs` asserts rather than assumes -- so a vertical chain from
    the surface to the Heavens is vertical by construction.
 
-   A row derived from `spawnTx`/`floorTy` also draws NO `rand()` (invariant 7):
+   A row derived from `spawnTx`/`floorTy` also draws NO `rand()`:
    a scenario changes the world without changing the stream, so a seed still
    reproduces the same terrain under the same diorama.
 
    KEEP EVERY SURFACE COLUMN INSIDE `dx` -9..+9. That is
    `rules/generate.js#SHELF`'s guaranteed-flat spawn shelf, and it is the only
    stretch of surface where `floorTy` really is the ground row. A diorama
-   further out lands on relief and its footing tiles are somewhere else.
-   ============================================================================ */
+   further out lands on relief and its footing tiles are somewhere else. */
 
 export const SCENARIOS = [
 
-  /* ---- A WORKING SEGMENT, WITH THE DRIVETRAIN THAT TURNS IT. The one the
+  /* A WORKING SEGMENT, WITH THE DRIVETRAIN THAT TURNS IT. The one the
      brief asked for by name. A shaft 10 rows deep with a hub straddling its
      mouth, a hub on its floor, a gear and a crank on the surface beside the
      upper hub, and four copper ore already in the carrier at the bottom.
@@ -97,18 +95,17 @@ export const SCENARIOS = [
      that hid it by meshing the crank straight into the hub would be teaching
      the wrong lesson.
 
-     THE PLAYER CANNOT POWER THE CARRIER THEY ARE RIDING (docs/SPEC.md section
-     17.6): a rising carrier leaves the crank's 12 px reach within two tiles.
+     THE PLAYER CANNOT POWER THE CARRIER THEY ARE RIDING: a rising carrier leaves the crank's 12 px reach within two tiles.
      So this scenario demonstrates CARGO going up, and the ore in the bucket is
-     the point. ---- */
+     the point. */
   { id:'winch', name:'WORKING WINCH', band:'surface',
     note:'a linked segment, its drivetrain and a loaded carrier -- hold `r` at the crank and the ore rises.',
     grant:['furnace'],
     carve:[
       /* The shaft. Both columns from one row under the headframe down to the
          lower hub's own footprint, leaving `dy:0` in the left column as the
-         upper hub's footing -- a headframe straddles its shaft mouth
-         (docs/SPEC.md section 17.2), so one column stands on rock and one over
+         upper hub's footing -- a headframe straddles its shaft mouth,
+         so one column stands on rock and one over
          the void. */
       { dx:5, dy:1, w:2, h:10 },
       { dx:6, dy:0, w:1, h:1 }
@@ -130,7 +127,7 @@ export const SCENARIOS = [
     items:[ { sub:'copper', form:'ore', n:4, dx:5, dy:10 } ],
     give:[ { sub:'pick', form:'relic', n:1 }, { sub:'timber', form:'rung', n:12 } ] },
 
-  /* ---- A FED LINE, RUNNING. A belt on the flat carrying copper ore right
+  /* A FED LINE, RUNNING. A belt on the flat carrying copper ore right
      into a furnace sunk in a pit so its top mouth is at the ground line, which
      is the only geometry that puts a belt's delivery point inside a catch box
      (docs/FINDINGS.md holds the arithmetic).
@@ -146,7 +143,7 @@ export const SCENARIOS = [
      Both machines start fed: two logs in each, which is the fuel cap, four ore in
      the furnace so it is already smelting, and eight banked charges on the belt
      so it drags from the first frame rather than after six seconds of burning
-     its own fuel. ---- */
+     its own fuel. */
   { id:'belt-line', name:'RUNNING BELT LINE', band:'surface',
     note:'a fuelled belt feeding a sunk furnace -- catch-box chaining visible running, output piling in the pit.',
     grant:['furnace'],
@@ -161,18 +158,18 @@ export const SCENARIOS = [
     give:[ { sub:'pick', form:'relic', n:1 },
             { sub:'timber', form:'log', n:6 }, { sub:'copper', form:'ore', n:8 } ] },
 
-  /* ---- ARMED AT THE SECOND TRIAL, WITH THE FIRST ONE'S REWARD ALREADY PAID.
+  /* ARMED AT THE SECOND TRIAL, WITH THE FIRST ONE'S REWARD ALREADY PAID.
      Three copper plate is the whole demand, so the trial is payable the moment
      the player reaches the dock -- and reaching it is the point. Two hubs, a
      crank and a gear are the start of the chain and deliberately not all of it:
      the surface-to-astral span is 240 px and a hub reaches 96, so it is three
-     segments and four hubs (docs/SPEC.md section 18.2), and a scenario that
+     segments and four hubs, and a scenario that
      handed over the finished chain would be `ascent` below.
 
      33.7 T of pockets against a 40 T cap, so the player can still climb.
      `cloud_dock` is granted with `furnace` because that is cycle 1's own
      reward pair (`data/cycles.js`), and a cycle-2 fixture that could not place
-     the receiver would be arming a trial it cannot pay. ---- */
+     the receiver would be arming a trial it cannot pay. */
   { id:'cycle2', name:'TRIAL II — THE FIRST DELIVERY', band:'surface',
     note:'cycle 2 armed with cycle 1 paid: the demand is in your pockets and the ascent is not built.',
     cycle:2,
@@ -187,7 +184,7 @@ export const SCENARIOS = [
       { sub:'gear',   form:'rig',   n:1 }
     ] },
 
-  /* ---- ARMED AT THE THIRD TRIAL, WHICH IS THE ONE THAT FORCES DEPTH. Athena
+  /* ARMED AT THE THIRD TRIAL, WHICH IS THE ONE THAT FORCES DEPTH. Athena
      wants four tin ingot, and tin does not exist above topsoil row 60 --
      96 M under the datum (`data/world.js`, docs/SPEC.md section 18.4). Both
      halves of the demand are in the pockets, which is exactly what this
@@ -195,7 +192,7 @@ export const SCENARIOS = [
      dig first. To test the dig instead, take the tin back out.
 
      26.5 T of pockets, so the crank and gear come along and the plates and
-     ingots still fit under the cap. ---- */
+     ingots still fit under the cap. */
   { id:'cycle3', name:'TRIAL III — THE GREY-EYED TITHE', band:'surface',
     note:'cycle 3 armed with its demand already mined -- the delivery leg without the 96 M dig.',
     cycle:3,
@@ -210,7 +207,7 @@ export const SCENARIOS = [
       { sub:'gear',   form:'rig',   n:1 }
     ] },
 
-  /* ---- THE WHOLE ASCENT, BUILT. Three segments, four hubs, a crank at each
+  /* THE WHOLE ASCENT, BUILT. Three segments, four hubs, a crank at each
      stage, a rung ladder up the side, and the Cloud Dock on the astral ground
      line -- the win path of docs/SPEC.md section 18 standing up so a developer
      can ride and haul it instead of spending twenty minutes building it.
@@ -233,7 +230,7 @@ export const SCENARIOS = [
 
      THE PLAYER CLIMBS AND THE CARGO RIDES. A rider cannot turn the crank of
      the carrier they are on (section 17.6), so the ladder beside the chain is
-     not scenery: each stage is cranked from a standing position beside it. ---- */
+     not scenery: each stage is cranked from a standing position beside it. */
   { id:'ascent', name:'THE FULL ASCENT', band:'surface',
     note:'the three-segment chain to the Cloud Dock, standing -- ride, haul and pay cycle 2 without building it.',
     cycle:2,

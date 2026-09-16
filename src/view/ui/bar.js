@@ -4,7 +4,7 @@
    through `model/mods.js#eff` and hands over a colour name, exactly the way
    `view/hud.js#burden` already picks `UI.amber`/`UI.heart` itself today. A
    generic widget must not learn what "burden" means.
-   See docs/DEVELOPER_GUIDE.md#widget-primitives */
+*/
 import { drawText, textWidth } from '../../core/font.js';
 import { R } from '../../core/pixels.js';
 import { mix } from '../../core/palette.js';

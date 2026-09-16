@@ -100,15 +100,14 @@ export const write = {
   clear() { segments.length = 0; bump(); }
 };
 
-/* ---------- geometry ----------
+/* geometry
    An anchor is the hub footprint's own CENTRE. Symmetric by construction, so
    the record does not depend on which end the player armed first, and inside
    a footprint `placementCheck` already proved was clear of tiles -- which is
    what lets the half-tile sweep below start and end on a legal sample rather
    than needing an end-cap special case.
 
-   `hi` is which end is UP. Ties resolve to 'a', DETERMINISTICALLY (invariant
-   7): a horizontal segment has no upper end and something still has to be
+   `hi` is which end is UP. Ties resolve to 'a', DETERMINISTICALLY: a horizontal segment has no upper end and something still has to be
    called one, and picking by argument order rather than by, say, x makes the
    answer a function of the link order alone. */
 const anchorOf = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
@@ -143,7 +142,7 @@ function posOf(seg) {
   return [lerp(lo.x, hiP.x, seg.t), lerp(lo.y, hiP.y, seg.t)];
 }
 
-/* ---------- queries. Numbers and questions; no decisions. ---------- */
+/* queries. Numbers and questions; no decisions. */
 
 export function carrierPos(seg) {
   const [x, y] = posOf(seg);
@@ -179,13 +178,13 @@ export function reachOf(m) {
   return def.hub ? def.hub.reach * eff('segReach', def.id) : 0;
 }
 
-/* ---------- linkCheck: ONE DECISION, TWO READERS ----------
+/* linkCheck: ONE DECISION, TWO READERS
    `rules/placement.js#linkSegment` calls this and turns a `false` into a
    journal row plus the mutation; `view/hud.js`'s cable ghost calls
    the identical query and turns the same `false` into a tinted cable with
    `why` beside it. `view` may not import `rules`, so the decision lives in
    `model` -- exactly the move `model/run.js#placementCheck` already made for
-   placement. See docs/DEVELOPER_GUIDE.md#one-decision-two-readers
+   placement.
 
    Refusals in the order docs/SPEC.md section 17.6 locks: structural before
    affordable, which for a cable means "is this even a pair of hubs" before
@@ -247,7 +246,7 @@ function solidNear(band, wx, wy, exempt) {
   return false;
 }
 
-/* ---------- THE HEADFRAME EXEMPTION (docs/PLAN-phase10.md 3.1 option A1) ----
+/* THE HEADFRAME EXEMPTION (docs/PLAN-phase10.md 3.1 option A1)
    A HUB'S OWN FOOTING TILE DOES NOT BLOCK A CABLE LEAVING THAT HUB. Without
    this, a straight vertical link between two LEGALLY PLACED hubs is impossible:
    the anchor is the footprint's centre, so the span from below terminates one
@@ -274,7 +273,7 @@ function solidNear(band, wx, wy, exempt) {
    endpoint -- two per hub -- each one immediately under a machine, with a
    required-clear footprint above it and nothing else it could conceal.
 
-   WHY NOT THE ALTERNATIVES (docs/PLAN-phase10.md 3.1): moving the anchor off
+   WHY NOT THE ALTERNATIVES: moving the anchor off
    the footprint centre (A2) breaks docs/SPEC.md 17.5's locked anchor and moves
    every carrier and every 8e/8f baseline; teaching the lean (A3) leaves the
    most obvious build -- hubs stacked straight up -- refusing, and pointing at
@@ -339,12 +338,12 @@ function sweepSpan(pa, pb, len, exempt = []) {
   return { blocked, offWorld };
 }
 
-/* ---------- chains: DERIVED, NEVER STORED (CLAUDE.md D10) ----------
+/* chains: DERIVED, NEVER STORED (CLAUDE.md D10)
    A chain is a maximal connected run of segments -- a connected component of
    the graph whose NODES are hub machines and whose EDGES are segments.
    Returned as arrays of segments, in `segments` order within each component
    and in first-appearance order between them, so the answer is deterministic
-   and reproducible from the link order alone (invariant 7).
+   and reproducible from the link order alone.
 
    Union-find would be the textbook answer and is not worth it: there are tens
    of segments, not thousands, and a flood per component is O(n^2) on a number

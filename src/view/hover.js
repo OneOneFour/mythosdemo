@@ -9,7 +9,7 @@
    this file's caller, so it is not a field on anything: it is a return value,
    recomputed on every call. Caching a hover result on a model record would be
    a `view` write to `model`, which the epoch assertion exists to catch (
-   invariant 9). See docs/DEVELOPER_GUIDE.md#where-does-state-go
+   invariant 9).
 
    PRIORITY. The HUD is drawn on top of the world, so a HUD hitbox always wins.
    Within the world: a falling item beats a machine beats bare rock, because an
@@ -39,7 +39,7 @@ const STATUS_WORDS = { running: 'RUNNING', 'no-fuel': 'NO FUEL', idle: 'IDLE' };
    buffered pair for a tooltip to name. `view` may not import `rules`, which
    is why this re-reads the buffer directly through `count` rather than
    calling `choose` itself.
-   See docs/DEVELOPER_GUIDE.md#one-decision-two-readers */
+*/
 function currentRecipe(m, def) {
   for (const r of recipesOf(def)) {
     if (r.from && r.from !== 'buffer') continue;

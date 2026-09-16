@@ -24,7 +24,7 @@
 
 export const TUNABLES = [
 
-  /* ---- the player. ---- */
+  /* the player. */
   { id:'walk',      kind:'value', base:60,   unit:'px/s',   note:'ground speed; 7.5 tiles/s' },
   { id:'hop',       kind:'value', base:92,   unit:'px/s',   note:'launch; ~1 tile + margin, deliberately not enough to escape a 5-tile hole' },
   /* A SIXTH OF WALK, NOT HALF OF IT, and the sentence that used to say "half
@@ -40,7 +40,7 @@ export const TUNABLES = [
   { id:'pickPower', kind:'value', base:1.0,  unit:'x',      note:'seconds of dig credited per second held' },
   { id:'pickupR',   kind:'value', base:10,   unit:'px',     note:'radius at which a resting item is pocketed' },
 
-  /* THE DIG QUEUE'S ONLY NUMBER (docs/SPEC.md section 28). A drag marks tiles
+  /* THE DIG QUEUE'S ONLY NUMBER. A drag marks tiles
      and the player then mines the marked ones inside `reach` with no button
      held, so the cap answers two questions at once: it bounds the O(n) nearest
      query `rules/mining.js` runs once per substep, and it bounds "did I mean to
@@ -49,18 +49,17 @@ export const TUNABLES = [
      the normal use and hitting the cap is not. */
   { id:'digQueueMax', kind:'value', base:256, unit:'tiles',  note:'marks the dig queue holds; a further mark is refused' },
 
-  /* ---- falling. The table is locked in docs/SPEC.md section 3:
+  /* falling. The table is locked in docs/SPEC.md section 3:
             safe   =  5 tiles  ( 40 px) -> 160 px/s -> 0 hearts
             lethal = 20 tiles  (160 px) -> 320 px/s -> 5 hearts
-          so one heart per 32 px/s above 160. ---- */
+          so one heart per 32 px/s above 160. */
   { id:'grav',      kind:'value', base:320,  unit:'px/s^2' },
   { id:'terminal',  kind:'value', base:400,  unit:'px/s' },
   { id:'fallSafe',  kind:'value', base:160,  unit:'px/s',   note:'5 tiles; no damage at or below' },
   { id:'fallHeart', kind:'value', base:32,   unit:'px/s',   note:'one heart per this much over fallSafe' },
   { id:'fallMax',   kind:'value', base:5,    unit:'hearts', note:'clamp; equals a full heart bar, so 20 tiles kills' },
 
-  /* ---- SEGMENT TRANSPORT (docs/PLAN-gears-and-winches.md section 4.7,
-     docs/SPEC.md section 17). Eight rows, and the mechanic they price is
+  /* SEGMENT TRANSPORT. Eight rows, and the mechanic they price is
      invariant 4 as reworded: a carrier rises only while something is actively
      turning it and slides back down under its own weight for nothing.
 
@@ -101,7 +100,7 @@ export const TUNABLES = [
      with full pockets (48 T with their body) runs backwards. That stall has to
      stay reachable: a carrier strong enough that load stops mattering is the
      free ladder again, from the other side, and `tools/check.mjs`'s WEIGHT
-     REVERSES IT probe fails outright if the burden cap ever climbs. ---- */
+     REVERSES IT probe fails outright if the burden cap ever climbs. */
   { id:'segUp',     kind:'value', base:26,    unit:'px/s',       note:'carrier ascent at full surplus and full drive. Equal to segDown by construction -- a carrier never rises faster than it sinks.' },
   { id:'segDown',   kind:'value', base:26,    unit:'px/s',       note:'free descent on a VERTICAL segment, scaled by slope. The ceiling segUp is held to, and free. Also the retired deck\'s own number.' },
   { id:'segBase',   kind:'value', base:1.0,   unit:'drive',      note:'drive needed to raise an EMPTY carrier at full speed. The unit crank.torque is denominated in.' },
@@ -117,7 +116,7 @@ export const TUNABLES = [
   { id:'torqueLoss', kind:'scale', base:1.0, scope:'machine',
     note:'multiplies `gear.loss`. Lower is a tighter drivetrain.' },
 
-  /* ---- belts. Horizontal, not vertical, so neither "down is free" nor "up is
+  /* belts. Horizontal, not vertical, so neither "down is free" nor "up is
      expensive" applies directly -- the cost is paid up front, in `cost` on
      `data/machines.js`'s belt rows, and continuously, in the fuel that keeps
      `rules/belts.js` dragging at all. This number is deliberately closer to
@@ -125,10 +124,10 @@ export const TUNABLES = [
      unattended, not by outrunning the player. */
   { id:'beltSpeed', kind:'value', base:50,   unit:'px/s',   note:'drag speed while charged. See rules/belts.js.' },
 
-  /* ---- fields. Seam only: `rules/fields.js` decays and does not diffuse. ---- */
+  /* fields. Seam only: `rules/fields.js` decays and does not diffuse. */
   { id:'heatDecay', kind:'value', base:0.35, unit:'/s',     note:'fraction lost per second' },
 
-  /* ---- fog of war. `rules/reveal.js` runs two passes; only the second needs a
+  /* fog of war. `rules/reveal.js` runs two passes; only the second needs a
      number. Pass A (standing in open sky) is deliberately UNBOUNDED and reads
      nothing here -- there is nothing to obstruct a view across open air, so it
      has no radius to tune. Pass B (a flood through open tiles, blocked by
@@ -141,7 +140,7 @@ export const TUNABLES = [
   { id:'sightRadius', kind:'value', base:14, unit:'tiles',
     note:'graph-distance cap on the Pass B flood in rules/reveal.js. Pass A has no cap.' },
 
-  /* ---- scales, one row per family of data rows ---- */
+  /* scales, one row per family of data rows */
   { id:'hard', kind:'scale', base:1.0, scope:'substance',
     note:'multiplies `tile.hard`. Lower is faster to mine. `hard.stone` scopes it.' },
 
@@ -154,7 +153,7 @@ export const TUNABLES = [
   { id:'yield', kind:'scale', base:1.0, scope:'machine',
     note:'multiplies output counts, rounded down. Where a "doubling" boon goes.' },
 
-  /* ---- encumbrance (CLAUDE.md "Resolved decisions" D3/D4). Mass is in
+  /* encumbrance (CLAUDE.md "Resolved decisions" D3/D4). Mass is in
      TALENTS. `burden` is the hard cap; `burdenSoft` is the fraction of it
      where climb speed begins to fall off; `burdenClimbFloor` is the climb
      multiplier AT the hard cap, the tick before ladder-up/hop are refused
@@ -174,10 +173,10 @@ export const TUNABLES = [
   { id:'burdenSoft',       kind:'value', base:0.20, unit:'x',       note:'fraction of burden where climb-speed falloff starts; riderMass / burden' },
   { id:'burdenClimbFloor', kind:'value', base:0.40, unit:'x',       note:'climb-speed multiplier at the hard cap, the tick before lockout' },
 
-  /* ---- trinkets. See docs/DEVELOPER_GUIDE.md#the-four-gift-tiers ---- */
+  /* trinkets. See docs/DEVELOPER_GUIDE.md#the-four-gift-tiers */
   { id:'trinketSlots', kind:'value', base:3, unit:'slots', note:'length of run.equipped; a boon could someday widen it' },
 
-  /* ---- the draft (D17-B/D17-F, docs/SPEC.md section 18.8). `offerSize` is
+  /* the draft. `offerSize` is
      how many of a tier's still-undrafted rows a god lays out; a tier with
      fewer left offers fewer, because `rules/draft.js` never pads.
      `rerollCost` is in FAVOUR and is spent with the god whose trial raised
@@ -187,7 +186,7 @@ export const TUNABLES = [
   { id:'offerSize',  kind:'value', base:3, unit:'cards',  note:'cards in one draft offer; fewer candidates offer fewer' },
   { id:'rerollCost', kind:'value', base:2, unit:'favour', note:'favour spent with the asking god to re-pick the offer' },
 
-  /* ---- the altar's arrival (D17-G, docs/SPEC.md section 5). The director
+  /* the altar's arrival. The director
      withholds cycle 1's altar until the player has climbed back out of their
      own shaft, and this is the deadline on that wait.
 
@@ -213,7 +212,7 @@ export const TUNABLES = [
   { id:'altarRiseSecs', kind:'value', base:1.6, unit:'s',
     note:'how long the altar takes to rise and its shaft of light to fade' },
 
-  /* ---- the HUD's one urgency threshold (docs/SPEC.md section 20.6). Every
+  /* the HUD's one urgency threshold. Every
      countdown `view/hud.js` draws flashes under the same number of seconds:
      a boon's remaining time and the tribute deadline. 5 s is what the boon
      stack has always used, and it is about two beats of the 3 Hz flash --
@@ -222,14 +221,14 @@ export const TUNABLES = [
      once, which is the point of it being one row. */
   { id:'urgentSecs', kind:'value', base:5, unit:'s', note:'seconds left at which a HUD countdown starts flashing' },
 
-  /* ---- inventory (Phase 12c, docs/PLAN-phase12.md D-G/D-H). `invSlots` is
+  /* inventory (Phase 12c, docs/PLAN-phase12.md D-G/D-H). `invSlots` is
      `run.mainSlots` at reset; `quickbarSlots` is the tail of `run.inv` past
      it -- the same "a slot count is content, read through eff()" precedent
      `trinketSlots` above already sets. */
   { id:'invSlots',      kind:'value', base:30, unit:'slots', note:'length of the main inventory grid; run.mainSlots at reset' },
   { id:'quickbarSlots', kind:'value', base:8,  unit:'slots', note:'length of the quickbar; the tail of run.inv past run.mainSlots' },
 
-  /* ---- light. `lightMax` is both daylight and the ceiling any
+  /* light. `lightMax` is both daylight and the ceiling any
      emitter can reach (the hearth). The two falloffs are per-tile-of-travel
      losses a BFS in rules/light.js subtracts, rock lossier than air so
      light does not leak through strata the way sight already does not. */
@@ -239,14 +238,14 @@ export const TUNABLES = [
   { id:'brandSecs',        kind:'value', base:90, unit:'s',      note:'one lit timber/brand burns this long, then is consumed' },
   { id:'brandLevel',       kind:'value', base:9,  unit:'levels', note:'light level while a timber/brand is lit' },
 
-  /* ---- tool tiers. `hard` already scales a substance's
+  /* tool tiers. `hard` already scales a substance's
      seconds-to-break; this is a SEPARATE gate on whether a tool may swing at
      a tile at all, scoped the same way (`toolTier.copper` narrows to one
      substance) so a boon can lend a tier without touching mining speed. */
   { id:'toolTier', kind:'scale', base:1.0, scope:'substance',
     note:'bends tile.tier gating in rules/mining.js; a boon could lend a tier' },
 
-  /* ---- deposit depletion (Phase 14b, docs/SPEC.md section 19). Scales a
+  /* deposit depletion. Scales a
      `deposit` substance's `tile.charge`: how many units one native tile
      yields before it is gone. It does NOT touch `hard`, so it changes the
      SIZE of a find and never the rate of a swing -- which is why
@@ -257,7 +256,7 @@ export const TUNABLES = [
   { id:'richness', kind:'scale', base:1.0, scope:'substance',
     note:'multiplies a deposit substance tile.charge. A boon could enrich a vein.' },
 
-  /* ---- yield quality: not every unit a tile WOULD give actually drops.
+  /* yield quality: not every unit a tile WOULD give actually drops.
      Base 1.0 -- a real ore (copper, tin) is unaffected, every unit lands.
      `soil`/`stone` are overridden low, the same "bulk" pair docs/SPEC.md
      section 19.1 already groups together as filler you tunnel through
@@ -271,7 +270,7 @@ export const TUNABLES = [
     scoped:{ soil:0.05, stone:0.10 },
     note:'chance a mined unit actually drops. `dropChance.soil` scopes it.' },
 
-  /* ---- worldgen (Phase 7, docs/SPEC.md section 16). Only ONE number from
+  /* worldgen. Only ONE number from
      that phase lives here, and the test is the one this file's header states:
      `hollowOre` is what a hollow is WORTH, so a god who wants to make the dark
      pay better bends it through `model/mods.js` like anything else. The
@@ -282,7 +281,7 @@ export const TUNABLES = [
   { id:'hollowOre', kind:'value', base:0.25, unit:'fraction',
     note:'chance a carved hollow has its walls lined with ore. Read once per hollow, at worldgen.' },
 
-  /* ---- tree regrowth (Phase 15, docs/PLAN-phase15-trees.md D15-E,
+  /* tree regrowth (Phase 15, docs/PLAN-phase15-trees.md D15-E,
      docs/SPEC.md section 22). `log` is the only fuel a player can mine
      (`brand` exists too, but only ever made from a log; `data/world.js`'s
      own `trees` row says so), so a felled forest is a run that has quietly

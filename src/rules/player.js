@@ -2,7 +2,6 @@
    velocity, fall damage, and the axis-separated collision resolution.
    Imports `core`, `data`, `model`. Imports no other `rules` module.
 
-   ============================================================================
    THE COLLISION RESOLUTION BELOW IS PORTED, NOT REWRITTEN. Its comments record
    three bugs that cost real debugging time, and every one of them is a case
    that looks like it cannot happen:
@@ -21,7 +20,6 @@
    Do not "simplify" this into a single swept AABB. The one-pixel stepping is
    what makes the snap flush, and flush is what makes a 5-tile drop measure
    exactly 40 px.
-   ============================================================================
 
    Every physics number comes from `eff()`, so a god's boon can bend walk speed,
    hop height, gravity and both fall-damage thresholds. There is no module
@@ -54,7 +52,7 @@ export function step(dt, cmd) {
 
   /* Presentation timers. In `model` because `view` reads them; decayed here
      because `view` may not write.
-     See docs/DEVELOPER_GUIDE.md#where-does-state-go */
+*/
   pw.set('landFlash', Math.max(0, player.landFlash - dt * 4));
   pw.set('hurtFlash', Math.max(0, player.hurtFlash - dt * 3));
 
@@ -64,7 +62,7 @@ export function step(dt, cmd) {
   let onLadder = boxClimb(b, player.x, player.y);
   pw.set('onLadder', onLadder);
 
-  /* ---- THE RIDE BRANCH (docs/PLAN-gears-and-winches.md section 4.6) ----
+  /* THE RIDE BRANCH
      A CARRIER IS NOT TERRAIN AND MUST NOT BECOME TERRAIN (invariant 1: the
      tile grid is the only source of truth, and there is never a second
      collision model). It holds the player up the exact way a LADDER does:
@@ -90,13 +88,13 @@ export function step(dt, cmd) {
      never read either value: you can always fall. */
   const frac = burdenFrac(), overCap = frac >= 1;
 
-  /* ---- horizontal: no acceleration, on purpose. This is a digging game and a
-          momentum model makes a 1-tile corridor infuriating. ---- */
+  /* horizontal: no acceleration, on purpose. This is a digging game and a
+          momentum model makes a 1-tile corridor infuriating. */
   const want = (cmd.right ? 1 : 0) - (cmd.left ? 1 : 0);
   if (want) pw.set('face', want);
   const vx = want * walk;
 
-  /* ---- vertical ---- */
+  /* vertical */
   let vy = player.vy;
   if (onLadder) {
     /* `climbK` is the ladder TIER's own speed (data/forms.js#stair, ~1.8x a
@@ -158,7 +156,7 @@ export function step(dt, cmd) {
   }
   pw.vel(vx, vy);
 
-  /* ---- move and resolve, one axis at a time ---- */
+  /* move and resolve, one axis at a time */
   const wasGround = player.onGround;
   moveX(b, vx * dt);
   const hitFloor = moveY(b, player.vy * dt);
@@ -203,7 +201,7 @@ export function step(dt, cmd) {
 
   /* Below the last band there is nothing to land on and no band to hand off
      to, so falling out of the world is fatal rather than infinite. Reads
-     `eff('fallMax')` rather than a bare `5` (docs/FINDINGS.md) -- the two
+     `eff('fallMax')` rather than a bare `5` -- the two
      only agreed by coincidence before this, and a boon that ever changed
      `fallMax` would have silently desynced void-death lethality from
      ordinary fall lethality. */
@@ -213,7 +211,7 @@ export function step(dt, cmd) {
   rw.deepest(player.y);
 }
 
-/* ---------- landing ----------
+/* landing
    Impact speed is derived from the DISTANCE FALLEN and not from a per-frame
    velocity sample, so the same drop costs the same hearts at any framerate and
    the table in docs/SPEC.md is exact rather than approximate:
@@ -242,7 +240,7 @@ function land(b, term, grav) {
 
 /* Damage is a `rules` decision with a `model` consequence, and the notification
    is a journal row — never a `play()` call.
-   See docs/DEVELOPER_GUIDE.md#notification-and-the-journal */
+*/
 export function hurt(n, cause) {
   if (run.dead) return;
   pw.set('hurtFlash', 1);
@@ -251,7 +249,7 @@ export function hurt(n, cause) {
   if (run.dead) push('death', { x: player.x, y: player.y }, { cause: run.deathCause });
 }
 
-/* ---------- band handoff ----------
+/* band handoff
    ONE QUERY ABOUT ONE POINT, AND IT HAS TO BE. `model/world.js#bandAt` is the
    only thing in the project that knows bands share a single vertical space,
    and bands do not overlap — so the hitbox CENTRE is in at most one of them and
@@ -280,7 +278,7 @@ function reband(b) {
   return bandAt(player.x + PW / 2, player.y + PH / 2) || b;
 }
 
-/* ---------- AABB probes over the tile grid ----------
+/* AABB probes over the tile grid
    The tile grid is the only source of truth for terrain (ARCHITECTURE
    invariant 1). There is no second collision model to fall out of sync with.
 
@@ -366,7 +364,7 @@ function boxClimbK(b, x, y) {
   return k;
 }
 
-/* ---------- axis-separated resolution ----------
+/* axis-separated resolution
    Both axes step at one pixel and snap flush against whatever they hit. */
 function moveX(b, d) {
   if (!d) return;

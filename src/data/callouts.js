@@ -13,7 +13,7 @@
    action in between (`rules/cycles.js` places the altar unconditionally from
    frame 0, so the only thing beat 4 was ever waiting on was the player), so a
    callout there would flash for at most one frame. Index 5:
-   the altar exists and cycle 1's own demand (docs/SPEC.md 18.4) is the
+   the altar exists and cycle 1's own demand is the
    instruction.
 
    INDEX 5 NAMES A VERB NOW, AND HAS TO (Phase 16c,
@@ -25,7 +25,7 @@
    ones: a click on a held pair takes it in hand (the IN HAND readout above
    the quickbar says which), and a click on the altar gives it.
 
-   INDICES 6-9 ARE CYCLE 2 (Phase 13d, docs/SPEC.md 20.4). The moment cycle 1
+   INDICES 6-9 ARE CYCLE 2. The moment cycle 1
    pays, the game asks for four things a player has never done once: refine
    ore into plate, build the Cloud Dock, run a segment chain up to it, and
    beat a clock (cycle 1 has none at all). See `rules/tutorial.js#BEATS` 7-10

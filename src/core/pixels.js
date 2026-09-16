@@ -11,7 +11,7 @@
 
 import { mulberry } from './rng.js';
 
-/* ---------- THE ONE LIGHT DIRECTION ----------
+/* THE ONE LIGHT DIRECTION
    Nothing reads as amateur faster than a scene lit from two directions, and a
    painter with no shared answer to "where is the sun" grows one per function.
    So: the sun is UP AND TO THE LEFT, as a unit-ish direction pointing the way

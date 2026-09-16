@@ -27,7 +27,7 @@
    enforces and `view` may not import `rules`. This function's own job is
    "call the query, and turn a `false` into a journal row plus the actual
    mutation" -- ONE implementation of the checks, TWO readers of the answer.
-   See docs/DEVELOPER_GUIDE.md#one-decision-two-readers */
+*/
 
 import { rand } from '../core/rng.js';
 import { AIR, F, FORM, NATIVE } from '../data/forms.js';
@@ -41,7 +41,7 @@ import { linkCheck, write as segw } from '../model/segments.js';
 import { climbAt, solidAt, tileAt, write as tw } from '../model/tiles.js';
 import { inBounds, worldX, worldY } from '../model/world.js';
 
-/* ---------- machines ---------- */
+/* machines */
 
 /* `tx`/`ty` is the top-left tile of the footprint. Returns the machine record,
    or null with a reason on the journal. */
@@ -64,7 +64,7 @@ export function placeMachine(band, machineId, tx, ty) {
   return m;
 }
 
-/* ---------- deconstruct ----------
+/* deconstruct
    The inverse of `placeMachine`, and the reason a held item is a real
    commitment rather than a one-way tax: a machine proven EMPTY -- no
    buffered material, no banked fuel charge -- gives its OWN `<id>/rig` pair
@@ -125,7 +125,7 @@ export function deconstruct(band, tx, ty) {
   return true;
 }
 
-/* ---------- segments ----------
+/* segments
    THE DECISION LIVES IN `model/segments.js#linkCheck`, NOT HERE, for exactly
    the reason `placeMachine` above states for `placementCheck`: `view`'s cable
    ghost needs the identical yes/no this function enforces and `view` may not
@@ -172,7 +172,7 @@ export function unlinkSegment(seg) {
   return true;
 }
 
-/* ---------- tiles ----------
+/* tiles
    Only a form carrying a `tile` block may be placed as terrain -- `rung`,
    `stair`, `block` and `seed`. There is no ladder id, no
    ladder recipe, no ladder code -- and no PLANT verb either: planting is
@@ -191,7 +191,7 @@ export function unlinkSegment(seg) {
    -- in HUD order. `shell/main.js#applyIntents`'s `cmd.place` branch places
    the first of these, dispatching to `placeTile` or `placeMachine`
    depending on which kind it is; a real build menu would offer the list.
-   See docs/DEVELOPER_GUIDE.md#adding-a-form */
+*/
 export function placeableFromPockets(rows) {
   return rows.filter(r => r.n > 0 && (FORM[r.form]?.tile || r.form === F.rig));
 }

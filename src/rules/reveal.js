@@ -54,8 +54,8 @@ import { solidAt, worldSkyAt } from '../model/tiles.js';
 import { bandAbove, bandSpans, chunkOf, chunkVer, inBounds, lightAt,
          write as ww } from '../model/world.js';
 
-/* Perf-only cache for Pass B, MODULE-LOCAL AND DELIBERATELY NOT IN `model/`
-   (docs/DEVELOPER_GUIDE.md#module-local-perf-caches): keyed by the band
+/* Perf-only cache for Pass B, MODULE-LOCAL AND DELIBERATELY NOT IN `model/`:
+   keyed by the band
    OBJECT, and `model/world.js#write.allocate` always hands out a fresh one, so
    `b === lastBand` is already false the instant a run restarts, with no reset
    call to wire up or forget. Reset to `null` on the early-return-no-band path
@@ -87,7 +87,7 @@ export function step() {
   passB(b, spans);
 }
 
-/* ---------- Pass A: unlimited sky reveal ----------
+/* Pass A: unlimited sky reveal
    Gated on a CHEAP check first: `worldSkyAt` on the player's own occupied
    tiles only (at most the 2-4 columns/rows the hitbox actually straddles).
    Only if that says "yes, standing under open sky" does this pay for the
@@ -123,7 +123,7 @@ function passA(b, tx0, ty0, tx1, ty1) {
      rescan that notices.
 
      This is deliberately a throttle and not a radius cull. Pass A's contract
-     (docs/SPEC.md section 11.1) is that open air obstructs nothing, so a radius
+      is that open air obstructs nothing, so a radius
      would change what the player sees; the throttle changes only how often the
      same answer is computed, which at 1,024 columns is the whole cost. */
   let verSum = 0;
@@ -160,7 +160,7 @@ function passA(b, tx0, ty0, tx1, ty1) {
   }
 }
 
-/* ---------- Pass B: bounded local sight ----------
+/* Pass B: bounded local sight
    A flood-fill through non-solid neighbours, 4-directional, up to a maximum
    GRAPH distance -- not a straight-line radius, and deliberately not true
    shadowcasting/raycasting; that was considered and rejected as overkill for

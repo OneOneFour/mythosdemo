@@ -9,10 +9,10 @@
    bundle stays a single file. Rows are ZzFX parameter lists; author new ones
    with the GUI at https://killedbyapixel.github.io/ZzFX/ and paste the array in. */
 
-/* ---- THE MAPPING. Journal kind -> sound row name. -------------------------
+/* THE MAPPING. Journal kind -> sound row name.
    These kind strings are the vocabulary `rules` pushes and `shell` drains.
    Keep this list and the kinds in `model/journal.js` in step; the resolver
-   checks that every value below names a row in `SOUNDS`. ---- */
+   checks that every value below names a row in `SOUNDS`. */
 export const KIND_SFX = Object.freeze({
   pick:      'pick',        // a strike that did not break anything
   breakSoft: 'breakSoft',   // a soft tile broke
@@ -30,21 +30,21 @@ export const KIND_SFX = Object.freeze({
   grant:     'trial',       // a machine tier was granted or drafted
   relic:     'trial',       // a rare relic (trinket) drop landed in the world
 
-  /* ---- The cycle loop was entirely silent until here. The three
+  /* The cycle loop was entirely silent until here. The three
      kinds `rules/cycles.js` pushes (`tribute`, `cycle`,
      `debt`) had no entry in this table and no `shell/notify.js` row either,
      so the most important moment in the game -- a god accepting your work --
-     made no sound at all. `win` is the fourth, new with the end state. ---- */
+     made no sound at all. `win` is the fourth, new with the end state. */
   tribute:   'tithe',       // a receiver's buffer was credited to the live demand
   cycle:     'trial',       // a trial was paid in full
   debt:      'debt',        // a deadline expired
   win:       'triumph'      // every shipped trial is paid
 });
 
-/* ---- the waveform table ----------------------------------------------------
+/* the waveform table
    [volume, randomness, frequency, attack, sustain, release, shape, shapeCurve,
     slide, deltaSlide, pitchJump, pitchJumpTime, repeatTime, noise, modulation,
-    bitCrush, delay, sustainVolume, decay, tremolo] ---- */
+    bitCrush, delay, sustainVolume, decay, tremolo] */
 export const SOUNDS = Object.freeze({
   pick:      [ .5, .05, 160, .01, 0,   .06, 4, 1.6,  -8,  0,   0,   0,   0, .4,  0, 0, 0,   .5, .01],
   breakSoft: [ .4, .05, 110, .01, 0,   .12, 3, 1.2, -20,  0,   0,   0,   0, .8,  0, 0, 0,   .4, .02],
@@ -60,7 +60,7 @@ export const SOUNDS = Object.freeze({
   winch:     [ .5, .06, 170, .04, .12, .30, 2, 1.3,  -5,  0,  40, .06,   0, .2,  0, 0, .03, .5, .05],
   divine:    [ .6, .05, 440, .12, .30, .60, 0, 1.0,   8,  0, 180, .10,   0, 0,   0, 0, .06, .8, .12],
   trial:     [ .6, .05, 330, .10, .24, .50, 0, 1.2,   5,  0, 120, .08,   0, 0,   0, 0, .05, .8, .10],
-  /* ---- Three rows, each derived from a neighbour above rather
+  /* Three rows, each derived from a neighbour above rather
      than authored blind, so the family is audibly one family:
        tithe   `pickup` shifted DOWN a register and lengthened -- a coin into
                a stone bowl rather than into a pocket. Gapped in `MIN_GAP`
@@ -68,7 +68,7 @@ export const SOUNDS = Object.freeze({
        debt    `hurt` with the pitch slide steepened and the shape squared --
                the same fall, heavier, and deliberately not `death`.
        triumph `divine` held longer and pitched up, the one sound in the game
-               that plays at most once per run. ---- */
+               that plays at most once per run. */
   tithe:     [ .45,.05, 420, .02, .05, .16, 0, 1.3,   8,  0, 180, .03,   0, 0,   0, 0, 0,   .6, .03],
   debt:      [ .7, .06, 150, .03, .08, .38, 3, 2.4, -30, -2,   0,   0,   0, .6,  0, 0, .06, .4, .07],
   triumph:   [ .7, .04, 520, .14, .40, .90, 0, 1.0,  10,  0, 260, .14,   0, 0,   0, 0, .08, .9, .14]

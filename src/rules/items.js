@@ -1,7 +1,6 @@
 /* LAYER rules — FALLING MATERIAL: gravity, landing, resting, pickup.
    Imports `core`, `data`, `model`. Imports no other `rules` module.
 
-   ============================================================================
    THE COLLISION HERE IS SWEPT, AND THAT IS A FIX RATHER THAN A FLOURISH.
    The previous version integrated in one shot and then point-sampled the tile
    under the item's new position. At terminal velocity (400 px/s) and a 30 ms
@@ -15,7 +14,6 @@
    probes per item per frame, against hundreds of items — measured in
    microseconds, and worth it for a mechanic whose entire promise is that
    material lands where you expect.
-   ============================================================================
 
    ARCHITECTURE invariant 5, restated because this file is where it is felt:
    mined material is a physical thing that falls. Machines are catch boxes and
@@ -64,13 +62,13 @@ function refusalDue(it) {
   return true;
 }
 
-/* ---------- the drop verb ----------
+/* the drop verb
    CLAUDE.md D4's own stated prerequisite: shipping the encumbrance lockout
    without a way to put material down would soft-lock an over-cap player.
    Spends exactly one unit of the HEAVIEST held pair -- the one that buys
    the most relief per item dropped, not the first in HUD order -- and hands
    it back to gravity at the player's feet, the same "material becomes a
-   falling item" idiom (invariant 5) `rules/crafting.js` and
+   falling item" idiom `rules/crafting.js` and
    `rules/trinkets.js#grant` already use, with a small toss read through
    `eff('tossUp')`/`eff('tossSpread')` rather than a fifth
    independently-chosen toss magnitude. */
@@ -145,7 +143,7 @@ export function step(dt, cmd) {
   iw.reindex();
 }
 
-/* ---------- the swept step. Returns false if the item left the world. ---------- */
+/* the swept step. Returns false if the item left the world. */
 function integrate(it, dt, grav, term) {
   it.vy = Math.min(term, it.vy + grav * dt);
 

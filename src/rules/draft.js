@@ -19,7 +19,7 @@
    `rand()` draws -- a partial Fisher-Yates over a copy of the candidate list,
    one draw per card laid out -- and a reroll consumes exactly as many again.
    Reordering or adding a draw here changes every later draw in the run and
-   breaks seed compatibility (invariant 7). */
+   breaks seed compatibility. */
 
 import { rand } from '../core/rng.js';
 import { push } from '../model/journal.js';
@@ -38,7 +38,7 @@ function pick(candidateIds) {
 /* Lay out an offer of `tier`, asked by `god` (`null` for a debug draft),
    over `candidateIds`, and write it to `run.offer`.
    FEWER CANDIDATES OFFER FEWER CARDS, honestly: the grant tier ships at two
-   rows by decision (docs/PLAN-wave5-closeout.md §5.1), so two-of-two is a
+   rows by decision, so two-of-two is a
    real case and padding it would mean offering something already taken. With
    NO candidates left there is nothing to choose between, so the request is
    dropped with a refusal rather than raising a modal holding nothing.
@@ -57,7 +57,7 @@ export function offer(tier, god, candidateIds) {
 /* Spend `god`'s favour to re-pick the standing offer. Refuses -- spending
    nothing -- through the same `'refused'` row every other refusal in `rules`
    pushes, because a price the player cannot pay must say so rather than
-   quietly do nothing (D17-B).
+   quietly do nothing.
 
    TWO REFUSALS, TWO MESSAGES, because they are two different facts about the
    world and only one of them is about the purse: a tier with no more rows

@@ -9,7 +9,7 @@
    slot's content alongside its own geometry — one record per slot, not two.
    A future standalone use (an equipment slot outside any grid) is exactly a
    1xN `grid.js` call, not a reason to duplicate this file's bookkeeping.
-   See docs/DEVELOPER_GUIDE.md#widget-primitives */
+*/
 import { drawText, textWidth } from '../../core/font.js';
 import { R } from '../../core/pixels.js';
 import { mix } from '../../core/palette.js';
@@ -84,7 +84,7 @@ export function drawSlot(g, opts) {
    `view/ui/quickbar.js`) -- get the double frame, which is the point of the
    function being shared: "this slot is called out" must look like one thing,
    not two.
-   See docs/DEVELOPER_GUIDE.md#record-what-you-drew */
+*/
 export function frameSlot(g, s, col) {
   R(g, s.x, s.y, s.w, 1, col);
   R(g, s.x, s.y, 1, s.h, col);

@@ -18,8 +18,8 @@
                     'collapse'  clear every tile in a `radius`-tile square
                                 centred on the aim reticle to AIR, THROUGH
                                 `model/tiles.js#write.clear`, which already
-                                repaints only the chunks it touches
-                                (invariant 3). Picked over "petrify"
+                                repaints only the chunks it touches.
+                                Picked over "petrify"
                                 (converting tiles TO a harder substance)
                                 because it needs no new tile-write verb
                                 beyond one already used everywhere mining

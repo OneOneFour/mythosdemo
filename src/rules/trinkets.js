@@ -2,7 +2,7 @@
    Imports `data`, `model`. Imports no other `rules` module.
 
    A TRINKET HAS NO SEPARATE "EQUIPPED" LIST -- AND AN EQUIP SLOT IS NOT A
-   SECOND INVENTORY EITHER. See docs/DEVELOPER_GUIDE.md#the-four-gift-tiers
+   SECOND INVENTORY EITHER.
 
    `step()` below does two things every frame, in order: clear any slot whose
    id the pockets no longer hold (so a slot and the pockets can never disagree
@@ -41,7 +41,7 @@ export const draftable = () => TRINKETS.filter(t => invCount(S[t.id], F.relic) =
 /* Run once a frame (see `shell/schedule.js`). `removeBySource` is the half a
    static field cannot express: `WALK *= 1.15` cannot be told apart from the
    base value once applied, so undoing it needs the row kept by its source, not
-   the multiplier alone. See docs/DEVELOPER_GUIDE.md#the-tunable-pipeline */
+   the multiplier alone. */
 export function step() {
   /* Pass 1: a slot whose id the pockets no longer hold is cleared HERE, in
      the same pass every frame -- the two structures (`run.equipped`,

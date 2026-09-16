@@ -5,7 +5,7 @@
    WHY THIS IS SHELL AND NOT VIEW: which panel is open, the active tab per
    panel, the focused slot, the drag payload, the search string and each
    grid's scroll offset are all facts about the SESSION, not about the WORLD.
-   See docs/DEVELOPER_GUIDE.md#where-does-state-go. `view` may not import
+   view` may not import
    `shell`, so this object is handed to `view` through
    `shell/main.js#frameCtx`, exactly as `shell/input.js#flags` already is.
 
@@ -18,7 +18,7 @@
    Every export here is a plain function mutating properties on the one `ui`
    object below, per docs/DEVELOPER_GUIDE.md#cross-module-mutable-state. */
 
-/* ============================================================================
+/*
    THE KEYMAP, DECLARED ONCE, READ BY TWO LAYERS.
 
    `view/ui/menu.js`'s CONTROLS page is generated from this array. It is here
@@ -124,7 +124,7 @@ export const ui = {
   searchFocus: false,           // is the CRAFTING tab's search field capturing keys
   scroll: Object.create(null),  // `${panel}:${grid}` -> row offset (integer)
 
-  /* ---- both UI STATE and both deliberately NOT model ----
+  /* both UI STATE and both deliberately NOT model
 
      `craftQueue`: an ARRAY of recipe ids, FIFO, head = in progress. THE QUEUE
      IS NOT A MECHANIC CHANGE. `rules/crafting.js` is a SCALAR on `run`
@@ -166,8 +166,7 @@ export const ui = {
      BUT IT IS SIMULATION-AFFECTING INPUT STATE, NOT A PRESENTATION
      PREFERENCE LIKE MUTE OR THE GRID OVERLAY, and it is therefore RESET ON
      EVERY RUN -- `shell/boot.js#newRun`'s teardown calls
-     `setAutoCollect(false)` beside every model `clear()` (D13-A,
-     docs/PLAN-phase13.md §4.3). It ORs into `cmd.collect`, which gates
+     `setAutoCollect(false)` beside every model `clear()`. It ORs into `cmd.collect`, which gates
      `model/run.js#write.collect`, which changes `run.inv`, which changes
      burden, which changes climb speed and carrier load. Left sticky, a
      restart on the same seed would replay differently depending on what the
@@ -221,8 +220,7 @@ export const ui = {
      dropped, picked clean), or Escape (`shell/input.js`). */
   armedPlace: null,
 
-  /* THE ARMED LINK ENDPOINT (Phase 8d, docs/PLAN-gears-and-winches.md section
-     4.5): the machine RECORD a first `l` press has selected as "one end of the
+  /* THE ARMED LINK ENDPOINT: the machine RECORD a first `l` press has selected as "one end of the
      next cable", or null. Which endpoint is armed is a fact about the SESSION,
      exactly like `armedPlace` above -- arming one touches no `model` state at
      all, only which pair `shell/main.js#applyIntents`'s `cmd.link` branch
@@ -242,7 +240,7 @@ export const ui = {
      deconstructed out from under it, or Escape (`shell/input.js`). */
   linkFrom: null,
 
-  /* ---- THE OVERVIEW'S SCROLL, ZOOM AND LAYER TOGGLES ----
+  /* THE OVERVIEW'S SCROLL, ZOOM AND LAYER TOGGLES
      Where the map is looking, how far in, whether it is following the player
      and which metadata layers are on. All of it is a fact about the SESSION,
      exactly like every other field in this file: opening the map, scrolling
@@ -287,7 +285,7 @@ export const ui = {
     }
   },
 
-  /* ---- THE MAIN MENU (6l) ----
+  /* THE MAIN MENU (6l)
      Which page is showing, which row the cursor is on, what the player has
      typed into the SEED field, whether a save exists and why the last load
      refused. All of it is a fact about the SESSION, exactly like the panel
@@ -307,7 +305,7 @@ export const ui = {
 
      `confirm` is the id of the ONE row that has been taken once and is waiting
      to be taken again, or null. Only a row that would discard the run in
-     progress ever sets it (docs/SPEC.md section 30.6) -- the row itself is the
+     progress ever sets it -- the row itself is the
      confirmation, so there is no second modal and no second keyboard owner.
 
      `index` counts rows of the page CURRENTLY DRAWN, so it is only meaningful
@@ -335,7 +333,7 @@ export const ui = {
   keymap: KEYMAP
 };
 
-/* THE PANELS THE GAME RAISES, which freeze the run while they stand (D17-A),
+/* THE PANELS THE GAME RAISES, which freeze the run while they stand,
    as against the ones the player OPENS, which deliberately freeze nothing.
    Stated ONCE, here, and consulted by both `shell/main.js#step` and
    `#applyIntents` -- the same fact ("this frame does not simulate") the
@@ -370,7 +368,7 @@ export function toggle(id) {
   if (isOpen(id)) close(id); else open(id);
 }
 
-/* ---------- tabs ----------
+/* tabs
    `tabs` is the SAME `[{id,label}]` list `view/ui/tabs.js#drawTabs` is given
    — passed in here too rather than cached, so a tab list that changes
    (crafting's category row, filtered by what is granted) never goes stale
@@ -391,7 +389,7 @@ export function cycleTab(panel, tabs, dir) {
   ui.tab[panel] = next.id;
 }
 
-/* ---------- focus, drag, search ---------- */
+/* focus, drag, search */
 export function setFocus(panel, index) { ui.focus = { panel, index }; }
 export function clearFocus() { ui.focus = null; }
 
@@ -400,7 +398,7 @@ export function clearDrag() { ui.drag = null; }
 
 export function setSearch(s) { ui.search = s; }
 
-/* ---------- per-grid scroll ----------
+/* per-grid scroll
    Keyed by `panel:grid` rather than nesting an object per panel, so a grid
    id is guaranteed unique across the whole session state with one string
    compare instead of a two-level lookup — the same flattening
@@ -421,10 +419,10 @@ export function scrollSet(panel, grid, row, maxRow = Infinity) {
   ui.scroll[scrollKey(panel, grid)] = Math.max(0, Math.min(maxRow, row));
 }
 
-/* ---------- search field ---------- */
+/* search field */
 export function setSearchFocus(v) { ui.searchFocus = v; }
 
-/* ---------- the craft queue ----------
+/* the craft queue
    See the header on `ui.craftQueue` above for why this is UI state and not a
    `rules/crafting.js` change. A hard ceiling (99) keeps ctrl-click's "max
    affordable" from ever building a queue long enough to be its own kind of
@@ -453,7 +451,7 @@ export function clearCraftQueue() { ui.craftQueue.length = 0; }
 
 export function toggleHints() { ui.hintsOpen = !ui.hintsOpen; }
 
-/* ---------- auto collect (docs/PLAN-phase12.md §3 D-F) ----------
+/* auto collect (docs/PLAN-phase12.md §3 D-F)
    TWO functions on purpose. `toggleAutoCollect` is what the Character-tab row
    calls -- a click on a checkbox knows nothing but "flip it". `setAutoCollect`
    states the state it wants, which is what `shell/boot.js#newRun` needs (a
@@ -465,7 +463,7 @@ export function toggleHints() { ui.hintsOpen = !ui.hintsOpen; }
 export function toggleAutoCollect() { ui.autoCollect = !ui.autoCollect; }
 export function setAutoCollect(v) { ui.autoCollect = !!v; }
 
-/* ---------- auto feed (Phase 16b, D16-C) ----------
+/* auto feed
    TWO functions, for the two callers the pair above already has and for the
    identical reasons: the Character-tab row flips it blind, and
    `shell/boot.js#newRun` (plus every probe in `tools/check.mjs` and
@@ -477,14 +475,14 @@ export function setAutoCollect(v) { ui.autoCollect = !!v; }
 export function toggleAutoFeed() { ui.autoFeed = !ui.autoFeed; }
 export function setAutoFeed(v) { ui.autoFeed = !!v; }
 
-/* ---------- click-to-arm placement ----------
+/* click-to-arm placement
    `armPlace` takes ORDINALS (a substance x form pair), the same shape
    `ui.drag` already stores one -- see `ui.armedPlace`'s own header above for
    what clears it and why. */
 export function armPlace(sub, form) { ui.armedPlace = { sub, form }; }
 export function clearArmedPlace() { ui.armedPlace = null; }
 
-/* ---------- the armed link endpoint ----------
+/* the armed link endpoint
    `armLink` takes the machine RECORD, not ordinals, for the reason
    `ui.linkFrom`'s own header above gives. Deliberately NOT filtered for a
    `hub` block here: whether two machines may be joined is
@@ -496,7 +494,7 @@ export function clearArmedPlace() { ui.armedPlace = null; }
 export function armLink(m) { ui.linkFrom = m; }
 export function clearLink() { ui.linkFrom = null; }
 
-/* ---------- the overview: scroll, zoom, layers ----------
+/* the overview: scroll, zoom, layers
    Plain mutators over `ui.map`, in the shape every other function in this file
    already has. NOTHING HERE CLAMPS: the clamp is `view/overview.js`'s, once,
    against the band union it is already deriving to draw with -- a second copy
@@ -554,7 +552,7 @@ export function mapDragTo(sx, sy, scale) {
   ui.map.y = d.y - (sy - d.sy) / scale;
 }
 
-/* ---------- the main menu (6l) ----------
+/* the main menu (6l)
    Plain mutators in the shape every other function in this file has. NOTHING
    HERE DRAWS AND NOTHING HERE READS STORAGE: `shell` calls `setMenuSave` and
    `setMenuStale` with `shell/save.js#slotState()`'s answer and

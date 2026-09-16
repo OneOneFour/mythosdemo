@@ -1,6 +1,6 @@
 /* LAYER rules — THE CYCLE DIRECTOR: arms a trial, drains what was fed to it,
    and decides completion or debt. Imports `core`, `data`, `model`. Imports
-   no other `rules` module. See docs/PLAN-phase10.md 4.7 and docs/SPEC.md 18.
+   no other `rules` module..7 and docs/SPEC.md 18.
 
    ONE DECISION PER STEP, IN ORDER: ensure a live cycle, drain every tribute
    receiver into it, tick its deadline, then resolve -- complete or miss,
@@ -42,9 +42,9 @@
    performs them, immediately after this module in `shell/schedule.js`, so the
    BUILD list gains the row the same frame the trial pays.
 
-   NO `rand()` outside the drop roll (invariant 7). The deadline accumulates
+   NO `rand()` outside the drop roll. The deadline accumulates
    from `dt` alone and a batch credit is stamped with `run.t`, never with
-   `Date.now()` (invariant 10) -- see `RUN_SCHEMA.tribute`'s own comment in
+   `Date.now()` -- see `RUN_SCHEMA.tribute`'s own comment in
    `model/run.js`. */
 
 import { rand } from '../core/rng.js';
@@ -77,14 +77,13 @@ export function step(dt) {
    below, so THIS is the one place a new cycle ever arms, whether it is the
    first or a retry of one just missed.
 
-   PAST THE LAST SHIPPED ROW, THE RUN IS WON (Phase 13d, docs/SPEC.md
-   section 20.2). This used to `return` and do nothing, for ever: the TRIBUTE
+   PAST THE LAST SHIPPED ROW, THE RUN IS WON. This used to `return` and do nothing, for ever: the TRIBUTE
    panel simply stopped drawing, FAVOUR kept reading full, and the game did
    not end so much as run out. `run.cycle > CYCLES.length` was already the
    fact; `rw.win()` is the EVENT, set exactly once (guarded on `run.won`,
    which is why a second frame is silent) with a journal row for
    `shell/notify.js` to sound and `view/hud.js#winScreen` to draw. Cycles 5-6
-   still wait on the `essence`/`ambrosia` tiers (docs/SPEC.md section 8), so
+   still wait on the `essence`/`ambrosia` tiers, so
    the boundary this fires at is the shipped table's own length and moves on
    its own when the table grows -- there is no literal 4 anywhere. */
 function ensureLiveCycle() {
@@ -156,7 +155,7 @@ const SPAWN_GAP = 4;
    must agree, and neither file may import the other. */
 const ALTAR_BEAT = 4;
 
-/* IT DOES NOT ARRIVE ON FRAME 0 (D17-G, docs/SPEC.md section 5). The beat
+/* IT DOES NOT ARRIVE ON FRAME 0. The beat
    sheet raises the altar once the player has climbed back out of their own
    shaft, so the director waits for beat 4. `model/tutorial.js#beat` is a
    `model` query over `run.tutorialBeat`, which is how this reads a beat
@@ -166,7 +165,7 @@ const ALTAR_BEAT = 4;
    nothing else can pay it, so a beat predicate that never fires would
    soft-lock the first trial outright. `eff('altarGraceSecs')` places the
    altar anyway once `run.t` passes it -- simulated seconds at the fixed
-   1/120 s substep, never `Date.now()` (invariant 10). CLAUDE.md D4 leaves
+   1/120 s substep, never `Date.now()`. CLAUDE.md D4 leaves
    the one-tile auto-step ungated for the same reason, because the only way
    forward must never wait on a state that can fail to arrive.
 
@@ -240,15 +239,14 @@ function drainReceivers() {
 }
 
 /* A CREDIT IS STAMPED WITH `run.t`, which is simulated time at the fixed
-   1/120 s substep and never `Date.now()` (invariant 10, docs/SPEC.md section
-   18.10). Only the batched pair is stamped; every other pair moves `have` and
+   1/120 s substep and never `Date.now()`. Only the batched pair is stamped; every other pair moves `have` and
    nothing else.
 
    ON ARRIVAL, WHICH IS WHY THE CLAUSE IS CALLED `batch` AND NOT `rate`. This
    function runs when a receiver's buffer is drained, so a haul of four
    plates is one credit of four at one instant however long it took to make
    or to climb. That measures how tightly deliveries are bunched and cannot
-   be made to measure production (docs/SPEC.md section 18.10).
+   be made to measure production.
 
    THE LEDGER IS REBUILT PER CREDIT rather than pushed into, because
    `run.tribute` is replaced whole and never patched in place -- the same
@@ -292,7 +290,7 @@ function complete(cyc) {
   const pos = m ? { x: m.box.x + m.box.w / 2, y: m.box.y } : null;
   const reward = cyc.reward;
   if (reward.favour) rw.favour(cyc.god, reward.favour);
-  /* THE GRANT BRIDGE, NOT `rw.grant` (Phase 13d, docs/SPEC.md section 20.3):
+  /* THE GRANT BRIDGE, NOT `rw.grant`:
      the raw model writer appends a machine id to `run.granted` and pushes
      NOTHING, so calling it directly would give cycle 1's reward -- the
      furnace and the dock, the single most important gift in the game -- no
@@ -356,11 +354,11 @@ function hurtFor(pos, n, cause) {
 /* Duplicates `rules/mining.js`'s rare-trinket-drop shape, filtered to
    `trigger:'tribute'` -- `tribute-bellows` (`data/drops.js`) is `chance:1`,
    so the first cycle completion always hands over the bellows trinket. Rolled
-   through `rand()` and nothing else (invariant 7), and skipped entirely if a
+   through `rand()` and nothing else, and skipped entirely if a
    copy is already held, the same "one is enough" rule the mining roll uses.
    Spawns in the RECEIVER'S OWN BAND, never the spawn band by assumption --
    the dock sits in `astral`, and world px is only meaningful within the band
-   that owns it (invariant 2). */
+   that owns it. */
 function rollTributeDrop(m) {
   if (!m) return;
   for (const d of DROPS) {

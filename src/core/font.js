@@ -54,7 +54,7 @@ export function wrap(s, budget, sc = 1, tr = 1) {
   return lines;
 }
 
-/* `shadow` (docs/PLAN-phase13.md 2.4c) is a colour string or `null`. When set,
+/* `shadow` is a colour string or `null`. When set,
    the WHOLE STRING is rasterised once at (x+sc, y+sc) in the shadow tone and
    then once at (x, y) in `col`.
 

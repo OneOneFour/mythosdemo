@@ -35,7 +35,7 @@
    happening to `segments`. Comparing the record against `bands[ord]` makes
    every mark of a previous run stale by construction, and `rules/mining.js`
    collects them on the first substep. `clearAll()` is still the right call for
-   `newRun` to make (docs/SPEC.md section 28.4); this is what makes its absence
+   `newRun` to make; this is what makes its absence
    unobservable rather than a substitute for it.
 
    READS NEVER MUTATE, and that is load-bearing rather than tidy. `view` draws
@@ -96,8 +96,8 @@ function d2(m, px, py) {
 
 /* Is one mark within `reach` of a world point? The per-mark form of the test
    the two queries below apply, exported because `view` tints every mark by it
-   and `nearestWithin`/`committedWithin` each answer for exactly one
-   (docs/SPEC.md section 28.7). `reach` is a parameter for their reason. */
+   and `nearestWithin`/`committedWithin` each answer for exactly one.
+   `reach` is a parameter for their reason. */
 export const withinReach = (m, px, py, reach) => d2(m, px, py) <= reach * reach;
 
 /* The hard cap on marks, floored at 1: a queue that can hold nothing is a
@@ -111,7 +111,7 @@ export const write = {
      THE CALLER OWNS THE REFUSAL. 'full' is a fact, not a toast: no `model`
      module imports `model/journal.js`, so `shell/input.js`'s drag gesture is
      what turns a 'full' into the journal row every other refusal in this game
-     gets (docs/SPEC.md section 28).
+     gets.
 
      AIR AND THE WORLD EDGE ARE REFUSED HERE rather than by the caller, which
      is storage integrity and not a mechanic: a drag sweeps across open sky,
@@ -223,8 +223,7 @@ export function nearestWithin(px, py, reach) {
    the mark was dropped (`live`), the band was reallocated by a restart
    (`stale` again, invariant 8), and the player walked out of range. Only the
    last is a suspension -- the mark goes back to being an ordinary one and is
-   picked up again by whichever query reaches it next (docs/SPEC.md
-   section 28.3).
+   picked up again by whichever query reaches it next.
 
    `reach` IS A PARAMETER for `nearestWithin`'s reason, and the two must be
    passed the same one: `view` draws the target differently from a waiting

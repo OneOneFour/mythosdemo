@@ -5,7 +5,7 @@
    content rows are allowed to use live in `data/palette.js`, which re-exports
    this table and is what `tools/content.mjs` checks a `look` key against.
 
-   See docs/DEVELOPER_GUIDE.md#colour-and-appearance. */
+ */
 
 export const P = {
   skyHi:'#c4dcee', skyLo:'#8fb9d8', cloudA:'#ffffff', cloudB:'#dbe8f4', cloudC:'#b9cfe4',
@@ -30,8 +30,8 @@ export const P = {
   vdA:'#63947a', vdB:'#4b7460', vdC:'#365746', vdD:'#243c30',
   irA:'#a3a3ad', irB:'#74747f', irC:'#4a4a54', irD:'#2c2c34',
   ichor:'#ffd97a', hot:'#ff9a3c', ui:'#d2c9b2', uiDim:'#98907c', uiBack:'#0d0b12',
-  /* THE THREE INK TONES, and which one a call site is allowed to use
-     (docs/PLAN-phase13.md 2.4a). The old two-tone split made "secondary" and
+  /* THE THREE INK TONES, and which one a call site is allowed to use.
+     The old two-tone split made "secondary" and
      "illegible" the same colour: `uiDim` at '#7b7361' is 4.3:1 against
      `uiBack` at FULL opacity, and every panel draws `uiBack` at 0.6-0.92 alpha
      over the live world, so the effective figure was lower -- and under 2:1
@@ -68,7 +68,7 @@ export const P = {
   adamantA:'#8fe3d9', adamantB:'#2b4a52', adamantC:'#1c3238', adamantD:'#0f1c1f'
 };
 
-/* ---------- colour arithmetic ---------- */
+/* colour arithmetic */
 
 export function hex2rgb(h) {
   const n = parseInt(h.slice(1), 16);

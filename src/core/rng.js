@@ -45,7 +45,7 @@ export const rand = () => rng.next();
 /* Where the run's stream stands, as an int32 `seedRng()` will resume from, or
    null while `rng.next` is still `Math.random`. `shell/save.js` is the only
    caller: without it a loaded run keeps the saved world and gets a different
-   future (docs/SPEC.md section 27.2). */
+   future. */
 export const cursor = () => (rng.next.state ? rng.next.state() : null);
 
 /* Convenience draws, so call sites stop rewriting the same arithmetic. */

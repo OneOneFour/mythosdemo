@@ -6,7 +6,7 @@
    table read at placement time and there is no boot compile step — so nothing
    in the project has to support "late" content. This file adds an id to
    `run.granted` and `rules/placement.js` refuses anything not in it.
-   See docs/DEVELOPER_GUIDE.md#the-four-gift-tiers
+
 
    TWO ENTRY POINTS, ONE EFFECT: `grant(grantId)` for a DRAFTED
    `data/grants.js` row, and `award(machineId)` for a machine handed over
@@ -40,7 +40,7 @@ export function grant(grantId) {
   return true;
 }
 
-/* ---- THE REWARD-GRANT BRIDGE (Phase 13d, docs/SPEC.md section 20.3) ------
+/* THE REWARD-GRANT BRIDGE
    A cycle reward hands out a MACHINE ID, not a `data/grants.js` row id --
    cycle 1's `furnace` and `cloud_dock` have no GRANT row and must not get
    one, because a GRANT row is by definition draftable
@@ -86,5 +86,5 @@ export function award(machineId) {
 }
 
 /* Grants not yet taken. Same shape as every other tier's `draftable`
-   -- see docs/DEVELOPER_GUIDE.md#the-four-gift-tiers */
+   -- */
 export const draftable = () => GRANTS.filter(g => !canPlace(g.grants));

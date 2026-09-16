@@ -28,7 +28,7 @@
                    the check `data/forms.js#expand` exists for.
      batch         OPTIONAL `{ sub, form, n, secs }` -- deliver `n` of that
                    concrete pair inside ANY window of `secs` seconds of
-                   SIMULATED time (docs/SPEC.md section 18.10). A second
+                   SIMULATED time. A second
                    clause on `model/run.js#tributeMet()` and never a
                    replacement for `demand`: both must hold for the trial to
                    pay. It constrains the PATTERN of delivery and not the
@@ -39,8 +39,7 @@
                    block per row at most, and the pair is concrete for the
                    same two reasons `demand`'s rows are.
      deadlineSecs  seconds, or `null` for NO CLOCK. `null` is a real branch and
-                   not a large number: cycle 1 has no clock (docs/SPEC.md
-                   section 4), so it can never be missed, and a panel must draw
+                   not a large number: cycle 1 has no clock, so it can never be missed, and a panel must draw
                    no timer for it rather than a zero.
      reward        { favour, grants?, charts?, draft? } -- see below.
      punishment    { hearts?, favour? }. Absent entirely on a cycle that cannot
@@ -52,8 +51,8 @@
               FAVOUR panel is a picture of this run (CLAUDE.md D1, decision I).
      grants   machine ids appended to `run.granted`, i.e. docs/DESIGN.md's
               MACHINE tier paid out directly rather than drafted.
-     charts   band ids appended to `run.charted`. KNOWLEDGE, NOT ACCESS
-              (docs/PLAN-phase10.md 3.4): there is no band lock in this game
+     charts   band ids appended to `run.charted`. KNOWLEDGE, NOT ACCESS:
+              there is no band lock in this game
               and this does not invent one. It takes the `????????` off a
               band's name on the ruler.
      draft    'grant' | 'boon' | 'trinket' | 'miracle' -- a tier to be offered
@@ -61,7 +60,6 @@
               `shell/main.js` performs it, because `draftable()` lives in four
               `rules` siblings a `rules` module may not import.
 
-   ============================================================================
    WHY THESE FOUR ROWS AND NOT SIX. docs/DESIGN.md runs the progression to a
    sixth cycle asking for three bottles of ambrosia; docs/SPEC.md section 8
    marks the `essence` (60:1) and `ambrosia` (~400:1) tiers NOT IMPLEMENTED. A
@@ -71,22 +69,21 @@
 
    ESCALATION IS IN REFINEMENT, NOT VOLUME. Cycle 2 wants three PLATE, which is
    36 ore against cycle 1's 10 -- a 3.6x jump in mining that reads as a
-   three-unit ask, which is the whole point of pricing a demand in compression
-   (docs/DESIGN.md). Cycle 3 forces DEPTH (`tin` starts at topsoil row 60,
+   three-unit ask, which is the whole point of pricing a demand in compression.
+   Cycle 3 forces DEPTH (`tin` starts at topsoil row 60,
    `data/world.js`). Cycle 4 forces the TIER GATE (`granite` is `tile.tier 2`,
    so a stock pick cannot break it -- docs/SPEC.md section 12 -- and the auger
    becomes necessary).
 
    HADES NEVER ASKS. The asker set is {hephaestus, athena, poseidon}. `ares` is
-   the shipped trap god (docs/SPEC.md section 14) and stays out of the asking;
+   the shipped trap god and stays out of the asking;
    `hades` is protected by docs/DESIGN.md's Hades act, where his being the FIRST
    GOD TO ADDRESS THE PLAYER IN PERSON is the whole reveal. A minor god takes
-   cargo off an altar and says nothing. This table must not spend that.
-   ============================================================================ */
+   cargo off an altar and says nothing. This table must not spend that. */
 
 export const CYCLES = [
 
-  /* ---- 1. THE FIRST TRIAL, unmoved and unclocked (docs/SPEC.md section 4 and
+  /* 1. THE FIRST TRIAL, unmoved and unclocked (docs/SPEC.md section 4 and
      section 5's beats 5-6). Ten RAW copper on the surface altar, which is a
      five-tile dig from the guaranteed spawn vein -- the beat sheet's own
      promise -- and no clock at all, because the only thing this trial teaches
@@ -102,13 +99,13 @@ export const CYCLES = [
      up". Before this the top of the ruler reads `????????` and always will,
      because no player enters astral early. Completing the first trial names it
      -- at exactly the moment the game has finished teaching that up is
-     expensive. ---- */
+     expensive. */
   { id:'first-trial', god:'hephaestus', at:'altar',
     demand:[ { sub:'copper', form:'ore', n:10 } ],
     deadlineSecs:null,
     reward:{ favour:1, grants:['furnace', 'cloud_dock'], charts:['astral'] } },
 
-  /* ---- 2. THE FIRST DELIVERY. Three copper PLATE at the dock: 36 ore and 12
+  /* 2. THE FIRST DELIVERY. Three copper PLATE at the dock: 36 ore and 12
      fuel through two compression steps, up a three-segment chain the player has
      to build first.
 
@@ -121,16 +118,16 @@ export const CYCLES = [
      CHARTS TOPSOIL, and the honest note is that this is nearly a no-op today:
      any player who has dug at all has already entered topsoil, so `bandKnown`
      is already true for it. The charting reward is a HOOK whose payoff arrives
-     with more bands. Said here rather than pretended otherwise. ---- */
+     with more bands. Said here rather than pretended otherwise. */
   { id:'first-delivery', god:'hephaestus', at:'cloud_dock',
     demand:[ { sub:'copper', form:'plate', n:3 } ],
     deadlineSecs:480,
     reward:{ favour:2, charts:['topsoil'], draft:'grant' },
     punishment:{ hearts:1, favour:-1 } },
 
-  /* ---- 3. ATHENA, AND DEPTH. Tin does not exist above topsoil row 60
+  /* 3. ATHENA, AND DEPTH. Tin does not exist above topsoil row 60
      (`data/world.js`), so this trial cannot be paid out of the surface band at
-     all: the factory has to reach down before it can reach up. ---- */
+     all: the factory has to reach down before it can reach up. */
   { id:'grey-eyed-tithe', god:'athena', at:'cloud_dock',
     demand:[ { sub:'copper', form:'plate', n:6 },
              { sub:'tin',    form:'ingot', n:4 } ],
@@ -138,8 +135,8 @@ export const CYCLES = [
     reward:{ favour:2, draft:'boon' },
     punishment:{ hearts:2, favour:-1 } },
 
-  /* ---- 4. POSEIDON, AND THE TIER GATE. `granite` is `tile.tier 2`, which a
-     stock pick cannot break at any framerate (docs/SPEC.md section 12), so this
+  /* 4. POSEIDON, AND THE TIER GATE. `granite` is `tile.tier 2`, which a
+     stock pick cannot break at any framerate, so this
      trial is unpayable until the player has built the adamant auger. That is
      the gate the tool tiers exist for, asked for by name for the first time.
 
@@ -154,7 +151,7 @@ export const CYCLES = [
      hauls the whole bill in one climb -- eight plates weigh 19.2 T against a
      30 T soft cap. Making it bite would take seventeen plates or more, which
      is triple this trial's cost. docs/SPEC.md section 18.10 holds both
-     halves of that. ---- */
+     halves of that. */
   { id:'salt-tribute', god:'poseidon', at:'cloud_dock',
     demand:[ { sub:'copper',  form:'plate',  n:8 },
              { sub:'granite', form:'gravel', n:8 } ],

@@ -7,7 +7,6 @@
    reader of the git history should not have to guess whether this file was
    moved or written.
 
-   ============================================================================
    WHY IT WAS A STRIP, AND WHAT CHANGED.
 
    `drawMap` derived `scale = min(1/minTile, W/worldW, H/worldH)` over the union
@@ -30,7 +29,6 @@
    fits the viewport width, derived from the band union the way `drawMap`
    already did -- nothing here hardcodes 128 tiles, so widening `astral` from
    its current `tw:96` to the full width needs no edit in this file.
-   ============================================================================
 
    AND WHAT HAPPENS WHEN THE WIDTH NO LONGER FITS EITHER. docs/SPEC.md section
    31 is the decision and the argument; the short form is that ONE SCREEN PIXEL
@@ -52,7 +50,6 @@
 
    So the width gets an affordance rather than a scale: `extentRibbon` below,
    which is the horizontal twin of the band ruler on the right edge.
-   ============================================================================
 
    WHY THIS STILL READS THE TILE GRID AND DOES NOT DOWNSCALE THE BAKED CHUNK
    CANVASES. docs/BUILD_PLAN.md Phase 9 names that as the goal and asks for
@@ -78,14 +75,12 @@
    and coalesces each row into runs of one colour, so a scrolled-in view of the
    surface touches a few thousand tiles and issues a fraction of the rects.
 
-   ============================================================================
    THE INVARIANT: THIS MAY NEVER DRAW AN UNSEEN TILE. It is a map assembled
    from memory, not an X-ray. `drawMap` honoured it by OMISSION rather than
    with an opaque rect -- an unrevealed tile draws nothing and the void fill
    shows through -- and every layer added since filters the same way.
    Worldgen spends real effort making hollows discoveries; an overview that
-   showed them all would be a cheat menu.
-   ============================================================================ */
+   showed them all would be a cheat menu. */
 
 import { drawText, textWidth } from '../core/font.js';
 import { mix } from '../core/palette.js';
@@ -112,8 +107,7 @@ import { drawTooltip } from './ui/tooltip.js';
 const INK = {
   void:  colour('abyC'),
   ui:    colour('ui'),
-  /* `ink2` is the SECONDARY BODY tone and `dim` is the STATE tone (Phase 13a,
-     docs/PLAN-phase13.md §2.3). Two of the ten load-bearing greys are in this
+  /* `ink2` is the SECONDARY BODY tone and `dim` is the STATE tone. Two of the ten load-bearing greys are in this
      file and both keep `dim`: FOLLOW's off reading in the header and a layer
      toggled off in the legend. `dim` is also still the geometry tone for the
      chain bracket's own rules, which are lines and not text. */
@@ -278,7 +272,7 @@ export const mapWorldAt = (sx, sy) => ({
   y: mapView.wy + (sy - mapView.vy) / mapView.scale
 });
 
-/* ---------- the frame ----------
+/* the frame
    `flags.showMap` freezes the run (`shell/main.js#step()` no-ops while it is
    true) and swaps this in for the whole normal draw: no sky, no machines, no
    items, no walking sprite, no field glow, no HUD. The map is a full
@@ -310,7 +304,7 @@ export function drawOverview(g, f) {
   hoverPass(g, f, v);
 }
 
-/* ---------- terrain ----------
+/* terrain
    FOG RULES HERE EXACTLY AS IT DOES IN PLAY: `seenAt` per tile, and an
    unrevealed one draws NOTHING, leaving the void fill above showing through --
    the same "hidden regardless of what is actually there" rule `drawFog`
@@ -365,7 +359,7 @@ function drawTerrain(g, v) {
 
    THIS IS THE PASS THAT GETS DEARER WITH WIDTH, which is why it is worth the
    table. At one screen pixel per tile the window is the viewport in tiles:
-   128 columns today, 609 at 1,024 tiles wide (docs/SPEC.md section 31), and
+   128 columns today, 609 at 1,024 tiles wide, and
    the ORE layer alone was 1.5 ms of a 3.9 ms map frame before this. Never
    invalidated, because every input is a frozen `data/` row. */
 const byteInk = Array.from({ length: 256 });
@@ -386,7 +380,7 @@ function inkOf(byte) {
 const cellColour = (b, tx, ty) =>
   seenAt(b, tx, ty) ? inkOf(tileAt(b, tx, ty)).base : null;
 
-/* ============================================================================
+/*
    THE METADATA LAYERS (docs/BUILD_PLAN.md Phase 9 section 4)
 
    Each one is individually toggleable through `shell/ui.js#ui.map.layers`, and
@@ -400,8 +394,7 @@ const cellColour = (b, tx, ty) =>
    drawn, no matter that `machines` and `items` would happily hand it over. The
    filter is applied per DRAWN THING rather than once at the top, because each
    layer's unit is different: a tile for ore, a footprint for a machine, a
-   resting position for a pile, and BOTH anchors for a segment.
-   ============================================================================ */
+   resting position for a pile, and BOTH anchors for a segment. */
 
 function drawLayers(g, v, f) {
   const L = f.ui.map.layers;
@@ -412,7 +405,7 @@ function drawLayers(g, v, f) {
   if (L.chain) drawChain(g, v);
 }
 
-/* ---------- LIGHT ----------
+/* LIGHT
    Which shafts are unlit, from `b.light` -- the same volatile 0..`lightMax`
    field `view/scene.js#drawDarkness` buckets into three alpha steps on the
    normal path. Two steps here rather than three: at four screen pixels per
@@ -463,7 +456,7 @@ function darkStep(b, tx, ty, max) {
   return l >= 0.6 ? 0 : l >= 0.2 ? 0.3 : 0.62;
 }
 
-/* ---------- ORE ----------
+/* ORE
    SEEN ORE ONLY, and "ore" is a TAG, never a substance name (SPEC 12): a tile
    whose substance is tagged `metal`, which today is copper, tin and adamant and
    tomorrow is whatever else earns the tag. `data/substances.js` tags adamant
@@ -493,7 +486,7 @@ function drawOre(g, v) {
   }
 }
 
-/* ---------- PILES ----------
+/* PILES
    Dropped material, bucketed BY TILE and drawn only where the count reaches a
    threshold. Per-item markers were the first attempt and are wrong twice over:
    at four pixels per tile a dozen items in one hollow is one indistinguishable
@@ -545,7 +538,7 @@ function drawPiles(g, v) {
   }
 }
 
-/* ---------- MACHINES ----------
+/* MACHINES
    One glyph each, coloured by state, and NEITHER HALF IS A SECOND COPY:
 
      the glyph  is `def.glyph`, one character on the `data/machines.js` row (see
@@ -578,7 +571,7 @@ function drawMachines(g, v) {
   }
 }
 
-/* ============================================================================
+/*
    THE TWO HOVER LAYERS (section 4's last two rows)
 
    HOVER  a machine's own tooltip: what it is, what state it is in, what is in
@@ -596,8 +589,7 @@ function drawMachines(g, v) {
    conversion `view/hover.js#resolveHover` and `view/ui/mainPanel.js` already
    make. `shell/input.js` keeps feeding `cmd.mx/my` while the map is open
    precisely so this works, and the camera is frozen and rounded by the time this
-   runs, so the subtraction is exact rather than approximately right.
-   ============================================================================ */
+   runs, so the subtraction is exact rather than approximately right. */
 
 function hoverPass(g, f, v) {
   if (!f.mouse?.has) return;
@@ -729,7 +721,7 @@ function bandTip(g, f, b, sx, sy) {
   });
 }
 
-/* ---------- the horizontal extent ribbon ----------
+/* the horizontal extent ribbon
    WHICH SLICE OF THE WORLD'S WIDTH THE BODY IS SHOWING, as a scrollbar along
    the bottom edge of the body: a dim track the width of the world and a lit
    thumb the width of the window.
@@ -785,8 +777,7 @@ function tileWindow(b, v) {
 }
 
 /* A dashed line, integer pixels, walked parametrically so the dash phase is a
-   function of distance along the line and nothing else -- no `rand()` (invariant
-   7) and no dependence on how many times the map has been drawn. */
+   function of distance along the line and nothing else -- no `rand()` and no dependence on how many times the map has been drawn. */
 function dashTo(g, x0, y0, x1, y1, col, on = 3, off = 3, thick = 1) {
   const dx = x1 - x0, dy = y1 - y0;
   const len = Math.max(1, Math.round(Math.hypot(dx, dy)));
@@ -796,7 +787,7 @@ function dashTo(g, x0, y0, x1, y1, col, on = 3, off = 3, thick = 1) {
   }
 }
 
-/* ---------- LIFT CHAIN ----------
+/* LIFT CHAIN
    The single most useful layer in the mode, and the one the acceptance test is
    written about: open the map on four hubs with a gap where a fourth segment
    should be, and THE GAP IS THE FIRST THING YOU SEE.
@@ -948,7 +939,7 @@ function bracket(g, v, chain) {
   }
 }
 
-/* ---------- the player ----------
+/* the player
    ALWAYS DRAWN, EVEN OFF-SCREEN. A map whose one "you are here" mark silently
    vanishes the moment the view scrolls away from it is a map that cannot
    answer the only question it is ever opened for. Inside the viewport it is a
@@ -985,7 +976,7 @@ function drawPlayerMark(g, v) {
   }
 }
 
-/* ---------- the header line ----------
+/* the header line
    What the mode is and what the keys do, because a mode with hidden controls
    is a mode nobody scrolls. Drawn with `drawText` and never `fillText`. */
 function header(g, f, v) {
@@ -1014,7 +1005,7 @@ function header(g, f, v) {
   put('WASD/DRAG SCROLL  -/+ ZOOM  F  1-9 LAYERS  O CLOSE', INK.ink2);
 }
 
-/* ---------- the layer legend ----------
+/* the layer legend
    WHICH DIGIT TOGGLES WHICH LAYER IS NOT RESTATED HERE. The rows are
    `ui.map.layers`' own key order -- the single declaration in `shell/ui.js`,
    which `shell/input.js#mapDigit` indexes with the same key order -- so the

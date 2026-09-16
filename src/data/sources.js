@@ -1,11 +1,9 @@
 /* LAYER data — SOURCES: where a machine input may be drawn from.
    Imports nothing. May be imported by `data`, `model`, `rules`, `view`.
 
-   ============================================================================
    THIS IS THE ONE FILE IN `data/` WHERE A ROW CARRIES CODE.
    Read the price note at the bottom before adding a row.
    How `from:` and `units:` work: docs/DEVELOPER_GUIDE.md#non-item-inputs
-   ============================================================================
 
    `count` and `spend` are pure functions over an injected narrow api. The api
    is defined in exactly one place, `rules/machines.js`, and is the whole
@@ -48,7 +46,7 @@ export const SOURCES = Object.freeze({
     spend: (api, m, sel, n) => api.takePocketed(sel, n)
   }),
 
-  /* ---- `vital` (the player's own hearts) WAS THE THIRD ROW, AND IT IS GONE.
+  /* `vital` (the player's own hearts) WAS THE THIRD ROW, AND IT IS GONE.
      It existed for exactly one consumer: the staged winch's second, hidden
      recipe, which bought a lift charge for a heart once the timber ran out --
      the "blood winch" trap. Retiring the staged winch left
@@ -69,8 +67,7 @@ export const SOURCES = Object.freeze({
      still here, and `tools/check.mjs`'s assertion over them is generic over
      any row with `from:`, so it will guard the next one on the day it lands.
      `model/run.js#write.spendHearts` is likewise still there, with its own
-     note about having no caller.
-     ---- */
+     note about having no caller. */
 });
 
 /* Every bare unit name any source offers, for the resolver: an input key that

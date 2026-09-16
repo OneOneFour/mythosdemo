@@ -32,8 +32,8 @@ export const bands = [];               // allocated band records, in row order
    mark would all read off another band's tile. So the widening fails HERE,
    at allocation, where the number is still a content decision.
 
-   1,024 x 320 is 327,680, so there is 51x of headroom at the shipped width
-   (docs/PLAN-horizontal-chunks-SCOPE.md 3.2). Raise the three ledgers' slot
+   1,024 x 320 is 327,680, so there is 51x of headroom at the shipped width.
+   Raise the three ledgers' slot
    before raising this. */
 const IDX_SLOT = 0x1000000;
 
@@ -55,7 +55,7 @@ export const write = {
       mat: new Uint8Array(cfg.tw * cfg.th),
       /* A per-chunk VERSION counter, not a dirty flag: `view` may not write to
          `model`, so it cannot clear a flag. The epoch assertion is what forced
-         this. See docs/DEVELOPER_GUIDE.md#view-cache-invalidation */
+         this. */
       ver: null,
       /* Fog of war: one bit per tile, permanent for the run. A `Uint8Array` and
          not a `Set` of indices -- unlike `fields.js#act`, which is deliberately
@@ -127,9 +127,9 @@ export const write = {
      over a slice, not a nested loop. */
   revealRows(b, toTy) { b.seen.fill(1, 0, Math.min(toTy, b.th) * b.tw); bump(); },
 
-  /* ---- lighting. `rules/light.js` is the only caller. Storage and the
+  /* lighting. `rules/light.js` is the only caller. Storage and the
      "raise, don't overwrite" rule are here; the BFS that decides WHAT level
-     a tile ends up at is entirely that file's business. ---- */
+     a tile ends up at is entirely that file's business. */
 
   /* A recompute seeds many sources into the same tile and the tile should end
      up at the BRIGHTEST one that reached it, so this only ever raises --
@@ -167,7 +167,7 @@ export const seenAt = (b, tx, ty) => inBounds(b, tx, ty) && b.seen[idx(b, tx, ty
    `seenAt` uses for "no", not an exception. */
 export const lightAt = (b, tx, ty) => inBounds(b, tx, ty) ? b.light[idx(b, tx, ty)] : 0;
 
-/* ---- band lookup ---- */
+/* band lookup */
 
 export const bandOf = id => bands.find(b => b.id === id) || null;
 export const bandByOrd = ord => bands[ord] || null;
@@ -219,14 +219,14 @@ export function bandSpans(x, y, w, h) {
   return out;
 }
 
-/* ---- tile addressing. Band-local, always. ---- */
+/* tile addressing. Band-local, always. */
 
 export const idx = (b, tx, ty) => ty * b.tw + tx;
 
 export const inBounds = (b, tx, ty) =>
   tx >= 0 && tx < b.tw && ty >= 0 && ty < b.th;
 
-/* ---- world px <-> band tiles ---- */
+/* world px <-> band tiles */
 
 export const tileX = (b, wx) => Math.floor((wx - b.origin.x) / b.tile);
 export const tileY = (b, wy) => Math.floor((wy - b.origin.y) / b.tile);
@@ -237,7 +237,7 @@ export const worldY = (b, ty) => b.origin.y + ty * b.tile;
 export const widthPx  = b => b.tw * b.tile;
 export const heightPx = b => b.th * b.tile;
 
-/* ---- chunks. `view` paints one of these per dirty version. ---- */
+/* chunks. `view` paints one of these per dirty version. */
 
 export const chunkOf = (b, tx, ty) => ({ cx: (tx / b.chunk) | 0, cy: (ty / b.chunk) | 0 });
 export const chunkIdx = (b, cx, cy) => cy * b.cx + cx;

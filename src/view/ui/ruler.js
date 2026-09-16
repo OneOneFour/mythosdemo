@@ -18,7 +18,6 @@
    Registers what it drew, so `shell` can hit-test a click on a band segment
    and jump the overview to it -- `view` never dispatches (CLAUDE.md D2).
 
-   ============================================================================
    THE MASKED-ID PREDICATE LIVES HERE, AND THIS IS THE ONE PLACE IT LIVES.
    Before the band ruler, nothing in `src/` masked anything -- there was no
    FAVOUR panel, no TRIBUTE state and no `????????` rule anywhere. CLAUDE.md
@@ -28,11 +27,10 @@
      `masked(label, known)`  the mask itself: the label, or `????????`
      `bandKnown(b)`          has the player ever ENTERED this band, OR has a
                              cycle reward CHARTED it for them
-                             (docs/PLAN-phase10.md 3.4/D-D)
+
 
    The FAVOUR panel should import `masked` from
    this file (same-layer imports are legal) rather than write a second one.
-   ============================================================================
 
    THE DEPTH DATUM DOES NOT MOVE (CLAUDE.md D9). Depth is measured from the
    SPAWN band's own `floorTy`, the identical datum `view/hud.js#depth` and
@@ -71,14 +69,14 @@ export function rulerWidth() {
   return RULER_W + 2 + w;
 }
 
-/* ---------- the mask ----------
+/* the mask
    Eight question marks, a fixed width regardless of the name behind it, which
    is the whole point: a mask whose LENGTH leaked the name's length would leak
    the name. */
 export const MASK = '????????';
 export const masked = (label, known) => (known ? label : MASK);
 
-/* ---------- has the player ever entered this band ----------
+/* has the player ever entered this band
    Derived, never stored -- there is no `enteredBands` field and adding one
    would be a second source of truth for something `b.seen` already answers.
    Two clauses, and both are needed:
@@ -92,7 +90,7 @@ export const masked = (label, known) => (known ? label : MASK);
    Cached in a `WeakSet` because `seen` only ever gains bits: once true this is
    true for the rest of the run, and a new run allocates NEW band records
    (`model/world.js#write.allocate`), so the cache invalidates itself with no
-   reset call and no way for it to survive a restart (invariant 8). Until a
+   reset call and no way for it to survive a restart. Until a
    band qualifies the scan runs every frame -- 3,840 `seenAt` calls for the
    astral band, which is the only one that stays unknown for long. */
 const knownBands = new WeakSet();
@@ -101,7 +99,7 @@ export function bandKnown(b) {
   if (!b) return false;
   if (knownBands.has(b)) return true;
   if (b === player.band) { knownBands.add(b); return true; }
-  /* CHARTING IS KNOWLEDGE, NOT ACCESS (docs/PLAN-phase10.md 3.4/D-D): a cycle
+  /* CHARTING IS KNOWLEDGE, NOT ACCESS: a cycle
      reward's `charts:[bandId]` (`run.charted`, written by `rules/cycles.js`
      via `write.chart`) takes the mask off a band's NAME alone, same as
      actually having stood in it -- it does not gate digging into that band,
@@ -114,7 +112,7 @@ export function bandKnown(b) {
   return false;
 }
 
-/* ---------- depth ----------
+/* depth
    The SAME arithmetic `view/hud.js#depth` performs, and the same text form
    ('+32M' above the datum), so the two readouts cannot drift on either the
    datum or the sign convention. */
@@ -130,7 +128,7 @@ export function depthAt(wy) {
 
 export const depthText = d => (d >= 0 ? d : '+' + -d) + 'M';
 
-/* ---------- roman numerals ----------
+/* roman numerals
    Depth rank, from the band's own ordinal, which `data/world.js` states IS
    declaration order and therefore IS top-to-bottom. Small by construction --
    a world of more than a dozen bands is not a thing this game has -- so the
@@ -139,7 +137,7 @@ const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X',
                'XI', 'XII', 'XIII', 'XIV', 'XV', 'XVI'];
 export const roman = n => ROMAN[n] || String(n + 1);
 
-/* ---------- the widget ----------
+/* the widget
    `opts`: { id, x, y, h, vw, vh, labels? }
      x     LEFT edge of the coloured bar. Labels are drawn to its left.
      h     total height of the bar; band segments divide it in proportion to

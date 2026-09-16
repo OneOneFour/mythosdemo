@@ -27,7 +27,7 @@ export function grant(id) {
 }
 
 /* Boons not currently active. Same shape as every other tier's `draftable`
-   -- see docs/DEVELOPER_GUIDE.md#the-four-gift-tiers */
+   -- */
 export const draftable = () => BOONS.filter(b => !boons.active.some(a => a.id === b.id));
 
 /* mul -> 1/mul, add -> -add. What "invert" means for a row: flip whichever
@@ -39,8 +39,8 @@ const invert = mods => mods.map(m => ({
 }));
 
 export function step(dt) {
-  /* ---- 1. tick, then expire. A journal row either way: grant and expiry
-     both announce themselves. ---- */
+  /* 1. tick, then expire. A journal row either way: grant and expiry
+     both announce themselves. */
   bw.tick(dt);
   /* Collect first, THEN expire: `write.expire` splices `boons.active`, so
      mutating it while still iterating it would skip an entry -- filtering
@@ -52,11 +52,11 @@ export function step(dt) {
     push('lost', null, { boon: id, name: BOON[id]?.name });
   }
 
-  /* ---- 2. sync model/mods.js from the active list, honouring
+  /* 2. sync model/mods.js from the active list, honouring
      conflictsWith. Full rebuild every frame, over the CONTENT table (not
      just what happens to be active), so a boon that just expired loses its
      row THIS frame with no separate "was this active a moment ago"
-     bookkeeping. See docs/DEVELOPER_GUIDE.md#the-four-gift-tiers ---- */
+     bookkeeping. See docs/DEVELOPER_GUIDE.md#the-four-gift-tiers */
   for (const b of BOONS) modw.removeBySource('boon:' + b.id);
 
   const ids = boons.active.map(a => a.id);

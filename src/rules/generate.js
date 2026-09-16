@@ -60,7 +60,7 @@ const SHELF = 9;
    `data/world.js` says it means. */
 const LIP = 0.35;
 
-/* ---------- surface relief ----------
+/* surface relief
 
    Four passes build a landform. A trend octave decides where the uplands and
    the lowlands are, discrete raised-cosine summits sit on top of it, two
@@ -110,7 +110,7 @@ const RELIEF = 6;        // tiles above `floorTy` a relief row declaring no `amp
 const FADE   = 36;       // rows below the ground line at which relief reaches 0
 const BLEND  = 10;       // columns either side of the shelf the relief fades in over
 
-/* TRAVERSABILITY. The hop clears exactly one tile (docs/SPEC.md section 2) and
+/* TRAVERSABILITY. The hop clears exactly one tile and
    `rules/player.js#moveX`'s auto-step is gated on `onGround || onLadder`, so a
    two-tile rise is a wall, not a hill. Adjacent columns therefore differ by at
    most ONE tile, with a single exception: a DESCENT away from spawn may drop
@@ -121,13 +121,13 @@ const STEP_BIG = 2;
 const STEP_GAP = 12;
 const SAFE_R   = 24;     // tiles around spawn where the first two minutes live
 
-/* ---------- the contact zone ----------
+/* the contact zone
    How far a per-column bias may push the upper material's probability ramp.
    Without it the ramp dithers into TV static; with it, the same column keeps
    winning several rows in a row and the boundary grows fingers. */
 const CONTACT_BIAS = 0.45;
 
-/* ---------- hollows ----------
+/* hollows
    Rows of rock that must remain between a hollow's ceiling and the top of the
    solid column above it. A hollow that breaches the surface is a hole, and a
    hole is not a secret. Two rows is also what keeps `model/tiles.js#
@@ -142,7 +142,7 @@ const HOLLOW_ASPECT = 1.5;
    into the rock behind them. */
 const HOLLOW_VEIN = 0.14;
 
-/* ---------- ore ----------
+/* ore
    Cruciform, not round: a centre cell plus 4-8 arms. Arms beyond the first
    four are diagonal, so a big cluster reads as a star and a small one as a
    plus sign. `ORE_LONG` is the radius above which an arm may be two cells
@@ -151,7 +151,7 @@ const DIRS = [[0, -1], [0, 1], [-1, 0], [1, 0], [-1, -1], [1, -1], [-1, 1], [1, 
 const ORE_LONG = 2.4;
 const ORE_FAT  = 2.8;
 
-/* ---------- how much a row scatters ----------
+/* how much a row scatters
    `dens` is ATTEMPTS PER 10,000 TILES of the row's own window -- the rows it
    declares, times the band's width. A density rather than a count, because an
    absolute count is diluted by every widening: `tw` went from 128 to 1,024 in
@@ -161,7 +161,7 @@ const ORE_FAT  = 2.8;
    that is what this holds fixed. docs/SPEC.md section 16.5. */
 const attempts = (b, top, bot, dens) => Math.round(dens * (bot - top) * b.tw / 1e4);
 
-/* ---------- the kind table ---------- */
+/* the kind table */
 
 const KINDS = {
 
@@ -207,8 +207,8 @@ const KINDS = {
 
   /* THE CONTACT ZONE. A strata boundary is not a line: it is a band `thick`
      tiles deep where the two materials interdigitate in blocky fingers. Ported
-     in effect from the flat prototype's two `hash2` flip windows
-     (docs/ARCHAEOLOGY.md section 2.2), re-expressed as the new strata kind
+     in effect from the flat prototype's two `hash2` flip windows,
+     re-expressed as the new strata kind
      section 7 of that file recommends: a probability ramp rather than a flat
      35% chance, `rand()` rather than `hash2`, and a per-column bias so the
      result is fingers rather than static.
@@ -344,7 +344,7 @@ const KINDS = {
   }
 };
 
-/* ---------- the one entry point ---------- */
+/* the one entry point */
 
 /* Apply every strata row of a band, in row order. The band's tile array is
    freshly allocated (and therefore all AIR) when this is called, so there is no
@@ -361,7 +361,7 @@ export function generate(b) {
   unsealOreBodies(b);
 }
 
-/* ---------- ore reachability repair ---------- */
+/* ore reachability repair */
 
 /* `star()` (below) OVERWRITES whatever a cell already held, with no memory of
    what used to be there -- correct for a `blobs` row painting over plain rock,
@@ -466,7 +466,7 @@ function carvePathToStone(b, sx, sy) {
   }
 }
 
-/* ---------- relief ---------- */
+/* relief */
 
 /* One octave of value noise, `amp` tiles either way, smoothstepped between
    lattice points `period` tiles apart. The lattice is drawn from `rand()`, so
@@ -534,7 +534,7 @@ function heightmap(b, row) {
 
 /* Add `tw / HILL_SPACING` raised-cosine summits to the profile, in tiles of
    height. The three draws per summit run centre, height, width, and that
-   order is fixed because seed reproducibility depends on it (invariant 7).
+   order is fixed because seed reproducibility depends on it.
 
    Each summit takes one column at random from its own slice of the band.
    Distance between two summits still runs from 1 column to twice the slice,
@@ -559,7 +559,7 @@ function summits(h, tw, up) {
   }
 }
 
-/* ---------- groves ---------- */
+/* groves */
 
 /* A per-column mask of the columns trees may stand in: one grove centre per
    slice of `spacing` columns, at a random column inside it, covering `spread`
@@ -639,7 +639,7 @@ function correlated(tw) {
   return out;
 }
 
-/* ---------- hollows ---------- */
+/* hollows */
 
 /* The candidate cells of one hollow: a short random walk, stamping a squashed
    disc at each step. `core/pixels.js#walk` is a DRAWING helper in screen
@@ -709,7 +709,7 @@ function lineWalls(b, h, row, sub) {
   }
 }
 
-/* ---------- shared shapes ---------- */
+/* shared shapes */
 
 /* CRUCIFORM ORE. A centre cell plus 4-8 arms of length 1-2, orthogonals
    first, so a small cluster is a plus sign and a big one a star: the same
@@ -757,7 +757,7 @@ const nearSpawn = (b, tx, ty) => {
   return dx * dx + dy * dy <= SAFE_R * SAFE_R;
 };
 
-/* ---------- coverage, asserted at import ----------
+/* coverage, asserted at import
    `data/world.js` exports `STRATA_KINDS` for exactly this. A content row naming
    a kind nothing implements used to be skipped in silence; now it cannot be
    committed. This is the cheap half of `tools/content.mjs`, paid at import. */

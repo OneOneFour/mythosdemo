@@ -3,7 +3,7 @@
 
    In `model` rather than in `rules/mining.js` for exactly one reason: the HUD
    draws the aim reticle, and `view` may not import `rules`. That is the sibling
-   rule's cost being paid -- see docs/DEVELOPER_GUIDE.md#where-does-state-go
+   rule's cost being paid --
 
    `band` is here because a reticle at a band seam must know which band's tile it
    is pointing at; the same tile coordinates mean different things in two bands. */

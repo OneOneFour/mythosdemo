@@ -6,7 +6,7 @@
 
    If you are reading this because you want to ADD a machine, you are in the
    wrong file. Go to `data/machines.js`, copy the row nearest to what you want,
-   and change the literals. See docs/DEVELOPER_GUIDE.md#adding-a-machine
+   and change the literals.
 
    Read in this order: `step` (what happens per machine per frame), `choose`
    (which recipe runs), `produce` (spending and ejecting), `emit`. */
@@ -28,7 +28,7 @@ import { pocketedBest, pocketedPair, run, write as rw } from '../model/run.js';
 import { baseChargeAt, baseHardAt, dropAt, subAt, tileAt, write as tw } from '../model/tiles.js';
 import { tileX, tileY, worldX, worldY } from '../model/world.js';
 
-/* ---------- the injected source api ----------
+/* the injected source api
    This object is the ENTIRE surface a `data/sources.js` row may touch. Adding a
    line here widens what content can reach, so the list is short on purpose and
    every entry has a caller today.
@@ -36,7 +36,7 @@ import { tileX, tileY, worldX, worldY } from '../model/world.js';
    `buffered` and `pocketed` count the LARGEST SINGLE MATCHING PAIR rather than
    the sum across pairs. Buffer FULLNESS — what the servo and the HUD pips read
    — is the sum, and that is `model/machines.js#count`. Two different questions,
-   two answers; see docs/DEVELOPER_GUIDE.md#non-item-inputs */
+   two answers; */
 const api = {
   buffered: (m, sel) => best(m.buf, sel),
   pocketed: (sel) => pocketedBest(sel),
@@ -84,7 +84,7 @@ const recipes = (def, i) => {
   return r;
 };
 
-/* ---------- the step ----------
+/* the step
    `cmd` is the narrowed command object `shell/main.js#step` builds, and this
    step reads exactly ONE field of it: `cmd.autoFeed`, which decides whether
    the proximity drain below runs at all (Phase 16b,
@@ -98,7 +98,7 @@ export function step(dt, cmd) {
     /* THE GATE, AND IT IS THE WHOLE OF PHASE 16b. `handFeed`'s body is
        byte-for-byte what it always was; the only change is that it is now
        OPT-IN. A catch box is still free and still unconditional above --
-       material that FALLS in is the thesis of the game (invariant 5) and
+       material that FALLS in is the thesis of the game and
        was never a surprise. What was a surprise is a machine reaching into
        your pockets because you walked past it. */
     if (def.handFeed && cmd.autoFeed) handFeed(m, def);
@@ -108,11 +108,11 @@ export function step(dt, cmd) {
   }
 }
 
-/* ---------- catch box ----------
+/* catch box
    Anything falling through the mouth is swallowed for free. This one key is the
    thesis of the game: placing a machine under a vein beats placing it on the
    surface, and nothing has to say so.
-   See docs/DEVELOPER_GUIDE.md#adding-a-machine */
+*/
 function catchFalling(m, def) {
   const mouth = m.mouth[def.catchBox.mouth];
   const s = def.catchBox.slack;
@@ -129,7 +129,7 @@ function catchFalling(m, def) {
   }
 }
 
-/* ---------- hand feed: THE OPT-IN PROXIMITY MAGNET ----------
+/* hand feed: THE OPT-IN PROXIMITY MAGNET
    Stand within reach and the machine draws from your pockets, one unit per
    accepted selector per substep. OFF BY DEFAULT as of Phase 16b
    (docs/PLAN-phase16-interaction-model-v2.md §5 D16-C): the caller above
@@ -159,7 +159,7 @@ function handFeed(m, def) {
   }
 }
 
-/* ---------- THE FEED VERB (Phase 16a, docs/SPEC.md section 23) ----------
+/* THE FEED VERB
    ONE unit of ONE named pair, handed over deliberately. This is what LMB on a
    machine does; `handFeed` above is the proximity magnet that used to be the
    only way material ever reached a buffer from a hand. It is now
@@ -197,7 +197,7 @@ export function handOne(m, sub, form) {
   return true;
 }
 
-/* ---------- run a recipe ---------- */
+/* run a recipe */
 function produce(m, def, dt) {
   const r = choose(m, def);
   if (!r) { mw.prog(m, 0); mw.running(m, false); return; }
@@ -238,7 +238,7 @@ function produce(m, def, dt) {
      MORE: the staged winch spent one per haul and is gone, and
      `rules/drive.js` has no charge at all -- its power is a crank the player
      is holding this very frame.
-     See docs/DEVELOPER_GUIDE.md#charges-and-honest-fuel */
+*/
   if (!made) mw.charge(m, 1);
 
   push('produce', { x: m.box.x, y: m.box.y }, { def: m.def, made });
@@ -310,7 +310,7 @@ function emit(m, def, dt) {
   }
 }
 
-/* ---------- mine ----------
+/* mine
    A PLACED miner. GATES on top of `rules/mining.js`'s hardness, not a second
    one -- see the `mine` key's own documentation in `data/machines.js`, and
    docs/DEVELOPER_GUIDE.md#placed-miners
@@ -326,7 +326,7 @@ function emit(m, def, dt) {
 /* The best HAND tool's power, scanned off every substance's `item.tool`
    block rather than naming one. A future hand tool raises every placed
    miner's rate the same day it raises a swinging player's, with no edit
-   here (docs/DEVELOPER_GUIDE.md#tools-are-relic-substances). Defaults to 1 --
+   here. Defaults to 1 --
    the same "no tool held" fallback `rules/mining.js` uses. */
 function bestHandToolPower() {
   let p = 1;
@@ -425,12 +425,12 @@ function mine(m, def, dt) {
     fuelClock.set(m, clock - spec.secs);
   } else fuelClock.set(m, clock);
 
-  /* ---- a unit chipped loose, but the face SURVIVES: the miner retreats
+  /* a unit chipped loose, but the face SURVIVES: the miner retreats
      through a vein tile by tile instead of deleting it in one bite. A new
      branch BEFORE the break test, exactly where `rules/mining.js` puts its
      own, and for the same reason -- the break branch's `rand()` order is
-     load-bearing (invariant 7). `unitsCrossed` caps itself one short of
-     `charge` so the last unit is the break's own drop. ---- */
+     load-bearing. `unitsCrossed` caps itself one short of
+     `charge` so the last unit is the break's own drop. */
   const crossed = unitsCrossed(before, work, hard, charge);
   if (crossed > 0) {
     const unit = dropAt(m.band, target.tx, target.ty);
@@ -439,8 +439,8 @@ function mine(m, def, dt) {
 
   if (work < total) return;                              // still chewing
 
-  /* ---- broken. Read the drop BEFORE clearing the tile, same order
-     `rules/mining.js` uses. ---- */
+  /* broken. Read the drop BEFORE clearing the tile, same order
+     `rules/mining.js` uses. */
   const drop = dropAt(m.band, target.tx, target.ty);
   digw.clear(m.band, target.tx, target.ty);
   tw.clear(m.band, target.tx, target.ty);
@@ -457,7 +457,7 @@ function mine(m, def, dt) {
 
 /* ONE mined unit, out of the mouth. Shared by the depletion branch and the
    break branch above so the two cannot drift -- including the single `rand()`
-   call, whose position in the stream is load-bearing (invariant 7).
+   call, whose position in the stream is load-bearing.
 
    ARCHITECTURE invariant 5, same as every other producer in this file: the
    output DROPS, at the OUT port, never a direct buffer credit. Downward, not

@@ -10,7 +10,7 @@
 
    `resetDrawn()` is called once per frame by whatever assembles a frame of
    panels -- `view/hud.js#drawHUD` and `view/overview.js`.
-   See docs/DEVELOPER_GUIDE.md#record-what-you-drew */
+*/
 
 export const drawn = { panels: [], tabs: [], grids: [], bars: [], tooltip: null,
   /* THE MAIN MENU's own rows, or null when the menu is not standing. ONE

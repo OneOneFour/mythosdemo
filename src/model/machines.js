@@ -6,7 +6,7 @@
    changes: buffer, progress, charges, fire, torque, turn. Printing one in a
    debugger
    tells you everything about that machine's state, and `JSON.stringify(machines)`
-   is most of a save. See docs/DEVELOPER_GUIDE.md#adding-a-machine
+   is most of a save.
 
    Buffers are keyed by the `sub/form` string from `model/items.js`, not by tile
    byte. See the note there: a buffer is read by a human debugging a stuck
@@ -51,7 +51,7 @@ export const write = {
          `rules/drive.js` is the ONLY writer of either, and it writes them for
          every node of every drivetrain component every frame -- so a machine
          that is not a crank, gear or hub keeps the 0 it was born with, and
-         `view` needs no key test to read them. See docs/SPEC.md section 17. */
+         `view` needs no key test to read them. */
       torque: 0, turn: 0
     };
     machines.push(m);
@@ -80,7 +80,7 @@ export const write = {
 
   /* Drivetrain writers, declared together so the two
      numbers `view` reads live in one place from the start. `turn` ACCUMULATES
-     from `dt` alone and never from `rand()` (invariant 7), so a gear sprite is
+     from `dt` alone and never from `rand()`, so a gear sprite is
      reproducible from the seed and the frame count. */
   torque(m, v)      { m.torque = v; bump(); },
   turn(m, phase)    { m.turn = phase; bump(); },
@@ -94,7 +94,7 @@ export const write = {
   clear() { machines.length = 0; bump(); }
 };
 
-/* ---- queries. `sel` is a selector over substance x form. ---- */
+/* queries. `sel` is a selector over substance x form. */
 
 export const defOf = m => MACH[m.def];
 
@@ -154,7 +154,7 @@ export function fill(m, sel) {
 
 export const full = (m, sel) => count(m, sel) >= capOf(MACH[m.def], sel);
 
-/* ---- does this machine accept this pair, and by which clause ----
+/* does this machine accept this pair, and by which clause
    TWO CALLERS, TWO SELECTOR LISTS, ONE MATCH RULE. A machine says what it
    takes twice, for two different mouths: `ports[].accepts` is what may fall
    or be belted IN, and `handFeed.from` is what a player standing beside it may
@@ -184,7 +184,7 @@ export function acceptedBy(def, sub, form) {
   return null;
 }
 
-/* ---- WOULD THIS MACHINE TAKE THIS PAIR FROM A HAND, and how full is the
+/* WOULD THIS MACHINE TAKE THIS PAIR FROM A HAND, and how full is the
    clause that would hold it? `{ ok, why, have, cap }`.
 
    ONE DECISION, TWO READERS, the same arrangement `model/run.js#placementCheck`
@@ -198,11 +198,11 @@ export function acceptedBy(def, sub, form) {
    understand before adding a third caller. Reach is a fact about where the
    player's body is standing at the instant of a gesture, which is
    `shell/input.js`'s question and is asked exactly once, there, at
-   `pointerdown` (docs/SPEC.md section 23.2). Folding it in would make this
+   `pointerdown`. Folding it in would make this
    query unusable for the ghost, whose whole job is to answer for a machine the
    player has not walked to yet.
 
-   The ORDER of the two refusals is locked (docs/SPEC.md section 23.4): wrong
+   The ORDER of the two refusals is locked: wrong
    material beats no room, because a player holding gravel at a full furnace
    needs to be told the furnace does not want gravel. */
 export function feedCheck(m, sub, form) {
@@ -214,7 +214,7 @@ export function feedCheck(m, sub, form) {
   return { ok: true, why: '', have, cap };
 }
 
-/* ---- THE FEED TARGET (Phase 16a, docs/SPEC.md section 23.2) ----
+/* THE FEED TARGET
    The machine LMB rule 2 would hand `armed` to, or null. Two questions, in
    the cheap-to-expensive order, each asked by whoever owns it:
 
@@ -266,7 +266,7 @@ export function feedTarget(armed) {
    hand-feed too); the recipe scan is what still catches a machine whose
    fuel requirement is expressed only inline (there is none today, but a row
    is free to be that shape). `null` for a machine that needs no fuel at all.
-   Memoised per definition -- see docs/DEVELOPER_GUIDE.md#buffers-and-pockets */
+   Memoised per definition -- */
 const fuelSelCache = new Map();
 export function fuelSelectorOf(def) {
   if (fuelSelCache.has(def)) return fuelSelCache.get(def);

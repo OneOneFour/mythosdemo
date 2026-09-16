@@ -19,7 +19,7 @@
    because several tiles can be part-dug at once; a player has one pair of
    hands, so there is only ever one craft in flight, and `run.craftProgress` /
    `run.craftRecipe` (`model/run.js#RUN_SCHEMA`) reset with the run for free
-   (invariant 8) rather than needing a dedicated model module of their own.
+    rather than needing a dedicated model module of their own.
    Unlike mining, releasing the key or losing the ingredients forgets the bar
    entirely rather than banking it -- there is no shaft to come back to here,
    only a recipe that either has the player's attention right now or does not. */
@@ -54,7 +54,7 @@ function afford(r) {
    recipe at all -- no key binds one, and the two harnesses
    (`tools/check.mjs#stepReal`, `__mf.hold`) are what drive it. Declaration
    order in `data/recipes.js` decides THIS and nothing the player can click;
-   see docs/DEVELOPER_GUIDE.md#hand-recipe-declaration-order. */
+ */
 function choose() {
   for (const r of HAND_RECIPES) {
     const took = afford(r);
@@ -93,7 +93,7 @@ export function step(dt, cmd) {
   const prog = (run.craftRecipe === r.id ? run.craftProgress : 0) + dt;
   if (prog < r.secs) { rw.craft(prog, r.id); return; }
 
-  /* ---- complete. Spend exactly the pairs matched above. ---- */
+  /* complete. Spend exactly the pairs matched above. */
   for (const sel in r.in) rw.spend(took[sel].sub, took[sel].form, r.in[sel]);
   rw.craft(0, null);
 

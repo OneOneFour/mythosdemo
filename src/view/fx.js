@@ -6,7 +6,7 @@
    `newRun()` reset), and `view` may not import `shell`. So `shell/notify.js`
    EMITS into this file when it drains a journal row, `shell/main.js` STEPS it,
    and `view/scene.js` DRAWS it -- the same ownership pattern as the chunk cache
-   in `view/paint.js`. See docs/DEVELOPER_GUIDE.md#where-does-state-go
+   in `view/paint.js`.
 
    RANDOMNESS. Chips must not consume `rand()`. The journal is drained once per
    FRAME, so the number of drains depends on the display refresh rate — a chip
@@ -31,7 +31,7 @@ export const chips = [];
 export const toasts = [];
 export const banner = { text: '', sub: '', fade: 0 };
 
-/* ---------- emit, called from `shell/notify.js` ---------- */
+/* emit, called from `shell/notify.js` */
 
 /* `n` chips bursting from a world point. `col` is already resolved hex: the
    caller has the `look` row, and this file has no business reading content. */
@@ -48,7 +48,7 @@ export function burst(x, y, n, col, spread = 90) {
   }
 }
 
-/* ---------- the toast queue ----------
+/* the toast queue
    ONE LINE IS SHOWN AND UP TO THREE ARE HELD, drained in order from the front.
    This slot used to keep exactly one row and let the newest fact win, which
    lost a fact whenever a frame contained two: `rules/grants.js#step` awards the
@@ -100,7 +100,7 @@ export function title(text, sub, secs = 1) {
   banner.text = text; banner.sub = sub; banner.fade = secs;
 }
 
-/* ---------- step, called once per frame from `shell/main.js` ---------- */
+/* step, called once per frame from `shell/main.js` */
 export function step(dt) {
   for (let i = chips.length - 1; i >= 0; i--) {
     const c = chips[i];
@@ -126,7 +126,7 @@ export function reset() {
   banner.text = ''; banner.sub = ''; banner.fade = 0;
 }
 
-/* ---------- draw ---------- */
+/* draw */
 export function drawChips(g, cam, W, H) {
   for (const c of chips) {
     const x = (c.x - cam.x) | 0, y = (c.y - cam.y) | 0;

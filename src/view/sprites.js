@@ -5,9 +5,9 @@
    this file, only the generic `SPRITE[name]` lookup by string).
    Imports `core` only.
 
-   Integer pixels only (invariant 11). The bob is derived from the clock `t`
+   Integer pixels only. The bob is derived from the clock `t`
    passed in by the caller, never from a frame counter or `rand()`
-   (invariant 7) — the same rule `view/treatments.js`'s own header states for
+    — the same rule `view/treatments.js`'s own header states for
    anything that "has to breathe". */
 
 import { R, lineTo } from '../core/pixels.js';

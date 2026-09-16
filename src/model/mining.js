@@ -1,7 +1,7 @@
 /* LAYER model — accumulated pick time per tile, in SECONDS as a float.
    Imports `model` only. May be imported by `model`, `rules`, `view`.
 
-   ONE NUMBER, TWO FACTS (Phase 14b, docs/SPEC.md section 19). The seconds
+   ONE NUMBER, TWO FACTS. The seconds
    stored per tile answer both:
 
      how far through THIS SWING am I     ->  work % hard         `unitProgressAt`
@@ -32,7 +32,7 @@
    `model/tiles.js#write.setByte` whenever the byte changes (which covers
    mining, placement, worldgen and the `chasm` miracle in one place),
    the two break sites' own explicit `clear`, and `clearAll` from
-   `shell/boot.js#newRun` (invariant 8). */
+   `shell/boot.js#newRun`. */
 
 import { bump } from './epoch.js';
 import { idx } from './world.js';

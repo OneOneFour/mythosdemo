@@ -17,7 +17,7 @@
    overlay (depletion and growth, one pass — see `drawLiveTiles`), machines,
    items, player, chips, field overlay, darkness, fog of war, atmosphere, debug,
    HUD. Anything that reads as lighting comes after everything it lights.
-   See docs/DEVELOPER_GUIDE.md#pass-order-and-darkness */
+*/
 
 import { drawText } from '../core/font.js';
 import { blend, mix } from '../core/palette.js';
@@ -100,7 +100,7 @@ const tintRows = h => (tintBuf.length === h ? tintBuf : (tintBuf = new Float64Ar
      { cam:{x,y}, t, dt, frame, W, H, flags }
    Passed in rather than imported, because the clock and the camera are devices'
    business and `view` may not import `shell`.
-   See docs/DEVELOPER_GUIDE.md#the-frame-context */
+*/
 export function render(g, f) {
   const { cam, W, H } = f;
   cam.x = Math.round(cam.x); cam.y = Math.round(cam.y);
@@ -193,7 +193,7 @@ function tileWindow(b, cam, W, H) {
   };
 }
 
-/* ---------- sky ----------
+/* sky
    A band's `look.sky` is the colour above its ground line and `look.tint` is
    what the rock below is made of. A band whose `floorTy` is 0 (the deep ones)
    has no sky region at all and every function below costs it nothing.
@@ -277,7 +277,7 @@ function drawSky(g, b, f) {
   drawClouds(g, b, f, top, horizon, y0, y1);
 }
 
-/* ---------- clouds ----------
+/* clouds
    THREE LAYERS, AND WHAT MAKES THEM READ AS THREE IS THAT EVERYTHING VARIES
    TOGETHER. A single layer of same-sized puffs at one parallax factor is a
    texture; depth needs size, speed, parallax and opacity to agree. So: large
@@ -374,7 +374,7 @@ function dome(g, x, yb, w, h, col) {
   }
 }
 
-/* ---------- terrain ---------- */
+/* terrain */
 function drawChunks(g, b, cam, W, H) {
   const px = chunkPx(b);
   const ox = b.origin.x - cam.x, oy = b.origin.y - cam.y;
@@ -392,7 +392,7 @@ function drawChunks(g, b, cam, W, H) {
     }
 }
 
-/* ---------- the live-tile overlay ----------
+/* the live-tile overlay
    TWO CUES, ONE PASS, AND THAT IS A REQUIREMENT RATHER THAN A TIDY-UP.
    `drawDepletion` and the growth cue are the same
    shape of work: walk the visible tile window of every visible band, ask a
@@ -411,7 +411,7 @@ function drawChunks(g, b, cam, W, H) {
    the growth case `continue`s and the ordering between them is arbitrary
    rather than load-bearing.
 
-   ---------- case 1: depletion ----------
+ case 1: depletion
    HOW SPENT A DEPOSIT IS (Phase 14c, docs/PLAN-phase14-mining-and-drops.md
    D14-G). Since Phase 14b a `deposit` tile yields `tile.charge` units before
    it is gone, so a copper wall you have half worked looks exactly like a fresh
@@ -488,13 +488,13 @@ function drawLiveTiles(g, f) {
 
     for (let ty = y0; ty < y1; ty++)
       for (let tx = x0; tx < x1; tx++) {
-        /* ---- case 2: a planted seed. Guarded on the hoisted size read
+        /* case 2: a planted seed. Guarded on the hoisted size read
            above, then on a `Map.has` -- the same "ask the sparse map first,
            pay for the substance lookups afterwards" cull the depletion case
            below uses, for the same reason. `growingAt` and not
            `grownAt() > 0`: a seed planted this substep has zero seconds on it
            and must still draw at stage 0, which is exactly the read
-           `model/growth.js` exports both queries to distinguish. ---- */
+           `model/growth.js` exports both queries to distinguish. */
         if (anyGrowing && growingAt(b, tx, ty)) {
           seedling(g, b.origin.x + tx * t - cam.x, b.origin.y + ty * t - cam.y,
                    t, stageAt(b, tx, ty, growTotal));
@@ -554,7 +554,7 @@ function drawLiveTiles(g, f) {
   }
 }
 
-/* ---------- case 2's sprite: a seedling ----------
+/* case 2's sprite: a seedling
    THREE DISCRETE SILHOUETTES, NOT A CONTINUOUS INTERPOLATION (Phase 15,
    docs/PLAN-phase15-trees.md D15-F, docs/SPEC.md section 22): a SEED, a
    SHOOT, a SAPLING. Quantised for the reason `drawDarkness` quantises its
@@ -642,7 +642,7 @@ function seedling(g, sx, sy, t, stage) {
   R(g, cx + 1, base - h + 4, 1, 1, INK.leaf);
 }
 
-/* ---------- entities ---------- */
+/* entities */
 function drawItems(g, f) {
   const { cam, W, H } = f;
   for (const it of items) {
@@ -682,7 +682,7 @@ function drawPlayer(g, f) {
   }
 }
 
-/* ---------- fields ----------
+/* fields
    Fields do NOT go through the chunk cache. Those canvases exist to avoid
    repainting static rock; a heat plume changes every frame and would thrash
    them. So this is a viewport-culled pass that reads `fieldAt` and nothing else,
@@ -690,7 +690,7 @@ function drawPlayer(g, f) {
    permanent bit per tile is still a LIVE read every frame, because the chunk
    canvas it would otherwise sit on caches the static rock underneath, not
    whether the player has earned the right to see it.
-   See docs/DEVELOPER_GUIDE.md#view-cache-invalidation */
+*/
 function drawFields(g, f) {
   const { cam, W, H } = f;
   for (const b of bands) {
@@ -711,7 +711,7 @@ function drawFields(g, f) {
   }
 }
 
-/* ---------- darkness ----------
+/* darkness
    Two separate facts, one pass each: `drawFog` below hides a tile that has
    NEVER been seen, regardless of what is actually there -- that is memory,
    `model/world.js#b.seen`, permanent and one-way. This pass renders the OTHER
@@ -776,7 +776,7 @@ function drawDarkness(g, f) {
   }
 }
 
-/* ---------- fog of war ----------
+/* fog of war
    The one hard rule this pass exists to enforce: an unrevealed tile is opaque
    REGARDLESS OF WHAT IS ACTUALLY THERE, so it draws AFTER terrain, machines,
    items, the player, chips and the field overlay -- everything that could
@@ -885,7 +885,7 @@ function depthTint(g, f) {
   g.globalAlpha = 1;
 }
 
-/* ---------- atmosphere ----------
+/* atmosphere
    The world-anchored depth tint, then a vignette on top, because the frame edge
    is where the eye leaks out. */
 function atmosphere(g, f) {
@@ -912,7 +912,7 @@ function atmosphere(g, f) {
   }
 }
 
-/* ---------- the arrival ----------
+/* the arrival
    `rules/cycles.js` stamps `run.arrival` with the world position and the
    instant the director put a machine down for the player. Both passes below
    read that stamp, so neither knows WHICH machine arrived and no machine
@@ -921,7 +921,7 @@ function atmosphere(g, f) {
    TIME COMES FROM `run.t`, the fixed 1/120 s accumulator the stamp itself is
    taken from, so the presentation runs the same length at 30 fps and at
    144 fps and it ENDS. Variety comes from `hash2` of the arrival's own world
-   position. Nothing here touches `rand()` (invariant 7).
+   position. Nothing here touches `rand()`.
 
    The presentation is gated on the arrival being on screen, so an altar
    reaching the surface while the player is 200 m down darkens nothing. */
@@ -962,7 +962,7 @@ function rising(g, m, sx, sy, f, p) {
 }
 
 /* The sky darkening a notch, a shaft of light down onto the machine, dust
-   falling through it, and a flare where it lands (docs/SPEC.md section 5).
+   falling through it, and a flare where it lands.
    Screen px throughout; entered with `globalAlpha` at 1 and left at 1. */
 function drawArrival(g, f, { m, p }) {
   const { cam, W, H } = f;
@@ -1030,7 +1030,7 @@ function overlay(g, cam, W, H, pitch, col, alpha) {
    invokes it, so the band name is not on screen at all today and the recolour
    above is latent. Wiring it back into the draw order is a HUD-layout
    decision (which anchor, whose bottom edge, D8) and is out of a
-   contrast-only phase's scope; see docs/FINDINGS.md. */
+   contrast-only phase's scope; */
 export function bandLabel(g, f) {
   const b = player.band;
   if (!b) return;

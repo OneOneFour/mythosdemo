@@ -20,13 +20,11 @@ const INK = colour('ui'), INK2 = colour('uiInk2'), BACK = colour('uiBack');
    test hook's projection (`shell/main.js`'s `__mf.ui.tooltip`) and several
    assertions call `String.prototype.startsWith` on its members.
 
-   ---------------------------------------------------------------------------
    TONE. Line 0 of the joined list is the title and draws in `INK`; every body
    line draws in `INK2`, the secondary body tone, NOT in `uiDim`. This is the
    single highest-traffic grey in the game -- band tips, recipe tooltips, pair
    tooltips and machine tooltips all land here -- and none of it encodes
-   state, so none of it belongs on the state tone (Phase 13a,
-   docs/PLAN-phase13.md §2.3/§2.4).
+   state, so none of it belongs on the state tone.
 
    The ONE exception §2.3 names is a body line that IS a state: `view/ui/
    mainPanel.js#recipeTooltip`'s "UNKNOWN -- NOT YET STOLEN". Rather than

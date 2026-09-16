@@ -7,8 +7,7 @@
    step just moved; this step is driven by nothing but elapsed time, which is
    why the two things it must not touch are worth naming before the code.
 
-   ============================================================================
-   TIME COMES FROM `dt`, NEVER FROM A WALL CLOCK (invariant 10). The
+   TIME COMES FROM `dt`, NEVER FROM A WALL CLOCK. The
    simulation runs a fixed 1/120 s substep and no `rules` module ever sees a
    variable dt, so a seed takes its stated `eff('treeGrowSecs')` of SIMULATION
    time at 20 fps and at 240 fps alike. `Date.now()` and `performance.now()`
@@ -24,7 +23,7 @@
    `tools/check.mjs` section 8g drives the REAL `step()` at all 8 framerates
    its hardness table already sweeps.
 
-   HEIGHT COMES FROM `hash2`, NEVER FROM `rand()` (invariant 7). A trunk's
+   HEIGHT COMES FROM `hash2`, NEVER FROM `rand()`. A trunk's
    height must be a function of WHERE the seed was planted and nothing else.
    `rand()` is a stream, so its value depends on how many draws preceded it:
    two runs from the same seed in which the player planted the same tile at
@@ -34,7 +33,6 @@
    stateless (`core/rng.js`'s own header says so), consumes nothing from the
    stream, and is already the idiom for positional pseudo-randomness in
    `view/treatments.js` and in `rules/generate.js`'s own jitter.
-   ============================================================================
 
    WHAT THIS STEP DELIBERATELY DOES NOT DO:
 
@@ -75,8 +73,8 @@ import { bandByOrd } from '../model/world.js';
    because `BANDS` is frozen content.
 
    Whether a CULTIVATED tree should differ from a wild one -- taller, faster,
-   or worth more -- is a real design question and is explicitly deferred
-   (docs/PLAN-phase15-trees.md section 6). When someone answers it, the answer
+   or worth more -- is a real design question and is explicitly deferred.
+   When someone answers it, the answer
    is a key on a content row, not a number here. */
 const TREE_HEIGHT = (() => {
   for (const cfg of BANDS)

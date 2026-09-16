@@ -20,8 +20,8 @@
    belt is charged: same shape, same idiom, flattened. (Both descend from the
    retired staged winch's `carry()`, where the idiom was first written.)
 
-   POWER IS A BANKED CHARGE, AND THIS IS NOW THE ONLY MOVER THAT USES ONE
-   (docs/DEVELOPER_GUIDE.md#charges-and-honest-fuel). This file only ever
+   POWER IS A BANKED CHARGE, AND THIS IS NOW THE ONLY MOVER THAT USES ONE.
+   This file only ever
    SPENDS a charge, exactly one per item it actually delivers off the belt's
    end, and it cannot tell a charge bought with timber from one bought with
    anything else. Vertical transport used to work the same way and no longer

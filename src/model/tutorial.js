@@ -3,7 +3,7 @@
 
    ONE EXPORT, AND IT IS A QUERY. The number itself lives on `run`
    (`model/run.js#RUN_SCHEMA.tutorialBeat`) so it resets with everything else
-   on `newRun()` (invariant 8); the decision that a beat's condition now holds
+   on `newRun()`; the decision that a beat's condition now holds
    is `rules/tutorial.js`'s, and nothing about that decision is visible from
    here. This file exists so a READER -- the callout widget in `view` -- has
    something to ask that is not a bare property access into `run`, and so that

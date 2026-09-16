@@ -1,7 +1,6 @@
 /* LAYER rules — THE BEAT SHEET, AS PREDICATES OVER MODEL STATE.
    Imports `data`, `model`. Imports no other `rules` module.
 
-   ============================================================================
    WHERE THIS LIVES AND WHY. docs/SPEC.md section 5 is the design copy; this is
    the only code behind it. "Has the player done the thing beat N teaches" is a
    DECISION with the lifetime of a frame, which makes it `rules`; the counter it
@@ -21,8 +20,8 @@
    ONE beat fires per frame, which also means the journal can never emit two
    callouts a player would see as one.
 
-   BEATS 5, 6 AND 10 ARE `rules/cycles.js`'S BEATS, PER D-E/E1
-   (docs/PLAN-phase10.md 3.5): the director is the only writer of the STATE
+   BEATS 5, 6 AND 10 ARE `rules/cycles.js`'S BEATS, PER D-E/E1:
+   the director is the only writer of the STATE
    these predicates read (the altar's existence, `run.cycle`), but
    `rules/tutorial.js` stays the only WRITER of `run.tutorialBeat` -- one
    writer, two reads, the same split `model/segments.js#linkCheck` and
@@ -30,7 +29,6 @@
    runs `cycles` immediately before this file for exactly that reason: both
    predicates read the SAME frame's truth the director just wrote, never a
    frame stale.
-   ============================================================================
 
    NOTIFICATION FLOWS DOWNWARD: a beat firing pushes a journal row and calls
    nothing. `data/sfx.js` has no `tutorial` entry, so the row is silent by
@@ -94,7 +92,7 @@ function surface() {
 /* Index N holds the condition for beat N; index 0 is unused so the array
    index IS the beat number. Every index from 1 to the end now carries a real
    predicate: beats 1-6 are docs/SPEC.md section 5's two-minute sheet and
-   beats 7-10 are cycle 2 (Phase 13d, docs/SPEC.md section 20.4). Nothing is
+   beats 7-10 are cycle 2. Nothing is
    `null` as a placeholder any more -- the array simply ENDS, and running off
    the end is what stops `step()` below. */
 const BEATS = [
@@ -158,7 +156,7 @@ const BEATS = [
   /* 5 — "Sky darkens a notch ... an altar rises. First Trial: deliver 10 raw
      copper." THIS IS A GENUINE REPORT THAT THE DIRECTOR HAS RUN.
      `rules/cycles.js#ensureAltarPlaced` withholds the altar until beat 4 has
-     fired or `altarGraceSecs` has passed (D17-G), and this predicate asks
+     fired or `altarGraceSecs` has passed, and this predicate asks
      only whether one now stands -- never a timer, and never a second copy of
      the director's own gate.
 
@@ -175,8 +173,8 @@ const BEATS = [
      "the first trial was paid". */
   () => run.cycle > 1,
 
-  /* ============================================================================
-     BEATS 7-10 ARE CYCLE 2 (Phase 13d, docs/SPEC.md section 20.4), and they
+  /*
+     BEATS 7-10 ARE CYCLE 2, and they
      are past the end of section 5's own two-minute sheet on purpose. Cycle 2
      asks for four things a player has never done ONCE: refine ore into plate,
      build the Cloud Dock, get a segment chain up to it, and beat a clock.
@@ -186,11 +184,10 @@ const BEATS = [
      THEY ARE STILL PURE OBSERVATIONS OF STATE ANOTHER STEP WROTE, exactly like
      beats 1-6, and not one of them adds a counter, flag or hook anywhere else
      (this file's own header). Each names the state that PROVES the lesson
-     landed, never a second ledger of whether it did.
-     ============================================================================ */
+     landed, never a second ledger of whether it did. */
 
   /* 7 — REFINEMENT. Cycle 2 wants three copper PLATE, which is two compression
-     steps and 36 ore (docs/SPEC.md section 18.4) -- the first ask in the game
+     steps and 36 ore -- the first ask in the game
      that cannot be answered by mining harder. Fires on the FIRST plate, not on
      three: the lesson is "ore is not the currency any more", and it is learned
      the moment one exists. Counted on the ground as well as in the pockets

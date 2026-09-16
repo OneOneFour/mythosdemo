@@ -1,17 +1,15 @@
 /* LAYER data — BANDS: one row per depth band, top to bottom. Frozen.
    Imports `data` only. May be imported by `data`, `model`, `rules`, `view`.
 
-   ============================================================================
    THE DEFECT THIS FILE EXISTS TO FIX. In the previous codebase `WORLD_TW` and
    `WORLD_TH` were module constants and the typed arrays were allocated at
    import, so world size was fixed before `newRun()` got a say. That was the
    single biggest structural blocker in the old code, and it is why more than
    one depth band was impossible.
 
-   Here a band is a ROW -- see docs/DEVELOPER_GUIDE.md#bands-and-worldgen.
+   Here a band is a ROW --
    Every tile query takes the band record as its first argument, and band
    ordinals are never assumed to be zero.
-   ============================================================================
 
    Three bands exist from the start because the game's thesis needs a
    destination. Down is free, up is expensive -- and without somewhere above the
@@ -35,7 +33,7 @@
 
 export const BANDS = [
 
-  /* ---- ASTRAL --------------------------------------------------------------
+  /* ASTRAL
      FULL WIDTH -- it was once 96 columns inset by 128 px. The
      inset was meant to read as a platform in the sky rather than a mirror of
      the ground; what it actually produced was two 16-column DEAD STRIPS --
@@ -45,11 +43,11 @@ export const BANDS = [
      y 320 without `'OUTSIDE THE WORLD'`. That is 25% of the world's width in
      which the game's own destination is unreachable, for a silhouette nothing
      draws: astral's floor is a solid slab spanning the whole band either way.
-     Measured before the change (docs/PLAN-phase10.md 2.2): `bandAt(x, 100)`
+     Measured before the change: `bandAt(x, 100)`
      was `null` for surface columns 0-15 and 111-127, `astral` for 16-110.
 
      No heat: nothing burns up here, which is a content statement made by
-     omitting one array entry. ---- */
+     omitting one array entry. */
   { id:'astral', name:'THE MINOR HEAVENS',
     tw:1024, th:40, tile:8, chunk:16,
     origin:{ x:0, y:0 },
@@ -60,10 +58,10 @@ export const BANDS = [
     ],
     look:{ sky:'skyHi', tint:'marbleA', ambient:1.0 } },
 
-  /* ---- SURFACE -------------------------------------------------------------
+  /* SURFACE
      Spawn. `floorTy` is the ground line inside this band; `spawnTx` is the
      column the player starts in. Both are band-local -- nothing in the project
-     converts them to a world constant. ---- */
+     converts them to a world constant. */
   { id:'surface', name:'THE SUN\'S FLOOR',
     tw:1024, th:56, tile:8, chunk:16,
     origin:{ x:0, y:320 },
@@ -179,10 +177,10 @@ export const BANDS = [
     ],
     look:{ sky:'skyLo', tint:'soilA', ambient:0.95 } },
 
-  /* ---- TOPSOIL -------------------------------------------------------------
+  /* TOPSOIL
      The first digging band, and the deep one. Same tile size and width as the
      surface so a shaft continues cleanly across the seam; that is a content
-     choice, not a constraint. ---- */
+     choice, not a constraint. */
   { id:'topsoil', name:'THE TOPSOIL',
     tw:1024, th:320, tile:8, chunk:16,
     origin:{ x:0, y:768 },

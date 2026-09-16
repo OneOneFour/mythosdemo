@@ -11,7 +11,7 @@
    `npm run check:content` (`tools/content.mjs` assertion 15) rather than drawing
    nothing at depth 300 — which is what actually used to happen, `treat()`'s
    `if (fn)` swallowing an unknown name in silence.
-   See docs/DEVELOPER_GUIDE.md#colour-and-appearance
+
 
    CONTRACT. Every function takes `(g, cell, p)` where `cell` is
    `{ px, py, tx, ty, tile }` in destination pixels and band tiles, and `p` is
@@ -45,7 +45,7 @@ import { colour } from '../data/palette.js';
 import { LIGHT, R, glow, lineTo, noiseFill } from '../core/pixels.js';
 import { hash2 } from '../core/rng.js';
 
-/* ---------- HOW FAR A DECORATION REACHES, IN TILES ----------
+/* HOW FAR A DECORATION REACHES, IN TILES
    A treatment that draws OUTSIDE its own cell is clipped by the chunk canvas it
    is drawing into, and the neighbouring chunk does not independently redraw the
    missing part -- those pixels are permanently lost, silently, with no error and
@@ -289,7 +289,7 @@ export const TREAT = {
     }
   },
 
-  /* ==================== MACHINERY ====================
+  /* MACHINERY
      The parts a machine row's `look.parts` list may name. `EXTENT` does NOT
      apply to any of them: a machine is drawn live into the frame by
      `view/paint.js#paintMachine`, never baked into a chunk canvas, so there
@@ -485,7 +485,7 @@ export const TREAT = {
   }
 };
 
-/* ---------- the olive crown's own shape ----------
+/* the olive crown's own shape
    `[x, y, r]` per blob, as fractions of the crown's own span: x from the trunk's
    centre, y UP from its base, r of the width. Lopsided on purpose -- a
    symmetrical fan reads as a bush, and an olive is neither symmetrical nor
@@ -600,7 +600,7 @@ function bank(g, x, y, t, reach, tx, ty, right, col, low, dark) {
   }
 }
 
-/* ---------- discs ----------
+/* discs
    A CIRCLE, ONE INTEGER ROW AT A TIME. No `arc`, no fill path, for the same
    reason `view/scene.js#dome` refuses one: a canvas curve antialiases its own
    edge, and SPEC section 6 forbids that outright. `d` is the DIAMETER and the

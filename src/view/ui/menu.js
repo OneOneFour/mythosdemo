@@ -11,7 +11,7 @@
    into `./state.js#drawn.menu` with a stable id, and `shell` hit-tests that
    record and dispatches. Nothing here hit-tests, nothing here dispatches, and
    nothing here touches `model`.
-   See docs/DEVELOPER_GUIDE.md#record-what-you-drew
+
 
    STORAGE IS A DEVICE, so CONTINUE is not gated on `shell/save.js#hasSave()`
    here -- `view` may not reach `localStorage`. `shell` answers the question
@@ -23,7 +23,7 @@
    AND `ui.menu.inRun` IS THE SAME KIND OF MIRROR ONE LAYER DOWN, because this
    file may not import `model` either. Whether a run stands behind the menu
    decides the RESUME row and whether NEW RUN and CONTINUE are about to throw a
-   run away (docs/SPEC.md section 30.6).
+   run away.
 
    THE CONTROLS PAGE IS GENERATED FROM `f.ui.keymap`, which is
    `shell/ui.js#KEYMAP` -- the one declaration of the binding set, read by this
@@ -96,7 +96,7 @@ function ascii(s) {
    context without one simply has no menu. */
 export const menuOpen = f => !!f.ui?.menu?.open;
 
-/* ---------- the rows of each page ----------
+/* the rows of each page
    `{ id, label, value, live, note }`. `id` is what `shell` dispatches on and
    is stable across viewports; `live` false means the row states why it cannot
    be taken and must not be dispatched. `note` is drawn only for the row the
@@ -109,7 +109,7 @@ const confirming = r => ({ ...r, value: 'CONFIRM?', valueCol: AMBER });
 
 /* A DEAD CONTINUE STATES WHICH KIND OF NOTHING IT IS. An absent slot and a
    header from another build are different events, and `hasSave` is false for
-   both (docs/SPEC.md section 27.3). */
+   both. */
 function continueRow(m) {
   if (!m.hasSave) return {
     id: 'continue', label: 'CONTINUE', live: false,
@@ -190,7 +190,7 @@ function contentRows(f, m) {
   return rootRows(m);
 }
 
-/* ---------- the frame ---------- */
+/* the frame */
 
 /* Draws nothing and records nothing when the menu is not standing. Assumes the
    canvas transform is identity (screen space), the same space `view/hud.js`
@@ -255,7 +255,7 @@ function wordmark(g, f, top) {
   return y + GAP;
 }
 
-/* ---------- the list pages: root, settings, debug ---------- */
+/* the list pages: root, settings, debug */
 
 function list(g, f, m, rec, rows, focus, top, bottom) {
   const vw = f.W, vh = f.H, availW = vw - 2 * M;
@@ -358,7 +358,7 @@ function list(g, f, m, rec, rows, focus, top, bottom) {
   }
 }
 
-/* ---------- the shortcuts page ---------- */
+/* the shortcuts page */
 
 const keyCell = r => r.keys + (r.hold ? ' HOLD' : '');
 
@@ -461,7 +461,7 @@ function controls(g, f, m, rec, top, bottom) {
   }
 }
 
-/* ---------- the footer ----------
+/* the footer
    One line along the bottom edge. BACK is a real recorded row and always the
    LAST index, so the cursor reaches it by moving past the content and a click
    on it reaches the same id. The rest of the line is a hint and is not

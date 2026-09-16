@@ -29,7 +29,6 @@
    is `'TOO HEAVY TO LIFT'`, and only in the one state that is otherwise
    baffling: a crank is being turned and the thing is going DOWN anyway.
 
-   ============================================================================
    THE MOTION LAW, AND THE ONE PLACE IT DEVIATES FROM docs/PLAN SECTION 4.3.
 
      need    = segBase + segLoad * mass * slope        (4.3, verbatim)
@@ -67,9 +66,8 @@
    rules for one fact. A horizontal segment gets that same descent multiplied
    by `slope = 0` and therefore sits still, with no horizontal special case
    anywhere.
-   ============================================================================
 
-   DETERMINISM (invariant 7): no `rand()`. Iteration is `segments` order (link
+   DETERMINISM: no `rand()`. Iteration is `segments` order (link
    order) and `machines` order (placement order), and `m.turn` accumulates from
    `dt` alone, so a gear's rotation phase is reproducible from the seed and the
    frame count. */
@@ -157,7 +155,7 @@ export function step(dt, cmd) {
     }
 }
 
-/* ---------- the crank: a HOLD, and nothing is spent but presence ----------
+/* the crank: a HOLD, and nothing is spent but presence
    `cmd.action` is a hold in the exact shape `cmd.craft` already has
    (`shell/input.js`, bound to `r` -- renamed from `turn`/`f` in Phase 12d,
    docs/PLAN-phase12.md §3 D-J, since the brief asked for a generic "hold to
@@ -206,7 +204,7 @@ function supplyOf(comps, cmd) {
     }
 }
 
-/* ---------- one segment, one frame ---------- */
+/* one segment, one frame */
 function drive(s, dt) {
   const seg = s.seg;
 
@@ -283,7 +281,7 @@ function drive(s, dt) {
 
 const pick = (a, b) => (!a ? b : !b ? a : (b.supply > a.supply ? b : a));
 
-/* ---------- the haul ----------
+/* the haul
    the retired winch's own `carry()` generalised to two axes: a segment runs at any
    angle, so `it.y += dy` becomes both. Items are world-positioned, so this is
    two additions per item -- no parenting and no transform stack.
@@ -324,7 +322,7 @@ function haul(s, dx, dy) {
   return out;
 }
 
-/* ---------- the rider ----------
+/* the rider
    Translated AFTER `rules/player.js` has already resolved collision this
    frame -- the identical freshness relationship `items before belts` has, and
    the reason `shell/schedule.js` states `player before drive`. The ride
@@ -333,7 +331,7 @@ function haul(s, dx, dy) {
    `rules/player.js` call, because `rules` siblings may not import each other
    and two copies of that predicate would eventually disagree.
 
-   The carrier is NOT terrain and does not become terrain (invariant 1): this
+   The carrier is NOT terrain and does not become terrain: this
    is a translation of a position the tile grid has already had its say about,
    and nothing here writes to any band's `mat`. */
 function ride(s, dx, dy) {
@@ -411,7 +409,7 @@ function boxSolid(b, x, y, exempt) {
   return false;
 }
 
-/* ---------- the refusal gap ----------
+/* the refusal gap
    `rules/machines.js#tierRefusalDue`'s idiom: a `WeakMap` rather than one
    scalar, because more than one segment can be stalled under a load at once,
    and keyed by the record so a cut segment needs no explicit cleanup. */
@@ -424,7 +422,7 @@ function refusalDue(seg) {
   return true;
 }
 
-/* ---------- the drivetrain graph ----------
+/* the drivetrain graph
    NODES are every placed machine whose row carries `crank`, `gear` or `hub`.
    EDGES are ORTHOGONAL FOOTPRINT ADJACENCY in the same band: two footprints
    sharing an edge. DIAGONALS DO NOT CONDUCT (docs/PLAN A3, confirmed) -- a

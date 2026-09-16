@@ -3,7 +3,7 @@
    Imports nothing. May be imported by `data`, `model`, `rules`, `view`.
 
    This tier grants a MACHINE: it changes what the player may place, not what a
-   number is. See docs/DEVELOPER_GUIDE.md#the-four-gift-tiers
+   number is.
 
      grants  a machine id from `data/machines.js`. Its MIRROR, if it has one,
              comes with it -- `rules/grants.js` grants the pair, so a row
@@ -39,7 +39,7 @@ export const GRANT = Object.freeze(Object.fromEntries(
 /* The machines a run may place before any grant is drafted. Everything else is
    granted. `rules/placement.js` reads this and nothing else.
 
-   `hub`/`crank`/`gear`/`axle` (docs/PLAN-gears-and-winches.md) are ungated for
+   `hub`/`crank`/`gear`/`axle` are ungated for
    the reason the retired winch stage was: transport is the game's bottleneck,
    not a reward, and gating the ONLY way up behind a draft would make a run's
    viability a dice roll. The winch stage itself left this list

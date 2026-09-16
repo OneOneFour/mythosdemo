@@ -8,12 +8,12 @@
    and `treatments` for anything a colour triple cannot say. See
    docs/DEVELOPER_GUIDE.md#colour-and-appearance
 
-   A DIG REPAINTS ITS CHUNK, NOT THE WORLD (invariant 3). The mockup baked one
+   A DIG REPAINTS ITS CHUNK, NOT THE WORLD. The mockup baked one
    1024x2520 strip; this paints 128x128 px, about 1/1500th of a full bake.
 
    INVALIDATION IS A VERSION COUNTER, NOT A DIRTY FLAG, and that is forced by
    the epoch assertion: `view` may not write to `model`, so it cannot clear a
-   flag. See docs/DEVELOPER_GUIDE.md#view-cache-invalidation */
+   flag. */
 
 import { offscreen } from '../core/canvas.js';
 import { drawText } from '../core/font.js';
@@ -67,7 +67,7 @@ const DECO_MARGIN = Math.max(...Object.values(EXTENT));
 
 /* HOW MUCH CANVAS THE CHUNK CACHE MAY HOLD, in bytes of backing store. A BYTE
    budget rather than a chunk count because a band declares its own `chunk` and
-   its own `tile` (invariant 2), so two bands need not agree on how many pixels
+   its own `tile`, so two bands need not agree on how many pixels
    a chunk canvas is.
 
    24 MB, and both bounds on that number are measurements rather than taste. A
@@ -109,7 +109,7 @@ let resident = 0;
    a fixed slot size. The old key was `b.ord * 0x10000 + cy * b.cx + cx`, which
    gave each band 65,536 chunk slots and ran out at a band about 52,400 tiles
    wide, past which band N's keys collide with band N+1's and blit the wrong
-   terrain (docs/PLAN-horizontal-chunks-SCOPE.md 3.2). Interleaved the other way
+   terrain. Interleaved the other way
    round there is no ceiling short of `MAX_SAFE_INTEGER / bands.length`. U3's
    1,024 tiles makes topsoil 64 x 20 = 1,280 chunks, which reaches neither, so
    this is a latent ceiling removed rather than a bug fixed.
@@ -157,7 +157,7 @@ export function beginFrame() {
    cannot evict what you must draw, and re-baking the visible world every frame
    would be worse than holding no cache at all.
 
-   A DIG STILL REPAINTS ITS CHUNK, NOT THE WORLD (invariant 3). This drops
+   A DIG STILL REPAINTS ITS CHUNK, NOT THE WORLD. This drops
    canvases; it never widens an invalidation. The chunk a pick is swinging at is
    on screen by construction, so it is never a candidate. */
 function evict() {
@@ -242,7 +242,7 @@ export function chunkCanvas(b, cx, cy) {
   return e.canvas;
 }
 
-/* ---------- terrain ---------- */
+/* terrain */
 
 /* THE DEEPEST ROW A BAND'S SKY REACHES, in band-local tiles, half-open: the
    declared ground line plus whatever downward relief the band's own height map
@@ -426,8 +426,7 @@ function paintTile(g, b, tx, ty, dx, dy, dark) {
 
   const cell = { px: dx, py: dy, tx, ty, tile: t };
 
-  /* A FORM MAY DRAW ITSELF, AND THEN IT IS NOT A CUBE (Phase 13b,
-     docs/PLAN-phase13.md section 3.3). Terrain painting is otherwise entirely
+  /* A FORM MAY DRAW ITSELF, AND THEN IT IS NOT A CUBE. Terrain painting is otherwise entirely
      substance-driven and form-blind, which is why a placed ladder used to be
      pixel-identical to a native trunk minus its canopy: `rung.tile.solid` is
      false, so an open shaft gave it a lit top face, a jittered cliff face on
@@ -509,7 +508,7 @@ function paintTile(g, b, tx, ty, dx, dy, dark) {
   cracked(g, b, tx, ty, dx, dy, t);
 }
 
-/* A CRACK MEANS "THIS SWING", NOT "THIS VEIN" (Phase 14c, D14-G). It read
+/* A CRACK MEANS "THIS SWING", NOT "THIS VEIN". It read
    `progressAt` while every tile broke on its first unit, which was the same
    number; a deposit tile now takes `charge` swings, and a crack
    pattern that crept on across all four of them would say nothing about the
@@ -563,7 +562,7 @@ function cliffFace(g, dx, dy, tx, ty, t, col, right) {
   }
 }
 
-/* ---------- grain ----------
+/* grain
    HOW ROUGH A MATERIAL LOOKS IS THE ROW'S OWN BUSINESS. This used to be a fixed
    pair of thresholds on a per-pixel `hash2` — 16% of pixels toward the dark
    tone, 10% toward the light — identical for soil and for adamant, which is a
@@ -607,7 +606,7 @@ function cracks(g, dx, dy, tx, ty, d, tile) {
   }
 }
 
-/* ---------- resolved ink ----------
+/* resolved ink
    Every literal colour in this file resolves through `data/palette.js` at module
    load, so there is no inline hex at a call site and a typo fails at import.
    These are RENDER decisions with no content meaning — a crack is not a
@@ -630,7 +629,7 @@ const INK = {
   warn:   colour('uiHeart')
 };
 
-/* ---------- the look cache ----------
+/* the look cache
    Resolving five colour names per tile per repaint is the one place a name
    lookup would show up, so each substance's palette is resolved ONCE. `colour()`
    throws on a name that is not in `data/palette.js`, which is what makes a
@@ -696,7 +695,7 @@ function cavityColour(b) {
   return mix(colour(l.tint ?? 'abyC'), '#000000', 0.62 + (1 - (l.ambient ?? 1)) * 0.25);
 }
 
-/* ---------- live passes ---------- */
+/* live passes */
 
 /* A dropped unit: two colours off the substance's `look.item`, sized by the
    form — or, if the row names one, a dedicated `SPRITE`. Either way `px`/`py`
@@ -733,7 +732,7 @@ export function paintItem(g, it, px, py, t) {
 }
 
 /* A machine, from its own `look`. No machine name, no per-machine draw
-   function — see docs/DEVELOPER_GUIDE.md#colour-and-appearance */
+   function — */
 export function paintMachine(g, m, px, py, t) {
   const def = MACH[m.def];
   const l = def.look;
@@ -802,7 +801,7 @@ export function paintMachine(g, m, px, py, t) {
   if (l.carrier) paintCarriers(g, m, px, py, l);
 }
 
-/* ---------- segments: the cable, its bucket chain, and the carrier ----------
+/* segments: the cable, its bucket chain, and the carrier
    WHY THIS IS DRAWN FROM `paintMachine` AND NOT FROM A PASS OF ITS OWN.
    A segment has no footprint and is not a machine (`model/segments.js`'s own
    header), so it has no natural place in `view/scene.js`'s pass order -- but
@@ -829,7 +828,7 @@ export function paintMachine(g, m, px, py, t) {
    upper one. `winch-vertical-top.png` is the baseline that caught it.
 
    `machines.indexOf` over a list that is tens long, twice per segment per
-   frame. Placement order is deterministic (invariant 7), so which end draws
+   frame. Placement order is deterministic, so which end draws
    what is reproducible from the seed and the build order.
 
    WORLD PX TO SCREEN PX WITHOUT THE CAMERA: `paintMachine` is handed `px`/`py`
@@ -906,7 +905,7 @@ function paintCables(g, m, px, py, l) {
        carrier: the chain has travelled exactly as far as the carrier has, so
        the offset of the whole ladder of buckets is `t * len` reduced modulo
        the spacing. One mechanism, one number, and it is a model number -- no
-       frame counter and no `rand()` (invariant 7). */
+       frame counter and no `rand()`. */
     const { lox, loy, hix, hiy } = ends(seg);
     const gap = Math.max(4, p.spacing ?? 11);
     const phase = ((seg.t * seg.len) % gap + gap) % gap;

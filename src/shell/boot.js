@@ -3,7 +3,6 @@
    and the only one that imports both `rules` and `view` — which is what makes
    the direction in `tools/layers.mjs` a rule instead of a wish.
 
-   ============================================================================
    THE ORDER, AND WHAT BREAKS IF YOU MOVE A LINE:
 
      1  canvas.attach()             finds the surface; null headless, not a throw
@@ -24,7 +23,6 @@
    Getting this wrong throws during boot and renders NOTHING AT ALL, which is
    the exact mistake recorded in CLAUDE.md. It is written down here because it
    cannot be inferred from the import graph.
-   ============================================================================
 
    ARCHITECTURE invariant 8: `newRun()` RESETS EVERYTHING. A field that survives
    a restart is a determinism bug, so every model module with a `clear` is
@@ -97,12 +95,12 @@ export function newRun(seed = (Math.random() * 1e9) | 0) {
                        // determinism bug and exactly what docs/FINDINGS.md
                        // (8d, #2) records happening to `segments`
   modw.clear();
-  boonw.clear();       // Phase 4 (docs/BUILD_PLAN.md): a boon surviving a
+  boonw.clear();       // Phase 4: a boon surviving a
                         // restart is invariant 8's determinism bug, same as
                         // every other model clear on this list
   aimw.reset();
   journalw.clear();
-  setAutoCollect(false);  // D13-A (docs/PLAN-phase13.md §4.3): AUTO COLLECT is
+  setAutoCollect(false);  // D13-A: AUTO COLLECT is
                           // an INPUT, not a cosmetic preference -- it ORs into
                           // `cmd.collect` in `shell/main.js#step`, so it gates
                           // what enters `run.inv`, which moves burden, climb
@@ -128,7 +126,7 @@ export function newRun(seed = (Math.random() * 1e9) | 0) {
      field on this teardown that is not. The menu stands AROUND a run rather
      than inside one: `shell/main.js` closes it itself once a row has been
      taken, and `shell/save.js#load` calls this function while the menu is
-     still up so that a refusal can be drawn on it (docs/SPEC.md section 27.7).
+     still up so that a refusal can be drawn on it.
      Closing it here would shut the menu before the reason reached the player,
      leaving them in a clean run wondering why CONTINUE did nothing. */
   resetChunks();               // canvases holding the previous world

@@ -15,7 +15,7 @@
    `wants.reroll` the 1/2/3 and `r` keys set. Nothing here dispatches, and
    `<i>` is the index into `run.offer.ids`, which is what makes the pointer
    and the keyboard reach the identical card.
-   See docs/DEVELOPER_GUIDE.md#record-what-you-drew
+
 
    THE MOD LINES ARE BUILT FROM THE ROW, NOT FROM `model/mods.js#explain`.
    `explain` filters the LIVE `mods.rows` list, so it can only describe a
@@ -29,7 +29,7 @@
    one function.
 
    TWO CARDS IS A REAL CASE, not a degenerate one: the grant tier ships at two
-   rows by decision (docs/PLAN-wave5-closeout.md §5.1) and `rules/draft.js`
+   rows by decision and `rules/draft.js`
    never pads, so the layout is driven by `run.offer.ids.length` and never
    reserves a gap where a third card would be. */
 

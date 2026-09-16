@@ -2,7 +2,7 @@
    listeners and no input. Imports every layer, as a `shell` device may.
 
    THE PAYLOAD IS THE SEED PLUS WHAT THE PLAYER CHANGED (wave 6 U2). A run is
-   bit-reproducible from its seed (invariant 7), so the terrain is not stored.
+   bit-reproducible from its seed, so the terrain is not stored.
    `load()` regenerates the world from the seed through `newRun()` and then
    replays the edits on top. Serialising the per-band `mat` arrays instead is
    ~1.3 MB raw and was rejected.
@@ -71,7 +71,7 @@ const V = 2;
 const BODY = 'mythos-factory/save';
 const HEAD = 'mythos-factory/save-head';
 
-/* ---- storage, which is allowed to fail ----
+/* storage, which is allowed to fail
    `localStorage` throws in private-mode and sandboxed contexts rather than
    returning null, so every call goes through one of these three and a failure
    reads as "no save". CLAUDE.md's Conventions section records the decision to
@@ -89,7 +89,7 @@ const dropKey = key => {
   try { globalThis.localStorage?.removeItem(key); } catch { /* nothing to undo */ }
 };
 
-/* ---- signatures ---- */
+/* signatures */
 
 function fnv(str) {
   let h = 0x811c9dc5;
@@ -117,7 +117,7 @@ const CONTENT_SIG = fnv(
   FORM.map(f => f.id).join(',') + '|' +
   MACH.map(m => m.id).join(','));
 
-/* ---- base64 over a bitset ----
+/* base64 over a bitset
    Fog of war is one bit per tile, which is 6.5 KB packed for the three shipped
    bands against 52 KB as the raw `Uint8Array`. Chunked, because
    `String.fromCharCode` takes its arguments on the stack. */
@@ -142,7 +142,7 @@ function fromB64(str) {
   return out;
 }
 
-/* ---- the baseline world, regenerated to be diffed against ----
+/* the baseline world, regenerated to be diffed against
 
    Nothing records which tiles the player changed, so the edit set is a diff
    against a fresh generate of the same seed. Measured at the three shipped
@@ -198,7 +198,7 @@ function baseline(seed) {
   }
 }
 
-/* ---- capture ---- */
+/* capture */
 
 /* One traversal per band collects all three per-tile facts. `workAt` is asked
    per tile rather than walked as a Map because `model/mining.js` keys its
@@ -296,7 +296,7 @@ export function save() {
   return true;
 }
 
-/* ---- validation ---- */
+/* validation */
 
 function parse(raw) {
   if (raw === null) return null;
@@ -480,8 +480,7 @@ function bodyFault(p) {
 
    'stale' EXISTS SO A MENU CAN NAME THE THIRD STATE. `hasSave()` is false for
    a stale header and `load()` is therefore never called on one, so nothing
-   else can tell an absent slot from an unusable one (docs/SPEC.md section
-   27.3).
+   else can tell an absent slot from an unusable one.
 
    Cheap enough for a menu to ask every frame — it reads and parses the header
    key only, which is about 58 bytes, and never touches the body. */
@@ -501,7 +500,7 @@ export function clearSave() {
   dropKey(BODY);
 }
 
-/* ---- restore ----
+/* restore
 
    ORDER IS LOAD-BEARING WITHIN A BAND. `tilew.setByte` clears the dig ledger
    and plants the growth ledger for the coordinate it writes, so both ledgers
@@ -523,7 +522,7 @@ function applyBand(b, row) {
    writer can set them and `write.reset` already produces the same value —
    `mainSlots` is rounded from `eff('invSlots')`, `maxHearts` has no writer at
    all, and `known` is seeded from every `HAND_RECIPES` id with nothing in
-   `src/` adding to it. See docs/SPEC.md section 27. */
+   `src/` adding to it. */
 function applyRun(r) {
   /* Before `tick`, so `arrival.t` lands at 0 and a director placement from
      earlier in the run reads as long finished rather than replaying its rise
@@ -694,7 +693,7 @@ export function load(newRun) {
 
   /* LAST, so nothing above can leave the stream anywhere but where the save
      found it. Without this the loaded run keeps the saved world and draws a
-     different future from it — see docs/SPEC.md section 27.2. */
+     different future from it — */
   if (p.cursor !== null) seedRng(p.cursor);
   loadError.reason = null;
   return true;

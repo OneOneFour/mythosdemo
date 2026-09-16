@@ -2,7 +2,6 @@
    and what falls out. Imports `core`, `data`, `model`. Imports no other `rules`
    module.
 
-   ============================================================================
    WHERE THIS LIVES AND WHY. `model/mining.js` owns the accumulated seconds;
    this file owns the decision that a tile has broken and the consequence that
    material falls. Storage has the lifetime of the world; a decision has the
@@ -14,7 +13,6 @@
    above a threshold framerate. Granite at 2.4 s died above 106 fps, i.e. on any
    120 Hz display. Progress is now seconds compared against seconds, and there
    is no framerate at which anything becomes unbreakable.
-   ============================================================================
 
    HARDNESS IS BASE PLUS A MODIFIER, ALWAYS. `baseHardAt` deliberately returns
    the base, and the `hard` tunable is applied HERE, in exactly one place, so a
@@ -58,7 +56,7 @@ const HARD_BREAK = 0.5;
 const TIER_REFUSAL_GAP = 1.0;
 let lastTierRefusal = -Infinity;
 
-/* ---------- aiming ----------
+/* aiming
    The aimed point is resolved to a BAND before it is resolved to a tile, which
    is what lets a shaft continue across a band seam: standing on the last row of
    the surface band and aiming down resolves into the topsoil band's row 0. The
@@ -228,13 +226,13 @@ function resolve(px, py) {
 const trunkAt = (b, tx, ty) =>
   subAt(b, tx, ty) === S.timber && formAt(b, tx, ty) === NATIVE;
 
-/* ---------- the step ----------
+/* the step
    TWO SOURCES OF A TARGET, AND THE HAND ALWAYS WINS. A held dig key swings at
    the reticle; with nothing held, the dig queue supplies a marked tile inside
-   `eff('reach')` (docs/SPEC.md section 28). Both routes go through the one
+   `eff('reach')`. Both routes go through the one
    `swing` below, so a queued tile costs exactly the seconds a hand-swung one
    costs at any framerate -- there is no second progress store and no second
-   rate (invariant 10).
+   rate.
 
    THE QUEUE COMMITS TO ONE TILE AND FINISHES IT. `nearestWithin` is asked
    only when nothing is committed, which is the same hysteresis
@@ -250,7 +248,7 @@ export function step(dt, cmd) {
      below, because none of them is a reason to keep a mark on a tile that is
      no longer that tile: a hand dig must stop the mark spending cap the frame
      it breaks, and a restart's marks must go even though the fresh run has not
-     found its pick yet (invariant 8). */
+     found its pick yet. */
   if (markCount() > 0) qw.prune();
 
   if (run.dead || !hasPick()) return;
@@ -299,7 +297,7 @@ function swing(dt, b, tx, ty) {
   const sub = subAt(b, tx, ty);
 
   /* TOOL TIER GATE, on top of hardness, not a second hardness. A silent no-op
-     on a wall you are actively swinging at is unreadable (CLAUDE.md), so a
+     on a wall you are actively swinging at is unreadable, so a
      refusal is a rate-limited journal row, not nothing. */
   const tool = bestTool();
   if (sub >= 0 && tool) {
@@ -318,7 +316,7 @@ function swing(dt, b, tx, ty) {
   const hard = baseHardAt(b, tx, ty) * (sub < 0 ? 1 : eff('hard', SUB[sub].id));
   if (!(hard > 0) || !Number.isFinite(hard)) return false;   // bedrock, or unmineable
 
-  /* DEPLETION, and the whole of it (Phase 14b, D14-D). A `deposit` substance's
+  /* DEPLETION, and the whole of it. A `deposit` substance's
      tile yields `charge` units before it is gone, each unit costing a full
      `hard` of accumulated work -- so SECONDS PER UNIT ARE EXACTLY WHAT THEY
      WERE and only the walking between tiles changes. `charge` is 1 for
@@ -342,12 +340,12 @@ function swing(dt, b, tx, ty) {
   if (work > before && work < total)
     push('pick', at, { sub, progress: (work % hard) / hard });
 
-  /* ---- a unit chipped loose, but the tile SURVIVES. A new branch BEFORE the
+  /* a unit chipped loose, but the tile SURVIVES. A new branch BEFORE the
      break test, never interleaved with it: the rare-trinket roll below draws
      from a fixed position in the seed's `rand()` stream immediately after the
-     break's own drop spawn (invariant 7), and that relative order is what must
+     break's own drop spawn, and that relative order is what must
      not move. `unitsCrossed` caps itself one short of `charge`, so the final
-     unit is the break branch's drop and a tile never yields charge + 1. ---- */
+     unit is the break branch's drop and a tile never yields charge + 1. */
   const crossed = unitsCrossed(before, work, hard, charge);
   if (crossed > 0) {
     const unit = dropAt(b, tx, ty);
@@ -366,7 +364,7 @@ function swing(dt, b, tx, ty) {
   }
   if (work < total) return true;
 
-  /* ---- broken. Read the drop BEFORE clearing the tile. ---- */
+  /* broken. Read the drop BEFORE clearing the tile. */
   const drop = dropAt(b, tx, ty);
   const dropRoll = rand();
   digw.clear(b, tx, ty);
@@ -388,7 +386,7 @@ function swing(dt, b, tx, ty) {
                       drop.sub, drop.form, (rand() - 0.5) * 24, -30 - rand() * 20);
   if (it) push('drop', at, { sub: drop.sub, form: drop.form });
 
-  /* ---- THE LAST TILE OF A TRUNK DROPS A SEED (Phase 15,
+  /* THE LAST TILE OF A TRUNK DROPS A SEED (Phase 15,
      docs/PLAN-phase15-trees.md D15-A, docs/SPEC.md section 22). `log` is the
      only fuel the game can MINE (`brand` is fuel too, but only ever made
      from a log, `data/recipes.js#kindle`) -- `data/world.js`'s own `trees`
@@ -425,7 +423,7 @@ function swing(dt, b, tx, ty) {
      ends the timber economy. If scarcity is wanted later the lever is
      `treeGrowSecs`, not the odds.
 
-     WHERE THIS SITS IN THE `rand()` STREAM IS LOAD-BEARING (invariant 7).
+     WHERE THIS SITS IN THE `rand()` STREAM IS LOAD-BEARING.
      It is AFTER the ordinary material drop above and BEFORE the `DROPS` loop
      below, so the rare-trinket roll keeps its exact position RELATIVE to
      that drop -- the property `data/drops.js`'s odds were measured against.
@@ -434,7 +432,7 @@ function swing(dt, b, tx, ty) {
      an existing seed produces downstream of the first tree ever felled in a
      run, which is what adding any new spawn to this branch must; what
      invariant 7 requires is that `newRun(s)` twice still match, and it
-     does. ---- */
+     does. */
   if (sub === S.timber && formOf(byte) === NATIVE
       && !trunkAt(b, tx, ty - 1) && !trunkAt(b, tx, ty + 1)) {
     const n = Math.max(0, Math.round(eff('seedYield')));
@@ -445,14 +443,14 @@ function swing(dt, b, tx, ty) {
     }
   }
 
-  /* ---- RARE TRINKET DROP, the one live trinket source.
+  /* RARE TRINKET DROP, the one live trinket source.
      Reads the ODDS from `data/drops.js` so they live in one table a
      designer can tune without opening this file. Rolled through `rand()`
      and NOTHING ELSE (invariant 7: a run is bit-reproducible from its
      seed), immediately after the ordinary material drop above so both draw
      from the same fixed position in the same run's rand() stream every
      time. Skips a trinket already held -- one is enough, and a second copy
-     would just be visual noise in the pockets. ---- */
+     would just be visual noise in the pockets. */
   for (const d of DROPS) {
     if (d.trigger !== 'mine') continue;
     const tileTier = sub >= 0 ? (SUB[sub].tile?.tier ?? 1) : 1;

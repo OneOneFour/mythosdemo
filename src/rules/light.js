@@ -24,7 +24,7 @@
    cannot be visited in insertion order the way `rules/reveal.js#passB`'s
    unweighted flood can.
 
-   NO `rand()` ANYWHERE (invariant 7). The BFS order is fixed by tile index
+   NO `rand()` ANYWHERE. The BFS order is fixed by tile index
    inside each level's bucket, so two runs of the same seed relight identically.
 
    RECOMPUTE ONLY WHEN SOMETHING THAT MATTERS ACTUALLY CHANGED, never per
@@ -73,10 +73,10 @@ export function step(dt) {
   }
 }
 
-/* ---------- the one carried light source ----------
+/* the one carried light source
    `run.brandLeft` is a SCALAR, not per-item state, for the same reason
    `run.craftProgress` is: a player has one pair of hands and there is only
-   ever one lit brand. It resets with the run for free (invariant 8) because
+   ever one lit brand. It resets with the run for free because
    it lives on `RUN_SCHEMA` alongside `craftProgress`; the alternative was
    module-scoped state here that `newRun()` has no way to reset, which is
    exactly the class of bug invariant 8 exists to prevent.
@@ -93,7 +93,7 @@ function tickBrand(dt) {
     rw.brand(eff('brandSecs'));
 }
 
-/* ---------- emitters ----------
+/* emitters
    Every source this band's flood seeds from, besides open sky and the seam
    carry (both in `forEachSeed`). NO MACHINE NAME APPEARS HERE -- `def.light` is
    a generic `{ level, whileRunning }` key any row may carry, read exactly like
@@ -102,7 +102,7 @@ function tickBrand(dt) {
    `eff('lightMax')` itself rather than a fixed number -- data cannot call
    `eff()` (only `model/mods.js` may import `data/tuning.js`), so the row
    says the WORD and this, the interpreter, resolves it.
-   See docs/DEVELOPER_GUIDE.md#light-emitters */
+*/
 function emittersFor(b, brand) {
   const out = [];
   for (const m of machines) {
@@ -148,7 +148,7 @@ function signatureOf(emitters) {
   return sig;
 }
 
-/* ---------- the dirty check ----------
+/* the dirty check
    Keyed by the band OBJECT, not by `b.ord`, and deliberately module-local
    rather than in `model/` -- exactly `rules/reveal.js#passB`'s own perf
    cache, for the identical reason: `newRun()` always hands out fresh band
@@ -164,7 +164,7 @@ function isDirty(b, sig) {
   return !prev || prev.verSum !== verSum || prev.sig !== sig;
 }
 
-/* ---------- propagation ----------
+/* propagation
    Dial's algorithm: `buckets[lvl]` holds every tile index CURRENTLY BELIEVED
    to be at level `lvl`, and levels only ever fall as the flood spreads, so
    processing buckets from `max` down to `1` visits every tile at its FINAL,
@@ -176,7 +176,7 @@ function isDirty(b, sig) {
    THE SCRATCH FIELD IS THE LIT REGION'S BOUNDING BOX, NOT THE BAND. `best`
    was `Int8Array(b.tw * b.th)` per recompute, which is 320 KB for `topsoil`
    at 1,024 columns -- allocated, walked and thrown away every time a tile
-   broke anywhere (docs/PLAN-horizontal-chunks-SCOPE.md 3.4). It is now sized
+   broke anywhere. It is now sized
    to the seeds' bounding box grown by `reach`, and `topsoil` with no shaft to
    the surface and no lit machine has no seeds at all, so it allocates nothing
    and floods nothing. Indices in `best` and in the buckets are WINDOW-LOCAL;
@@ -293,7 +293,7 @@ function forEachSeed(b, emitters, max, air, rock, cb) {
 
      ONE DIRECTION ONLY. A brazier below a seam does not light the rock above
      it, because resolving both directions needs the flood iterated to a fixed
-     point across bands rather than one top-down pass -- see docs/FINDINGS.md. */
+     point across bands rather than one top-down pass -- */
   const wyAbove = b.origin.y - 1;
   for (let tx = 0; tx < b.tw; tx++) {
     const wx = worldX(b, tx) + b.tile / 2;

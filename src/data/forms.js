@@ -19,7 +19,7 @@
                placing a `block` is how a hole is filled back in, and
                placing a `seed` is how a felled tree comes back.
                hardK -> multiplies the substance hardness when placed.
-               roots -> OPTIONAL, Phase 15 (D15-C/D15-B). THIS FORM TAKES
+               roots -> OPTIONAL, Phase 15. THIS FORM TAKES
                ROOT, and that has two consequences read in two places.
                (1) PLACEMENT: a solid tile DIRECTLY BELOW satisfies this
                form's backing requirement, in ADDITION to the four
@@ -70,7 +70,7 @@ import { S, SUB, byTag } from './substances.js';
 
 export const FORMS = [
 
-  /* ---- the commented row. ---- */
+  /* the commented row. */
   { id:'ore', label:'ORE',
     size:4, massK:1.0, hudOrder:1,
     tags:['ore', 'crushable'],
@@ -114,7 +114,7 @@ export const FORMS = [
     subTags:['metal'] },
 
   /* FEEDSTOCK ONLY, NEVER PLACED -- CLAUDE.md D12, and the row that made the
-     rule worth naming (Phase 14a, D14-H). A log is fuel (`tags:['fuel']`,
+     rule worth naming. A log is fuel (`tags:['fuel']`,
      which the furnace's own `handFeed.from` selects with star-slash-hash-fuel
      -- spelled in words for the reason the grammar block below gives) and a
      bare ingredient in five recipes (`hub`,
@@ -145,7 +145,7 @@ export const FORMS = [
     tags:['relic'],
     subTags:['relic'] },
 
-  /* ---- plate: the SECOND compression tier, `docs/DESIGN.md`'s locked
+  /* plate: the SECOND compression tier, `docs/DESIGN.md`'s locked
      12:1 ratio (ore terms) -- `docs/SPEC.md` section 8 spells out that a plate
      is 3 ingots, since 3 x the 4:1 ingot ratio is 12:1. Same `subTags:['metal']`
      restriction as `ingot`: a plate is a further-worked ingot, so whatever may
@@ -157,13 +157,13 @@ export const FORMS = [
      `hudOrder` is appended after `relic` rather than slotted next to `ingot`
      to avoid renumbering an existing row; it still sorts after ingot within
      any one substance's group, which is the only ordering `byHudOrder`
-     actually produces (substance first, form second). ---- */
+     actually produces (substance first, form second). */
   { id:'plate', label:'PLATE', short:'PLT',
     size:4, massK:2.4, hudOrder:6,
     tags:['refined', 'plate'],
     subTags:['metal'] },
 
-  /* ---- brand: the carried light, and the first form whose substance is not
+  /* brand: the carried light, and the first form whose substance is not
      metal. A hollow fennel stalk carrying stolen fire (Prometheus) -- held
      and burned down over `eff('brandSecs')`, never placed, so it carries no
      `tile` block. `subTags:['organic']` is the same restriction `log`
@@ -181,7 +181,7 @@ export const FORMS = [
     tags:['fuel', 'light'],
     subTags:['organic'] },
 
-  /* ---- phial: the one form a miracle may take (CLAUDE.md "Resolved
+  /* phial: the one form a miracle may take (CLAUDE.md "Resolved
      decisions" D1). Kept separate from `relic` on purpose: `crossable()`'s
      whole mechanism is the `subTags` gate, and folding a miracle into
      `relic` would let it satisfy any trinket selector that reads `#relic`
@@ -193,7 +193,7 @@ export const FORMS = [
     tags:['miracle'],
     subTags:['miracle'] },
 
-  /* ---- rung: a cheap, dedicated ladder peg (CLAUDE.md D4's own
+  /* rung: a cheap, dedicated ladder peg (CLAUDE.md D4's own
      prerequisite -- the encumbrance lockout needs something cheaper than a
      whole log to climb back out on). `timber/log` used to place as a
      climbable tile too, so this was originally the SAME `climb:true` idiom at
@@ -217,7 +217,7 @@ export const FORMS = [
      fuel, ore or anything else a selector should be able to find by
      accident.
 
-     THE `look` BLOCK IS PHASE 13b (docs/PLAN-phase13.md section 3.3), and it
+     THE `look` BLOCK IS PHASE 13b, and it
      is why a placed one no longer reads as a lit wooden cube: 1 px rails inset
      one pixel from each edge in `woodC`, a `woodA` rung every third BAND ROW
      (never every third row of the tile -- `view/treatments.js#ladder` states
@@ -233,7 +233,7 @@ export const FORMS = [
     look:{ treatments:[{ fn:'ladder', body:'woodC', hi:'woodA', lo:'woodD',
                          inset:1, every:3, tread:1 }] } },
 
-  /* ---- stair: the tier-2 ladder, Daedalus's bronze work.
+  /* stair: the tier-2 ladder, Daedalus's bronze work.
      `subTags:['metal']` is the same restriction `ingot`/`plate` use, so
      `copper/stair` is the real pair and no new substance is needed.
      `climbK` is NEW: a per-form multiplier into `eff('climb')`
@@ -272,8 +272,8 @@ export const FORMS = [
     look:{ treatments:[{ fn:'ladder', body:'cuC', hi:'cuA', lo:'cuD',
                          inset:0, every:4, tread:2 }] } },
 
-  /* ---- rig: a MACHINE, held. The shared form every machine-item substance
-     takes; see docs/DEVELOPER_GUIDE.md#a-machine-is-a-held-item
+  /* rig: a MACHINE, held. The shared form every machine-item substance
+     takes;
 
      No `tile` block, on purpose: a machine is placed as a multi-tile
      STRUCTURE through `model/machines.js`/`rules/placement.js#placeMachine`,
@@ -290,7 +290,7 @@ export const FORMS = [
     tags:['machine', 'placeable'],
     subTags:['machine'] },
 
-  /* ---- block: PACKED EARTH, the way back to solid ground (Phase 14a,
+  /* block: PACKED EARTH, the way back to solid ground (Phase 14a,
      docs/PLAN-phase14-mining-and-drops.md D14-B, docs/SPEC.md section 19).
      One form covers soil AND stone AND any future `bulk` element, because
      `data/recipes.js#pack`'s `out:[{ subFrom:'#bulk/gravel', ... }]` carries
@@ -318,14 +318,14 @@ export const FORMS = [
      `hardK:1.0` -- a packed block recovers at NATIVE hardness (soil 0.50 s,
      stone 1.60 s), not the retired rubble tile's half. Paired with the 5:1
      cost, filling a hole is a real decision now rather than free.
-     `climb:false`: it is a wall, not a rung. ---- */
+     `climb:false`: it is a wall, not a rung. */
   { id:'block', label:'BLOCK', short:'BLK',
     size:4, massK:2.0, hudOrder:12,
     tags:['built'],
     subTags:['bulk'],
     tile:{ solid:true, climb:false, hardK:1.0 } },
 
-  /* ---- seed: THE ONLY THING IN THE GAME THAT TURNS INTO SOMETHING ELSE BY
+  /* seed: THE ONLY THING IN THE GAME THAT TURNS INTO SOMETHING ELSE BY
      ITSELF (Phase 15, docs/PLAN-phase15-trees.md D15-E, docs/SPEC.md
      section 22). `rules/mining.js` drops one when the LAST remaining trunk
      tile of a tree is broken; placing it plants it; `rules/growth.js`
@@ -365,7 +365,7 @@ export const FORMS = [
      satisfying the furnace's own star-slash-hash-fuel `handFeed.from` and
      so from colliding with CLAUDE.md D12 -- a form carrying a `tile` block
      may not also be feedstock, and this one is named by no recipe, no
-     `handFeed.from` and no tribute demand. ---- */
+     `handFeed.from` and no tribute demand. */
   { id:'seed', label:'SEED',
     size:2, massK:0.1, hudOrder:13,
     tags:[],
@@ -388,7 +388,7 @@ export const crossable = (subOrd, formOrd) => {
   return !!need && need.some(t => have.includes(t));
 };
 
-/* ---- tile id packing -------------------------------------------------------
+/* tile id packing
    A tile stores one byte. ARCHITECTURE section 2 names this as the stated cost
    of substance x form, and here is the whole of it.
 
@@ -410,7 +410,7 @@ export const AIR     = 0;
 export const BEDROCK = 255;
 const STRIDE = FORM.length + 1;
 
-/* ---- what the byte actually costs: PACKABLE substances, not every substance.
+/* what the byte actually costs: PACKABLE substances, not every substance.
    Three things reach `packTile`, and only the first two are constrained by
    their own caller:
 
@@ -478,7 +478,7 @@ export const packTile = (subOrd, formOrd = NATIVE) => 1 + subOrd * STRIDE + (for
 export const subOfTile  = byte => ((byte - 1) / STRIDE) | 0;
 export const formOfTile = byte => (byte - 1) % STRIDE - 1;
 
-/* ---- the one selector grammar ----------------------------------------------
+/* the one selector grammar
    `subPart` then a slash then `formPart`, where each part is a star, a bare id,
    or a hash-tag. A missing form part means "any form". There is exactly one
    implementation, so the machine interpreter, the catch box and the resolver
@@ -491,8 +491,7 @@ export const formOfTile = byte => (byte - 1) % STRIDE - 1;
      hash-metal-slash-gravel crushed metal, whatever the metal
 
    (Spelled out in words rather than symbols because a star followed by a slash
-   closes this comment. The literals themselves appear in `recipes.js`.)
-   ---------------------------------------------------------------------------- */
+   closes this comment. The literals themselves appear in `recipes.js`.) */
 
 const idsOf = (part, tagIndex, idIndex) =>
   part === '*' ? null
@@ -535,9 +534,9 @@ export function expand(sel) {
   return out;
 }
 
-/* ---- ordering. One rule for anything that lists held things: substance
+/* ordering. One rule for anything that lists held things: substance
         first, then form. Exported so the HUD and a future tribute panel
-        cannot drift apart. ---- */
+        cannot drift apart. */
 export const byHudOrder = (a, b) =>
   ((SUB[a.sub].item?.hud?.order ?? 99) - (SUB[b.sub].item?.hud?.order ?? 99)) ||
   (FORM[a.form].hudOrder - FORM[b.form].hudOrder);
@@ -552,7 +551,7 @@ export const labelOf = (subOrd, formOrd) =>
    tooltip's inline references, and the boon timer stack. `short` is a real,
    hand-authored word on the row (`data/substances.js`/`data/forms.js`), not
    a runtime truncation: this project draws with `R()`/`drawText()` only, has
-   no `clip()` and no CSS ellipsis (invariant 11), so slicing a full name to
+   no `clip()` and no CSS ellipsis, so slicing a full name to
    fit would either cut a word mid-letter or need its own clipping machinery
    -- both worse than shipping the short word as data. Falls back to the full
    name/label wherever a row has not been given one, so adding a substance or

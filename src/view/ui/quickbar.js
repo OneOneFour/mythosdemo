@@ -8,7 +8,7 @@
    also drives. There is nothing left to overflow, so there is nothing to
    scroll or truncate -- a genuine scope reduction the storage-shape decision
    buys for free.
-   See docs/DEVELOPER_GUIDE.md#widget-primitives
+
 
    Imports `core`, `data`, READ-ONLY `model`, and the primitives in this same
    directory. No `rules`, no `shell`. */
@@ -49,7 +49,7 @@ const HAND_PREFIX = 'IN HAND ';
    handler, arming the SAME slot a click on it already would) both index this
    one string, so "press 3" and "the slot showing 3" cannot silently disagree
    about which slot that is.
-   See docs/DEVELOPER_GUIDE.md#one-decision-two-readers */
+*/
 const DIGITS = '1234567890';
 const digitOf = i => DIGITS[i];
 
@@ -108,7 +108,7 @@ export function drawQuickbar(g, f) {
   drawText(g, label, 6, H - 9, INK, 1, 1);
 }
 
-/* ---------- IN HAND ----------
+/* IN HAND
    ONE LINE, AND ONLY WHEN SOMETHING IS ARMED. Not a permanent fixture with
    an empty state: `ui.armedPlace` is null the overwhelming majority of the
    time, and a fixture reading "IN HAND --" would spend eight pixels of the

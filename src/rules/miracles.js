@@ -42,7 +42,7 @@ function applyEffect(m, band, tx, ty) {
   /* 'collapse': the simplest real terrain edit available -- clear a
      radius-tile square to AIR through the SAME `model/tiles.js#write.clear`
      every dig already uses, which is why a chasm repaints only the chunks
-     it touches (invariant 3) with no new tile-write verb. */
+     it touches with no new tile-write verb. */
   if (e.kind === 'collapse') {
     for (let dy = -e.radius; dy <= e.radius; dy++)
       for (let dx = -e.radius; dx <= e.radius; dx++)
@@ -81,7 +81,7 @@ function applyEffect(m, band, tx, ty) {
   }
 }
 
-/* ---------- debug spawn path ----------
+/* debug spawn path
    Same idiom `rules/trinkets.js#grant` uses for a drafted trinket: the
    miracle falls at the player's feet as a physical item, never a direct
    inventory credit. */

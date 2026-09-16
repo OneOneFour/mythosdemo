@@ -7,7 +7,7 @@
               means 1, `data/substances.js`) must be at least this. "Deep
               strata" per the plan's own wording -- granite (tier 2) and
               adamant (tier 3) both qualify at `minTier:2`.
-     chance   rolled through `rand()` and nowhere else (invariant 7) --
+     chance   rolled through `rand()` and nowhere else --
               deliberately small; a trinket is a whole modifier tier, not
               ordinary loot.
      give     a `data/trinkets.js` id. */

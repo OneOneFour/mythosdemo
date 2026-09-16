@@ -8,7 +8,6 @@
    immediately after `newRun()`; nothing here is a per-frame step, so this
    module has no place in `shell/schedule.js`.
 
-   ============================================================================
    WHY EVERY WRITE HERE IS A `model` WRITE, AND NOT A CALL TO
    `rules/placement.js`. A scenario has to place machines, and the obvious
    route -- `rules/placement.js#placeMachine` / `#placeTile` / `#linkSegment` --
@@ -29,10 +28,9 @@
    apply time, and a refusal becomes a journal row rather than a silently
    missing segment.
 
-   NO `rand()` (invariant 7). Every coordinate is derived from the spawn band's
+   NO `rand()`. Every coordinate is derived from the spawn band's
    `spawnTx` and the named band's `floorTy`, so applying a scenario does not
-   disturb the stream and a seed still reproduces the same terrain underneath.
-   ============================================================================ */
+   disturb the stream and a seed still reproduces the same terrain underneath. */
 
 import { F } from '../data/forms.js';
 import { CYCLES } from '../data/cycles.js';
@@ -97,10 +95,10 @@ export function apply(id) {
   return true;
 }
 
-/* ---------- coordinates ----------
+/* coordinates
    `dx` is tiles right of the SPAWN band's own `spawnTx`, and `dy` tiles below
    the target band's own `floorTy`. One column datum across every band is only
-   sound because all three share a tile size (docs/SPEC.md section 18.2);
+   sound because all three share a tile size;
    `tools/content.mjs` asserts that rather than trusting it. The `??` fallbacks
    are `shell/boot.js`'s own, so a band with no spawn column resolves the same
    way there and here. */
@@ -134,7 +132,7 @@ function place(row, spec) {
   const m = mw.place(b, M[spec.id], tx, ty);
 
   for (const e of spec.buf || []) mw.take(m, S[e.sub], F[e.form], e.n);
-  /* Honest fuel, banked (docs/DEVELOPER_GUIDE.md#charges-and-honest-fuel): a
+  /* Honest fuel, banked: a
      belt spends one charge per item it delivers off its end, so a scenario
      that only filled the fuel buffer would sit still for the six seconds the
      first charge takes to burn. */
@@ -149,8 +147,8 @@ function place(row, spec) {
 }
 
 /* ONE SEGMENT, CHECKED. `linkCheck` is the one decision and this is its third
-   reader after `rules/placement.js#linkSegment` and the cable ghost
-   (docs/DEVELOPER_GUIDE.md#one-decision-two-readers); the reach half is proved
+   reader after `rules/placement.js#linkSegment` and the cable ghost;
+   the reach half is proved
    at build time, so a refusal here is always about the live path between two
    hubs and is worth saying out loud. */
 function link(a, b) {

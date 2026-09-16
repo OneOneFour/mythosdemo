@@ -16,7 +16,7 @@
    those rectangles against the pointer and calls into `rules`/`shell/ui.js`
    itself; nothing in this file ever does that. This also means the panel is
    read ONE FRAME STALE by the dispatcher, which is invisible at any real
-   frame rate. See docs/DEVELOPER_GUIDE.md#record-what-you-drew */
+   frame rate. */
 
 import { drawText, textWidth } from '../../core/font.js';
 import { mix } from '../../core/palette.js';
@@ -44,8 +44,7 @@ import { drawn } from './state.js';
 import { drawTabs } from './tabs.js';
 import { drawTooltip } from './tooltip.js';
 
-/* `DIM` IS THE STATE TONE IN THIS FILE, NOT A BODY TONE (Phase 13a,
-   docs/PLAN-phase13.md §2.3). Four of the ten load-bearing greys live here and
+/* `DIM` IS THE STATE TONE IN THIS FILE, NOT A BODY TONE. Four of the ten load-bearing greys live here and
    all four keep it: AUTO COLLECT's and AUTO FEED's off reading,
    the search box's empty
    placeholder, an undiscovered recipe's frame and notice, and `STATE_COLOUR`'s
@@ -127,7 +126,7 @@ function frameArmedSlot(g, gridResult, armed) {
   }
 }
 
-/* ---------------------------------------------------------------------- */
+
 export function drawMainPanel(g, f) {
   if (!f.ui.stack.includes('main')) return;
   const { W: vw, H: vh } = f;
@@ -154,7 +153,7 @@ export function drawMainPanel(g, f) {
    game's inventory: slots are stack-based, but the BINDING constraint is
    mass, so the burden bar is the most legible thing this tab draws --
    amber past the soft cap, red (and spelled out in words) at the hard one.
-   See docs/DEVELOPER_GUIDE.md#buffers-and-pockets */
+*/
 function drawCharacterTab(g, f, body) {
   const { x, y, w, vw, vh } = body;
   const bottom = contentBottom(body);
@@ -176,7 +175,7 @@ function drawCharacterTab(g, f, body) {
      way the crafting tab's search box and `view/ui/quickbar.js`'s own
      hints-toggle already are, so a click here is never mistaken for a click
      on the grid beneath it. */
-  /* AUTO FEED (Phase 16b, docs/SPEC.md §23.6) is the machine-side half of
+  /* AUTO FEED is the machine-side half of
      exactly the same preference: standing beside a machine no longer empties
      your pockets into it -- arming a pair and clicking the machine hands
      over one unit per press (`rules/machines.js#handOne`) -- and this toggle
@@ -290,7 +289,7 @@ const STAT_MIN_H = 3 * STAT_LINE_H;
    the player cannot even see. At the 200 px floor the panel is 172 px of a
    180 px buffer and that is exactly what happens.
 
-   Measured off the rectangle the quickbar actually drew (D8), and only where
+   Measured off the rectangle the quickbar actually drew, and only where
    the two overlap in x, so the desktop buffer -- where the strip is 95 px
    below the panel -- keeps every pixel it had. */
 function contentBottom(body) {
@@ -318,7 +317,7 @@ function contentBottom(body) {
    anywhere. `lines` is what was actually drawn, recorded for the same
    read-back reason every other rectangle in this project carries its own
    contents.
-   See docs/DEVELOPER_GUIDE.md#record-what-you-drew */
+*/
 function statList(g, f, { x, y, w, bottom, lines }) {
   const visible = Math.floor((bottom - y) / STAT_LINE_H);
   if (visible < 1) return;
@@ -349,7 +348,7 @@ function statList(g, f, { x, y, w, bottom, lines }) {
    to: the stat readout only ever names a handful of ids, so their units are
    spelled out here as presentation text, the same way `view/hud.js#billOf`
    already turns a content key into a word without importing the table it
-   came from. See docs/DEVELOPER_GUIDE.md#the-tunable-pipeline */
+   came from. */
 const UNITS = { walk: ' PX/S', climb: ' PX/S', pickPower: 'X', rate: 'X' };
 const unitOf = id => UNITS[id] || '';
 
@@ -390,7 +389,7 @@ function formatModRow(row) {
 
 /* A pair's tooltip: name, mass each/total, tier, what it is for -- and, for a
    unique drop, its god and flavour line. Driven off TAGS, not a hand-written
-   per-substance switch. See docs/DEVELOPER_GUIDE.md#colour-and-appearance */
+   per-substance switch. */
 function pairTooltip(sub, form, n) {
   const label = FORM[form] ? `${SUB[sub].name} ${FORM[form].label}`.trim() : SUB[sub].name;
   const each = massOfPair(sub, form);
@@ -616,9 +615,8 @@ function drawCraftingTooltip(g, f, grid, recipes) {
   }
 }
 
-/* ========================================================================
-   TAB 3 -- LOGISTICS (a stub, honestly labelled)
-   ======================================================================== */
+/*
+   TAB 3 -- LOGISTICS (a stub, honestly labelled) */
 
 /* State is a HEURISTIC over what `model/machines.js` already exposes, not a
    duplicate of `rules/machines.js`'s own decisions (`view` may not import
