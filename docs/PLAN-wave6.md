@@ -362,6 +362,99 @@ playtest timings to be the evidence for it.
 
 ---
 
+## 4b. CLOSEOUT — what actually landed, and what the wave learned
+
+**Status: the wave ran to 29 phases, not the 16 planned.** Every extra one was
+found *by* a phase rather than scheduled: 6b's playtest drove five, 6c's own
+reservation drove two, and reviews and measurements drove the rest. The plan
+above is the record of intent; this section is the record of fact.
+
+### The eight requests
+
+| # | request | outcome |
+|---|---|---|
+| 1 | surface terrain | landform pipeline; direction changes per 128 columns median 43 -> 8 over 200 seeds; valleys below the datum at `dip:2`; one-tile steps read as turf ramps. **Remainder:** the soil courses under the turf still step. |
+| 2 | main menu | four pages, one `localStorage` slot, CONTINUE gated on `hasSave()` with the refusal reason shown, Escape reaches it mid-run, shortcuts drawn from a single 29-row `KEYMAP`. |
+| 3 | ore remaining | `UNITS n / charge` on a deposit tooltip, sharing `scene.js`'s exact derivation so the number and the depletion notches cannot disagree. |
+| 4 | quickbar left-click | `onAlwaysOnUi` extended to the quickbar's recorded rect; a click arms instead of mining. |
+| 5 | resource list | `docs/ICONS.md`, generated from the tables. **Its finding reframed the request:** 41 of 44 holdable pairs have no sprite at all, so this is "icons at all", not "better icons". |
+| 6 | dig queue | drag-paint, reach-bounded, hands-free, commits to a tile and finishes it; three mark states drawn. **Remainder:** velocity-aware selection, so a full-speed pass finishes a tile. |
+| 7a | horizontal extent | 128 -> 1,024 tiles (8,192 px), paint-cache eviction, reveal throttled, light windowed, `count` replaced by width-independent `dens`. **Bounded, not infinite** — see U3 and §5. |
+| 7b | tree farming | `seedYield` 2 (the smallest integer that compounds); groves rather than an even scatter. |
+| 8 | debug + fun | five driven scenarios reachable by menu and `?scenario=`; `docs/PLAYTEST.md`; and the three-phase premise fix it exposed. |
+
+### The premise fix, which was not on the list
+
+`docs/PLAYTEST.md` measured that a 28-rung timber ladder made the whole
+transport system pointless: ascent was free, which `CLAUDE.md` calls a bug
+rather than a feature. Three phases (6t, 6t-2, and the harness work between
+them) landed `climb` 30 -> 10, `burdenSoft` 0.75 -> 0.20, `segUp` 11 -> 26 and
+`segLoad` 0.025 -> 0.0125. The cable now beats the ladder **2.60x** on a
+two-crank rig and **5.93x** at 38 T, and the ladder refuses 41 T outright.
+One crank remains at parity with legs; the user chose to leave the second
+crank as the upgrade.
+
+### THE LESSON: a gate that was told to look away, four times
+
+Three of these **blocked a correct change** rather than catching a bug:
+
+| where | what it did |
+|---|---|
+| `tools/content.mjs` assertion 23 | caught all three shadowed recipes and **allowlisted them by name**, with a written deferral |
+| `tools/check.mjs` felling probe | hardcoded `seeds !== 1` — pinning the exact tunable 6k existed to raise |
+| `tools/check.mjs` seam probes | `seamRun(260, ...)`, a budget calibrated to `climb` 30 — blocked the premise fix for a whole phase |
+| `tools/worldgen-check.mjs#keyOf` | packed a 1,000 stride against a `tx` reaching 1,023, aliasing two tiles |
+| `.oxlintrc.json` | existed all along with `no-undef` off, while `CLAUDE.md` claimed there was no config and `FINDINGS.md` claimed the file was uncommitted |
+
+**And the worse inverse.** `rules/mining.js#aimAtKeys` resolved one tile at the
+player's centre row while the player occupies two, so held `right`+`dig` moved
+a player *exactly as far as `right` alone, to the pixel, on all 12 seeds* — for
+the entire life of the project. Every gate passed it, because every test and
+every screenshot scene drives mining through the mouse or through the model.
+A gate that never exercises the path cannot fail. `cmd.up` had the same defect
+and was fixed in the following phase.
+
+**The standing rule, now enforced in `tools/`:** a probe may not hardcode a
+number it could derive from the tunable or the data row that declares it, and
+every new assertion is made to fail on purpose once before it is trusted.
+
+### Still parked, with the reasons
+
+- **The soil staircase under the turf** (request 1's remainder). Geometry and
+  the reason it stopped are in `docs/FINDINGS.md`; it needs `decorate` to hand
+  `grassCap` a resolved rock swatch.
+- **Deferred vs in-reach dig marks** are closer in contrast than deferred vs
+  worked. The cheapest next step is named in FINDINGS.
+- **Velocity-aware dig-queue selection.** Nearest-first is locked by SPEC
+  §28.1/§28.2; preferring the mark *ahead* of the player is a design change.
+- **`rules/drive.js` release timing** — the other half of 6j's report: cargo
+  rests 4.04 px below the anchor against a ±5 px grab window and falls 0.02 px
+  in one substep before `haul()` re-takes it.
+- **`rules/belts.js`** — a belt whose lip abuts rock spends a charge every
+  other frame forever. Predates the wave.
+- **`resolveStraightDown` assumes `tile:8`.** Works only because `PH / 2` and
+  `band.tile` coincide; invariant 2 permits a band to declare its own tile size.
+- **The miracle tier is unreachable in play.** No cycle drafts it; the only
+  path to a phial is a debug key. `rules/miracles.js` is complete.
+- **10 of 44 holdable pairs have no source**, including the whole
+  `adamant/ingot -> plate -> stair` chain (adamant mines to gravel, so the ore
+  never exists).
+- **`invSlots` has no save version hash**, so changing that tunable
+  mis-restores an old inventory silently while the payload stays internally
+  consistent.
+- **`__mf.hold` leaves `cmd` set after it returns**, so a partial key set leaks
+  into the next scene. A footgun under every test in the suite.
+
+### One correction worth keeping
+
+6q reported that a placed miner's output cannot feed a furnace. **That
+overstates it.** `copper` and `tin` declare `drops:'ore'`, `smelt` takes
+`'*/#ore'`, and at `cyclops_maw`'s `minDepth:200` (topsoil row ~164) both
+blobs exist. A maw biting the *stone matrix* yields gravel that nothing
+smelts, which is ordinary "place your miner on the ore".
+
+---
+
 ## 5. Explicitly not in this wave
 
 - **Unbounded horizontal generation.** U3. `docs/PLAN-horizontal-chunks-SCOPE.md`
