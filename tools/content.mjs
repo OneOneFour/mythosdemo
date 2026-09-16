@@ -1,18 +1,13 @@
-// Content lint. See ARCHITECTURE.md section 8: enforcement checks direction
-// and names, not sense, and this is the "not sense" half for `data/`.
-//
-// `tools/layers.mjs` proves the DEPENDENCY GRAPH is legal. This proves the
-// CONTENT TABLES it guards are self-consistent: every selector expands, every
-// mass is real, every machine's build bill is payable and obtainable, no
-// recipe manufactures mass, and every tunable a data row names actually
-// exists. Run as section 1b of `npm run check`, and runnable alone via
-// `npm run check:content`.
-// See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves
-//
-// Imports from src/data and src/model directly. tools/ is outside the layer
-// graph `tools/layers.mjs` scans (it only walks src/), so this is not a rules
-// violation -- it is a build tool reading frozen content, the same way
-// tools/check.mjs already does.
+/* CONTENT LINT: `tools/layers.mjs` proves the dependency graph is legal, and
+   this proves the content tables it guards are self-consistent. Every
+   selector expands, every mass is real, every machine's build bill is payable
+   and obtainable, no recipe manufactures mass, and every tunable a data row
+   names exists. Runs inside `npm run check`, and alone via
+   `npm run check:content`.
+
+   Imports `src/data` and `src/model` directly, which is legal: `tools/` is
+   outside the graph `layers.mjs` walks, and this is a build tool reading
+   frozen content. */
 
 import { SUB, S } from '../src/data/substances.js';
 import { FORM, F, expand, matches, crossable, packable, PACKABLE_LIMIT } from '../src/data/forms.js';
@@ -46,8 +41,8 @@ function collectRecipes() {
 }
 
 /* Every {sub, form} pair some substance yields when mined -- the seed of the
-   reachability fixpoint (assertion 5) and the "mined directly" half of the
-   cost-reachability check (assertion 4). */
+   reachability fixpoint below, and the "mined directly" half of the
+   cost-reachability check. */
 function minedPairs() {
   const out = [];
   for (let s = 0; s < SUB.length; s++) {
@@ -76,18 +71,16 @@ function depthOfTy(bandCfg, ty, spawnCfg, datum) {
   return (worldYOf(bandCfg, ty) - datum) / spawnCfg.tile;
 }
 
-/* The shallowest depth at which a substance is ever minable, scanning every
-   band's `strata` rows directly -- `layer`/`blobs`/`trees` all carry a
-   `fromTy`; `vein` carries `dy` off the band's own `floorTy` instead. Returns
-   Infinity for a substance no stratum ever places (a relic, a trinket, a
-   miracle -- anything with no `tile` block at all). `subOrd` is a SUBSTANCE
-   ORDINAL (an `S[...]` value), like every other query in this file -- a
-   strata row's own `sub` is the bare content-id STRING `data/world.js` was
-   written with, so it is translated through `S[...]` for the comparison
-   rather than compared directly (comparing a string to an ordinal always
-   silently fails, which is exactly the bug this comment now guards against:
-   an early draft of this function did that and the depth-gate check below
-   never once fired, on real content or on a deliberately broken one). */
+/* The shallowest depth at which a substance is ever minable, over every
+   band's `strata` rows: `layer`/`blobs`/`trees` carry `fromTy`, `vein`
+   carries `dy` off the band's `floorTy`. Infinity for a substance no stratum
+   places.
+
+   `subOrd` IS AN ORDINAL AND A STRATA ROW'S `sub` IS A STRING, so the row is
+   translated through `S[...]` rather than compared directly. Comparing the
+   two silently never matches, and a draft that did meant the depth-gate check
+   below never fired once -- on real content or on deliberately broken
+   content. */
 function minMineDepth(subOrd) {
   const spawnCfg = BANDS.find(b => b.id === SPAWN_BAND);
   const datum = worldYOf(spawnCfg, spawnCfg.floorTy ?? 0);
@@ -110,10 +103,9 @@ export function checkContent({ quiet = false } = {}) {
   const fail = msg => violations.push(msg);
   const recipes = collectRecipes();
 
-  /* ---- 1. every recipe selector expands, and every literal output pair is
-     legal -- USE data/forms.js#expand and model/items.js#holdable; do not
-     hand-roll a string check (CLAUDE.md records that mistake).
-     See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves ---- */
+  /* 1. every recipe selector expands, and every literal output pair is legal.
+     Through `data/forms.js#expand` and `model/items.js#holdable`, never a
+     hand-rolled string check -- those two exist to answer exactly this. */
   for (const r of recipes) {
     if (!r.from) {
       for (const sel of Object.keys(r.in || {})) {
@@ -136,8 +128,8 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* ---- 2. every substance with an `item` block has a finite positive mass;
-     every form has a finite positive massK. ---- */
+  /* 2. every substance with an `item` block has a finite positive mass; every
+     form has a finite positive massK. */
   for (const s of SUB) {
     if (!s.item) continue;
     checks++;
@@ -150,27 +142,19 @@ export function checkContent({ quiet = false } = {}) {
       fail(`form "${f.id}": massK is not a finite positive number (${f.massK})`);
   }
 
-  /* ---- 3. every machine `cost` key parses to a real, holdable sub/form
-     pair. ---- */
+  /* 3. every machine `cost` key parses to a real, holdable sub/form pair. */
   const mined = minedPairs();
 
-  /* ---- the reachability fixpoint, built ONCE and shared by assertions 4 and
-     5. Ties a `subFrom` clause's resolution to WHICHEVER SUBSTANCES ARE
-     ALREADY REACHABLE for the matching input selector, using `matches()`
-     against the reachable set itself -- never `expand()`'s full crossable()
-     scan -- which is what keeps e.g. `adamant/ingot` out of the reachable
-     set: nothing ever mines `adamant/ore` (adamant's `tile.drops` is
-     `gravel`), so `adamant/ore` never enters `R`, so `smelt`'s
-     star-slash-hash-ore subFrom clause never resolves to adamant, so
-     `adamant/ingot` is never "reachable" at all -- there is nothing to flag,
-     by construction, not by exemption.
+  /* THE REACHABILITY FIXPOINT, built once and shared by the two checks that
+     need it: a build bill's exact pair, and an orphan recipe output. Both ask
+     the same transitive question, so both read the same set.
 
-     Built here, BEFORE the machine-cost loop below, so assertion 4 (a build
-     bill's exact pair) can ask the SAME transitive question assertion 5 (an
-     orphan recipe output) already had to answer, rather than the shallower
-     one-hop "mined, or produced by ANY recipe whose OWN inputs might
-     themselves be unreachable" check this file shipped with.
-     See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves */
+     A `subFrom` clause resolves against WHATEVER IS ALREADY REACHABLE, using
+     `matches()` on the set itself and never `expand()`'s full `crossable()`
+     scan. That is what keeps `adamant/ingot` out with no exemption: nothing
+     mines `adamant/ore` -- adamant drops `gravel` -- so it never enters `R`,
+     so `smelt`'s ore clause never resolves to adamant, so `adamant/ingot` is
+     never reachable and there is nothing to flag. */
   const R = new Set(mined.map(p => keyOf(p.sub, p.form)));
   const reachableSubsFor = sel => {
     const subs = new Set();
@@ -214,45 +198,31 @@ export function checkContent({ quiet = false } = {}) {
         continue;
       }
 
-      /* ---- 4. every machine `cost` key is REACHABLE: mined pair -> recipes
-         -> the exact cost bill, TRANSITIVELY -- `R` already proves every one
-         of its own members is reachable from a mined pair through zero or
-         more recipe hops, so a straight membership test here is strictly
-         stronger than (and now replaces) the one-hop "produced by SOME
-         recipe" scan this used to be: a recipe whose OWN inputs are
-         themselves unreachable no longer counts as "producing" a cost pair,
-         which the old one-hop check could not see. ---- */
+      /* 4. every machine `cost` key is REACHABLE: mined pair -> recipes ->
+         the exact bill, transitively. Membership in `R` is the whole test,
+         and it is strictly stronger than a one-hop "produced by SOME recipe"
+         scan, which counts a recipe whose own inputs are unreachable. */
       checks++;
       if (!R.has(keyOf(sub, form)))
         fail(`machine "${m.id}": cost key "${key}" is neither mined directly nor reachable through any recipe`);
     }
   }
 
-  /* ---- 5. no orphans -- reachability graph SCOPED TO DECLARED PAIRS.
-     Corrected scope per docs/BUILD_PLAN.md Phase 1 section 5 (the version
-     re-read before this file was written, not the original plan): asserting
-     over the FULL crossable() cartesian space (data/forms.js#expand's
-     "holdable" universe) fails on a pre-existing, harmless gap --
-     `crossable()` is an ANY-match on tags, so `copper/gravel` and
-     `tin/gravel` are holdable today with no mining path or recipe ever
-     touching them, and adamant's `metal` tag (kept deliberately, for a
-     future ore/ingot/plate path) would add `adamant/ore`, `adamant/ingot`
-     and `adamant/plate` to that universe too, with nothing declaring any of
-     them this phase.
+  /* 5. no orphans, SCOPED TO DECLARED PAIRS rather than to the full
+     `crossable()` cartesian space. `crossable()` is an ANY-match on tags, so
+     that space contains harmless holdable pairs nothing declares --
+     `copper/gravel`, `tin/gravel`, and everything adamant's deliberate
+     `metal` tag adds -- and asserting over it fails on the gap rather than on
+     a fault.
 
-     `R` is the fixpoint built above, shared with assertion 4. Machine `cost`
-     keys are EXCLUDED from this graph on purpose: that is assertion 4's job,
-     and asserting it twice would just be two implementations of the same
-     check that could silently disagree. */
+     Machine `cost` keys are excluded here on purpose: the check above owns
+     them, and two implementations of one claim can silently disagree. */
   {
-    /* Now assert every LITERAL-sub output is actually in the fixpoint's
-       reachable set -- if it is not, that recipe's inputs could never be
-       satisfied from any mined pair or any other recipe's output, which is
-       exactly an orphan. subFrom outputs need no separate assertion: they
-       enter R only when already reachable, so they cannot be orphans by
-       construction -- but a subFrom clause that resolves to NOTHING at all
-       (every substance permitted by tags is unreachable) is still a dead
-       recipe worth flagging. */
+    /* Every LITERAL-sub output must be in the fixpoint's set; if it is not,
+       that recipe's inputs can never be satisfied from any mined pair or any
+       other recipe's output. A `subFrom` output cannot be an orphan by
+       construction -- it enters `R` only when already reachable -- but one
+       that resolves to NOTHING is a dead recipe and is flagged. */
     for (const r of recipes) {
       for (const c of r.out || []) {
         if (c.sub !== undefined) {
@@ -269,10 +239,10 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* ---- 6. no recipe produces more total mass than it consumes, unless
-     tagged `transmute`. Mirrors model/items.js#massOfPair's formula
-     (substance mass x form massK) rather than duplicating it -- the two are
-     asserted to agree, for one known pair, right here. ---- */
+  /* 6. no recipe produces more total mass than it consumes, unless tagged
+     `transmute`. The hand formula and `model/items.js#massOfPair` are
+     asserted to agree on one known pair first, so a drift in either shows up
+     here rather than as a silent pass. */
   {
     const knownMass = SUB[S.copper].item.mass * FORM[F.ingot].massK;
     checks++;
@@ -315,10 +285,9 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* ---- 7. every hand:true recipe is object-identical to what a machine
-     names -- guaranteed today because recipesOf() looks named strings up in
-     the SAME frozen RECIPES table rather than cloning, so this asserts that
-     guarantee holds rather than re-deriving it. ---- */
+  /* 7. every `hand:true` recipe is object-identical to what a machine names.
+     `recipesOf()` looks a named string up in the same frozen table rather
+     than cloning, so this asserts that guarantee still holds. */
   for (const m of MACH) {
     const resolved = recipesOf(m);
     (m.recipes || []).forEach((raw, i) => {
@@ -332,12 +301,9 @@ export function checkContent({ quiet = false } = {}) {
     });
   }
 
-  /* ---- 8. every tunable key named by any data/ modifier row resolves,
-     scope included. Written generically over "any data row with a `mods`
-     array", which is why it needed NO edit when `data/boons.js` gained real
-     `mods` rows; `GRANTS` costs nothing extra to include since its rows carry
-     no `mods` at all.
-     See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves ---- */
+  /* 8. every tunable key named by any `data/` modifier row resolves, scope
+     included. Written over "any row with a `mods` array" rather than over a
+     list of tables, which is why a new tier of modifier costs it no edit. */
   for (const row of [...TRINKETS, ...GRANTS, ...BOONS]) {
     for (const mod of row.mods || []) {
       checks++;
@@ -358,8 +324,8 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* ---- 9. tile.tier is monotonic against hard: nothing at a higher tier is
-     softer than something at a lower one. ---- */
+  /* 9. `tile.tier` is monotonic against `hard`: nothing at a higher tier is
+     softer than something at a lower one. */
   for (let i = 0; i < SUB.length; i++) {
     const a = SUB[i].tile;
     if (!a) continue;
@@ -375,26 +341,13 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* ---- 10. every BOONS#conflictsWith entry names a real boon id and a
-     real mode. Phase 4 (docs/BUILD_PLAN.md): "two hostile gifts must not
-     silently co-exist" only means something if the id it points at
-     resolves.
-
-     Phase 6 (docs/BUILD_PLAN.md) extends this with two more shapes:
-     NEVER SELF-REFERENTIAL -- a boon named as its own rival is either a typo
-     or a paradox (`rules/boons.js#step` only ever compares a LATER boon's
-     row against an EARLIER one by id; a self-reference could never even be
-     "the older one" of itself) -- and SYMMETRIC WHERE BOTH SIDES BOTHER TO
-     SAY SO: `rules/boons.js#step` resolves a conflict off whichever boon was
-     granted LATER, so today's shipped content (`hephaestus-forge` /
-     `poseidon-flood`, `athena-focus` / `ares-frenzy`) is deliberately
-     ONE-DIRECTIONAL -- the rivalry only fires if the aggressor is the one
-     granted second, and that is accepted design, not a bug this lints
-     against. What IS a bug: a pair that DOES declare both directions
-     disagreeing about HOW the fight resolves -- 'suppress' one way and
-     'invert' the other would make the outcome depend on grant order in a way
-     no content author would choose on purpose. So: symmetry is not required,
-     but where both directions exist, their modes must agree. */
+  /* 10. every `conflictsWith` entry names a real boon id and a real mode:
+     "two hostile gifts must not silently co-exist" means nothing if the id
+     does not resolve. Two more shapes, both from `rules/boons.js#step`
+     resolving a conflict off whichever boon was granted LATER: a boon named
+     as its own rival could never be the older one of itself, and the shipped
+     rivalries are one-directional on purpose, so symmetry is NOT required --
+     what is a bug is two declared directions disagreeing about the MODE. */
   for (const b of BOONS) {
     for (const c of b.conflictsWith || []) {
       checks++;
@@ -415,9 +368,9 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* ---- 11. every miracle is a real, HOLDABLE substance x phial pair (the
-     substance named by `id`, per data/miracles.js's own header), and its
-     optional side-effect boon names a real boon. ---- */
+  /* 11. every miracle is a real, HOLDABLE substance x phial pair -- the
+     substance is the one its own `id` names -- and its optional side-effect
+     boon resolves. */
   for (const m of MIRACLES) {
     checks++;
     const sub = S[m.id];
@@ -430,8 +383,8 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* ---- 12. every drop row names a real, holdable trinket, a real
-     trigger, and an in-range chance. ---- */
+  /* 12. every drop row names a real holdable trinket, a real trigger, and an
+     in-range chance. */
   for (const d of DROPS) {
     checks++;
     if (d.trigger !== 'mine' && d.trigger !== 'tribute')
@@ -445,15 +398,12 @@ export function checkContent({ quiet = false } = {}) {
       fail(`drop "${d.id}": chance ${d.chance} is not in (0, 1]`);
   }
 
-  /* ---- 13. every trinket `id` is a real, HOLDABLE substance x relic pair --
-     the identity trick `data/trinkets.js`'s own header names ("a trinket
-     refines from nothing -- it IS the element"), the same shape assertion 11
-     already proves for a miracle x phial pair. `run.invCount(S[t.id],
-     F.relic)` is how `rules/trinkets.js` asks "is this held" everywhere, so a
-     trinket whose id does not resolve to a holdable relic pair would silently
-     never be obtainable, equippable or spendable. (Phase 6, docs/BUILD_PLAN.md
-     tier-1 bullet: "every substance/form pair referenced by any ... trinket
-     ... exists and is holdable".) ---- */
+  /* 13. every trinket `id` is a real, HOLDABLE substance x relic pair -- a
+     trinket refines from nothing, it IS the element, the same shape a miracle
+     x phial pair has. `run.invCount(S[t.id], F.relic)` is how
+     `rules/trinkets.js` asks "is this held", so an id that does not resolve
+     to a holdable relic pair is a trinket that can never be obtained,
+     equipped or spent, silently. */
   for (const t of TRINKETS) {
     checks++;
     const sub = S[t.id];
@@ -461,30 +411,23 @@ export function checkContent({ quiet = false } = {}) {
       fail(`trinket "${t.id}": no holdable substance x relic pair -- add a data/substances.js row tagged 'relic'`);
   }
 
-  /* ---- 14. DEPTH GATES ARE MONOTONIC: nothing a machine's build bill
-     requires is gated deeper than the machine's OWN `minDepth`. Only
-     `cyclops_maw` (and its mirrored variant) carries `minDepth` today, and
-     its cost is deliberately priced in granite-tier goods reachable well
-     above depth 200 -- see that row's own comment ("the one substance the
-     Maw alone can mine cannot also be a prerequisite for building it, or
-     nothing could ever build the first one"). This is the lint that keeps
-     that a PROVEN fact rather than an eyeballed one, and the one a future
-     T5 gated behind an even deeper `minDepth` would need to keep satisfying.
-     `minMineDepth` (above) is Infinity for a substance no stratum ever
-     places (a relic, a trinket bought elsewhere) -- those are caught by
-     assertion 3/4 already (a cost pair must be minable or produced), not
-     here, so Infinity would only ever fire THIS check for a substance that
-     is otherwise unreachable, a duplicate report of an existing failure; to
-     keep this assertion's own failures legible, skip a substance already
-     Infinity (unreachable), since assertion 4 already named it. ---- */
+  /* 14. DEPTH GATES ARE MONOTONIC: nothing a machine's build bill requires is
+     gated deeper than the machine's own `minDepth`. The substance a gated
+     machine alone can mine must not also be a prerequisite for building it,
+     or nothing could ever build the first one.
+
+     An Infinity from `minMineDepth` is skipped rather than failed: it means
+     no stratum places the substance at all, which the cost-reachability
+     check above has already reported by name. Failing it twice would bury
+     this assertion's own message. */
   for (const m of MACH) {
     if (!m.minDepth) continue;
     for (const key of Object.keys(m.cost || {})) {
       const [subId] = key.split('/');
       const sub = S[subId];
-      if (sub === undefined) continue;                  // already failed assertion 3
+      if (sub === undefined) continue;                  // the cost-key check named it
       const need = minMineDepth(sub);
-      if (!Number.isFinite(need)) continue;              // already failed assertion 3/4
+      if (!Number.isFinite(need)) continue;              // the reachability check named it
       checks++;
       if (need > m.minDepth)
         fail(`machine "${m.id}": minDepth ${m.minDepth} but its own cost key "${key}" is not minable ` +
@@ -492,27 +435,13 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* ---- 15. EVERY `look` BLOCK RESOLVES: every colour name is in
-     `data/palette.js` and every treatment `fn` is a key in
-     `view/treatments.js#TREAT`.
-
-     THIS WAS NOT CHECKED ANYWHERE. Three separate file headers claim
-     `tools/resolve.mjs` fails an unknown `fn` "at build time rather than
-     drawing nothing at depth 300" -- there is no `tools/resolve.mjs`, and
-     grepping `check.mjs` for `colour`, `palette`, `treat` or `fn` returns
-     nothing. The real behaviour was: a typo'd colour threw from `colour()` the
-     first time that tile painted, and a typo'd `fn` drew nothing at all,
-     forever, in silence (`treat()` does `if (fn) fn(...)`). So the claim is
-     made true here rather than left as a comment.
-
-     Both halves are generic and structural, not a list of the keys that happen
-     to exist today: a colour is any string under a key in `COLOUR_KEYS`
-     (scalar or array), and the walk recurses, so a colour named inside a
-     future treatment's params is covered the day it is written.
-
-     `view/treatments.js` imports `core` and `data` only and touches no
-     `document`, so importing it here costs nothing and asserts against the
-     REAL table rather than a copy of its key list. ---- */
+  /* 15. EVERY `look` BLOCK RESOLVES: every colour name is in
+     `data/palette.js`, every treatment `fn` is a key in
+     `view/treatments.js#TREAT`. A typo'd colour throws from `colour()` the
+     first time that tile paints; a typo'd `fn` draws nothing, for ever, in
+     silence, because `treat()` does `if (fn) fn(...)`. Structural rather than
+     a list of today's keys: any string under a `COLOUR_KEYS` key, walked
+     recursively. */
   const COLOUR_KEYS = new Set([
     'base', 'hi', 'lo', 'face', 'contact', 'col', 'low', 'dark',
     'leaves', 'item', 'sky', 'tint', 'body', 'trim', 'halo'
@@ -541,40 +470,17 @@ export function checkContent({ quiet = false } = {}) {
   for (const s of SUB) walkLook(`substance "${s.id}"`, s.look);
   for (const m of MACH) walkLook(`machine "${m.id}"`, m.look);
   for (const b of BANDS) walkLook(`band "${b.id}"`, b.look);
-  /* FORMS TOO, SINCE PHASE 13b. A form may now carry its own `look` block
-     (`data/forms.js`'s `rung`/`stair`), and it went unwalked here for exactly
-     as long as it takes to write this line -- which would have made the newest
-     `look` in the project the only unchecked one, i.e. the failure mode this
-     whole assertion exists to close. */
+  /* FORMS TOO: a form may carry its own `look` block (`rung`, `stair`), and
+     leaving it unwalked would make the newest `look` in the project the only
+     unchecked one -- the failure this assertion exists to close. */
   for (const f of FORM) walkLook(`form "${f.id}"`, f.look);
 
-  /* ---- 16. THE TILE BYTE: THE FACT THE NARROWED GUARD RESTS ON.
-     `data/forms.js`'s import-time guard used to price every substance row as
-     if it were tile-capable and so refused content over a cost nothing was
-     paying (the arithmetic is in that file's packing block and in
-     docs/SPEC.md section 15). It now measures from the highest PACKABLE
-     ordinal instead -- native terrain, or a legal crossing with a form that
-     carries a `tile` block. That is derived from the tables, so it cannot be
-     stale; what it DEPENDS on is a fact `data/forms.js` cannot check for
-     itself, and this is that check.
-
-     A substance crossable with a tile-capable form is placeable as TERRAIN
-     through `rules/placement.js#placeTile`. If it has no `tile` block of its
-     own, `model/tiles.js#baseHardOf` returns `Infinity` for the tile it
-     writes: a wall that can never be mined back out, with no `drops` and no
-     `look.tile` to paint it. So crossability with `gravel`/`log`/`rung`/
-     `stair` must imply a real `tile` block -- which is exactly what keeps the
-     eight machine substances, the three relics and the miracle off the byte,
-     and therefore what makes the narrowed guard true rather than hopeful.
-     Widening a tile-capable form's `subTags` (or adding `metal`/`rock`/
-     `organic` to a machine row) is the one edit that would break it silently,
-     and it fires here.
-
-     The second half is the byte itself, restated per substance so the failure
-     names the row: nothing packable may sit above `PACKABLE_LIMIT`, the last
-     ordinal whose byte clears `BEDROCK`. `data/forms.js` throws on the same
-     fact at import, which is the harder gate -- this exists so a content
-     author reading the lint output sees WHICH row is over the line. ---- */
+  /* 16. THE TILE BYTE: a substance crossable with a tile-capable form is
+     placeable as TERRAIN by `rules/placement.js#placeTile`, and with no
+     `tile` block of its own `model/tiles.js#baseHardOf` returns Infinity for
+     the tile it writes -- a wall that can never be mined back out. Then the
+     byte itself: nothing packable above `PACKABLE_LIMIT`. `data/forms.js`
+     throws on that at import; this names WHICH row is over the line. */
   for (let s = 0; s < SUB.length; s++) {
     for (let f = 0; f < FORM.length; f++) {
       if (!FORM[f].tile || !crossable(s, f)) continue;
@@ -592,56 +498,34 @@ export function checkContent({ quiet = false } = {}) {
            `-- move it earlier in data/substances.js or drop a form`);
   }
 
-  /* ---- 17. THE RELIC GLOW IS A RULE, NOT A PER-ROW REMINDER.
-     "Any item whose form or substance carries the divine marker draws with a
-     halo" only stays true if something enforces it structurally -- otherwise
-     a future trinket `data/drops.js` produces reads as ordinary loot forever,
-     silently, exactly the failure mode assertion 15 already exists to catch
-     for a typo'd `fn`. `tags:['relic']`/`tags:['machine']` already separate
-     the two cleanly (grepped: no substance carries both), so this checks the
-     tag, not a per-row flag nothing enforces. `rig`-form machine items must
-     NOT glow -- they are one-substance-per-thing too, same as a relic, but
-     they are not divine. ---- */
+  /* 17. THE RELIC GLOW IS A RULE, NOT A PER-ROW REMINDER. "Every divine item
+     draws with a halo" only stays true if something enforces it, or a future
+     trinket reads as ordinary loot forever and silently. Checked off
+     `tags:['relic']` rather than a per-row flag, and `rig`-form machine items
+     must NOT glow: one substance per thing like a relic, but not divine. */
   const hasHalo = s => (s.look?.treatments || []).some(tr => tr.fn === 'halo');
   for (const s of SUB) {
     if (s.tags?.includes('relic') || s.tags?.includes('miracle')) {
       checks++;
       if (!hasHalo(s))
         fail(`substance "${s.id}": tagged relic/miracle but has no look.treatments halo -- ` +
-             `every divine item draws with a glow (Phase 8b); add { fn:'halo', col:'ichor', ... }`);
+             `every divine item draws with a glow; add { fn:'halo', col:'ichor', ... }`);
     }
     if (s.tags?.includes('machine')) {
       checks++;
       if (hasHalo(s))
         fail(`substance "${s.id}": tagged machine but has a look.treatments halo -- a held/placed ` +
-             `rig is not divine and must not glow (Phase 8b's exclusion)`);
+             `rig is not divine and must not glow`);
     }
   }
 
-  /* ---- 18. THE SILENT-FAILURE MACHINE KEYS ARE WELL FORMED — the transport
-     interpreter blocks and the `band` placement
-     gate, which shares their exact failure mode.
-     `hub`, `crank` and `gear` are read by exactly the generic-interpreter
-     route every other key here takes, which means a typo in one of them fails
-     SILENTLY and permanently rather than loudly: `hub:{ carries:['players'] }`
-     makes `model/segments.js#carries(seg,'player')` answer false for ever, so
-     every carrier in the game quietly refuses to bear a rider and nothing
-     anywhere throws. That is the exact failure mode this file exists for -- a
-     typo in `data/` must fail here, not at 3am.
-
-     `tools/check.mjs` asserts the BEHAVIOUR of these numbers (torque
-     conservation, gear-loss monotonicity, the diagonal zero); this asserts
-     they are numbers at all, and in the range the behaviour assumes. The
-     `carries` vocabulary is hardcoded for the same reason assertion 10
-     hardcodes 'suppress'/'invert': it is a closed set defined by
-     `rules/drive.js`'s two call sites, and a lint may not learn its
-     vocabulary from the data it is linting.
-
-     Plus one existence check per key. Every one of them is a whole mechanic --
-     no hub row means no cable can ever be anchored, no crank row means no
-     torque can ever be supplied -- and CLAUDE.md's own list of mistakes
-     includes a tool that was moved and left the project unable to build for
-     two commits. A deleted row should say so here. ---- */
+  /* 18. THE SILENT-FAILURE MACHINE KEYS ARE WELL FORMED: the transport
+     interpreter blocks, plus the `band` gate that shares their failure mode.
+     `hub:{ carries:['players'] }` makes `model/segments.js#carries` answer
+     false for ever, so every carrier refuses a rider and nothing throws.
+     `tools/check.mjs` asserts the BEHAVIOUR of these numbers; this asserts
+     they are numbers at all, in the range that behaviour assumes. Plus one
+     existence check per key, since each is a whole mechanic. */
   const CARRIES = ['material', 'player'];
   const finitePos = v => typeof v === 'number' && Number.isFinite(v) && v > 0;
   const seen = { hub: 0, crank: 0, gear: 0 };
@@ -670,19 +554,17 @@ export function checkContent({ quiet = false } = {}) {
       checks++;
       if (!finitePos(m.crank.torque))
         fail(`machine "${m.id}": crank.torque is ${JSON.stringify(m.crank.torque)}, not a finite ` +
-             `positive drive figure -- docs/SPEC.md 17.9 denominates supply in these units`);
+             `positive drive figure -- supply is denominated in these units`);
       checks++;
       if (!finitePos(m.crank.reach))
         fail(`machine "${m.id}": crank.reach is ${JSON.stringify(m.crank.reach)}, not a finite ` +
              `positive number of px -- it is the slack in the same overlaps() call handFeed uses`);
     }
-    /* THE BAND GATE (Phase 13d, docs/SPEC.md 20.1). Same silent-failure
-       argument as `hub.carries` above, one notch worse: a `band` naming no
-       real band makes `model/run.js#placementCheck` refuse the machine in
-       EVERY band for the whole run, with a refusal message built from the id
-       it could not resolve -- a machine that can never be placed anywhere and
-       nothing thrown. Optional, so only a row that carries the key is
-       checked. */
+    /* THE BAND GATE, one notch worse than `hub.carries` above: a `band`
+       naming no real band makes `model/run.js#placementCheck` refuse the
+       machine in EVERY band for the whole run, with a refusal message built
+       from the id it could not resolve. Nothing throws. Optional, so only a
+       row carrying the key is checked. */
     if (m.band !== undefined) {
       checks++;
       if (typeof m.band !== 'string' || !BANDS.some(b => b.id === m.band))
@@ -696,8 +578,8 @@ export function checkContent({ quiet = false } = {}) {
       const loss = m.gear.loss;
       if (typeof loss !== 'number' || !Number.isFinite(loss) || loss < 0 || loss >= 1)
         fail(`machine "${m.id}": gear.loss is ${JSON.stringify(loss)}; it is a FRACTION lost per hop ` +
-             `and must be in [0, 1). At 0 a drivetrain sprawls for free (docs/PLAN-gears-and-winches.md ` +
-             `section 4.1's whole reason for the key) and at 1 or more it delivers nothing or negates`);
+             `and must be in [0, 1). At 0 a drivetrain sprawls for free, and at 1 or more it ` +
+             `delivers nothing or negates`);
     }
   }
   for (const [key, n] of Object.entries(seen)) {
@@ -707,35 +589,13 @@ export function checkContent({ quiet = false } = {}) {
            `behind it (a hub anchors every cable, a crank supplies all torque, a gear carries it)`);
   }
 
-  /* ---- 19. THE CYCLE TABLE IS PAYABLE (Phase 10b, docs/SPEC.md section 18).
-     Modelled on assertion 12: closed-set vocabularies hardcoded here rather
-     than learned from the data being linted, plus one existence check per
-     reference.
-
-     THE TWO VOCABULARIES ARE CLOSED SETS defined by call sites, not by
-     content. `at` is a MACHINE ID and must name a row carrying `tribute:{}`,
-     because that marker is the whole of what `rules/cycles.js` scans for -- a
-     cycle pointing at the furnace would be unpayable forever and nothing would
-     throw. `reward.draft` names one of the four gift tiers of CLAUDE.md D1, and
-     the list is exactly the four `draftable()` exports `shell/main.js`
-     dispatches to; a fifth string would silently offer nothing.
-
-     THE DEMAND ROWS ARE CHECKED TWICE, ON PURPOSE, because the two checks catch
-     different mistakes. `holdable(sub, form)` proves the PAIR can exist as
-     carried material at all (the element has an `item` block AND the crossing
-     is legal), which is what a receiver's buffer and the player's pockets both
-     require. `expand(sub + '/' + form).length > 0` proves the SELECTOR is
-     non-empty -- the validator `data/forms.js#expand` exists for and CLAUDE.md
-     names, and the failure mode that once let tin pile up in a buffer no recipe
-     consumed. A demand row is also checked against the receiver's own
-     `accepts`, which is the one that would catch "the gods want logs" -- a
-     perfectly holdable pair that the machine they asked for it at will not take.
-
-     `deadlineSecs` is `null` OR a finite positive number, and `null` is not a
-     spelling of zero: `rules/cycles.js` branches on it and a panel draws no
-     timer for it (docs/SPEC.md 18.4). A cycle with no clock must also have no
-     punishment, since it can never be missed -- asserted, because a punishment
-     nothing can trigger is a design statement that is not true. ---- */
+  /* 19. THE CYCLE TABLE IS PAYABLE: `at` names a machine row carrying
+     `tribute:{}`, the marker `rules/cycles.js` scans for, and `reward.draft`
+     is one of the four `draftable()` exports. Each demand row is checked
+     three ways, because the three catch different mistakes -- `holdable` (the
+     pair can exist as material), `expand(...).length > 0` (the selector is
+     non-empty), and the receiver's own `accepts` (the machine will take it).
+     A cycle with no clock must carry no punishment. */
   {
     const AT = Object.freeze(Object.fromEntries(
       MACH.filter(m => m.tribute).map(m => [m.id, m])));
@@ -789,16 +649,13 @@ export function checkContent({ quiet = false } = {}) {
                `not be able to give it away`);
       }
 
-      /* THE BATCH CLAUSE IS A CRASH GUARD, NOT A LINT (Phase 17d,
-         docs/SPEC.md section 18.10). `rules/cycles.js#creditTribute` calls
-         `keyOf(S[batch.sub], F[batch.form])` on every delivery to a batched
-         cycle's receiver, and `model/items.js#keyOf` reads `SUB[sub].id`, so
-         a typo'd `sub` or `form` throws a TypeError mid-substep on the first
-         delivery of ANY pair to that receiver -- it does not quietly leave a
-         clause nothing can satisfy. A pair that is valid but unholdable
-         (`granite/plate`) is the quiet case, and `holdable` is what catches
-         it. `secs` must be positive for the same reason `deadlineSecs` may
-         not be zero: a window of no width is one nothing can land inside. */
+      /* THE BATCH CLAUSE IS A CRASH GUARD, NOT A LINT.
+         `rules/cycles.js#creditTribute` keys the window through
+         `model/items.js#keyOf`, which reads `SUB[sub].id`, so a typo'd `sub`
+         or `form` throws a TypeError mid-substep on the first delivery of ANY
+         pair to that receiver. The quiet case is a pair that is valid but
+         unholdable, and `holdable` catches that. `secs` must be positive:
+         a window of no width is one nothing can land inside. */
       if (c.batch !== undefined) {
         const b = c.batch;
         const bsub = S[b?.sub], bform = F[b?.form];
@@ -876,27 +733,12 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* ---- 20. EVERY MINEABLE TERRAIN ROW IS CLASSIFIED (Phase 14a,
-     docs/SPEC.md section 19). Three buckets, one substance tag each, and the
-     split has to be expressible IN CONTENT rather than as a branch in code:
-     `#bulk/gravel` is a recipe input granite can never satisfy, and
+  /* 20. EVERY MINEABLE TERRAIN ROW IS CLASSIFIED, into exactly one of three
+     buckets. `#bulk/gravel` is a recipe input granite can never satisfy and
      `data/forms.js#block`'s `subTags:['bulk']` is the whole of "a deposit is
-     never player-placeable". Both of those read a TAG, so a terrain row added
-     without one silently gets neither behaviour -- its rubble packs into
-     nothing, and a future tile-capable form could quietly admit it.
-
-     EXACTLY ONE, not "at least one": a row tagged both `bulk` and `deposit`
-     would be placeable-by-recipe AND a named body at once, which is the
-     contradiction the classification exists to prevent, and `#bulk/gravel`
-     would start matching a deposit's rubble the moment it happened.
-
-     Scoped to `tile` + `mineable` on purpose. `bedrock`/`air` are pseudo-rows
-     (`VOID_SUB`/`EDGE_SUB`) and not in `SUB` at all; a relic, a miracle and
-     the machine items have no `tile` block and are not unclassified terrain,
-     they are not terrain. The vocabulary is hardcoded here for the same
-     reason assertions 10, 18 and 19 hardcode theirs: it is a closed set
-     defined by call sites, and a lint may not learn its vocabulary from the
-     data it is linting. ---- */
+     never player-placeable" -- both read a TAG, so a row added without one
+     silently gets neither behaviour, and a row tagged twice would be
+     placeable-by-recipe AND a named body at once. */
   {
     const BUCKETS = ['bulk', 'deposit', 'organic'];
     for (const s of SUB) {
@@ -906,51 +748,19 @@ export function checkContent({ quiet = false } = {}) {
       if (held.length !== 1)
         fail(`substance "${s.id}": mineable terrain tagged ${held.length ? held.map(b => `"${b}"`).join(' and ') : 'with no bucket'} ` +
              `-- every row with a \`tile\` block and \`mineable\` must carry EXACTLY ONE of ` +
-             `${BUCKETS.map(b => `"${b}"`).join(', ')} (docs/SPEC.md section 19). Without one, its rubble ` +
+             `${BUCKETS.map(b => `"${b}"`).join(', ')}. Without one, its rubble ` +
              `packs into no block (data/recipes.js#pack reads #bulk) and nothing decides whether it may ` +
              `ever be player-placed (data/forms.js#block reads subTags bulk)`);
     }
   }
 
-  /* ---- 21. NO DEPOSIT IS OBTAINABLY PLACEABLE (Phase 14e,
-     docs/PLAN-phase14-mining-and-drops.md D14-B/D14-C). D14-C's whole claim is
-     that `rules/placement.js` needed NO new gate, because a deposit has no
-     tile-capable crossing anything can produce -- "unplaceable by
-     construction". That is a property of `data/`, and this is the check that
-     makes it a proven one rather than a true-by-accident one. The failure it
-     exists to catch is named in that plan's own risk register: a future
-     tile-capable form tagged `rock` or `metal` silently admits granite or
-     adamant, and nothing anywhere throws.
-
-     WRITTEN AGAINST OBTAINABILITY, NOT CROSSABILITY, and the difference is
-     load-bearing. `stair`'s `subTags:['metal']` legitimately admits
-     `adamant/stair` -- a legal pair, deliberately kept (adamant carries
-     `metal` for a future smelt path its own row describes), that no recipe
-     outputs and no `tile.drops` yields. Asserting mere crossability would
-     flag it and the honest fix would be to weaken the rule. So the question
-     asked here is the one that matters: can a player ever HOLD this pair?
-     Producers are exactly two, the same two `minedPairs()` and assertion 5's
-     fixpoint read: a substance's own `tile.drops`, and a recipe output
-     (literal `sub`, or `subFrom` resolved over every substance the selector
-     permits -- the widest reading, so this errs towards flagging).
-
-     ONE NAMED EXEMPTION, and it is a real design decision rather than a
-     known bug. `copper/stair` IS obtainable: `data/recipes.js#daedalan`
-     (2 copper/plate + 4 timber/log -> 2 copper/stair) is the tier-2
-     ladder, `data/forms.js#stair` is written around it, and
-     `model/tiles.js#baseChargeOf` explicitly handles it ("`stair` crosses
-     with `metal`, so `copper/stair` is a real placeable pair, and charging it
-     by its substance would turn one stair into four on the way back out").
-     A bronze stair is not a copper vein: it is placed, so `formOf(byte) !==
-     NATIVE`, so it carries charge 1, drops itself back rather than ore, and
-     is refused by every `#deposit`-blind selector in the game. What the brief
-     forbids is placing a new DEPOSIT of a resource, which no crossing here
-     can do. The exemption is per-PAIR, not per-substance or per-form, so a
-     new `tin/stair` recipe, or a `granite`-admitting form, still fails the
-     build -- which is the whole point of listing it rather than dropping the
-     check. Note that D14-B/D14-C's prose ("no deposit substance has an
-     obtainable tile-capable crossing") is stale on exactly this pair; the
-     shipped design is what this comment describes. ---- */
+  /* 21. NO DEPOSIT IS OBTAINABLY PLACEABLE. A deposit has no tile-capable
+     crossing anything can produce, so `rules/placement.js` needs no gate --
+     which is a property of `data/`, and this is what makes it proven rather
+     than true by accident. Asked against OBTAINABILITY, not crossability:
+     `adamant/stair` is a legal pair nothing produces, and flagging it would
+     make the honest fix weakening the rule. `copper/stair` is the one named
+     exemption, per-PAIR, so a `tin/stair` recipe still fails. */
   {
     const TILE_FORMS = FORM.reduce((a, f, i) => (f.tile ? (a.push(i), a) : a), []);
 
@@ -982,39 +792,26 @@ export function checkContent({ quiet = false } = {}) {
       if (!SUB[s].tags?.includes('deposit')) continue;
       for (const f of TILE_FORMS) {
         checks++;
-        if (!crossable(s, f)) continue;               // illegal by subTags -- the D14-B mechanism
+        if (!crossable(s, f)) continue;               // illegal by subTags, which is the point
         const how = produced.get(keyOf(s, f));
         if (!how) continue;                           // legal but unobtainable, e.g. adamant/stair
         if (OBTAINABLE_DEPOSIT_TILES.has(`${SUB[s].id}/${FORM[f].id}`)) continue;
         fail(`substance "${SUB[s].id}" is tagged \`deposit\` and "${SUB[s].id}/${FORM[f].id}" is BOTH a ` +
              `legal crossing (form "${FORM[f].id}" carries a \`tile\` block and its subTags admit this row) ` +
-             `AND obtainable -- ${how}. A deposit is natural-generation-only ` +
-             `(docs/PLAN-phase14-mining-and-drops.md D14-B/D14-C): either narrow the form's \`subTags\`, or ` +
+             `AND obtainable -- ${how}. A deposit is natural-generation-only: ` +
+             `either narrow the form's \`subTags\`, or ` +
              `stop producing the pair. If the crossing is genuinely intended, add it to this assertion's ` +
              `OBTAINABLE_DEPOSIT_TILES with the argument written down, as \`copper/stair\` is`);
       }
     }
   }
 
-  /* ---- 22. EVERY `tile.charge` IS A WHOLE NUMBER >= 1, AND ONLY A `deposit`
-     ROW CARRIES ONE (Phase 14e, D14-D/D14-F).
-
-     Two different content bugs, both silent. A fractional or zero charge
-     breaks `model/mining.js#unitsCrossed`'s arithmetic without throwing:
-     `Math.floor(charge) - 1` is the cap it counts unit boundaries against, so
-     0.5 yields a cap of -1 (clamped to 0, i.e. no per-unit drops at all) while
-     `rules/mining.js` still multiplies `hard * charge` for the break -- a tile
-     that takes half as long and drops nothing on the way. A charge of 0 makes
-     `total` 0, and the floor at `Math.max(1, ...)` in both break sites is the
-     only thing standing between that and a tile that breaks on the first
-     frame. Neither would fail any other check here.
-
-     The second half is a copy-paste guard. `charge` on a `bulk` or `organic`
-     row would multiply the yield of soil, plain stone or a felled trunk by
-     however many units it named, silently inflating an economy that
-     docs/SPEC.md section 19 states is unchanged for those three, and quietly
-     re-opening the "5 rubble packs one block" trade at a discount. Charge
-     describes a NAMED BODY in the ground and nothing else. ---- */
+  /* 22. EVERY `tile.charge` IS A WHOLE NUMBER >= 1, AND ONLY A `deposit` ROW
+     CARRIES ONE. A fractional charge breaks `model/mining.js#unitsCrossed`
+     without throwing -- 0.5 gives a unit cap of -1, so no per-unit drops,
+     while `rules/mining.js` still multiplies `hard * charge`. A charge on a
+     `bulk` or `organic` row multiplies the yield of soil, stone or a felled
+     trunk. Charge describes a NAMED BODY in the ground, nothing else. */
   for (const s of SUB) {
     const c = s.tile?.charge;
     if (c === undefined) continue;                   // absent means 1, which every non-deposit row is
@@ -1027,46 +824,21 @@ export function checkContent({ quiet = false } = {}) {
     if (!s.tags?.includes('deposit'))
       fail(`substance "${s.id}": carries tile.charge ${JSON.stringify(c)} but is not tagged \`deposit\` ` +
            `(tags ${JSON.stringify(s.tags || [])}) -- only a named body depletes over several units. On a ` +
-           `\`bulk\` or \`organic\` row this silently multiplies its yield and docs/SPEC.md section 19 ` +
-           `says those three are unchanged`);
+           `\`bulk\` or \`organic\` row this silently multiplies its yield`);
   }
 
-  /* ---- 23. NO HAND RECIPE SHADOWS A LATER ONE (Phase 14e, section 2.9).
-     `rules/crafting.js#choose` takes THE FIRST `HAND_RECIPES` row whose inputs
-     are all satisfied, so declaration order is load-bearing and a row whose
-     bill is implied by a later row's bill makes that later row permanently
-     unreachable by hand. Nineteen `hand:true` rows, every one carrying a
-     comment arguing its position by hand -- and three of those arguments are
-     wrong, which is the case for checking it mechanically.
-
-     THE IMPLICATION TEST, and why it is a subset test over EXPANDED SELECTORS
-     rather than over selector strings. Row `i` is satisfied by every pockets
-     state that satisfies row `j` if, for each of `i`'s clauses (sel_i, n_i),
-     `j` has a clause (sel_j, n_j) with n_j >= n_i and every pair matching
-     sel_j also matching sel_i. Then any state satisfying j holds some single
-     pair with at least n_j of it that also answers sel_i, which is exactly
-     what `model/run.js#pocketedPair` asks. Comparing the strings would miss
-     that `timber/log` implies star-slash-hash-fuel (spelled in words for the
-     reason `data/forms.js`'s grammar block gives), and comparing counts would
-     claim `#bulk/gravel:5` implies `stone/gravel:4`, which is backwards.
-     Sound rather than complete: it can miss a shadowing (two clauses of `j`
-     answered by one pair), never invent one.
-
-     THERE IS NO ALLOWLIST. This assertion shipped with three named
-     exemptions -- `peg_rungs` and `kindle` both shadowing `daedalan`, and
-     `kindle` shadowing `auger` -- recorded because fixing them by reordering
-     alone would have traded one dead recipe for another. Phase 6v repriced
-     the two bills instead (`daedalan` to {3 plate, 1 log}, `kindle` moved
-     below both), so every one of the 19 rows is now craftable at its own
-     minimal bill and the exemption has nothing left to cover. Any shadowing
-     pair at all fails the build, which is what makes a twentieth recipe safe
-     to add. ---- */
+  /* 23. NO HAND RECIPE SHADOWS A LATER ONE. `rules/crafting.js#choose` takes
+     the FIRST `HAND_RECIPES` row whose inputs are satisfied, so a row whose
+     bill is implied by a later row's makes that later row permanently
+     uncraftable. A subset test over EXPANDED selectors, not over selector
+     strings: strings would miss that `timber/log` implies a fuel selector,
+     and counts alone would call a 5-gravel bill an implication of a 4-gravel
+     one, backwards. Sound rather than complete -- it can miss a shadowing,
+     never invent one. No allowlist. */
   {
-    /* `HAND_RECIPES` itself, not `recipes.filter(r => r.hand)`: the thing under
-       test is DECLARATION ORDER, and that array is the one
-       `rules/crafting.js#choose` actually walks. Re-deriving it here would be a
-       second implementation of "which rows have hand:true, in what order",
-       which is the drift assertion 7 above already exists to prevent. */
+    /* `HAND_RECIPES` itself, not `recipes.filter(r => r.hand)`: the thing
+       under test is DECLARATION ORDER, and that array is the one
+       `rules/crafting.js#choose` walks. */
     const HAND = HAND_RECIPES;
 
     const pairSet = sel => new Set(expand(sel).map(p => keyOf(p.sub, p.form)));
@@ -1094,37 +866,13 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* ---- 24. A `tile.roots` FORM IS NEVER SOLID (Phase 15,
-     docs/PLAN-phase15-trees.md D15-C/D15-E, docs/SPEC.md section 22).
-
-     `roots` means two things at once (`data/forms.js`'s own header on the key
-     says so): a solid tile DIRECTLY BELOW satisfies this form's backing
-     requirement, and the tile is entered in `model/growth.js`'s ledger so
-     `rules/growth.js` will eventually turn it into something else. The first
-     half is what this checks, and it is the half that has a bad interaction
-     with `solid`.
-
-     A SOLID TILE THAT NEEDS NOTHING BUT A FLOOR UNDER IT IS A FREE-STANDING
-     WALL. `rules/placement.js#placeTile`'s backing predicate exists so that
-     terrain has to be keyed into terrain -- rock beside it, rock above it, or
-     a climbable to join. `roots` deliberately breaks that for a seedling,
-     which is safe precisely because a seedling is not collision: it is
-     `solid:false, climb:false`, you walk straight through it, and the worst a
-     misplaced one can do is take 0.0175 s to dig back up. Put the same key on
-     a SOLID form and the game gains a verb nobody designed: stand on flat
-     ground and stack a tower of blocks upward one tile at a time, with no
-     ladder, no scaffold and no material cost beyond the blocks themselves --
-     which is a direct assault on CLAUDE.md's premise that up is expensive.
-
-     It would also be silent. Nothing else in the project pairs the two keys,
-     `tools/layers.mjs` checks direction and names rather than sense, and the
-     resulting tower would place, paint and collide perfectly well. The whole
-     failure is that it works.
-
-     Stated over the FORM table rather than as a comment on the `seed` row for
-     the reason assertion 22 gives about `tile.charge`: the row that breaks
-     this is the row someone adds next, by copying the nearest existing one,
-     which is what a per-row reminder cannot reach. ---- */
+  /* 24. A `tile.roots` FORM IS NEVER SOLID. `roots` lets a solid tile DIRECTLY
+     BELOW satisfy the backing requirement, which deliberately breaks the rule
+     that terrain keys into terrain -- safe for a seedling, which is not
+     collision. A SOLID form with the same key is a free-standing wall: stand
+     on flat ground and stack a tower one tile at a time, no ladder and no
+     scaffold, which is the premise that up is expensive inverted. It places,
+     paints and collides perfectly well; that is the whole failure. */
   for (const f of FORM) {
     if (f.tile?.roots === undefined) continue;
     checks++;
@@ -1138,52 +886,29 @@ export function checkContent({ quiet = false } = {}) {
            `a \`roots\` form is backed by a solid tile DIRECTLY BELOW and nothing else ` +
            `(rules/placement.js#placeTile), so a SOLID one is a free-standing wall: stand on flat ` +
            `ground and stack it upward one tile at a time with no ladder and no scaffold, which is ` +
-           `CLAUDE.md's "up is expensive" premise inverted. Set \`solid:false\` (docs/SPEC.md ` +
-           `section 22)`);
+           `the "up is expensive" premise inverted. Set \`solid:false\` or drop \`roots\``);
   }
 
-  /* ---- 25. EVERY MACHINE ROW IS REACHABLE IN A REAL RUN: something grants
-     it, AND a player who takes that grant can actually place it.
-
-     BOTH HALVES, and the second half is the one that matters. "Named by a
-     `data/grants.js` row" on its own would have passed `kiln_divine` — the
-     deadest row in the table — green: it was named by the only GRANTS row
-     there was, and `machineHeldSub('kiln_divine')` is `undefined`, so
-     `model/run.js#placementCheck` refused it `'NOTHING BUILT YET'` at every
-     depth, for ever. An assertion that goes green over the bug that
-     motivated it is worse than no assertion, so placeability is asked
-     through the SAME query `placementCheck` asks, imported rather than
-     re-derived.
-
-     `talos_head`/`cyclops_maw` were the other half of the same hole: three
-     tables each (machine, substance, recipe) and no grant anywhere, which
-     also made their recipes permanently unknown, since
-     `model/run.js#isKnown` gates a machine-build recipe on `canPlace`.
-
-     A MIRROR IS SPONSORED BY ITS BASE, because `rules/grants.js` grants the
-     pair (`model/run.js#mirrorOf`), so no content row ever names a `_l` id
-     and this must not demand one.
-
-     THE TWO EXEMPTIONS ARE FROM THE FIRST HALF ONLY. A row may be exempted
-     from having a sponsor -- that is a content decision, written down below
-     with its reason. Nothing is ever exempt from the second half: the moment
-     something DOES grant a machine, that machine must be placeable, which is
-     exactly the assertion that goes red if `gift-kiln` is ever restored. ---- */
+  /* 25. EVERY MACHINE ROW IS REACHABLE IN A REAL RUN: something grants it, AND
+     a player who takes that grant can place it. The second half is the one
+     that matters -- "named by a grants row" alone goes green on a machine
+     with no substance row, which `placementCheck` refuses at every depth for
+     ever. So placeability is asked through the SAME query `placementCheck`
+     asks. A mirror is sponsored by its base. Exemptions are from the first
+     half only: whatever IS granted must be placeable. */
   const EXEMPT_UNSPONSORED = new Map([
     /* The player must never obtain it: `rules/cycles.js#ensureAltarPlaced`
        places it, and it deliberately has no substance row, which is
        "never placeable by the player" expressed as an absence rather than
        as a check. Both halves below are expected to fail for it. */
     ['altar', 'placed by rules/cycles.js; deliberately has no substance row'],
-    /* Kept as documentation, not as content. `rate.kiln_divine` is
-       CLAUDE.md's own worked example of a scoped tunable key,
-       `data/machines.js` names it as the worked example for `variantOf`,
-       `docs/DEVELOPER_GUIDE.md#variants-are-nearly-free` documents it and
-       `shell/notify.js` cites it for the per-machine sound override. It has
-       no substance for the reason `data/substances.js`'s own comment gives
-       (its inherited build bill is bit-identical to `furnace`'s, so a hand
-       recipe for it could never fire), so it can never be placed and its
-       grant row was retired rather than left pretending otherwise. */
+    /* Kept as a worked example, not as content: `rate.kiln_divine` is the
+       scoped-tunable example, and `data/machines.js` names it for `variantOf`
+       and `shell/notify.js` for the per-machine sound override. It has no
+       substance row -- its inherited build bill is bit-identical to
+       `furnace`'s, so a hand recipe for it could never fire -- so it can
+       never be placed, and its grant row was retired rather than left
+       pretending otherwise. */
     ['kiln_divine', 'a live worked example for variantOf and scoped tuning, with no sponsor and no substance']
   ]);
   const sponsors = [...STARTING_MACHINES,
@@ -1216,16 +941,14 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* ---- 26. EVERY MIRACLE EFFECT IS A KIND `rules/miracles.js` IMPLEMENTS,
-     hardcoded here for the reason assertions 10, 18 and 19 hardcode theirs:
-     it is a closed set defined by that file's branches, and a lint may not
-     learn its vocabulary from the data it is linting. A row naming a kind
-     nobody implements fails SILENTLY -- the phial is spent, the journal row
-     is pushed, and the world does not change.
+  /* 26. EVERY MIRACLE EFFECT IS A KIND `rules/miracles.js` IMPLEMENTS,
+     hardcoded here because it is a closed set defined by that file's
+     branches. A row naming a kind nobody implements fails SILENTLY: the phial
+     is spent, the journal row is pushed, and the world does not change.
 
-     A row with NO kind at all is legal and is the pure-boon phial
-     (`applyEffect` grants `effect.boon` independently of `effect.kind`), so
-     the requirement is that it do at least one of the two things. ---- */
+     A row with NO kind is legal -- that is the pure-boon phial, since
+     `applyEffect` grants `effect.boon` independently -- so the requirement is
+     that a row do at least one of the two. */
   const MIRACLE_KINDS = new Set(['collapse', 'transmute']);
   for (const m of MIRACLES) {
     const e = m.effect || {};
@@ -1237,26 +960,14 @@ export function checkContent({ quiet = false } = {}) {
     checks++;
     if (e.kind === undefined && !e.boon)
       fail(`miracle "${m.id}": has neither an effect.kind nor an effect.boon, so using it does nothing at all`);
-    /* A KIND THAT WRITES A TILE NEEDS A PACKABLE SUBSTANCE, and both halves
-       of that are load-bearing rather than tidy. `rules/miracles.js`'s
-       `transmute` is a THIRD caller of `data/forms.js#packTile`, alongside
-       worldgen's native tile and `rules/placement.js#placeTile`'s validated
-       crossing, and it is subject to neither of their constraints -- so
-       nothing but this line stands between a content row and a corrupt tile
-       byte, silently:
-
-         no `sub` at all      `packTile(undefined)` is NaN, a Uint8Array
-                              stores NaN as 0, and 0 is AIR -- the miracle
-                              would CLEAR solid rock, which is exactly the
-                              step upward its own comment promises it cannot
-                              make.
-         a non-packable `sub` the ordinal overflows the byte and WRAPS:
-                              `lodestone` (26) packs to 365, truncates to
-                              109, and decodes as granite/stair -- a
-                              climbable tile nobody placed.
-
-       Both are the failure mode this whole file exists for: they place, they
-       paint, they collide, and nothing throws. */
+    /* A KIND THAT WRITES A TILE NEEDS A PACKABLE SUBSTANCE, both halves.
+       `transmute` is a third caller of `data/forms.js#packTile`, subject to
+       neither of the other two's constraints. With no `sub`,
+       `packTile(undefined)` is NaN, which a Uint8Array stores as 0, and 0 is
+       AIR -- the miracle CLEARS solid rock instead of converting it. With a
+       non-packable `sub` the ordinal overflows and WRAPS: 26 packs to 365,
+       truncates to 109, and decodes as granite/stair, a climbable tile nobody
+       placed. Both place, paint, collide, and never throw. */
     if (e.kind === 'transmute') {
       checks++;
       if (e.sub === undefined)
@@ -1283,39 +994,14 @@ export function checkContent({ quiet = false } = {}) {
   }
 
 
-  /* ---- 27. EVERY DEBUG SCENARIO IS BUILDABLE (Phase 6j, docs/SPEC.md
-     section 29). Modelled on assertion 19: one existence check per reference,
-     closed vocabularies hardcoded here rather than learned from the rows being
-     linted, and the two selector checks (`holdable` and `expand`) kept
-     separate because they catch different mistakes.
-
-     WHY THIS ASSERTION HAS TO EXIST AT ALL. `rules/scenarios.js` places
-     machines through `model/machines.js#write.place` -- the director route
-     `rules/cycles.js#ensureAltarPlaced` already uses, and the only one
-     available, since a `rules` sibling may not be imported. That route asks
-     nothing about band, depth, grants or held items, so `placementCheck`'s
-     refusals never run and a scenario naming an astral-only machine on the
-     surface, or a `minDepth` machine above its gate, would apply without a
-     word and behave like nothing at all. The gates are therefore re-derived
-     here from the raw `data/world.js` rows, exactly as `depthOfTy` above
-     already re-derives `model/world.js#worldY` and for the same reason: this
-     tool runs before anything is booted, so there is no live band to ask.
-
-     THE REACH CHECK IS THE ONE THAT WOULD OTHERWISE BE FOUND BY EYE. A
-     segment whose two anchors are more than `hub.reach` apart is refused by
-     `model/segments.js#linkCheck` at apply time, leaving a diorama with a
-     visible pair of hubs and no cable -- which reads as a broken mechanic
-     rather than as a bad row. The anchor is the footprint's own centre
-     (docs/SPEC.md section 17.5), so the distance is computable from the row.
-     `eff('segReach')` cannot be read here, so this is the BASE reach: a row
-     inside it is inside it under any modifier that only ever widens.
-
-     WHAT IS DELIBERATELY NOT CHECKED: footing, and whether the path between
-     two hubs is clear. Both are questions about live tiles after the carve
-     rects have been applied, and re-deriving the generated world in a lint
-     would be a second worldgen. `linkCheck` asks the path question at apply
-     time and journals its refusal; footing is proved by driving each
-     scenario, which is what this phase's acceptance step did. ---- */
+  /* 27. EVERY DEBUG SCENARIO IS BUILDABLE. `rules/scenarios.js` places
+     machines through `model/machines.js#write.place`, the only route a `rules`
+     module has, and that route asks nothing about band, depth, grants or held
+     items -- so a scenario naming an astral-only machine on the surface
+     applies without a word and behaves like nothing at all. The gates are
+     re-derived from the raw `data/world.js` rows, since nothing has booted.
+     Reach is checked at BASE `hub.reach`, because two anchors too far apart
+     leave a diorama with visible hubs and no cable. */
   {
     const spawnCfg = BANDS.find(b => b.id === SPAWN_BAND);
     const datum = worldYOf(spawnCfg, spawnCfg.floorTy ?? 0);
@@ -1433,7 +1119,7 @@ export function checkContent({ quiet = false } = {}) {
         checks++;
         if (def.band && def.band !== cfg.id)
           fail(`scenario "${sc.id}": machine "${spec.id}" declares band "${def.band}" and the row ` +
-               `places it in "${cfg.id}" -- a player could never build it there (docs/SPEC.md 20.1), ` +
+               `places it in "${cfg.id}" -- a player could never build it there, ` +
                `so the diorama states a rule the game does not have`);
         checks++;
         if (def.minDepth && depthOfTy(cfg, ty, spawnCfg, datum) < def.minDepth)
@@ -1474,7 +1160,7 @@ export function checkContent({ quiet = false } = {}) {
           if (!recipesOf(def).some(r => (r.out || []).length === 0))
             fail(`scenario "${sc.id}": machine "${spec.id}" banks charges and has no honest-fuel ` +
                  `recipe (one with \`out:[]\`), so nothing on that row ever spends one -- see ` +
-                 `docs/DEVELOPER_GUIDE.md#charges-and-honest-fuel`);
+                 `a charge must be spent on work, not on being placed`);
         }
       }
 
@@ -1564,21 +1250,13 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* ---- 28. EVERY STRATA WINDOW LIES INSIDE ITS OWN BAND (Phase 6g,
-     docs/FINDINGS.md phase 6e-2).
-
+  /* 28. EVERY STRATA WINDOW LIES INSIDE ITS OWN BAND.
      `rules/generate.js#attempts` is `dens x (bot - top) x tw / 1e4` over a
      window clamped to `0 .. b.th`, so a row declaring `fromTy:400` on a
      320-row band resolves to an empty window, buys 0 attempts, and scatters
-     nothing at all -- no throw, no warning, and a band that simply has no ore
-     in it. A `contact` row's `at` has the same shape and the same silence.
-
-     THE WINDOW IS CHECKED AS DECLARED, not as shifted. `heightmap()` moves
-     both bounds by the same per-column offset, so a declared window inside
-     the band can still clamp at a hilltop -- that is worldgen's business and
-     `tools/worldgen-check.mjs`'s density floor measures it. What no tool saw
-     is a row whose window is outside the band before a single column is
-     shifted. ---- */
+     nothing -- no throw, no warning, and a band with no ore in it. A
+     `contact` row's `at` has the same shape and the same silence. Checked as
+     DECLARED, not as shifted. */
   for (const cfg of BANDS) {
     for (const row of cfg.strata) {
       const { fromTy, toTy } = row;
