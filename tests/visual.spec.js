@@ -5473,29 +5473,27 @@ test('a soil/stone contact zone at full frame', async ({ page }) => {
    substance that actually reads as PALE -- lavender-grey against copper's
    warm orange (`cuA`/`cuB`). `data/world.js`'s topsoil band overlaps a
    copper `blobs` row (rows 4-180) with a granite one (rows 120-320), so the
-   two are found together rather than placed by hand: at SEED 65 a real copper
-   cluster (tx 228-231) sits five columns west of a real granite patch (tx
-   236-240), rows 143-149 -- found by scanning the generated tile grid, not
-   asserted against a specific arm, worldgen's own cruciform scatter being the
-   point rather than a hand-drawn shape.
+   two are found together rather than placed by hand.
 
-   IT WAS SEED 1337, AND WAVE 6.3 IS WHY IT IS NOT. A `blobs` row's `count`
-   buys an absolute number of cells, so widening the bands by 8x left the same
-   ore in eight times the rock: seed 1337's topsoil holds 320 copper cells in
-   327,680 tiles where it held 296 in 40,960, and NO copper cell in the whole
-   band now lies within eight tiles of granite. Two of the first 200 seeds put
-   the pair close enough to frame together, and 65 is the first.
-   See docs/FINDINGS.md.
+   THE ADDRESS IS SCANNED FOR, NOT WRITTEN DOWN. It was seed 1337's tx
+   228-231 against tx 236-240, and wave 6.3's widening regenerated the band
+   and left the frame with no granite in it; wave 6.3's re-pricing
+   regenerated it again. A scan cannot go stale that way, and the conditions
+   ARE the scene: a column carrying copper for three rows, a column 6 to 8
+   east carrying granite for two, every column between them solid, and the
+   whole pair 45 columns in from either edge and below row 133. First match in
+   row-major order wins, widest gap first, so the answer is one number per
+   seed.
 
    SAME DARKNESS FACT AS THE CONTACT ZONE ABOVE: 140-odd tiles down,
    `revealAll` alone screenshots black -- sky light does not reach anywhere
    near this deep (`eff('lightMax')` 15 / `eff('lightFalloffAir')` 1 per tile
    of open air), so a real brazier is placed instead of a shaft, the same move
-   `shaft-lit.png` above already makes. The room it lights is carved straight
-   through the gap BETWEEN the two bodies (tx 232-236), destroying neither, with
-   the brazier centred in it -- so the west wall IS copper for three rows and
-   the east wall IS granite for two, and both land in `view/scene.js#drawDarkness`'s middle bucket (`lightAt`
-   ~5, `DARK_ALPHA[1]` 0.55) rather than one side blazing and the other
+   `shaft-lit.png` above already makes. The room it lights is carved through
+   the gap BETWEEN the two bodies, with the brazier centred in it -- so the
+   west wall IS copper and the east wall IS granite, and both land in
+   `view/scene.js#drawDarkness`'s middle bucket (`lightAt` ~5,
+   `DARK_ALPHA[1]` 0.55) rather than one side blazing and the other
    unreadable. Framed at the narrow floor's tighter 200x180
    (`core/canvas.js#resize`) so the boundary fills the frame instead of
    getting lost in 640x400 of mostly unlit rock. */
@@ -5504,12 +5502,12 @@ const BLOB_SEED = 65;
 test('an ore blob against pale stone', async ({ page }) => {
   await boot(page);
   await settle(page, BLOB_SEED);
-  await page.evaluate(async () => {
+  const at = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { M } = await import('/src/data/machines.js');
     const { bandOf, worldX, worldY } = await import('/src/model/world.js');
-    const { write: tw } = await import('/src/model/tiles.js');
+    const { solidAt, subAt, write: tw } = await import('/src/model/tiles.js');
     const { write: mw } = await import('/src/model/machines.js');
     const { write: rw, run } = await import('/src/model/run.js');
     const { VIEW } = await import('/src/core/canvas.js');
@@ -5517,11 +5515,33 @@ test('an ore blob against pale stone', async ({ page }) => {
 
     while (run.tutorialBeat < 4) rw.advanceBeat();
     const band = bandOf('topsoil');
-    for (let ty = 144; ty <= 148; ty++)
-      for (let tx = 232; tx <= 236; tx++) tw.clear(band, tx, ty);
-    tw.set(band, 234, 148, S.stone);      // a floor for the brazier
+    const is = sub => (x, y) => solidAt(band, x, y) && subAt(band, x, y) === sub;
+    const isCu = is(S.copper), isGr = is(S.granite);
 
-    const brazier = mw.place(band, M.brazier, 234, 147);
+    let found = null;
+    for (let ty = 133; ty <= 175 && !found; ty++)
+      for (let c = 45; c < band.tw - 45 && !found; c++) {
+        if (!(isCu(c, ty - 1) && isCu(c, ty) && isCu(c, ty + 1))) continue;
+        /* WIDEST GAP FIRST. A 4-column room puts both walls deep in
+           `drawDarkness`'s outer bucket and the boundary stops reading; 5 to
+           7 columns is the framing the old hand-written address had. */
+        for (let d = 8; d >= 6 && !found; d--) {
+          const g = c + d;
+          if (!(isGr(g, ty) && isGr(g, ty + 1))) continue;
+          let solid = true;
+          for (let x = c + 1; x < g && solid; x++)
+            for (let y = ty - 2; y <= ty + 2; y++) if (!solidAt(band, x, y)) solid = false;
+          if (solid) found = { c, g, ty };
+        }
+      }
+    if (!found) return null;
+
+    const mid = (found.c + found.g) >> 1;
+    for (let ty = found.ty - 2; ty <= found.ty + 2; ty++)
+      for (let tx = found.c + 1; tx < found.g; tx++) tw.clear(band, tx, ty);
+    tw.set(band, mid, found.ty + 2, S.stone);      // a floor for the brazier
+
+    const brazier = mw.place(band, M.brazier, mid, found.ty + 1);
     mw.take(brazier, S.timber, F.log, 4);
 
     __mf.revealAll(band);
@@ -5529,10 +5549,12 @@ test('an ore blob against pale stone', async ({ page }) => {
     __mf.frames(700);         // > 6s honest-fuel recipe, then settle
 
     __mf.resize(200, 180);
-    __mf.cam.x = Math.round(worldX(band, 234) - VIEW.w / 2);
-    __mf.cam.y = Math.round(worldY(band, 146) - VIEW.h / 2);
+    __mf.cam.x = Math.round(worldX(band, mid) - VIEW.w / 2);
+    __mf.cam.y = Math.round(worldY(band, found.ty) - VIEW.h / 2);
     __mf.draw();
+    return found;
   });
+  expect(at).not.toBeNull();       // the scene has to contain its own subject
   await shot(page, 'ore-against-pale-stone.png');
 });
 

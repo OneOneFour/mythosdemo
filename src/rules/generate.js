@@ -34,7 +34,7 @@ import { clamp } from '../core/math.js';
 import { rand, randInt, randRange } from '../core/rng.js';
 import { NATIVE } from '../data/forms.js';
 import { S, SUB } from '../data/substances.js';
-import { STRATA_KINDS } from '../data/world.js';
+import { BANDS, STRATA_KINDS } from '../data/world.js';
 import { eff } from '../model/mods.js';
 import { write as tw, solidAt, subAt } from '../model/tiles.js';
 import { inBounds } from '../model/world.js';
@@ -71,13 +71,13 @@ const LIP = 0.35;
 
    DO NOT GO BACK TO SUMMING OCTAVES. The three-octave sum this replaced ran a
    5-tile period and then flipped an independent one-row coin per column, so
-   the ground changed direction 37 to 52 times across 128 columns and read as
+   the ground changed direction 37 to 52 times per 128 columns and read as
    sawtooth rather than as terrain.
 
    The locked numbers are docs/SPEC.md section 16.1. */
 
-/* Tiles between trend lattice points. 40 over a 128-column band gives 5
-   lattice points, so the trend is three or four broad features. */
+/* Tiles between trend lattice points. 40 gives a lattice point every 40
+   columns, so the trend is one broad feature per two or three screens. */
 const TREND_PERIOD = 40;
 
 /* How much of the relief budget the trend claims either way from its own
@@ -87,7 +87,7 @@ const TREND_PERIOD = 40;
 const TREND_SHARE = 0.20;
 
 /* Tiles of world per summit, so a wider band gets more hills rather than
-   wider ones. 128 columns gives 6 summits. */
+   wider ones. 1,024 columns gives 51 summits. */
 const HILL_SPACING = 20;
 
 /* Summit height in tiles, never under `HILL_LOW` and never over `HILL_SHARE`
@@ -150,6 +150,16 @@ const HOLLOW_VEIN = 0.14;
 const DIRS = [[0, -1], [0, 1], [-1, 0], [1, 0], [-1, -1], [1, -1], [-1, 1], [1, 1]];
 const ORE_LONG = 2.4;
 const ORE_FAT  = 2.8;
+
+/* ---------- how much a row scatters ----------
+   `dens` is ATTEMPTS PER 10,000 TILES of the row's own window -- the rows it
+   declares, times the band's width. A density rather than a count, because an
+   absolute count is diluted by every widening: `tw` went from 128 to 1,024 in
+   wave 6 phase 6e and the same ore sat in eight times the rock, at an eighth
+   of the ore per screen, while every worldgen property stayed green because
+   each one is a floor. What a player experiences is content per screen, and
+   that is what this holds fixed. docs/SPEC.md section 16.5. */
+const attempts = (b, top, bot, dens) => Math.round(dens * (bot - top) * b.tw / 1e4);
 
 /* ---------- the kind table ---------- */
 
@@ -244,7 +254,8 @@ const KINDS = {
     const top = Math.max(0, row.fromTy), bot = Math.min(b.th, row.toTy);
     if (bot <= top) return;
     const margin = Math.ceil(row.r[1]);
-    for (let n = 0; n < row.count; n++) {
+    const tries = attempts(b, top, bot, row.dens);
+    for (let n = 0; n < tries; n++) {
       const cx = randInt(0, b.tw - 1);
       const cy = clamp(
         top + Math.floor((bot - top) * Math.pow(rand(), row.bias ?? 1)),
@@ -269,17 +280,18 @@ const KINDS = {
     }
   },
 
-  /* Scattered cruciform clusters: ore fields. `count` attempts, each at a
-     random column and a row inside the declared window. ORE NEVER FILLS A
-     HOLLOW — `star()` is asked for solid cells only, so a carved room stays a
-     room. `line:true` additionally lines the walls of the hollows this row
-     claimed above. */
+  /* Scattered cruciform clusters: ore fields, each at a random column and a
+     random row inside the declared window. ORE NEVER FILLS A HOLLOW —
+     `star()` is asked for solid cells only, so a carved room stays a room.
+     `line:true` additionally lines the walls of the hollows this row claimed
+     above. */
   blobs(b, row, ctx) {
     const sub = S[row.sub];
     const top = Math.max(0, row.fromTy);
     const bot = Math.min(b.th, row.toTy);
     if (bot <= top) return;
-    for (let n = 0; n < row.count; n++) {
+    const tries = attempts(b, top, bot, row.dens);
+    for (let n = 0; n < tries; n++) {
       const cx = randInt(0, b.tw - 1);
       const cy = randInt(top, bot - 1);
       star(b, cx, cy, randRange(row.r[0], row.r[1]), sub, true);
@@ -316,8 +328,12 @@ const KINDS = {
     const sub = S[row.sub];
     const top = Math.max(0, row.fromTy);
     const bot = Math.min(b.th, row.toTy);
+    const stand = row.grove ? groves(b, row.grove.spacing, row.grove.spread) : null;
     for (let tx = 0; tx < b.tw; tx++) {
-      if (rand() >= row.chance) continue;
+      /* One draw per column whether the column is in a grove or not, so the
+         mask moves trees around without moving the rest of the seed's draw
+         sequence. `rand()` is never 1, so a chance of 0 always skips. */
+      if (rand() >= (!stand || stand[tx] ? row.chance : 0)) continue;
       if (onShelf(b, tx)) continue;                  // never in front of spawn
       let base = -1;
       for (let ty = top; ty < bot; ty++) if (solidAt(b, tx, ty)) { base = ty; break; }
@@ -543,6 +559,35 @@ function summits(h, tw, up) {
   }
 }
 
+/* ---------- groves ---------- */
+
+/* A per-column mask of the columns trees may stand in: one grove centre per
+   slice of `spacing` columns, at a random column inside it, covering `spread`
+   columns either side. Mirrors `summits` -- the slice keeps the spacing
+   irregular without leaving a seed a bare band.
+
+   TREES COME IN STANDS BECAUSE A TRUNK IS A WALL, and the free ground between
+   two stands is the distance a walker covers. docs/SPEC.md section 16.2.1
+   holds the arithmetic and the measurement.
+
+   A centre landing on the spawn shelf is pushed clear of it. `onShelf` would
+   delete such a grove's trees column by column and leave the first two
+   minutes with no timber in reach, which docs/SPEC.md section 5 beat 4 needs. */
+function groves(b, spacing, spread) {
+  const mask = new Uint8Array(b.tw);
+  const n = Math.max(1, Math.round(b.tw / spacing));
+  const sx = b.cfg.spawnTx;
+  for (let k = 0; k < n; k++) {
+    const lo = Math.round(k * b.tw / n), hi = Math.round((k + 1) * b.tw / n) - 1;
+    let cx = randInt(lo, Math.max(lo, hi));
+    if (sx !== undefined && Math.abs(cx - sx) <= SHELF + spread)
+      cx = sx + (cx < sx ? -1 : 1) * (SHELF + spread + 1);
+    for (let tx = Math.max(0, cx - spread), e = Math.min(b.tw - 1, cx + spread); tx <= e; tx++)
+      mask[tx] = 1;
+  }
+  return mask;
+}
+
 /* One 1-2-1 pass over the profile, in place, holding both end columns.
    Consumes no randomness, and it is what keeps a single-column spike out of
    the rounded result. */
@@ -719,3 +764,12 @@ const nearSpawn = (b, tx, ty) => {
 for (const kind of STRATA_KINDS)
   if (typeof KINDS[kind] !== 'function')
     throw new Error(`generate: no handler for strata kind "${kind}"`);
+
+/* `count` was the absolute number of attempts a `blobs` or `hollows` row
+   bought, and `dens` replaced it. A leftover `count` would read `row.dens` as
+   undefined, scatter zero clusters and leave a band of bare rock that every
+   worldgen property still passes, so the stale field is a build error. */
+for (const b of BANDS)
+  for (const row of b.strata)
+    if (row.count !== undefined)
+      throw new Error(`generate: ${b.id} "${row.kind}" row declares count ${row.count}; use dens (attempts per 10,000 window tiles)`);

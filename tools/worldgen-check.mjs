@@ -123,7 +123,7 @@ const bandOf = id => bands.find(b => b.id === id);
 /* ============================================================
    PROPERTY 9's REACHABILITY GRAPH: surface + topsoil stacked as one graph.
    ------------------------------------------------------------
-   Both bands are 128 tiles wide at 8 px/tile (data/world.js), so column `tx`
+   Both bands are the same width at 8 px/tile (data/world.js), so column `tx`
    in one is the SAME world column as `tx` in the other, and the surface
    band's own bottom row is the world pixel row directly above the topsoil
    band's own row 0 (surface origin.y 320 + 56*8 = 768 = topsoil's origin.y).
@@ -143,7 +143,19 @@ function neighboursOf(gridBands, node) {
   if (bi === 1 && ty === 0) out.push({ bi: 0, tx, ty: gridBands[0].th - 1 });
   return out;
 }
-const keyOf = n => n.bi * 1e7 + n.ty * 1000 + n.tx;
+/* PACKED NODE KEY, and the column stride is DERIVED. It was the literal 1000
+   against a 128-column world; at 1,024 columns (`tx` up to 1023) row `ty`
+   column 1023 and row `ty + 1` column 23 collided, so a flood fill marked a
+   node visited that it had never reached and the sealed-ore property was
+   quietly answering about the wrong tile. */
+const KEY_STRIDE = Math.max(...BANDS.map(b => b.tw));
+const KEY_BAND = 1e7;
+{
+  const deepest = Math.max(...BANDS.map(b => b.th));
+  if (deepest * KEY_STRIDE + KEY_STRIDE > KEY_BAND)
+    fail(`keyOf: ${deepest} rows x ${KEY_STRIDE} columns overflows the ${KEY_BAND} band slot`);
+}
+const keyOf = n => n.bi * KEY_BAND + n.ty * KEY_STRIDE + n.tx;
 
 /* TIER OF A TILE A PLAYER WOULD HAVE TO DIG THROUGH: `tile.tier ?? 1`, the
    same default `rules/mining.js`'s own gate uses. Tier is a PROGRESSION gate
@@ -227,6 +239,44 @@ const ORE_SUBS = [...new Set(
     .map(r => S[r.sub]))
 )];
 
+/* ---- CONTENT PER SCREEN, in cells per 10,000 tiles of the band.
+   Aggregated over the whole sweep rather than asserted per seed, because one
+   seed's scatter is noisy and the claim is about the world a player walks
+   through. docs/SPEC.md section 16.5 holds the measured means; these floors
+   are 80% of them, so an accidental thinning fails and ordinary seed
+   variation does not.
+
+   THIS IS THE PROPERTY PHASE 6e DID NOT HAVE. Widening every band from 128 to
+   1,024 columns against an absolute `count` left the same content in eight
+   times the rock, and every property in this file stayed green, because each
+   one is a floor on a total or a reachability claim and none of them was a
+   density. `dens` (attempts per 10,000 window tiles) makes the dilution
+   impossible by construction; this makes a thinning visible. ---- */
+const DENSITY_FLOOR = {
+  'surface/copper': 71, 'surface/air': 173,
+  'topsoil/copper': 61, 'topsoil/tin': 49,
+  'topsoil/granite': 34, 'topsoil/adamant': 21, 'topsoil/air': 767
+};
+const density = {};        // 'band/thing' -> cells summed over the sweep
+const bandTiles = {};      // band id -> tiles summed over the sweep
+
+/* Every band/substance pair a `blobs` or `vein` row places, and every band
+   with a `hollows` row, so a fifth ore cannot be added without a floor to go
+   with it. Restricted to the bands property 7's full-band scan visits, since
+   that scan is what does the counting -- a key for a band it never walks
+   would divide by an undefined tile total. */
+const COUNTED_BANDS = ['surface', 'topsoil'];
+const DENSITY_KEYS = [
+  ...new Set(BANDS.filter(b => COUNTED_BANDS.includes(b.id)).flatMap(b => b.strata
+    .filter(r => r.kind === 'blobs' || r.kind === 'vein')
+    .map(r => `${b.id}/${r.sub}`))),
+  ...BANDS.filter(b => COUNTED_BANDS.includes(b.id) &&
+                       b.strata.some(r => r.kind === 'hollows')).map(b => `${b.id}/air`)
+];
+for (const k of DENSITY_KEYS)
+  if (DENSITY_FLOOR[k] === undefined)
+    fail(`DENSITY -- data/world.js places "${k}" but no floor is declared for it here`);
+
 /* ============================================================
    ONE SEED'S WORTH OF PROPERTY CHECKS, run against `bands` as `boot.newRun`
    just left them.
@@ -274,7 +324,17 @@ function checkSeed(seed) {
      part of the cost of reaching it. Every cell of a 6-cell cruciform vein
      is therefore counted, which is what makes 24 the floor rather than 4.
      Base charge, not `eff('richness')`: this asserts what worldgen laid
-     down, and a `richness` boon cannot exist at t=0 of a fresh run. ---- */
+     down, and a `richness` boon cannot exist at t=0 of a fresh run.
+
+     THE FLOOD IS PENNED TO THE SPAWN SHELF, and it has to be. Open air costs
+     nothing, the start node is the air above the spawn tile, and the sky over
+     the whole band is one connected air region -- so an unpenned flood walks
+     the surface for free to any column in the world and then spends its five
+     breaks there. At 128 columns that inflated the figure; at 1,024 it
+     inflated it eightfold and the median read 36 units against the 24 the
+     guaranteed vein actually supplies. Penning it to `SHELF` is what makes
+     this "a 5-tile dig on the flat ground at spawn", which is what
+     docs/SPEC.md section 5 beat 3 promises. ---- */
   {
     const start = { bi: 0, tx: SPAWN_TX, ty: FLOOR_TY - 1 };
     const seen = new Map([[keyOf(start), 0]]);
@@ -284,6 +344,7 @@ function checkSeed(seed) {
       const [node, cost] = queue[qi];
       if (seen.get(keyOf(node)) < cost) continue;      // already relaxed cheaper
       for (const nb of neighboursOf(gridBands, node)) {
+        if (Math.abs(nb.tx - SPAWN_TX) > SHELF) continue;
         const b = gridBands[nb.bi];
         const byte = tileAt(b, nb.tx, nb.ty);
         const isAir = byte === AIR;
@@ -374,9 +435,18 @@ function checkSeed(seed) {
      inside SAFE_R) are one geometric exclusion in the code, not three -- and
      that is what this checks, once, rather than three times over. ---- */
   for (const b of gridBands) {
+    bandTiles[b.id] = (bandTiles[b.id] ?? 0) + b.tw * b.th;
     for (let ty = 0; ty < b.th; ty++) {
       for (let tx = 0; tx < b.tw; tx++) {
+        /* Property 11's tally rides along on this scan rather than adding a
+           second pass over 380,000 tiles per seed. */
+        if (tileAt(b, tx, ty) !== AIR) {
+          const id = SUB[subAt(b, tx, ty)].id;
+          const k = `${b.id}/${id}`;
+          if (DENSITY_FLOOR[k] !== undefined) density[k] = (density[k] ?? 0) + 1;
+        }
         if (!isHollowTile(b, tx, ty)) continue;
+        density[`${b.id}/air`] = (density[`${b.id}/air`] ?? 0) + 1;
         const roof = ty - groundRow(b, tx);
         if (roof < HOLLOW_ROOF)
           fail(`seed ${seed}: HOLLOW ROOF -- ${b.id} (${tx},${ty}) has only ${roof} rock row(s) above it, need ${HOLLOW_ROOF}`);
@@ -482,8 +552,19 @@ if (veinUnits.length) {
               `(floor ${TRIAL_COPPER} + ${FURNACE_COPPER} = ${TRIAL_COPPER + FURNACE_COPPER})`);
 }
 
+/* ---- 11. CONTENT PER SCREEN. ---- */
+for (const k of DENSITY_KEYS) {
+  const bandId = k.slice(0, k.indexOf('/'));
+  const per = (density[k] ?? 0) * 1e4 / bandTiles[bandId];
+  const floor = DENSITY_FLOOR[k];
+  console.log(`  ..  ${k}: ${per.toFixed(1)} cells per 10,000 tiles (floor ${floor})`);
+  if (per < floor)
+    fail(`DENSITY -- ${k} is ${per.toFixed(1)} cells per 10,000 tiles of the band, under the ${floor} docs/SPEC.md section 16.5 holds`);
+}
+
 if (!failures) ok(`${SEEDS} seeds, 0 violations -- determinism, shelf, vein units, safe fall, ` +
-                  `step rule, relief budget, sky floor, hollow roof, hollow exclusion, ore reachability`);
+                  `step rule, relief budget, sky floor, hollow roof, hollow exclusion, ore reachability, ` +
+                  `content per screen`);
 else console.log(`\n  ${failures} FAILURE(S) over ${SEEDS} seeds`);
 
 /* Cheap rolling checksum, the same idiom tools/check.mjs#sumBytes uses --

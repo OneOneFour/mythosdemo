@@ -120,8 +120,9 @@ export const BANDS = [
       /* Hollows, declared between the layers and the ore so the ore pass can
          line their walls. Shallow and few in this band -- there are only 29
          rows of rock under the soil here, and `SAFE_R` around spawn already
-         forbids most of them; the deep rooms are `topsoil`'s job. */
-      { kind:'hollows', fromTy:38, toTy:56, count:16, r:[1.4, 2.6], steps:[2, 3], bias:1 },
+         forbids most of them; the deep rooms are `topsoil`'s job. `dens` is
+         attempts per 10,000 tiles of the window, as on the ore rows. */
+      { kind:'hollows', fromTy:38, toTy:56, dens:55.0, r:[1.4, 2.6], steps:[2, 3], bias:1 },
       /* `toTy` must reach past the ground line or a trunk's base scan never
          finds solid ground -- it did not, for any seed, until this was 22:
          rows 16-19 were air, so `trees()`'s scan for the first solid tile
@@ -129,25 +130,38 @@ export const BANDS = [
          span every height the relief row can produce, which is `floorTy - amp`
          at a hilltop and `floorTy + dip` in a valley, with a margin either
          side so raising `amp` by one cannot silently empty a hilltop of
-         trees. `chance` was raised alongside the original fix, once trees
-         could exist at all, so 12ish logs is not a fistfight between the
-         first ladder and the first smelt (`log` is the only fuel a player can
-         mine this early -- `brand` exists too, but only ever made from a
-         log). */
-      { kind:'trees', sub:'timber', fromTy:8, toTy:28, chance:0.06, height:[3, 5] },
-      /* `count` is DOWN from 26 -- and was up from 14 before that. Both moves
-         are the same move: a `count` here buys CELLS, and what docs/SPEC.md
-         section 16.5 holds near constant is total ore UNITS. A cruciform cell
-         (~half the cells of a same-radius disc) made
-         every count rise; a cell worth `tile.charge` units
-         (copper 4) made every count fall again. Measured over 200 seeds, this
-         band's copper is 239.6 units against the 233.6 cells it was before
-         charge existed (+2.6%) -- see docs/SPEC.md section 19.7 for the whole
-         table. The bill this has to cover is unchanged: section 5's first
-         trial asks for 10 raw copper and section 13's furnace bill for 12
-         more (section 13, not 15 -- the bill is in the buildable-machine-cost
+         trees.
+
+         TREES COME IN STANDS, AND THE GAPS ARE THE POINT. `chance` is the
+         per-column chance INSIDE a grove, and `grove` places one grove centre
+         per 96 columns covering 5 columns either side, so the band carries 11
+         stands of about 6 trees and 85 clear columns between them. The tree
+         count is unchanged at 66 per band -- `chance` was always per column,
+         so trees were the one thing phase 6e did not dilute -- and what
+         changed is where they sit. A trunk is 3-5 tiles of solid timber and
+         `rules/player.js#moveX`'s auto-step clears one, so a trunk is a wall
+         and an even scatter at `chance:0.06` put one every 17 columns: a
+         player walking right covered a mean 151 px before stopping, measured
+         over 12 seeds. Grouped, the same trees leave a mean 612 px. A grove
+         landing on the spawn shelf is pushed clear of it
+         (`rules/generate.js#groves`), which keeps timber within 43 columns of
+         spawn on every seed for docs/SPEC.md section 5 beat 4's ladder. */
+      { kind:'trees', sub:'timber', fromTy:8, toTy:28, chance:0.55, grove:{ spacing:96, spread:5 }, height:[3, 5] },
+      /* `dens` IS ATTEMPTS PER 10,000 TILES of this row's own window, so it is
+         content per screen and a band's width cannot dilute it. It replaced an
+         absolute `count` of 5, which is why phase 6e's widening from 128 to
+         1,024 columns left this band at an eighth of its ore density with
+         every checker green. 16.0 is solved against the measurement, not
+         derived: over 200 seeds it lands 0.895% of the band's tiles as copper
+         against the 0.856% the tuned 128-column world carried (+4.6%). It is
+         not the old count times eight, because clusters overlap less in a
+         wider band and the hollow-lining pass does not scale with this number
+         at all. docs/SPEC.md sections 16.5 and 19.7 hold the table.
+         The bill this has to cover is unchanged: section 5's first trial asks
+         for 10 raw copper and section 13's furnace bill for 12 more
+         (section 13, not 15 -- the bill is in the buildable-machine-cost
          table; docs/PLAN-phase14-mining-and-drops.md D14-F cites 15). */
-      { kind:'blobs', sub:'copper', fromTy:26, toTy:56, count:5, r:[1.6, 3.4], line:true },
+      { kind:'blobs', sub:'copper', fromTy:26, toTy:56, dens:16.0, r:[1.6, 3.4], line:true },
       /* The guaranteed first vein, so the first two minutes cannot fail to
          find copper. `near:'spawn'` is resolved by worldgen, not here.
          `r:2.4, n:1` is ONE star of exactly 6 cells -- `star()` gives
@@ -192,29 +206,28 @@ export const BANDS = [
          hollow row, at `fromTy:38`, 11 rows under the soil, that honours it.
          The 2-row ceiling rule in `rules/generate.js` is what actually keeps a
          hollow off this band's own top rows. */
-      { kind:'hollows', fromTy:4, toTy:320, count:180, r:[1.6, 3.8], steps:[2, 4], bias:0.85 },
-      /* `count` DOWN across the board, because a cell is now worth
-         `tile.charge` units (copper/tin 4, granite 3, adamant 2) and what
-         docs/SPEC.md section 16.5 holds constant is UNITS, not cells; see the
-         surface band's copper row for the same argument at length, and
-         section 19.7 for the measured table. These are NOT charge division
-         sums: the hollow-lining pass below does not scale with `count`, so a
-         naive count/charge overshoots by a third. They were solved against
-         the measurement -- 160/126/78/40 before charge, and docs/PLAN-phase14
-         -mining-and-drops.md D14-F's first guess of 48/38/30/22 landed +32..37%.
+      { kind:'hollows', fromTy:4, toTy:320, dens:44.5, r:[1.6, 3.8], steps:[2, 4], bias:0.85 },
+      /* `dens` is attempts per 10,000 tiles of each row's own window -- see the
+         surface band's copper row for why the field is a density and not a
+         count. All four were solved against the measurement rather than
+         divided out of the old counts, because the hollow-lining pass does
+         not scale with this number: over 200 seeds the band carries copper
+         0.762%, tin 0.624%, granite 0.429% and adamant 0.271% of its tiles
+         against the 0.755/0.622/0.434/0.264% the tuned 128-column world
+         carried. docs/SPEC.md section 16.5 holds the table.
          `line:true` opts a row into hollow-wall lining, and the DEEPEST such
          row whose window holds a hollow claims it -- so the jackpot behind a
          fall in the dark is graded by depth: copper shallow, then tin, then
          granite, then adamant. Note that lining is opted in by the FLAG and
-         not by the count, so a row still lines its hollows at any `count`. */
-      { kind:'blobs', sub:'copper', fromTy:4,  toTy:180, count:34, r:[1.6, 3.8], line:true },
-      { kind:'blobs', sub:'tin',    fromTy:60, toTy:320, count:26, r:[1.6, 3.8], line:true },
+         not by `dens`, so a row still lines its hollows at any density. */
+      { kind:'blobs', sub:'copper', fromTy:4,  toTy:180, dens:15.1, r:[1.6, 3.8], line:true },
+      { kind:'blobs', sub:'tin',    fromTy:60, toTy:320, dens:7.81, r:[1.6, 3.8], line:true },
       /* Deeper strata for the pick-tier gate: granite uncommon below
          the copper/tin bands, adamant rarer still and deeper again, so the
          tier gate has somewhere meaningful to bite once a bronze pickaxe
          cannot break either. */
-      { kind:'blobs', sub:'granite', fromTy:120, toTy:320, count:19, r:[1.4, 3.0], line:true },
-      { kind:'blobs', sub:'adamant', fromTy:220, toTy:320, count:15, r:[1.2, 2.4], line:true }
+      { kind:'blobs', sub:'granite', fromTy:120, toTy:320, dens:7.42, r:[1.4, 3.0], line:true },
+      { kind:'blobs', sub:'adamant', fromTy:220, toTy:320, dens:11.72, r:[1.2, 2.4], line:true }
     ],
     look:{ sky:'abyB', tint:'irD', ambient:0.6 } }
 ];

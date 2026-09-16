@@ -3883,3 +3883,96 @@ things parked.
   `model/world.js#allocate` now refuses a band over that slot at boot, which is
   the only place in this block that can see it; raising the slot itself means
   editing those three files.
+
+---
+
+## Phase 6e-2 — the wide world is priced, and a trunk is still a wall
+
+Two defects fixed inside the block, one out-of-block edit under `CLAUDE.md`'s
+one-line exception, one design question handed back, and four things parked.
+
+- **THE DESIGN QUESTION, HANDED BACK: a walker cannot get past a tree, and no
+  content change makes one.** The player is 2 tiles tall, adjacent ground rows
+  differ by at most 1 (`docs/SPEC.md` §16.2), and `rules/player.js#moveX`'s
+  auto-step lifts exactly one tile — so a trunk of height `h` standing in a
+  column whose ground row is `gc`, walked into from a column whose ground row
+  is `g`, is passable only while `h <= gc - g + 1`. With `gc - g` at most 1
+  that is `h <= 2` walking downhill and `h <= 1` on the level. `height` is
+  `[3, 5]`. There is no side-scroller "around": the surface walking line is a
+  single path and every trunk closes it. Grouping the trees into groves buys
+  the free ground between stands (151 px → 612 px mean, 12 seeds) and that is
+  all it can buy; thinning only moves the wall further out. The remaining
+  options are one of
+  (a) accept that horizontal travel costs felling, which is cheap and measures
+      well — walking right and cutting only what the auto-step cannot clear
+      crosses all 7,849 px in **174–271 s, median 211 s**, inside a 360–480 s
+      cycle;
+  (b) change `timber`'s `tile.solid`, which `docs/SPEC.md` §5 beat 4,
+      `rules/mining.js`'s felling and §22.3's seed drop all sit on top of;
+  (c) give the trunk a 2-tile walkable base with the stump painted as a `TREAT`
+      (`CLAUDE.md` D7), which is legal and would look like a floating log.
+  This phase took (a) and did not touch `src/data/substances.js`. The
+  arithmetic is now in `docs/SPEC.md` §16.2.1 so it does not have to be
+  rediscovered.
+
+- **`rules/mining.js#aimAtKeys` cannot fell a tree, and a keyboard-only player
+  therefore cannot clear anything two tiles tall.** It resolves one tile, at
+  the player's CENTRE row (`rules/mining.js:99-101`), and a trunk occupies both
+  of the player's body rows. Holding `right` + `dig` breaks the belly tile,
+  the aim then finds air and goes invalid, the head-height tile is never
+  targeted, and the player stays blocked. Measured over 12 seeds: 400 s of
+  `right` + `dig` with a collected pick moved the player **exactly as far as
+  `right` alone, to the pixel, on every seed.** A mouse-aimed player clears the
+  same trunk in 0.7 s. The fix is a fallback that retargets the other body row
+  when the centre row is air — one probe in `aimAtKeys`, no new state.
+  `rules/` other than `generate.js` was not in this block.
+
+- **`tools/worldgen-check.mjs`'s packed node key collided at 1,024 columns.**
+  `keyOf` was `bi * 1e7 + ty * 1000 + tx` against a `tx` that now reaches 1023,
+  so row `ty` column 1023 and row `ty + 1` column 23 were the same key: the
+  sealed-ore flood fill (property 9) marked nodes visited it had never reached,
+  and every answer it gave about a body near the east edge was about the wrong
+  tile. The stride is now `max(BANDS[].tw)` and the band slot is checked
+  against `max(BANDS[].th)` at load. Fixed here because the file is in this
+  block.
+
+- **Property 3 was measuring the whole band, not the hole at spawn.** Air costs
+  nothing in its Dijkstra and the start node is the air above the spawn tile,
+  so the flood walked the connected sky to any column in the world and spent
+  its five breaks there. At 128 columns that inflated the figure; at 1,024 it
+  inflated it eightfold, and re-pricing the ore density made the median read
+  **36 units where the guaranteed vein supplies 24**. Penned to `SHELF`
+  columns either side of spawn it reads min 24, median 24, mean 26.5, max 76
+  over 200 seeds — which is the pre-widening figure and what §5 beat 3
+  actually promises. `docs/SPEC.md` §19.7 holds both numbers.
+
+- **THE ONE OUT-OF-BLOCK EDIT: three stale comments in
+  `src/rules/generate.js`.** `TREND_PERIOD`, `HILL_SPACING` and the
+  do-not-sum-octaves note all said "over a 128-column band", and this commit
+  fixes the same figures in `docs/SPEC.md` §16.1 (`HILL_SPACING` gives 51
+  summits, not 6). Leaving the code contradicting the SPEC edit in the same
+  commit is worse than the three-line diff. The block allowed `generate.js`
+  only for the density change.
+
+- **`docs/SPEC.md` §22.3's attention arithmetic cites the old tree scatter.**
+  It prices a fell-and-replant cycle at about 6 s including "travel at `trees`
+  `chance` 0.06 — one tree per 16.7 columns", and concludes a grove saturates
+  at G ≈ 30. Trees are now grouped, so travel inside a stand is one column and
+  the 6 s figure is an overestimate — the conclusion holds or strengthens, and
+  only the cited number is stale. §22 was not in this block.
+
+- **`docs/PLAYTEST.md:442` recommends raising `trees` `chance` 0.06 → 0.12.**
+  The field now means the per-column chance inside a grove and is 0.55, so the
+  recommendation reads as a 5x cut. Whoever acts on that finding should move
+  `grove.spacing` instead.
+
+- **`docs/PLAN-phase15-trees.md:48` quotes the pre-grove `trees` row.** A plan
+  document recording what was landed at the time, so it is history rather than
+  drift; noted only so a reader does not copy the row out of it.
+
+- **Nothing asserts that a `dens` row's window is inside its band.** A row
+  declaring `fromTy:400` on a 320-row band clamps to an empty window,
+  `attempts()` returns 0 and the row silently scatters nothing.
+  `tools/content.mjs` is where a strata-row shape check belongs and it was not
+  in this block; the new density floor in `tools/worldgen-check.mjs` catches
+  the case for every row that has a floor declared, which is all of them today.

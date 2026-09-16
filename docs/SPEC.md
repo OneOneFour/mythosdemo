@@ -1004,10 +1004,11 @@ back out.
 
 Locked with `docs/BUILD_PLAN.md` Phase 7. The surface is a landscape and the
 rock below has natural voids in it. Three new strata kinds and one new
-tunable; no new substance, no band `tw` moved (SPEC §1 still fixes the world
-at 128 tiles), and every draw is `rand()` so a run is still bit-reproducible
-from its seed (invariant 7). All of it lives in `src/rules/generate.js` plus
-`src/data/world.js` rows.
+tunable; no new substance, and every draw is `rand()` so a run is still
+bit-reproducible from its seed (invariant 7). All of it lives in
+`src/rules/generate.js` plus `src/data/world.js` rows. §1 fixes the world at
+**1,024 tiles** per band, which is what §16.5's density rows are priced
+against.
 
 ### 16.1 The height map (`kind:'relief'`)
 
@@ -1024,7 +1025,7 @@ are gone.
 | `dip` | 2 | strata row | rows of valley floor below `floorTy` — see below |
 | `TREND_PERIOD` | 40 tiles | `generate.js` | lattice spacing of the one trend octave |
 | `TREND_SHARE` | 0.20 | `generate.js` | the trend's amplitude either way from its centre, as a fraction of `amp + dip` |
-| `HILL_SPACING` | 20 tiles | `generate.js` | tiles of world per summit, so 6 over a 128-column band |
+| `HILL_SPACING` | 20 tiles | `generate.js` | tiles of world per summit, so 51 over a 1,024-column band |
 | `HILL_LOW` | 3 tiles | `generate.js` | the shortest summit |
 | `HILL_SHARE` | 0.72 | `generate.js` | the tallest summit, as a fraction of `amp` |
 | `HILL_SLOPE` | 1.6 | `generate.js` | half-width per tile of summit height |
@@ -1067,6 +1068,13 @@ Measured over 200 seeds, reading the ground row the way
 The landform column is measured at `dip:2`; the three-octave column is the
 generator this replaced, at `dip:0`, which had no way to go below the datum at
 all. 111 seeds of 200 now carry at least one column below it.
+
+**Both columns were measured over a 128-column band, before wave 6.3 widened
+it.** The pipeline is width-independent, so the two COUNTS — direction changes
+and steps over 1 tile — scale with the width and a 1,024-column band carries
+about eight times each. The fraction, the two extremes and the longest flat
+run do not: the longest flat run IS the spawn shelf and its blend, which is
+fixed at 21–45 columns however wide the band is.
 
 **Relief runs BOTH WAYS from `floorTy`, and the sky reaches past the horizon.**
 `heightmap()` takes a downward budget and honours it, so a valley floor below
@@ -1157,11 +1165,52 @@ back up one wants a dig or a ladder, which is the premise, not a bug.
 `newRun(seed)` builds. Geometrically, no adjacent column pair rises by more
 than 1 tile in the outward direction, over every seed tested. Behaviourally,
 the real player driven through `shell/main.js#step` at the fixed 1/120 s step
-reaches column 0 and column `tw - 1` from spawn in 12 of 12 seeds. The one
-thing that stops that walk is a standing tree trunk, which is 3 to 5 tiles of
-`solid:true` timber and clears neither the auto-step nor the hop. That is
-unchanged behaviour and predates the pipeline — the same 12 seeds stall at the
-same trunks under the three-octave generator.
+reaches column 0 and column `tw - 1` from spawn in 12 of 12 seeds *with
+standing trunks cleared*. The one thing that stops that walk is a standing
+tree trunk, which is 3 to 5 tiles of `solid:true` timber and clears neither
+the auto-step nor the hop. That is unchanged behaviour and predates the
+pipeline — the same 12 seeds stall at the same trunks under the three-octave
+generator.
+
+### 16.2.1 A trunk is a wall, and the gaps between groves are the answer
+
+**No tree height a tree can have is walkable past.** The player is 2 tiles
+tall, adjacent ground rows differ by at most 1 (§16.2 above), and `moveX`'s
+auto-step lifts exactly one tile — so a trunk of height `h` in a column whose
+ground row is `gc`, approached from a column whose ground row is `g`, is
+passable only while `h <= gc - g + 1`. With `gc - g` at most 1 that is `h <= 2`
+on ground falling away from the walker and `h <= 1` on the level. `height` is
+`[3, 5]`, so every trunk blocks, and no thinning changes that. **Do not "fix"
+this by making `timber` non-solid** — §5 beat 4 fells the olive tree,
+`rules/mining.js` carries the felling logic and §22.3's seed drop keys off the
+last trunk tile in a column.
+
+So the number that moves is the free ground between two trunks, and the
+`trees` row buys it with `grove:{ spacing, spread }` rather than with a lower
+`chance`. Measured over 12 seeds, walking right from spawn for 400 s of
+simulated time with no pick swung:
+
+| | even scatter, `chance:0.06` | 11 groves of ~6, `spacing:96 spread:5 chance:0.55` |
+|---|---|---|
+| distance walked | 73–257 px, median 149, mean **151** | 121–1,089 px, median 713, mean **612** |
+| trees per band | 61 | 66 |
+| columns between neighbouring trees | mean 16.7 | median 1 inside a stand, up to 171 between them |
+| nearest tree to spawn | — | 10–43 columns, median 22 (over 40 seeds) |
+
+**The walk ends in the first 20 s and the figure does not move after that.**
+Measured at 360 s and at 480 s, the two ends of §18.4's deadline range, the
+distance is the same number as at 400 s on every seed — the walker reaches its
+first trunk and stops. A pure-walk distance IS the distance to the first
+trunk, so it measures tree spacing and never terrain.
+
+**The felling player crosses the band inside one cycle either way, and that is
+the real traversal figure.** A trunk costs `hard` 0.35 s per tile and two
+tiles clear a body's width, so walking right and cutting only what the
+auto-step cannot clear reaches column 1,023 — all 7,849 px — in **174–271 s,
+median 211 s** over the same 12 seeds, against a 360–480 s cycle deadline
+(§18.4). Grouping the trees left that figure alone (it was 182–229 s, median
+217 s) and changed its rhythm: a screen of open ground, then a stand to cut
+through, instead of a chop every 17 columns.
 
 **The ±1 limit stays, and the terracing it causes is answered in PAINT.**
 One tile per column on an 8 px tile can only draw a hillside as treads and
@@ -1217,10 +1266,10 @@ yet.
 
 Air carved out of the rock after the strata and before the ore.
 
-| row | `fromTy..toTy` | `count` | `r` | `steps` | `bias` |
-|---|---|---|---|---|---|
-| `surface` | 38..56 | 16 | 1.4..2.6 | 2..3 | 1 |
-| `topsoil` | 4..320 | 180 | 1.6..3.8 | 2..4 | 0.85 |
+| row | `fromTy..toTy` | `dens` | attempts at `tw:1024` | `r` | `steps` | `bias` |
+|---|---|---|---|---|---|---|
+| `surface` | 38..56 | 55.0 | 101 | 1.4..2.6 | 2..3 | 1 |
+| `topsoil` | 4..320 | 44.5 | 1,440 | 1.6..3.8 | 2..4 | 0.85 |
 
 | number | value | meaning |
 |---|---|---|
@@ -1267,12 +1316,13 @@ room. Worth **177 extra ore cells per seed** in `topsoil` — 35 copper, 42 tin,
 fewer clusters a `blobs` row scatters, the fewer of a lining star's cells land
 on ore that was already there).
 
-**Lining is opted in by the FLAG, not by the `count`.** `rules/generate.js#blobs`
-scatters `count` clusters and *then* lines every hollow it claimed, so a row
-with `count:0` still lines. This is why §19.7's retune is not `count / charge`:
-the lining term is a fixed floor that does not scale, and dividing the count
-alone overshoots by roughly a third. At §19.7's counts, lining supplies 34% of
-`topsoil` granite's ore and 36% of its adamant.
+**Lining is opted in by the FLAG, not by `dens`.** `rules/generate.js#blobs`
+scatters its clusters and *then* lines every hollow it claimed, so a row with
+`dens:0` still lines. This is why neither §19.7's retune nor §16.5's is a
+division: the lining term is a fixed floor that does not scale with the row's
+density, so dividing or multiplying the density alone misses. At §19.7's
+figures, lining supplies 34% of `topsoil` granite's ore and 36% of its
+adamant.
 
 ### 16.5 Ore body shape
 
@@ -1292,11 +1342,61 @@ topsoil copper 1355 -> 1246, tin 1067 -> 1010, granite 464 -> 538, adamant
 173 -> 223; the shortfalls are the ~9% of `topsoil` that is now open room).
 
 **Those counts have since come back DOWN, and it is the same move.** A `count`
-buys CELLS; what this section holds near constant is total ore **UNITS**.
+bought CELLS; what §19.7 held near constant is total ore **UNITS**.
 Phase 7 made a cell smaller, so counts rose; Phase 14b made a cell worth
-`tile.charge` units, so counts fell again. The live numbers, the measurement
-and the method are **§19.7**, and `data/world.js` is the only place they are
-written down as code.
+`tile.charge` units, so counts fell again. §19.7 holds that measurement and
+its method.
+
+**AND `count` IS GONE. A ROW DECLARES A DENSITY.** `dens` is **attempts per
+10,000 tiles of the row's own window** — the rows it declares times the band's
+width — and `rules/generate.js#attempts` turns it into a count at generation
+time. What the field buys is therefore content **per screen**, and a band's
+width cannot dilute it.
+
+The reason is a measured failure. Wave 6.3 widened every band from 128 to
+1,024 columns (§1) against an absolute `count`, so the same ore and the same
+rooms sat in eight times the rock, at an eighth of the density. Every property
+in `tools/worldgen-check.mjs` stayed green, because each one was a floor on a
+total or a reachability claim and none of them was a density. What a player
+experiences is ore and rooms per screen, and nothing was holding it.
+
+| band / substance | `dens` | attempts at `tw:1024` | cells/seed | % of band tiles | the tuned 128-column world | vs it |
+|---|---|---|---|---|---|---|
+| `surface` copper | 16.0 | 49 | 513.5 | **0.895%** | 0.856% | **+4.6%** |
+| `topsoil` copper | 15.1 | 272 | 2,496.0 | **0.762%** | 0.755% | **+0.9%** |
+| `topsoil` tin | 7.81 | 208 | 2,045.4 | **0.624%** | 0.622% | **+0.3%** |
+| `topsoil` granite | 7.42 | 152 | 1,405.3 | **0.429%** | 0.434% | **−1.2%** |
+| `topsoil` adamant | 11.72 | 120 | 888.2 | **0.271%** | 0.264% | **+2.7%** |
+| `surface` hollow air | 55.0 | 101 | 1,236.7 | **2.157%** | 2.053% | **+5.1%** |
+| `topsoil` hollow air | 44.5 | 1,440 | 31,222.9 | **9.528%** | 9.104% | **+4.7%** |
+
+Measured over seeds 1..200 against `model/tiles.js#subAt`, `#baseChargeAt`
+and `#skyExposedAt`, the same queries the game reads. The right-hand column is
+the identical measurement over the 128-column band this world was tuned as, so
+it is the target and not a historical note. Total ore UNITS scale with the
+cells, so the band now holds 2,054 `surface` copper units against the 245 the
+128-column band held — eight times the ore in eight times the world, and the
+same ore per screen. Two things about the residuals:
+
+- **The figures are solved against the measurement, not divided out.** A
+  cluster's cells are not linear in the attempt count, because clusters
+  overlap each other less in a wider band, and the hollow-lining pass (§16.4)
+  does not scale with `dens` at all. An 8× multiplication of the old counts
+  landed `surface` copper at −10.9% and `surface` hollow air at +27% against
+  the same target.
+- **`surface` hollow air runs high on purpose.** The spawn shelf and `SAFE_R`
+  exclude an absolute area, so at 128 columns they suppressed a sixth of the
+  band's hollow window and at 1,024 they suppress a fiftieth. The residual is
+  that exclusion shrinking as a fraction, and the density away from spawn is
+  the same either way.
+
+**`tools/worldgen-check.mjs` property 11 is what stops this drifting again.**
+Ore cells and carved air per 10,000 tiles of the band, aggregated over the
+sweep, against a floor at 80% of the table above. A band/substance pair
+`data/world.js` places with no floor declared is itself a failure, so a fifth
+ore cannot be added without a number. And `rules/generate.js` refuses a strata
+row that still carries `count` at import: `row.dens` would read `undefined`,
+the row would scatter nothing, and every other property would pass.
 
 `blobs` writes into SOLID cells only, so a field never fills a hollow.
 `vein` (the guaranteed first copper, `near:'spawn'`) writes into air as well,
@@ -2583,7 +2683,7 @@ measured the same way. Nothing in §19.6 itself moved a worldgen number.
 
 ### 19.7 The worldgen rebalance (Phase 14d)
 
-**A `count` in `data/world.js` buys CELLS; what is held constant is UNITS.**
+**A `count` in `data/world.js` bought CELLS; what is held constant is UNITS.**
 That single sentence is the whole of both retunes: §16.5's, which raised every
 count when a cruciform cell replaced a disc, and this one, which lowers every
 count now that a cell is worth `tile.charge` units. Neither `tile.charge`,
@@ -2591,11 +2691,16 @@ count now that a cell is worth `tile.charge` units. Neither `tile.charge`,
 per unit are exactly §19.6's**, so §8's compression table and
 `docs/DESIGN.md`'s break-evens still hold untouched.
 
+**The `count` column below is historical.** The field is now `dens`, a density
+per 10,000 window tiles, and **§16.5 holds the live figures**. The units-per-
+cell reasoning here is unchanged and is what §16.5's density figures were
+solved against; only the unit the row is written in moved.
+
 **The target** was total ore units within ~10% of the pre-14b total *cells*,
 per substance per band. Measured over 200 seeds (`SEEDS` sweep against
 `model/tiles.js#baseChargeAt`, the same query mining reads):
 
-| band / substance | `count` before | after | pre-14b CELLS (the target) | 14b UNITS, unrebalanced | 14d UNITS | vs target |
+| band / substance | `count` before | after (14d, at `tw:128`) | pre-14b CELLS (the target) | 14b UNITS, unrebalanced | 14d UNITS | vs target |
 |---|---|---|---|---|---|---|
 | `surface` copper | 26 | **5** | 233.6 | 934.2 (+300%) | 239.6 | **+2.6%** |
 | `topsoil` copper | 160 | **34** | 1261.4 | 5045.5 (+300%) | 1243.8 | **−1.4%** |
@@ -2627,15 +2732,25 @@ furnace bill wants 12 more. `tools/worldgen-check.mjs` property 3 is now a
 **units** assertion, not a cells one: a Dijkstra out of the spawn ground where
 non-copper tier-1 rock costs one break, copper and air cost nothing (arriving
 is the cost; mining the vein is the reward), budget 5, summing
-`baseChargeAt` over every copper tile touched. Measured over 200 seeds:
+`baseChargeAt` over every copper tile touched.
+
+**The flood is penned to `SHELF` columns either side of spawn, and it has to
+be.** Air costs nothing and the sky over the whole band is one connected air
+region, so an unpenned flood walks the surface for free to any column in the
+world and then spends its five breaks there. That inflated the figure at 128
+columns and inflated it eightfold at 1,024 — the median read 36 units against
+the 24 the guaranteed vein supplies. Penned, the property measures what §5
+beat 3 describes, which is a hole in the flat ground at spawn.
+
+Measured over 200 seeds, penned, at §16.5's densities:
 
 | | units |
 |---|---|
 | floor asserted | 10, then 22 |
 | min | **24** |
 | median | 24 |
-| mean | 25.6 |
-| max | 72 |
+| mean | 26.5 |
+| max | 76 |
 | seeds under 22 | **0 / 200** |
 
 24 is the vein's own 6 cells × charge 4, and it is invariant because at
