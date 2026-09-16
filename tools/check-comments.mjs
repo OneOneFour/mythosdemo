@@ -44,12 +44,24 @@ const MAX_HEADER_LINES = 36;
    shape, so squeezing one costs the reader and saves nothing. Four rows is
    the floor -- one prose sentence cannot reach it, and `data/forms.js`'s
    selector grammar has one row whose column is too tight to detect. */
-const TABLE_ROW = /^\s*(?:\*\s*)?[`'"\w.$#[\]|/<>-]{1,28}\s{2,}\S/;
 const TABLE_MIN_ROWS = 4;
 
+/* A row is `<key>  <description>` with two or more spaces between, and a TABLE
+   is four or more rows whose description starts at the SAME column. Column
+   agreement is what tells a table from prose that happens to contain a double
+   space, and it allows a multi-word key (`the two hubs`) that a single-token
+   pattern would miss. */
 const isTable = text => {
-  const rows = text.split('\n').filter(l => TABLE_ROW.test(l)).length;
-  return rows >= TABLE_MIN_ROWS;
+  const cols = new Map();
+  for (const l of text.split('\n')) {
+    const m = l.match(/^(\s*(?:\*\s*)?)(\S.{0,30}?)\s{2,}(\S)/);
+    if (!m) continue;
+    const col = m[0].length - 1;
+    if (col < 6) continue;
+    cols.set(col, (cols.get(col) ?? 0) + 1);
+  }
+  for (const n of cols.values()) if (n >= TABLE_MIN_ROWS) return true;
+  return false;
 };
 
 /* More than this many consecutive `//` lines is a block wearing a disguise. */
