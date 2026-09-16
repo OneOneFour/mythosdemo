@@ -1,25 +1,21 @@
-// TIER 1 harness (docs/BUILD_PLAN.md "Phase 11 -- Harness"): worldgen
-// PROPERTIES, over a seed sweep, node only -- no canvas, no DOM. `boot.newRun`
-// needs neither (verified: `core/canvas.js#attach`/`resize`,
-// `shell/audio.js#initAudio`, `shell/input.js#installInput` all guard on
-// `typeof document/window/addEventListener`, and no-op without them), so this
-// file, unlike `tools/check.mjs`, stubs nothing.
-//
-// tools/check.mjs calls `boot.newRun(seed)` with one hand-picked seed per
-// staged scenario; tools/content.mjs is a pure content-table lint that never
-// boots a world. Neither can host "does worldgen itself hold up over hundreds
-// of seeds", so this file exists standalone for that one question, run via
-// `npm run check:worldgen` and chained into `npm run test` (not into the fast
-// `npm run check` a developer runs after every edit -- see the timing note at
-// the bottom).
-//
-// PRINTS THE FAILING SEED ON EVERY FAILURE, per the plan's own words: "a
-// worldgen bug you cannot reproduce is a worldgen bug you cannot fix."
-//
-// EXCLUDED ON PURPOSE: tier monotonicity (tools/content.mjs:358-373 already
-// proves it, statically, over the content tables -- a live re-check here
-// would just be a second implementation of the same assertion).
-// See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves
+/* WORLDGEN PROPERTIES over a seed sweep. Node only, and it stubs NOTHING:
+   `boot.newRun` needs no canvas and no DOM, because `core/canvas.js#attach`
+   and `#resize`, `shell/audio.js#initAudio` and `shell/input.js#installInput`
+   all guard on `typeof document/window/addEventListener` and no-op without
+   them.
+
+   `tools/check.mjs` boots one hand-picked seed per staged scenario and
+   `tools/content.mjs` never boots a world at all, so neither can host "does
+   worldgen hold up over hundreds of seeds". Run by `npm run check:worldgen`
+   and chained into `npm run test`, but deliberately NOT into the fast
+   `npm run check` -- see the timing note at the bottom of this file.
+
+   EVERY FAILURE PRINTS ITS SEED: a worldgen bug you cannot reproduce is a
+   worldgen bug you cannot fix.
+
+   Tier monotonicity is excluded on purpose. `tools/content.mjs` already
+   proves it statically over the content tables, and a live re-check here
+   would be a second implementation of the same assertion. */
 
 import { S, SUB } from '../src/data/substances.js';
 import { AIR } from '../src/data/forms.js';
@@ -37,17 +33,12 @@ let failures = 0;
 const fail = m => { console.error('  FAIL  ' + m); failures++; process.exitCode = 1; };
 const ok   = m => console.log('  ok    ' + m);
 
-/* ============================================================
-   CONSTANTS DUPLICATED FROM src/rules/generate.js
-   ------------------------------------------------------------
-   None of these are exported (they are worldgen's own interpreter constants,
-   not content data), so there is no way to import them; they are re-typed
-   here, verified against the source read on 2026-09-01, and MUST be
-   re-verified by hand if src/rules/generate.js's own numbers ever move --
-   this file cannot notice that drift on its own. `RELIEF` is the one
-   exception: it is read live off `data/world.js`'s own `relief` strata row
-   below, which is real content the generator reads too, rather than a second
-   copy of a number generate.js only has as a fallback default. ---- */
+/* CONSTANTS DUPLICATED FROM `rules/generate.js`, which exports none of them
+   -- they are worldgen's own interpreter constants, not content. Re-typed
+   here against the source as of 2026-09-01, and they MUST be re-verified by
+   hand if generate.js's numbers move; this file cannot notice that drift.
+   `RELIEF` is the exception and is read live off `data/world.js`'s own
+   `relief` row, which is content the generator reads too. */
 const SHELF    = 9;   // rules/generate.js#SHELF -- half-width of the flat spawn shelf
 const SAFE_R   = 24;  // rules/generate.js#SAFE_R -- radius the first two minutes live in
 const STEP_BIG = 2;   // rules/generate.js#STEP_BIG -- max permitted step outside SAFE_R
@@ -56,30 +47,24 @@ const HOLLOW_ROOF = 2; // rules/generate.js#HOLLOW_ROOF -- rock rows required ov
 
 const SEEDS = Number(process.env.WORLDGEN_SEEDS) || 200;
 
-/* ---- THE TWO COPPER BILLS THE FIRST TWO MINUTES OWE, in UNITS.
-   `TRIAL_COPPER` is docs/SPEC.md section 5 beat 3 / section 18.4's cycle-1
-   row: "First Trial: deliver 10 raw copper". `FURNACE_COPPER` is section 13's
-   build bill for `furnace` (12 `copper/ore` + 6 `timber/log`), which is what
-   the same hole has to pay for next. Typed here rather than read off
-   `data/machines.js` on purpose: section 5's beat sheet is the thing being
-   asserted, and it names a NUMBER, not a machine -- if the furnace's bill
-   ever changes, whether the tutorial still fits is a design question that
-   should surface as a failing assertion here and be answered deliberately,
-   not tracked silently. ---- */
+/* THE TWO COPPER BILLS THE FIRST TWO MINUTES OWE, in units: the First
+   Trial's ten raw copper, then the furnace's own build bill, which the same
+   hole has to pay for next. Typed here rather than read off
+   `data/machines.js` on purpose -- the beat sheet names a NUMBER, so if the
+   furnace's bill changes, whether the tutorial still fits should surface as
+   a failure here and be answered deliberately. */
 const TRIAL_COPPER   = 10;
 const FURNACE_COPPER = 12;
 
-/* Copper units within a 5-break dig, per seed -- the FLOOR is asserted per
-   seed in property 3; this collects the distribution so the sweep can print
-   the CEILING too (docs/SPEC.md §19.7: an absurdly rich guaranteed vein ends
-   cycle 1 in fifteen seconds, and only a max can show that). */
+/* Copper units within a 5-break dig, per seed. The FLOOR is asserted per seed
+   in property 3; this collects the distribution so the sweep can print the
+   CEILING too -- an absurdly rich guaranteed vein ends cycle 1 in fifteen
+   seconds, and only a max can show that. */
 const veinUnits = [];
 
-/* ============================================================
-   SHARED GEOMETRY HELPERS, over the LIVE band records `boot.newRun` just
-   built -- nothing here re-implements worldgen; everything asks the same
-   model queries the game itself uses (`solidAt`, `subAt`, `skyExposedAt`).
-   ============================================================ */
+/* SHARED GEOMETRY HELPERS, over the LIVE band records `boot.newRun` just
+   built. Nothing here re-implements worldgen: everything asks the same model
+   queries the game itself uses. */
 
 const surfaceCfg = BANDS.find(b => b.id === 'surface');
 const SPAWN_TX = surfaceCfg.spawnTx;
@@ -94,17 +79,15 @@ const DIP = surfaceCfg.strata.find(r => r.kind === 'relief').dip ?? 0;
    says what stops being checked. */
 if (DIP <= 0) fail(`the surface relief row declares dip ${DIP}; property 10 cannot tell a correct skyBottomTy from a broken one below 1`);
 
-/* The topmost solid row of a column, scanning from the sky down -- the same
-   query `rules/generate.js#firstSolid` makes for the hollow-roof rule, asked
-   here from OUTSIDE that file, against the tiles it actually wrote.
-   TIMBER IS SKIPPED: a tree trunk (`rules/generate.js#KINDS.trees`) is grown
-   UP from the height map's own ground line, strictly AFTER the relief and
-   step passes have already fixed it, so a trunk is decoration standing ON
-   the surface, not the surface itself. Counting a trunk's top tile as the
-   "ground" would read every tree as a 3-5 tile cliff the step rule never
-   produced and never has to obey -- exactly the wrong-thing-measured mistake
-   CLAUDE.md warns about, confirmed by first running this file naively and
-   getting a STEP failure at nearly every seed. */
+/* The topmost solid row of a column, scanning from the sky down -- the query
+   `rules/generate.js#firstSolid` makes for the hollow-roof rule, asked from
+   OUTSIDE that file against the tiles it wrote.
+
+   TIMBER IS SKIPPED: a trunk grows UP from the height map's ground line,
+   strictly after the relief and step passes fixed it, so it stands ON the
+   surface rather than being it. Counting a trunk's top tile as ground reads
+   every tree as a 3-5 tile cliff the step rule never produced -- which is
+   what a naive first run of this file reported, at nearly every seed. */
 function groundRow(b, tx) {
   for (let ty = 0; ty < b.th; ty++)
     if (solidAt(b, tx, ty) && subAt(b, tx, ty) !== S.timber) return ty;
@@ -120,17 +103,13 @@ function isHollowTile(b, tx, ty) {
 
 const bandOf = id => bands.find(b => b.id === id);
 
-/* ============================================================
-   PROPERTY 9's REACHABILITY GRAPH: surface + topsoil stacked as one graph.
-   ------------------------------------------------------------
-   Both bands are the same width at 8 px/tile (data/world.js), so column `tx`
-   in one is the SAME world column as `tx` in the other, and the surface
-   band's own bottom row is the world pixel row directly above the topsoil
-   band's own row 0 (surface origin.y 320 + 56*8 = 768 = topsoil's origin.y).
-   That is what makes "one more edge, at the seam" the whole of stitching two
-   separately-allocated tile arrays into one connectivity graph, rather than
-   a coordinate transform. `astral` carries no ore and sits above spawn, not
-   below it, so it is left out of this graph on purpose. ============================================================ */
+/* THE REACHABILITY GRAPH: surface and topsoil stacked as one graph. Both
+   bands are the same width at 8 px/tile, so column `tx` in one is the SAME
+   world column as `tx` in the other, and surface's bottom row sits directly
+   above topsoil's row 0 (origin.y 320 + 56*8 = 768 = topsoil's origin.y).
+   That is why stitching two separately-allocated tile arrays into one
+   connectivity graph is one extra edge at the seam rather than a coordinate
+   transform. `astral` carries no ore and sits above spawn, so it is out. */
 function neighboursOf(gridBands, node) {
   const { bi, tx, ty } = node;
   const b = gridBands[bi];
@@ -158,23 +137,14 @@ const KEY_BAND = 1e7;
 const keyOf = n => n.bi * KEY_BAND + n.ty * KEY_STRIDE + n.tx;
 
 /* TIER OF A TILE A PLAYER WOULD HAVE TO DIG THROUGH: `tile.tier ?? 1`, the
-   same default `rules/mining.js`'s own gate uses. Tier is a PROGRESSION gate
-   (a stronger tool always reaches everything a weaker one does -- the
-   monotonicity content.mjs's own assertion 9 already proves), never a
-   permanent wall: every real strata substance carries a FINITE `tile.hard`
-   (verified by inspection of data/substances.js -- only the AIR/BEDROCK
-   sentinels in model/tiles.js are Infinity, and neither is ever the byte a
-   `blobs`/`vein`/`layer` row writes). So "diggable, ignoring tier" is true
-   for every in-bounds tile in this game today BY CONSTRUCTION, which would
-   make a tier-blind flood fill pass always, trivially, telling nobody
-   anything -- CLAUDE.md's own warning against a test that measures the wrong
-   thing. The MEANINGFUL claim -- and the one the plan's own example
-   ("sealed inside an adamant shell") is actually about -- is that an ore body
-   of tier T must be reachable using nothing HARDER than tier T itself: a
-   copper vein (tier 1) must never require a detour through granite (tier 2)
-   or adamant (tier 3) to reach, because that would be a T1 player unable to
-   reach a T1 reward. So reachability below is graded PER ORE BODY, at that
-   body's own tier, not at the maximum tier the game ever reaches. */
+   default `rules/mining.js`'s own gate uses.
+
+   A TIER-BLIND FLOOD FILL WOULD PASS TRIVIALLY: every strata substance
+   carries a finite `tile.hard`, so "diggable, ignoring tier" is true of every
+   in-bounds tile by construction. The meaningful claim is that an ore body of
+   tier T is reachable using nothing HARDER than T -- a copper vein must never
+   need a detour through granite, which would be a T1 player unable to reach a
+   T1 reward. So reachability is graded PER ORE BODY, at its own tier. */
 const tierOf = sub => SUB[sub].tile?.tier ?? 1;
 
 function reachableAtTier(gridBands, start, tier, cache) {
@@ -239,19 +209,15 @@ const ORE_SUBS = [...new Set(
     .map(r => S[r.sub]))
 )];
 
-/* ---- CONTENT PER SCREEN, in cells per 10,000 tiles of the band.
-   Aggregated over the whole sweep rather than asserted per seed, because one
-   seed's scatter is noisy and the claim is about the world a player walks
-   through. docs/SPEC.md section 16.5 holds the measured means; these floors
-   are 80% of them, so an accidental thinning fails and ordinary seed
+/* CONTENT PER SCREEN, in cells per 10,000 tiles of the band. Aggregated over
+   the whole sweep rather than asserted per seed: one seed's scatter is noisy
+   and the claim is about the world a player walks through. Each floor is 80%
+   of the measured mean, so an accidental thinning fails and ordinary seed
    variation does not.
 
-   THIS IS THE PROPERTY PHASE 6e DID NOT HAVE. Widening every band from 128 to
-   1,024 columns against an absolute `count` left the same content in eight
-   times the rock, and every property in this file stayed green, because each
-   one is a floor on a total or a reachability claim and none of them was a
-   density. `dens` (attempts per 10,000 window tiles) makes the dilution
-   impossible by construction; this makes a thinning visible. ---- */
+   NO OTHER PROPERTY HERE IS A DENSITY, which is how a band widening from 128
+   to 1,024 columns against an absolute `count` once left the same content in
+   eight times the rock with this whole file green. */
 const DENSITY_FLOOR = {
   'surface/copper': 71, 'surface/air': 173,
   'topsoil/copper': 61, 'topsoil/tin': 49,
@@ -277,15 +243,13 @@ for (const k of DENSITY_KEYS)
   if (DENSITY_FLOOR[k] === undefined)
     fail(`DENSITY -- data/world.js places "${k}" but no floor is declared for it here`);
 
-/* ============================================================
-   ONE SEED'S WORTH OF PROPERTY CHECKS, run against `bands` as `boot.newRun`
-   just left them.
-   ============================================================ */
+/* One seed's worth of property checks, against `bands` as `boot.newRun` just
+   left them. */
 function checkSeed(seed) {
   const surface = bandOf('surface'), topsoil = bandOf('topsoil');
   const gridBands = [surface, topsoil];
 
-  /* ---- 2. spawn shelf: flat, >= 9 tiles half-width, centred on spawn ---- */
+  /* 2. spawn shelf: flat, >= 9 tiles half-width, centred on spawn. */
   {
     const want = groundRow(surface, SPAWN_TX);
     let bad = -1;
@@ -295,46 +259,16 @@ function checkSeed(seed) {
       fail(`seed ${seed}: SHELF -- column ${bad} sits at row ${groundRow(surface, bad)}, spawn row is ${want} (shelf spans ${SPAWN_TX - SHELF}..${SPAWN_TX + SHELF})`);
   }
 
-  /* ---- 3. the guaranteed copper vein: present, within a 5-tile dig, and
-     RICH ENOUGH -- measured in UNITS, not in cells.
-     "Reaching" a tile means standing next to it, ready to strike it -- the
-     beat sheet's own words are "dig down 5 tiles ... mine 6 copper", so the
-     fifth break delivers the player TO the vein and the sixth is the first
-     one spent ON it. Counting entry into the copper tile itself against the
-     5-break budget (the first version of this check did exactly that) fails
-     seeds where the vein sits precisely 5 breaks deep, which is the depth
-     `data/world.js`'s own `dy:6` comment says it is GUARANTEED to reach --
-     so that first version was measuring the wrong thing (CLAUDE.md's own
-     recorded mistake), not finding a real bug.
+  /* 3. the guaranteed copper vein: present within a 5-break dig, and rich
+     enough -- in UNITS, not cells, since a deposit tile yields `tile.charge`
+     of them. Summed through `model/tiles.js#baseChargeAt`, the query mining
+     reads; base charge, not `eff('richness')`, because a boon cannot exist
+     at t=0.
 
-     WHY UNITS AND NOT CELLS. A deposit tile yields
-     `tile.charge` units (copper 4), so "is there a copper CELL down there"
-     no longer answers the question docs/SPEC.md section 5 beat 3 and
-     section 13 actually ask, which is for a QUANTITY: 10 raw copper for the
-     first trial and 12 more for the furnace bill. A cells-based check would
-     under-count what is really available by a factor of `charge` and would
-     go on passing while the delivered amount fell under 10 -- exactly the
-     silent-pass this file's own header warns about. So the copper found is
-     summed through `model/tiles.js#baseChargeAt`, the same query mining
-     itself reads, and the two floors are asserted separately so a failure
-     says WHICH promise broke.
-
-     A COPPER EDGE IS FREE. Only NON-copper rock spends the 5-break budget:
-     once the dig has arrived, mining through the vein is the reward, not
-     part of the cost of reaching it. Every cell of a 6-cell cruciform vein
-     is therefore counted, which is what makes 24 the floor rather than 4.
-     Base charge, not `eff('richness')`: this asserts what worldgen laid
-     down, and a `richness` boon cannot exist at t=0 of a fresh run.
-
-     THE FLOOD IS PENNED TO THE SPAWN SHELF, and it has to be. Open air costs
-     nothing, the start node is the air above the spawn tile, and the sky over
-     the whole band is one connected air region -- so an unpenned flood walks
-     the surface for free to any column in the world and then spends its five
-     breaks there. At 128 columns that inflated the figure; at 1,024 it
-     inflated it eightfold and the median read 36 units against the 24 the
-     guaranteed vein actually supplies. Penning it to `SHELF` is what makes
-     this "a 5-tile dig on the flat ground at spawn", which is what
-     docs/SPEC.md section 5 beat 3 promises. ---- */
+     Three things the budget does not count: arriving AT the vein, mining
+     THROUGH copper once arrived, and any column outside `SHELF` -- open air
+     is free and the sky is one connected region, so an unpenned flood digs
+     its five breaks anywhere in the world. */
   {
     const start = { bi: 0, tx: SPAWN_TX, ty: FLOOR_TY - 1 };
     const seen = new Map([[keyOf(start), 0]]);
@@ -366,12 +300,12 @@ function checkSeed(seed) {
     if (!copper.size)
       fail(`seed ${seed}: VEIN -- no copper reachable within a 5-tile dig from spawn (${SPAWN_TX},${FLOOR_TY})`);
     else if (units < TRIAL_COPPER)
-      fail(`seed ${seed}: VEIN UNITS -- only ${units} copper unit(s) in ${copper.size} cell(s) within a 5-tile dig from spawn; docs/SPEC.md section 5 beat 3 promises ${TRIAL_COPPER}`);
+      fail(`seed ${seed}: VEIN UNITS -- only ${units} copper unit(s) in ${copper.size} cell(s) within a 5-tile dig from spawn; the First Trial needs ${TRIAL_COPPER}`);
     else if (units < TRIAL_COPPER + FURNACE_COPPER)
-      fail(`seed ${seed}: VEIN UNITS -- ${units} copper unit(s) within a 5-tile dig covers the ${TRIAL_COPPER}-copper first trial but not the ${FURNACE_COPPER} more docs/SPEC.md section 13's furnace bill wants (${TRIAL_COPPER + FURNACE_COPPER} total)`);
+      fail(`seed ${seed}: VEIN UNITS -- ${units} copper unit(s) within a 5-tile dig covers the ${TRIAL_COPPER}-copper first trial but not the ${FURNACE_COPPER} more the furnace bill wants (${TRIAL_COPPER + FURNACE_COPPER} total)`);
   }
 
-  /* ---- 4. within SAFE_R of spawn, no adjacent-column fall > 5 tiles ---- */
+  /* 4. within SAFE_R of spawn, no adjacent-column fall > 5 tiles. */
   {
     let worst = 0, worstAt = -1;
     for (let tx = Math.max(0, SPAWN_TX - SAFE_R); tx < Math.min(surface.tw - 1, SPAWN_TX + SAFE_R); tx++) {
@@ -381,7 +315,7 @@ function checkSeed(seed) {
     if (worst > 5) fail(`seed ${seed}: SAFE FALL -- column ${worstAt}->${worstAt + 1} steps ${worst} tiles within SAFE_R of spawn (budget 5)`);
   }
 
-  /* ---- 5. adjacent columns differ by <= 1, big steps rare and far ---- */
+  /* 5. adjacent columns differ by <= 1, big steps rare and far. */
   {
     let bigSteps = 0;
     for (let tx = 0; tx < surface.tw - 1; tx++) {
@@ -390,15 +324,12 @@ function checkSeed(seed) {
       bigSteps++;
       if (d > STEP_BIG)
         fail(`seed ${seed}: STEP -- column ${tx}->${tx + 1} steps ${d} tiles, over STEP_BIG (${STEP_BIG})`);
-      /* `rules/generate.js#stepPass`'s own "room" test looks at ONE column at
-         a time -- the OUTWARD one it is currently assigning -- not at both
-         ends of the transition it produces, so the inward column of a big
-         step is always exactly at the SAFE_R+1 boundary by construction
-         (confirmed by first running this file with a both-ends test, which
-         flagged that boundary column on every seed containing a big step
-         anywhere near it). Mirroring the OUTWARD-column-only test here is
-         what makes this the same check stepPass makes, not a stricter one it
-         never promised. */
+      /* THE OUTWARD COLUMN ONLY, because that is the column
+         `rules/generate.js#stepPass` tests as it assigns it. The inward
+         column of a big step therefore sits at the SAFE_R+1 boundary by
+         construction, and a both-ends test here flagged it on every seed with
+         a big step anywhere near spawn -- a stricter check than the generator
+         ever promised. */
       const outer = Math.abs(tx - SPAWN_TX) > Math.abs(tx + 1 - SPAWN_TX) ? tx : tx + 1;
       if (Math.abs(outer - SPAWN_TX) <= SAFE_R + 1)
         fail(`seed ${seed}: STEP -- a ${d}-tile step at column ${tx}->${tx + 1} has its outward column inside SAFE_R+1 of spawn`);
@@ -408,17 +339,15 @@ function checkSeed(seed) {
       fail(`seed ${seed}: STEP FREQUENCY -- ${bigSteps} big steps over ${surface.tw - 1} columns, budget ${budget} (1 per ${STEP_GAP})`);
   }
 
-  /* ---- 6. surface height stays inside the declared relief budget ---- */
+  /* 6. surface height stays inside the declared relief budget. */
   {
     let worstOver = 0, worstAt = -1;
     for (let tx = 0; tx < surface.tw; tx++) {
       const row = groundRow(surface, tx);
-      /* BOTH BOUNDS ARE THE RELIEF ROW'S OWN, read off the same content the
-         generator reads -- `amp` rows of hilltop above floorTy and `dip` rows
-         of valley floor below it. The lower bound used to be a hardcoded
-         `floorTy + 1`, as room for the one-row ragged lip carve; wave 6 phase
-         6c stopped carving that in any band with a height map, and the ground
-         row then never reached floorTy + 1 on any of 200 seeds. */
+      /* BOTH BOUNDS ARE THE RELIEF ROW'S OWN, read off the content the
+         generator reads: `amp` rows of hilltop above floorTy, `dip` rows of
+         valley floor below it. Nothing is hardcoded here, because a hardcoded
+         bound is a second copy of a number `data/world.js` owns. */
       const over = Math.max(FLOOR_TY - RELIEF - row, row - (FLOOR_TY + DIP));
       if (over > worstOver) { worstOver = over; worstAt = tx; }
     }
@@ -426,14 +355,12 @@ function checkSeed(seed) {
       fail(`seed ${seed}: RELIEF -- column ${worstAt} at row ${groundRow(surface, worstAt)} is ${worstOver} tile(s) outside [floorTy-${RELIEF}, floorTy+${DIP}]`);
   }
 
-  /* ---- 7 & 8. every hollow in surface + topsoil: roofed, and (in surface)
-     clear of the spawn shelf and its SAFE_R -- one scan, both bands, since
-     `rules/generate.js`'s own guards (`onShelf`/`nearSpawn`) apply the
-     identical predicate to every hollow regardless of which strata row
-     carved it, so the spawn column, the tutorial shaft (the same column,
-     dug by hand) and the guaranteed vein (6 rows under it, r <= 3.6, always
-     inside SAFE_R) are one geometric exclusion in the code, not three -- and
-     that is what this checks, once, rather than three times over. ---- */
+  /* 7 & 8. every hollow in surface and topsoil: roofed, and in surface clear
+     of the spawn shelf and its SAFE_R. One scan over both bands, because
+     `rules/generate.js`'s `onShelf`/`nearSpawn` guards apply one predicate to
+     every hollow whatever strata row carved it -- the spawn column, the
+     tutorial shaft and the guaranteed vein are one geometric exclusion in the
+     code, not three. */
   for (const b of gridBands) {
     bandTiles[b.id] = (bandTiles[b.id] ?? 0) + b.tw * b.th;
     for (let ty = 0; ty < b.th; ty++) {
@@ -461,7 +388,7 @@ function checkSeed(seed) {
     }
   }
 
-  /* ---- 9. every ore body is reachable, AT ITS OWN TIER ---- */
+  /* 9. every ore body is reachable, AT ITS OWN TIER. */
   {
     const start = { bi: 0, tx: SPAWN_TX, ty: FLOOR_TY - 1 };
     const cache = {};
@@ -481,15 +408,12 @@ function checkSeed(seed) {
     }
   }
 
-  /* ---- 10. the air over a valley floor has sky behind it ----
-     `view/paint.js#skyBottomTy` is the one row BOTH the sky ramp
-     (`view/scene.js#drawSky`) and the cut-rock test (`view/paint.js#excavated`)
-     stop at, and it finds this band's relief row by the literal string
-     `'relief'` and reads the literal field `dip`. Nothing else ties the two
-     together. Spell either wrong and `skyBottomTy` quietly returns `floorTy`,
-     every valley floor wears the black band `INK.void` again, and no other
-     assertion anywhere moves -- so this one asserts the number AND the terrain
-     it has to cover. ---- */
+  /* 10. the air over a valley floor has sky behind it. `skyBottomTy` is the
+     row both the sky ramp and the cut-rock test stop at, and it finds the
+     relief row by the literal string `'relief'` and reads the literal field
+     `dip`. Spell either wrong and it quietly returns `floorTy`, every valley
+     floor wears black again, and nothing else anywhere moves -- so this
+     asserts the number AND the terrain it has to cover. */
   {
     const want = FLOOR_TY + DIP;
     const got = skyBottomTy(surface);
@@ -509,18 +433,13 @@ console.log(`\nworldgen properties over seeds 1..${SEEDS} (WORLDGEN_SEEDS to cha
 const t0 = Date.now();
 
 for (let seed = 1; seed <= SEEDS; seed++) {
-  /* ---- 1. DETERMINISM: same seed, twice, byte-identical mat/seen, every
-     band. Isolated to worldgen's OWN output -- right after `newRun(seed)`,
-     before any play -- unlike tools/check.mjs's determinism probes, which
-     run 10,000 scripted substeps of gameplay on top. There is no separate
-     per-tile "damage" array to compare: `model/mining.js` holds mining
-     progress in a sparse Map keyed by tile, and it is empty immediately
-     after `newRun` (nothing has been struck yet) on both sides of this
-     comparison, by the same `digw.clearAll()` `newRun` always runs -- so
-     comparing it would prove nothing this `mat`/`seen` comparison does not
-     already prove more directly. `seen` is included because
-     `revealRows(home, floorTy+8)` at the end of `newRun` is itself
-     deterministic worldgen-adjacent state, not because it is terrain. ---- */
+  /* 1. DETERMINISM: same seed, twice, byte-identical `mat` and `seen` in
+     every band. Isolated to worldgen's own output -- right after
+     `newRun(seed)`, before any play -- unlike `tools/check.mjs`'s
+     determinism probes, which run scripted gameplay on top. Mining progress
+     is not compared because `model/mining.js`'s sparse Map is empty on both
+     sides here. `seen` is, because `revealRows` at the end of `newRun` is
+     deterministic state too. */
   boot.newRun(seed);
   const snap1 = bands.map(b => ({ id: b.id, mat: sumBytes(b.mat), seen: sumBytes(b.seen) }));
   boot.newRun(seed);
@@ -538,12 +457,10 @@ for (let seed = 1; seed <= SEEDS; seed++) {
 const ms = Date.now() - t0;
 console.log(`  ..  ${SEEDS} seeds in ${ms} ms (${(ms / SEEDS).toFixed(2)} ms/seed)`);
 
-/* THE CEILING, PRINTED AND NOT ASSERTED. The floor is a promise
-   (docs/SPEC.md section 5 beat 3) and so it is a failure; "the vein is too
-   rich" is a judgement about pacing with no locked number behind it, so it is
-   a printed figure a human reads. Printing it is what makes the tightness of
-   the margin visible -- 24 against a 22-unit bill is 2 spare, and that is
-   worth seeing in the log rather than rediscovering. */
+/* THE CEILING IS PRINTED, NOT ASSERTED. The floor is a promise and so it is a
+   failure; "too rich" is a pacing judgement with no locked number behind it.
+   Printing it makes the margin visible -- 24 units against a 22-unit bill is
+   2 spare, worth seeing in the log rather than rediscovering. */
 if (veinUnits.length) {
   const s = [...veinUnits].sort((a, b) => a - b);
   const mean = s.reduce((a, b) => a + b, 0) / s.length;
@@ -552,14 +469,14 @@ if (veinUnits.length) {
               `(floor ${TRIAL_COPPER} + ${FURNACE_COPPER} = ${TRIAL_COPPER + FURNACE_COPPER})`);
 }
 
-/* ---- 11. CONTENT PER SCREEN. ---- */
+/* 11. CONTENT PER SCREEN. */
 for (const k of DENSITY_KEYS) {
   const bandId = k.slice(0, k.indexOf('/'));
   const per = (density[k] ?? 0) * 1e4 / bandTiles[bandId];
   const floor = DENSITY_FLOOR[k];
   console.log(`  ..  ${k}: ${per.toFixed(1)} cells per 10,000 tiles (floor ${floor})`);
   if (per < floor)
-    fail(`DENSITY -- ${k} is ${per.toFixed(1)} cells per 10,000 tiles of the band, under the ${floor} docs/SPEC.md section 16.5 holds`);
+    fail(`DENSITY -- ${k} is ${per.toFixed(1)} cells per 10,000 tiles of the band, under this file's floor of ${floor}`);
 }
 
 if (!failures) ok(`${SEEDS} seeds, 0 violations -- determinism, shelf, vein units, safe fall, ` +
