@@ -25,10 +25,8 @@ import { clearGrid, insert, makeGrid, query } from './space.js';
 export const items = [];
 const grid = makeGrid();
 
-/* the one key for a pair
-   Machine buffers and the player's pockets are both keyed by this string. The
-   slower representation, chosen on purpose -- see
-   docs/DEVELOPER_GUIDE.md#buffers-and-pockets */
+/* Machine buffers and the player's pockets are both keyed by this string. The
+   slower representation, chosen on purpose. */
 export const keyOf = (sub, form) => `${SUB[sub].id}/${FORM[form].id}`;
 
 export const parseKey = k => {
@@ -87,16 +85,15 @@ export const write = {
 const inRect = (r, x, y) =>
   x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 
-/* Items overlapping a rect, as records. A catch box mouth and a carrier's grab
-   window are both this call.
+/* Items overlapping a rect, as records. A catch box mouth and a carrier's
+   grab window are both this call.
 
    THE POSITION IS RE-TESTED HERE and nowhere else. `space.js#query` visits
-   whole 32 px buckets, so an unfiltered result is the four-tile bucket grid
-   rather than the rect a caller asked for, and every catch box, belt and
-   carrier in the game reaches through here. The test is an item's own POSITION
-   against the rect and not its 3-4 px sprite box: every margin in
-   docs/SPEC.md sections 17 and 18.3 is derived against the position, and a box
-   overlap would hand each of them back half a size in slop. */
+   whole 32 px buckets, so an unfiltered result is the bucket grid rather than
+   the rect a caller asked for. The test is an item's own POSITION against the
+   rect and NOT its 3-4 px sprite box: every margin in the catch-box and
+   carrier specs is derived against the position, and a box overlap would hand
+   each of them back half a size in slop. */
 export function itemsIn(r) {
   const out = [];
   query(grid, r, i => {

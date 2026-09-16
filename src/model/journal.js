@@ -1,20 +1,17 @@
-/* LAYER model — the journal. NOTIFICATION FLOWS DOWNWARD, AS DATA.
-   Imports `model` only. May be imported by `model`, `rules`, `view`;
-   `shell/notify.js` is the drain.
+/* LAYER model — the journal. NOTIFICATION FLOWS DOWNWARD, AS DATA. Imports
+   `model`; `shell/notify.js` is the drain.
 
-   `rules` never calls `play()` or `toast()`. It pushes a row here, and `shell`
-   drains it once a frame. Why, and what the one-frame latency costs:
-   docs/DEVELOPER_GUIDE.md#notification-and-the-journal. The mitigation is the
-   smallest honest one -- `drain()` warns when the queue has grown past a
+   `rules` never calls `play()` or `toast()`. It pushes a row here and `shell`
+   drains it once a frame, and `drain()` warns when the queue has grown past a
    frame's worth of plausible events.
 
-   A JOURNAL ROW IS A FACT, NOT AN INSTRUCTION. `kind` is a bare string, `at` is
-   world px or null, `data` is whatever the consumer needs. Deliberately untyped:
-   the moment a row says "play this sound", the queue has become a call stack
-   with extra steps.
+   A JOURNAL ROW IS A FACT, NOT AN INSTRUCTION. `kind` is a bare string, `at`
+   is world px or null, `data` is whatever the consumer needs. Deliberately
+   UNTYPED: the moment a row says "play this sound", the queue has become a
+   call stack with extra steps.
 
-   The kind vocabulary is mapped to sound in `data/sfx.js`. A kind with no entry
-   there is silent on purpose -- not every fact is audible. */
+   A kind with no entry in `data/sfx.js` is silent on purpose -- not every
+   fact is audible. */
 
 import { bump } from './epoch.js';
 

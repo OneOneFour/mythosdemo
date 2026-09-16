@@ -1,59 +1,35 @@
 /* LAYER model — the set of tiles the player has MARKED for digging, and the
    query "which marked tile is nearest a point, within reach". Imports `model`
-   and `data`. May be imported by `model`, `rules`, `view`.
+   and `data`.
 
-   A number and a query, never a decision: this file owns which coordinates
-   carry a mark and which of them is closest to somewhere. Whether to swing at
-   the answer is `rules/mining.js`'s, and the seconds that swing accumulates
-   stay in `model/mining.js` — there is no second progress store here, for the
-   reason CLAUDE.md records at length about the byte that made granite
-   unbreakable above 106 fps.
+   A number and a query, never a decision. The seconds a swing accumulates
+   stay in `model/mining.js`; there is no second progress store here.
 
-   Keyed exactly the way `model/mining.js` and `model/growth.js` key theirs —
-   band ordinal prefixing the band-local tile index, because two bands may be
-   marked at once and a bare tile index would collide between them — and the
-   value is a record carrying its own coordinates, for `model/growth.js`'s
-   reason: the nearest query ENUMERATES, and walking packed keys back to
-   (band, tx, ty) would be a second implementation of `world.js#idx`'s packing.
+   Keyed the way `model/mining.js` and `model/growth.js` key theirs -- band
+   ordinal prefixing the band-local tile index, because two bands may be
+   marked at once -- and the value is a record carrying its own coordinates,
+   because the nearest query ENUMERATES and walking packed keys back would be
+   a second implementation of the packing.
 
-   WHY A MARK CARRIES THE BAND AND THE BYTE IT WAS MARKED ON, and why this
-   module does NOT hang a clear off `model/tiles.js#write.setByte` the way
-   those two do. A mark whose tile changed is not about anything any more,
-   which is the same fact D14-E argues there — but the change a mark cares
-   about is overwhelmingly the queue's OWN success. A marked tile becoming air
-   is the normal outcome, not an anomaly, so the funnel would fire on the one
+   A MARK CARRIES THE BAND AND THE BYTE IT WAS MARKED ON, and this module does
+   NOT hang a clear off `write.setByte` the way those two do: a marked tile
+   becoming air is the NORMAL outcome, so the funnel would fire on the one
    case that needs no repair. Carrying the byte makes staleness a local
-   question instead: `stale()` below answers it from the tile grid, reads skip
-   a stale mark, and `write.prune` collects them.
+   question instead.
 
-   THE BAND REFERENCE IS THE HALF THAT SURVIVES A RESTART, and it is invariant
-   8 rather than tidiness. `shell/boot.js#newRun` replaces every band record
-   (`model/world.js#write.clear`, then `allocate` per row), and regenerating
-   the SAME seed writes the same bytes back — so a byte test alone would find
-   every mark from the previous run perfectly valid at the same coordinates,
-   which is exactly the determinism bug docs/FINDINGS.md (8d, #2) records
-   happening to `segments`. Comparing the record against `bands[ord]` makes
-   every mark of a previous run stale by construction, and `rules/mining.js`
-   collects them on the first substep. `clearAll()` is still the right call for
-   `newRun` to make; this is what makes its absence
-   unobservable rather than a substitute for it.
+   THE BAND REFERENCE IS THE HALF THAT SURVIVES A RESTART. `newRun` replaces
+   every band record and regenerating the same seed writes the same bytes
+   back, so a byte test ALONE would find every mark of the previous run
+   perfectly valid at the same coordinates. Comparing against `bands[ord]`
+   makes them stale by construction.
 
-   READS NEVER MUTATE, and that is load-bearing rather than tidy. `view` draws
-   the marks (`markedAt`, `queued`), and `view` may not write to `model` — the
-   epoch assertion in `npm run check` proves it. So the pruning of stale marks
-   is a `write`, called from `rules/mining.js#step`, and never folded into the
-   query that notices them.
+   READS NEVER MUTATE: `view` draws the marks and may not write to `model`, so
+   pruning is a `write` called from `rules/mining.js#step`, never folded into
+   the query that notices them.
 
-   THE COMMITTED TARGET IS HERE AND NOT IN `rules/mining.js`, for
-   `model/aim.js`'s one reason: the HUD draws it. Which marked tile the pick is
-   actually working is what tells the tile being broken apart from the twenty
-   merely waiting, `view` may not import `rules`, and a module-local scalar in
-   `rules/mining.js` would be invisible to the layer that has to draw it.
-   The decision is still the rules' -- `write.commit` only stores what
-   `rules/mining.js` chose, exactly as `aim.js#write.set` stores where it
-   pointed.
-
-   docs/SPEC.md section 28. */
+   THE COMMITTED TARGET IS HERE AND NOT IN `rules/mining.js`, because the HUD
+   draws it and `view` may not import `rules`. The DECISION is still the
+   rules': `write.commit` only stores what they chose. */
 
 import { AIR } from '../data/forms.js';
 import { bump } from './epoch.js';
@@ -105,19 +81,16 @@ export const withinReach = (m, px, py, reach) => d2(m, px, py) <= reach * reach;
 const cap = () => Math.max(1, Math.round(eff('digQueueMax')));
 
 export const write = {
-  /* Marks a tile for digging. Returns 'ok', 'full' when the cap is reached, or
-     'nothing' for air, the world edge, or a tile already marked.
+  /* Marks a tile for digging. Returns 'ok', 'full' at the cap, or 'nothing'
+     for air, the world edge, or a tile already marked.
 
-     THE CALLER OWNS THE REFUSAL. 'full' is a fact, not a toast: no `model`
-     module imports `model/journal.js`, so `shell/input.js`'s drag gesture is
-     what turns a 'full' into the journal row every other refusal in this game
-     gets.
+     THE CALLER OWNS THE REFUSAL: no `model` module imports the journal, so
+     the drag gesture is what turns a 'full' into a row.
 
      AIR AND THE WORLD EDGE ARE REFUSED HERE rather than by the caller, which
-     is storage integrity and not a mechanic: a drag sweeps across open sky,
-     and a mark on nothing would spend cap and then be pruned on the next
-     frame. Whether the pick is good enough for what IS there stays
-     `rules/mining.js`'s decision. */
+     is storage integrity and not a mechanic -- a drag sweeps across open sky,
+     and a mark on nothing would spend cap and be pruned next frame. Whether
+     the pick is good enough for what IS there stays the rules' decision. */
   mark(b, tx, ty) {
     if (!inBounds(b, tx, ty)) return 'nothing';
     const byte = tileAt(b, tx, ty);
@@ -187,20 +160,15 @@ export const markedAt = (b, tx, ty) => {
 };
 
 /* THE NEAREST LIVE MARK WITHIN `reach` OF A WORLD POINT, or null. Distance is
-   measured centre to centre in world px — the point against the tile's own
-   middle — so `reach`'s 3.2 tiles means the same thing here it means for hand
-   aim in `rules/mining.js#aimAtWorld`.
+   centre to centre in world px, so `reach` means the same thing here it means
+   for hand aim.
 
-   `reach` IS A PARAMETER AND NOT READ FROM `eff` HERE, for the reason
-   `model/growth.js#stageAt` gives about its own total: `view` draws an
-   out-of-reach mark differently from an in-reach one, and a `view` pass and a
-   `rules` step must not be able to disagree about which number they measured
-   against.
+   `reach` IS A PARAMETER AND NOT READ FROM `eff` HERE, because `view` draws
+   an out-of-reach mark differently and a `view` pass and a `rules` step must
+   not disagree about which number they measured against.
 
-   TIES BREAK ON THE KEY, ascending, which makes the answer a function of the
-   marked SET rather than of the order it was painted in. Returns the LIVE band
-   record, so a caller crossing a `page.evaluate` boundary must project the
-   fields it wants first. */
+   TIES BREAK ON THE KEY, ascending, so the answer is a function of the marked
+   SET rather than of the order it was painted. Returns the LIVE band record. */
 export function nearestWithin(px, py, reach) {
   let best = null, bestD = Infinity, bestK = Infinity;
   for (const [k, m] of marks.set) {
@@ -212,23 +180,15 @@ export function nearestWithin(px, py, reach) {
   return best;
 }
 
-/* THE COMMITTED TARGET, if it is still live and still within `reach` of the
-   point, else null. This is the whole of the hysteresis: `rules/mining.js`
-   asks this first and only falls back to `nearestWithin` when it answers
-   null, so a walking player's target stops changing faster than any tile can
-   break.
+/* THE COMMITTED TARGET, if still live and still within `reach`, else null.
+   This is the whole of the hysteresis: `rules/mining.js` asks this first and
+   falls back to `nearestWithin` only on null, so a walking player's target
+   stops changing faster than any tile can break.
 
-   FOUR THINGS END A COMMITMENT and all four answer here rather than needing a
-   caller to notice them: the tile broke or was otherwise overwritten (`stale`),
-   the mark was dropped (`live`), the band was reallocated by a restart
-   (`stale` again, invariant 8), and the player walked out of range. Only the
-   last is a suspension -- the mark goes back to being an ordinary one and is
-   picked up again by whichever query reaches it next.
-
-   `reach` IS A PARAMETER for `nearestWithin`'s reason, and the two must be
-   passed the same one: `view` draws the target differently from a waiting
-   mark, and a `view` pass that thought the target was still in reach while
-   the step had already suspended it would draw a tile nothing is working. */
+   FOUR THINGS END A COMMITMENT and all four answer here: the tile changed,
+   the mark was dropped, the band was reallocated by a restart, and the player
+   walked out of range. Only the LAST is a suspension. `reach` is a parameter
+   for `nearestWithin`'s reason, and the two must be passed the same one. */
 export function committedWithin(px, py, reach) {
   const m = held.m;
   if (!live(m) || d2(m, px, py) > reach * reach) return null;

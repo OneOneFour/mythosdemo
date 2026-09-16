@@ -157,3 +157,58 @@ activity changes every frame and is deliberately not cached at all.
 
 Node counts are in the TENS, so the flood is O(n²) and the path search is a
 plain BFS.
+
+## The headframe exemption, from the cable's side
+
+Salvaged from `src/model/segments.js`.
+
+**A hub's own footing tile does not block a cable leaving that hub.** Without
+the exemption a straight vertical link between two LEGALLY PLACED hubs is
+impossible: the anchor is the footprint's centre, so a span from below
+terminates one row above the footprint's bottom, and `footing:1` requires a
+solid tile directly under that footprint.
+
+Measured, 12 tiles apart on flat ground: `ok` with no footing at all — that is,
+only where the upper hub could not legally have been built — and 'THE PATH IS
+BLOCKED' at the footing row's own lower boundary with the footing under either
+column or both. That is the `footing:2` defect recurring at `footing:1`:
+dropping 2 to 1 fixed the one instance, and the boundary sampling correctly
+reopened the class.
+
+**Why the exemption is sound — three facts, not a tolerance.**
+
+1. The FOOTPRINT is required CLEAR by `placementCheck`'s first loop, so the
+   rows at and below the anchor inside it hold nothing to hide.
+2. The FOOTING TILE is required PRESENT, so the one tile this hides is a tile
+   the game itself insisted on — refusing the cable because of it refuses the
+   player their own floor.
+3. The drawn cable LEAVES THE HEADFRAME. A headframe straddles its own shaft
+   mouth, and a bucket rising into one passes the floor it is bolted to.
+
+The blind spot is therefore EXACTLY the footing row's tiles under each
+endpoint, two per hub, each immediately under a machine with a required-clear
+footprint above it.
+
+**Why not the alternatives.** Moving the anchor off the footprint centre breaks
+the locked anchor and moves every carrier and every baseline. Teaching the lean
+leaves the most obvious build — hubs stacked straight up — refusing, and
+pointing at a tile the player deliberately placed as the hub's floor.
+`footing:0` floats hubs in mid-air and kills the headframe reading outright.
+
+Stated as TILES rather than as a sample window, so "exactly two tiles per
+endpoint" is the code and not a consequence of it.
+
+## Why both tiles sharing an exact boundary are sampled
+
+A hub's anchor is `box.x + w/2`, exactly on a tile-column boundary for any EVEN
+footing, which every hub today is. So a straight vertical or horizontal link
+between two same-footing hubs samples its whole length astride a grid line, and
+`Math.floor()` has to pick one of the two tiles that share it — consistently,
+which means the OTHER one is never sampled at all.
+
+Confirmed live: a solid tile placed in the column the floor happened not to
+pick was invisible to every sample the sweep took. Both tiles sharing an exact
+boundary are equally "on" the line a player sees the cable drawn along, so both
+must be checked. `EPS` is world px, far below anything a seeded RNG or a real
+placement could land on by coincidence, so it only fires for a
+genuinely boundary-exact sample.

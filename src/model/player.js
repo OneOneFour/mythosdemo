@@ -1,14 +1,13 @@
-/* LAYER model — the player record, and the fall-damage table.
-   Imports `core`, `model`. May be imported by `model`, `rules`, `view`.
+/* LAYER model — the player record, and the fall-damage table. Imports `core`,
+   `model`.
 
-   In `model` and not in `rules` for one reason: `view` must be able to draw the
-   player, and `view` may not import `rules`. See
-   docs/DEVELOPER_GUIDE.md#where-does-state-go
+   In `model` and not `rules` for one reason: `view` must be able to draw the
+   player and may not import `rules`.
 
-   The record is a plain object with no methods. `rules/player.js` moves it.
-   Every physics NUMBER lives in `data/tuning.js` and is read through
-   `eff()`, so a god's boon can change walk speed; only the hitbox is here,
-   because a hitbox is geometry and not a tunable. */
+   The record is a plain object with no methods; `rules/player.js` moves it.
+   Every physics NUMBER lives in `data/tuning.js` and is read through `eff()`,
+   so a boon can change walk speed. Only the hitbox is here, because a hitbox
+   is geometry rather than a tunable. */
 
 import { rect } from '../core/math.js';
 import { bump } from './epoch.js';
@@ -54,15 +53,12 @@ export const write = {
   set(k, v)    { player[k] = v; bump(); }
 };
 
-/* the fall-damage table, from docs/SPEC.md section 3
-   With g = 320 px/s^2 and v = sqrt(2gh):
-
-     drop 40 px  =  5 tiles -> 160 px/s -> 0 hearts
-     drop 64 px  =  8 tiles -> 202 px/s -> 1 heart
+/* The fall-damage table. With g = 320 px/s^2 and v = sqrt(2gh):
+     drop  40 px =  5 tiles -> 160 px/s -> 0 hearts
+     drop  64 px =  8 tiles -> 202 px/s -> 1 heart
      drop 160 px = 20 tiles -> 320 px/s -> 5 hearts, lethal
-
-   A query and not a decision: it returns a number, and `rules/player.js` is
-   what spends it. It reads through `eff` so a trinket can add to `fallSafe`. */
+   A query and not a decision: it returns a number and `rules/player.js`
+   spends it. Read through `eff`, so a trinket can add to `fallSafe`. */
 export const fallHearts = v => {
   const safe = eff('fallSafe'), per = eff('fallHeart'), max = eff('fallMax');
   return Math.max(0, Math.min(max, Math.floor((v - safe) / per)));

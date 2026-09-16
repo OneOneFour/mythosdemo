@@ -1,17 +1,14 @@
 /* LAYER model — band allocation and coordinate math. State and queries only.
-   Imports `core` and `data`. May be imported by `model`, `rules`, `view`.
+   Imports `core` and `data`.
 
    NO MODULE-SCOPE DIMENSION CONSTANT EXISTS IN THIS FILE, and that is the
-   point. A band is allocated from a `data/world.js` row at RUN TIME, and more
-   than one is resident: `bands` is an array and every query below takes the
-   band record as its first argument.
+   point. A band is allocated from a `data/world.js` row at RUN TIME and more
+   than one is resident, so `bands` is an array and every query takes the band
+   record as its first argument.
 
-   Threading `b` through every call is real noise -- about one extra parameter on
-   forty call sites. It buys three coexisting bands, a carrier that travels between
-   two of them, and a world size that `newRun()` gets a say in.
-
-   COORDINATES. Two spaces, and only this file converts between them -- see
-   docs/DEVELOPER_GUIDE.md#bands-and-worldgen.
+   Threading `b` through every call is real noise -- about one extra parameter
+   on forty call sites. It buys three coexisting bands, a carrier that travels
+   between two of them, and a world size `newRun()` gets a say in.
 
    `origin` is in PIXELS, not tiles, because a tile offset is meaningless
    between two bands whose `tile` sizes differ -- and `tile` is per-band
@@ -21,20 +18,15 @@ import { bump } from './epoch.js';
 
 export const bands = [];               // allocated band records, in row order
 
-/* THE CEILING ON A BAND-LOCAL TILE INDEX, and it is not this file's own -- a
-   ceiling is not a dimension, so the header above still holds. `idx` below is
-   exact for any `tw * th` a browser will allocate, but three ledgers pack it
-   into a per-band slot of this size -- `model/mining.js`,
-   `model/growth.js` and `model/digqueue.js` all key by
-   `b.ord * 0x1000000 + idx(b, tx, ty)`. A band with more tiles than the slot
-   holds would alias band N's deep rows onto band N+1's shallow ones, which is
-   a wrong answer rather than a crash: mining progress, a growing seed and a dig
-   mark would all read off another band's tile. So the widening fails HERE,
-   at allocation, where the number is still a content decision.
-
-   1,024 x 320 is 327,680, so there is 51x of headroom at the shipped width.
-   Raise the three ledgers' slot
-   before raising this. */
+/* THE CEILING ON A BAND-LOCAL TILE INDEX, and it is not a dimension, so the
+   header above still holds. `idx` is exact for any `tw * th` a browser will
+   allocate, but three ledgers pack it into a per-band slot of THIS size. A
+   band with more tiles than the slot holds would alias band N's deep rows
+   onto band N+1's shallow ones -- a wrong answer rather than a crash, in
+   which mining progress, a growing seed and a dig mark all read off another
+   band's tile. So the widening fails HERE, at allocation, where the number is
+   still a content decision. Raise the three ledgers' slot before raising
+   this. */
 const IDX_SLOT = 0x1000000;
 
 export const write = {
@@ -183,17 +175,15 @@ export const bandAt = (x, y) => bands.find(b =>
 export const bandBelow = b => bands[b.ord + 1] || null;
 export const bandAbove = b => bands[b.ord - 1] || null;
 
-/* Does this band carry open sky of its own above its ground line?
-   `data/world.js#floorTy` IS that ground line, and it is already the number
-   `view/scene.js#skyBand` and `view/paint.js#paintChunk` divide sky from
-   excavated rock by. False for a band whose row 0 is buried under the band
-   above -- today `topsoil`, whose `floorTy` is 0 for exactly that reason.
+/* Does this band carry open sky of its own above its ground line? `floorTy`
+   IS that ground line, and already the number the sky and excavated-rock
+   passes divide by. False for a band whose row 0 is buried under the band
+   above.
 
-   Read it rather than the world above a band's row 0: the astral floor slab
-   spans every column, so the surface band -- where the player spawns -- has
-   solid rock 19 tiles over its own sky and a pure occlusion test darkens it
-   whole. A band's sky is a content statement, and this is where content
-   states it. */
+   Read it rather than testing the world above row 0: the astral floor slab
+   spans every column, so the surface band has solid rock 19 tiles over its
+   own sky and a pure occlusion test darkens it whole. A band's sky is a
+   CONTENT statement, and this is where content states it. */
 export const hasOwnSky = b => (b.cfg.floorTy ?? 0) > 0;
 
 /* Every band a world-pixel rect overlaps, each with the band-local tile box

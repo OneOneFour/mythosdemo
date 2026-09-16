@@ -1,38 +1,26 @@
 /* LAYER model — accumulated pick time per tile, in SECONDS as a float.
-   Imports `model` only. May be imported by `model`, `rules`, `view`.
+   Imports `model`.
 
-   ONE NUMBER, TWO FACTS. The seconds
-   stored per tile answer both:
+   ONE NUMBER, TWO FACTS, because a deposit tile yields `tile.charge` units and
+   each costs a full `hard` of work:
+     how far through THIS SWING am I   ->  work % hard          `unitProgressAt`
+     how depleted is THIS WHOLE VEIN   ->  work / (hard*charge)  `progressAt`
+   So this Map is also the DEPLETION LEDGER, deliberately the only one: a
+   second per-tile counter would have to re-establish the hand-versus-machine
+   rate equality by hand.
 
-     how far through THIS SWING am I     ->  work % hard         `unitProgressAt`
-     how depleted is THIS WHOLE VEIN     ->  work / (hard*charge) `progressAt`
+   THIS IS NOT THE HISTORICAL BYTE BUG BACK AGAIN. Progress once lived in the
+   tile store, which is why it became a truncated byte, which is why granite
+   turned unmineable above 106 fps. The bug was the REPRESENTATION and the
+   PLACE, not the existence of a per-tile number. This is a Map of float
+   seconds, outside the grid, compared against a hardness that is also
+   seconds -- no /255 and no byte.
 
-   because a deposit tile yields `tile.charge` units and each unit costs a
-   full `hard` of accumulated work. So this Map is also the DEPLETION LEDGER,
-   and it is deliberately the only one: a second per-tile counter would have to
-   re-establish by hand the hand-versus-machine rate equality docs/SPEC.md
-   section 12 stakes on both break sites feeding `write.add` below.
-
-   WHY THIS IS NOT THE HISTORICAL BYTE BUG BACK AGAIN. CLAUDE.md records that
-   mining progress once lived in the tile store, which is *why* it became a
-   truncated byte in the material array, which is why granite (2.4 s) turned
-   permanently unmineable above 106 fps. The bug was never "a per-tile number
-   exists"; it was the REPRESENTATION and the PLACE. This is a `Map` of
-   float seconds, outside the grid, compared directly against a substance
-   row's hardness -- which is also seconds. There is no /255 and no byte, and
-   therefore no framerate at which a hard material becomes unbreakable.
-
-   A Map and not a `Float32Array(tw * th)`: the live set is sparse, and the
-   array form is 196 KB resident per band to describe it. The old claim that
-   "a dig abandons progress the moment the player looks elsewhere" was never
-   true of this code -- nothing clears an entry when the reticle moves, and
-   depletion now DEPENDS on that: a vein you half-worked and walked away from
-   is still half-worked when you come back. Entries are cleared on exactly
-   three occasions, all of which mean the tile is not the tile it was:
-   `model/tiles.js#write.setByte` whenever the byte changes (which covers
-   mining, placement, worldgen and the `chasm` miracle in one place),
-   the two break sites' own explicit `clear`, and `clearAll` from
-   `shell/boot.js#newRun`. */
+   A Map and not a `Float32Array(tw * th)`, because the live set is sparse and
+   the array form is 196 KB resident per band. Nothing clears an entry when
+   the reticle moves, and depletion DEPENDS on that: a vein you half-worked
+   and walked away from is still half-worked. Entries clear on exactly three
+   occasions, all meaning the tile is not the tile it was. */
 
 import { bump } from './epoch.js';
 import { idx } from './world.js';
@@ -79,17 +67,13 @@ export const unitProgressAt = (b, tx, ty, hardSecs, charge = 1) => {
   return (work % hardSecs) / hardSecs;
 };
 
-/* HOW MANY DROP-WORTHY UNIT BOUNDARIES LIE BETWEEN TWO WORK READINGS.
-   Pure arithmetic, and it lives here rather than in either break site because
-   `rules/mining.js` (the player) and `rules/machines.js#mine` (a placed
-   miner) both need it and, being `rules` siblings, may not import each other.
-   One copy is what keeps docs/SPEC.md section 12's hand-equals-machine
-   equality true by construction instead of by two files agreeing.
+/* HOW MANY DROP-WORTHY UNIT BOUNDARIES LIE BETWEEN TWO WORK READINGS. Pure
+   arithmetic, here rather than in either break site because the player's and
+   the placed miner's rules are siblings that may not import each other -- one
+   copy is what keeps hand-equals-machine true by construction.
 
    Capped at `charge - 1`: the LAST unit is the break itself, which both call
-   sites already spawn a drop for, so counting it here would double it. At
-   charge 1 the cap is 0 and this always returns 0 -- today's behaviour for
-   `soil`, `stone` and `timber`, unchanged. */
+   sites already spawn a drop for. At charge 1 the cap is 0. */
 export function unitsCrossed(before, after, hardSecs, charge) {
   if (!(hardSecs > 0) || !Number.isFinite(hardSecs)) return 0;
   const cap = Math.max(0, Math.floor(charge) - 1);
@@ -100,15 +84,9 @@ export function unitsCrossed(before, after, hardSecs, charge) {
 }
 
 /* How many tiles carry accumulated work. A debug read, and NO LONGER a proof
-   that the Map stays small: an entry persists for every
-   deposit tile ever partially worked, for the whole run, because that IS the
-   depletion ledger (see the header). The honest bound is therefore the number
-   of mineable cells the player ever touches -- docs/SPEC.md section 16.5
-   measures ~3,000 ore cells per topsoil seed, so a few thousand entries at
-   tens of bytes each, a few hundred KB worst case for a player who chips
-   every vein in the world and finishes none. The dense alternative
-   (a `Uint8Array` per band, beside `seen` and `light`) costs ~53 KB flat;
-   docs/PLAN-phase14-mining-and-drops.md D14-D names the exact trigger for
-   switching to it, which is depletion needing to move for a reason other
-   than accumulated work. */
+   that the Map stays small: an entry persists for every deposit tile ever
+   partially worked, for the whole run, because that IS the depletion ledger.
+   The honest bound is the number of mineable cells the player ever touches --
+   a few thousand entries at tens of bytes, so a few hundred KB worst case.
+   The dense alternative costs ~53 KB flat. */
 export const activeCount = () => dig.work.size;

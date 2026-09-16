@@ -1,36 +1,24 @@
 /* LAYER model — SEGMENTS: the cables between hubs, and the one decision about
    whether a cable may exist. Imports `core`, `data`, `model`.
-   May be imported by `model`, `rules`, `view`.
 
-   CLAUDE.md invariant 4 (as reworded) and D10 are what this file is for.
-   Read docs/PLAN-gears-and-winches.md sections 4.1 and 4.5, and
-   docs/SPEC.md section 17, before changing anything here.
-
-   A SEGMENT IS NOT A MACHINE, AND MUST NOT BECOME ONE. It has no footprint, no
-   buffer and no recipe, and it is created by an ACTION BETWEEN two hub
-   machines rather than placed. That is the whole of why it lives here rather
-   than in `model/machines.js`: `data/machines.js` is a frozen table of rows a
-   player places, and a cable is not one of them.
+   A SEGMENT IS NOT A MACHINE, AND MUST NOT BECOME ONE. No footprint, no
+   buffer, no recipe, and it is created by an ACTION BETWEEN two hub machines
+   rather than placed -- which is why it lives here rather than in
+   `model/machines.js`, a frozen table of rows a player places.
 
    ONE SEGMENT JOINS EXACTLY TWO HUBS AND CARRIES EXACTLY ONE CARRIER. Nothing
-   in this file describes a route longer than one segment; a route is `chains()`
-   below, a DERIVED query, never a record. That is invariant 4's "bounded
-   segments between placed endpoints, never one continuous cage" expressed as a
-   data shape rather than as a comment -- reaching further means another hub and
-   another segment, and there is no object here that could grow into a
-   world-spanning elevator.
+   here describes a route longer than one segment; a route is `chains()`, a
+   DERIVED query, never a record. Reaching further means another hub and
+   another segment, so no object here could grow into a world-spanning
+   elevator.
 
    `a` and `b` are the machine RECORDS, never ids or indices. Machines never
-   move, so a record is stable for as long as it exists, and a REMOVED hub must
-   invalidate the segments anchored to it -- `write.unlinkAll(m)`, called from
-   `rules/placement.js#deconstruct`, is that invalidation, and holding the
-   record is what makes it a one-line identity test instead of a search.
+   move, so a record is stable while it exists, and holding it makes
+   `write.unlinkAll(m)` a one-line identity test rather than a search.
 
    MOTION IS `rules/drive.js`'S, NOT THIS FILE'S. Everything here is storage
-   and questions: `t`, `dir`, `load` and `band` are written through the API
-   below and nothing in this file decides what they should be. A carrier still
-   PARKS at `t = 0` -- the low end -- because that is where a fresh link puts
-   it, not because anything here holds it there. */
+   and questions. A carrier PARKS at `t = 0` because that is where a fresh
+   link puts it, not because anything here holds it there. */
 
 import { lerp, rect } from '../core/math.js';
 import { bump } from './epoch.js';
@@ -178,22 +166,15 @@ export function reachOf(m) {
   return def.hub ? def.hub.reach * eff('segReach', def.id) : 0;
 }
 
-/* linkCheck: ONE DECISION, TWO READERS
-   `rules/placement.js#linkSegment` calls this and turns a `false` into a
-   journal row plus the mutation; `view/hud.js`'s cable ghost calls
-   the identical query and turns the same `false` into a tinted cable with
-   `why` beside it. `view` may not import `rules`, so the decision lives in
-   `model` -- exactly the move `model/run.js#placementCheck` already made for
-   placement.
+/* ONE DECISION, TWO READERS: `linkSegment` turns a `false` into a journal row
+   plus the mutation, and the cable ghost turns the same `false` into a tinted
+   cable with `why` beside it. `view` may not import `rules`, so the decision
+   lives here.
 
-   Refusals in the order docs/SPEC.md section 17.6 locks: structural before
-   affordable, which for a cable means "is this even a pair of hubs" before
-   "is the space between them any good". There is deliberately no
-   'TOO STEEP TO STAND': every angle is legal, and the omission is recorded so
-   it reads as a decision rather than an oversight.
-
-   `at` is the first blocked sample, in world px, or null -- the ghost wants to
-   draw WHERE the span is blocked, and only the sweep knows. */
+   Refusals run STRUCTURAL BEFORE AFFORDABLE. There is deliberately no 'TOO
+   STEEP TO STAND': every angle is legal. `at` is the first blocked sample in
+   world px, or null, because the ghost draws WHERE the span is blocked and
+   only the sweep knows. */
 export function linkCheck(a, b) {
   const no = (why, at = null) => ({ ok: false, why, at });
 
@@ -220,20 +201,16 @@ export function linkCheck(a, b) {
   return { ok: true, why: null, at: null };
 }
 
-/* A hub's own anchor is `box.x + w/2` -- exactly on a tile-column (or, for a
-   horizontal span, tile-row) boundary for any EVEN footing, which every hub
-   today is. So a straight vertical or horizontal link between two same-
-   footing hubs samples its whole length exactly astride a grid line, and
-   `Math.floor()` inside `tileX`/`tileY` has to pick one of the two tiles that
-   share it -- consistently, which means the OTHER one is never sampled at
-   all. Confirmed live (the cross-band harness): a solid tile placed in
-   the column the floor happened not to pick was invisible to every sample
-   the whole sweep took. Both tiles sharing an exact boundary are equally
-   "on" the line a player would see the cable drawn along, so both must be
-   checked -- never just whichever one `Math.floor` favours. `EPS` is world
-   px, far below anything a seeded RNG or a real placement could land on by
-   coincidence, so this only ever fires for a genuinely boundary-exact
-   sample, not a near miss. */
+/* A hub's anchor is `box.x + w/2`, exactly on a tile-column boundary for any
+   EVEN footing -- which every hub today is. So a straight link between two
+   same-footing hubs samples its whole length astride a grid line, and
+   `Math.floor()` picks one of the two tiles sharing it CONSISTENTLY, which
+   means the other is never sampled at all. Confirmed live: a solid tile in
+   the unpicked column was invisible to every sample.
+
+   Both tiles sharing an exact boundary are equally "on" the drawn line, so
+   both are checked. `EPS` is world px, far below anything a real placement
+   could land on, so this only fires for a boundary-exact sample. */
 const EPS = 1e-6;
 function solidNear(band, wx, wy, exempt) {
   const fx = (wx - band.origin.x) / band.tile, fy = (wy - band.origin.y) / band.tile;
@@ -246,54 +223,15 @@ function solidNear(band, wx, wy, exempt) {
   return false;
 }
 
-/* THE HEADFRAME EXEMPTION (docs/PLAN-phase10.md 3.1 option A1)
-   A HUB'S OWN FOOTING TILE DOES NOT BLOCK A CABLE LEAVING THAT HUB. Without
-   this, a straight vertical link between two LEGALLY PLACED hubs is impossible:
-   the anchor is the footprint's centre, so the span from below terminates one
-   row above the footprint's bottom, and `footing:1`
-   (`model/run.js#placementCheck`) requires a solid tile directly under that
-   footprint. Measured, 12 tiles apart on flat ground: `ok` with no footing at
-   all -- i.e. only where the upper hub could not legally have been built --
-   and 'THE PATH IS BLOCKED' at the footing row's own lower boundary with the
-   footing under either column or both. This is docs/SPEC.md 17.2's `footing:2`
-   defect recurring at `footing:1`: dropping 2 to 1 fixed the one instance,
-   and `solidNear`'s boundary sampling (correctly) reopened the class.
+/* THE HEADFRAME EXEMPTION: A HUB'S OWN FOOTING TILE DOES NOT BLOCK A CABLE
+   LEAVING THAT HUB. Without it a straight vertical link between two LEGALLY
+   PLACED hubs is impossible, since the anchor is the footprint's centre and
+   `footing:1` requires a solid tile directly under that footprint.
 
-   WHY THE EXEMPTION IS SOUND, and it is three facts and not a tolerance:
-     - the FOOTPRINT is required CLEAR (`placementCheck`'s own first loop), so
-       the rows at and below the anchor inside it hold nothing to hide;
-     - the FOOTING TILE is required PRESENT, so the one tile this hides is a
-       tile the game itself insisted on -- refusing the cable because of it
-       refuses the player their own floor;
-     - the drawn cable LEAVES THE HEADFRAME. A headframe straddles its own
-       shaft mouth (`data/machines.js`'s `hub` row), and a bucket rising into
-       one passes the floor it is bolted to. `geometryOf`'s comment above
-       already stands on the first of these.
-   The blind spot is therefore EXACTLY the footing row's tiles under each
-   endpoint -- two per hub -- each one immediately under a machine, with a
-   required-clear footprint above it and nothing else it could conceal.
-
-   WHY NOT THE ALTERNATIVES: moving the anchor off
-   the footprint centre (A2) breaks docs/SPEC.md 17.5's locked anchor and moves
-   every carrier and every 8e/8f baseline; teaching the lean (A3) leaves the
-   most obvious build -- hubs stacked straight up -- refusing, and pointing at
-   a tile the player deliberately placed as the hub's floor; `footing:0` (A4)
-   floats hubs in mid-air and kills the headframe reading outright.
-
-   Stated as TILES, not as a sample window, so "exactly two tiles per endpoint"
-   is the code and not a consequence of it: a tile is exempt when it is in the
-   endpoint's own band, in its footprint's columns, and in a row from the
-   anchor's own row down to the footprint's bottom plus one.
-
-   ONE DECISION, TWO READERS (docs/DEVELOPER_GUIDE.md, and the same argument
-   `linkCheck`/`placementCheck` above already stand on). One footing sweep
-   exempted the CABLE and left the RIDER refused -- `rules/drive.js#ride` would not translate
-   a player whose 6 px box straddles the anchor's own column boundary across the
-   very tile the cable now crosses, so a rider arrived 34 px short of the deck
-   and the carrier left without them (docs/FINDINGS.md #17). Phase 10b fixes
-   that in `rules/drive.js`, and it reads THESE TWO FUNCTIONS rather than
-   re-deriving the range: a second copy of "which tiles a headframe hides" is a
-   second copy that can widen on its own. Exported for that one reader. */
+   SOUND BECAUSE OF THREE FACTS: the footprint is required CLEAR, the footing
+   tile is required PRESENT, and the drawn cable LEAVES the headframe. Stated
+   as TILES rather than a sample window, so "exactly two per endpoint" is the
+   code rather than a consequence of it. */
 export function headframe(m) {
   const def = defOf(m);
   return {
@@ -306,20 +244,14 @@ export function headframe(m) {
 export const inHeadframe = (exempt, band, tx, ty) => exempt.some(e =>
   e.band === band && tx >= e.tx0 && tx <= e.tx1 && ty >= e.ty0 && ty <= e.ty1);
 
-/* THE HALF-TILE SWEEP, not a Bresenham. `rules/items.js` already states the
-   rule this reuses -- "no substep longer than half a tile, in either axis" --
-   and it is the right one here for the same reason: a sample every half tile
-   cannot step over a one-tile obstruction at any angle, and it needs no
-   integer line algorithm to say so.
+/* THE HALF-TILE SWEEP, not a Bresenham: no substep longer than half a tile in
+   either axis, the same rule `rules/items.js` states, because a sample every
+   half tile cannot step over a one-tile obstruction at any angle.
 
-   `bandAt` PER SAMPLE is what makes a cross-band span work at all, and it is
-   the same call `rules/drive.js#haul` trusts for its own band handoff.
-   The step is sized by the SMALLER of the two endpoint bands' tiles, so a
-   future band with a finer grid cannot be sampled too coarsely.
-
-   `exempt` is the two headframe tile ranges above -- the only SOLID tiles a
-   span may pass through -- handed in by `linkCheck` rather than looked up here,
-   because only the caller knows which two machines the span joins. */
+   `bandAt` PER SAMPLE is what makes a cross-band span work at all. The step is
+   sized by the SMALLER of the two endpoint bands' tiles, so a future finer
+   grid cannot be sampled too coarsely. `exempt` is handed in by the caller,
+   because only it knows which two machines the span joins. */
 function sweepSpan(pa, pb, len, exempt = []) {
   const ba = bandAt(pa.x, pa.y), bb = bandAt(pb.x, pb.y);
   const tile = Math.min(ba?.tile ?? Infinity, bb?.tile ?? Infinity);
@@ -338,17 +270,14 @@ function sweepSpan(pa, pb, len, exempt = []) {
   return { blocked, offWorld };
 }
 
-/* chains: DERIVED, NEVER STORED (CLAUDE.md D10)
-   A chain is a maximal connected run of segments -- a connected component of
-   the graph whose NODES are hub machines and whose EDGES are segments.
-   Returned as arrays of segments, in `segments` order within each component
-   and in first-appearance order between them, so the answer is deterministic
-   and reproducible from the link order alone.
+/* A chain is DERIVED, NEVER STORED: a maximal connected run of segments, i.e.
+   a connected component of the graph whose NODES are hub machines and whose
+   EDGES are segments. Returned in `segments` order within each component and
+   first-appearance order between them, so the answer is reproducible from the
+   link order alone.
 
-   Union-find would be the textbook answer and is not worth it: there are tens
-   of segments, not thousands, and a flood per component is O(n^2) on a number
-   that never leaves double digits. `rules/light.js` makes the same call about
-   its own emitter scan, for the same reason, and says so. */
+   Union-find is the textbook answer and is not worth it: there are tens of
+   segments, so a flood per component is O(n^2) on a double-digit number. */
 export function chains() {
   const seen = new Set();
   const out = [];
@@ -395,11 +324,10 @@ export function breaks() {
   return out;
 }
 
-/* WHAT A CARRIER MAY BEAR, off `hub.carries` on BOTH anchors' rows. Data, not
-   code (docs/PLAN section 4.1): a cheap material-only hub tier is a
-   `variantOf` row with a shorter `carries` list and needs no engine edit.
-   BOTH ends must agree -- a cable is one object and the weaker end governs,
-   the same rule `linkCheck`'s `'TOO FAR APART'` already applies to reach. */
+/* WHAT A CARRIER MAY BEAR, off `hub.carries` on BOTH anchors' rows. DATA, not
+   code: a material-only hub tier is a `variantOf` row with a shorter list and
+   needs no engine edit. BOTH ends must agree -- a cable is one object and the
+   weaker end governs, the same rule 'TOO FAR APART' applies to reach. */
 export function carries(seg, what) {
   const a = defOf(seg.a).hub, b = defOf(seg.b).hub;
   return !!a && !!b && a.carries.includes(what) && b.carries.includes(what);
@@ -411,25 +339,16 @@ export function carries(seg, what) {
    what IS standable are the same pixels rather than two guesses. */
 export const carrierTop = seg => carrierPos(seg).y - CARRIER_H / 2;
 
-/* The segment whose carrier is under this box in this band, or null -- the one
-   query `rules/player.js` needs to decide the ride branch, in exactly the
-   shape `model/tiles.js#climbAt` already answers the ladder branch. A CARRIER
-   IS NOT TERRAIN (invariant 1: the tile grid is the only source of truth), so
-   this is how it holds the player up: a model query, not a second collision
-   model, and nothing here writes to any band's `mat`.
+/* The segment whose carrier is under this box in this band, or null -- the
+   one query `rules/player.js` needs for the ride branch. A CARRIER IS NOT
+   TERRAIN, so this is how it holds the player up: a model query, not a second
+   collision model.
 
-   "UNDER", AND THE WORD IS LOAD-BEARING. A bare `overlaps` against
-   `carrierBox` would also be true of a player standing on real rock with a
-   parked bucket at head height, and the ride branch would then float them off
-   the floor. So: horizontal overlap, AND the box's FEET inside the carrier's
-   own vertical grab band. That band is `CARRIER_GRAB` either side of a 4 px
-   deck (10 px total), which at the fixed 1/120 s step is three times the
-   furthest a body falling at `terminal` can travel in one substep -- so a fall
-   cannot tunnel through it (invariant 10; the same half-tile-sweep reasoning
-   `rules/items.js` states, applied to a window instead of a step).
-
-   `segments` order is the tiebreak when two carriers qualify, which is link
-   order, which is deterministic. */
+   "UNDER" IS THE OPERATIVE WORD. A bare `overlaps` would also be true of a
+   player on rock with a parked bucket at head height. So: horizontal overlap
+   AND the box's FEET inside the carrier's vertical grab band, which is three
+   times the furthest a body at `terminal` travels in one substep, so a fall
+   cannot tunnel through it. */
 export function carrierUnder(band, box) {
   const feet = box.y + box.h;
   for (const seg of segments) {
@@ -443,17 +362,14 @@ export function carrierUnder(band, box) {
 }
 
 /* IS THE PLAYER RIDING, AND WHAT. ONE PREDICATE, TWO RULES MODULES:
-   `rules/player.js` reads it to treat a carrier top as ground and
-   `rules/drive.js` reads it to translate the rider and to count their mass.
-   `rules` siblings may not import each other, so a shared predicate has to
-   live in `model` -- and it must be shared, because two copies of "is this a
-   ride" would eventually disagree about a frame and either float the player or
-   drop them.
+   `rules/player.js` treats a carrier top as ground and `rules/drive.js`
+   translates the rider and counts their mass. Siblings may not import each
+   other, so a shared predicate has to live in `model` -- and it must be
+   shared, or two copies would disagree about a frame and either float the
+   player or drop them.
 
-   `vy < 0` IS A ONE-WAY PLATFORM, and it is the same reasoning every
-   pass-through platform in every game uses: a player hopping UP past a carrier
-   should pass it, not be caught on top of it mid-jump. Rising means not
-   riding; falling or at rest means the deck catches you. */
+   `vy < 0` IS A ONE-WAY PLATFORM: rising means not riding, falling or at rest
+   means the deck catches you. */
 export function riddenSegment() {
   if (!player.band || player.vy < 0) return null;
   const seg = carrierUnder(player.band, playerBox());

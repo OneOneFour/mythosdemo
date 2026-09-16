@@ -1,66 +1,35 @@
 /* LAYER model — accumulated growth time per planted seed, in SECONDS as a
-   float. Imports `model` only. May be imported by `model`, `rules`, `view`.
+   float. Imports `model`.
 
    ONE FACT PER PLANTED SEED: how much simulation time has passed since it
-   went into the ground. `rules/growth.js` adds `dt` to it every substep and
-   swaps the tile for a stack of native trunk tiles once it reaches
-   `eff('treeGrowSecs')`; `view/scene.js` reads `stageAt` for the seed /
-   shoot / sapling silhouette. This module owns the number and the query and
-   makes no decision about either — the same split `model/mining.js` and
-   `rules/mining.js` state at length, for the same reason: storage has the
-   lifetime of the world, a decision the lifetime of a frame.
+   went into the ground. This module owns the number and the query and makes
+   no decision about either.
 
-   WHY THIS IS A SPARSE `Map` AND NOT A `model/fields.js` NAMED FIELD, which
-   is the near-miss worth recording because it is genuinely tempting. A field
-   is a per-band scalar-per-tile store with an active `Set`, already built,
-   already band-addressed, and adding `'growth'` to `data/world.js`'s
-   `fields` array would have cost one word. Two things kill it:
+   A SPARSE `Map` AND NOT A `model/fields.js` NAMED FIELD, which is the
+   near-miss worth recording because it is genuinely tempting. Two things kill
+   it: a FIELD DECAYS BY DEFAULT and this ACCUMULATES -- storing a timer in a
+   structure whose only real feature erases it means opting out of that
+   feature and relying on the opt-out -- and a field costs a dense
+   `Float32Array(tw * th)` per band, ~28 KB for the surface band, to describe
+   a mechanic with single-digit live instances.
 
-     1. A FIELD DECAYS BY DEFAULT AND THIS ACCUMULATES. `rules/fields.js`
-        walks every declared field against a `DECAY` table every frame — the
-        whole shape of that loop is "a value bleeds away unless something
-        keeps pouring it in", which is what makes heat heat. A growth timer
-        is the exact inverse: it only ever goes up, it must survive the
-        player walking to the other end of the map for three minutes, and it
-        is meaningless the instant it is touched. Storing it in a structure
-        whose default behaviour is to erase it would mean opting out of that
-        structure's only real feature and then relying on the opt-out.
-     2. A FIELD COSTS A DENSE `Float32Array(tw * th)` PER BAND — ~28 KB for
-        the surface band alone — to describe a mechanic that will have
-        single-digit live instances. `model/fields.js` makes that trade for
-        `heat`, where a plume really is hundreds of adjacent cells; a seed
-        is one cell, and the player will rarely have more than a handful in
-        the ground at once.
+   Keyed the way `model/mining.js` keys its own, and every write goes through
+   `bump()`.
 
-   So: a `Map`, keyed exactly the way `model/mining.js` keys its own — band
-   ordinal prefixing the band-local tile index, because two bands may hold
-   seeds at once and a bare tile index would collide between them — and every
-   write goes through `bump()` for the same reason every write in this layer
-   does (`model/epoch.js`, and the render-purity check that reads it).
+   AN ENTRY IS CREATED AND CLEARED IN ONE PLACE, and it is the same place
+   `model/mining.js`'s entries are cleared: `write.setByte`, the funnel every
+   terrain edit passes through. A byte whose form declares `tile.roots`
+   plants; any other byte at that coordinate clears. That covers mining a
+   seedling out, the seed resolving, and the miracle swallowing it, with none
+   of those callers knowing this module exists.
 
-   AN ENTRY IS CREATED AND CLEARED IN ONE PLACE, and it is the SAME place
-   `model/mining.js`'s entries are cleared: `model/tiles.js#write.setByte`,
-   the single funnel every terrain edit in the game passes through. A byte
-   whose form declares `tile.roots` plants; any other byte at that coordinate
-   clears. That covers mining a seedling back out, the seed resolving into a
-   trunk, the `chasm` miracle swallowing it, and whatever the next terrain
-   verb turns out to be, without any of those four callers knowing this
-   module exists — which is exactly the argument D14-E makes there for
-   `digw.clear`, made a second time.
+   Note the ASYMMETRY with `model/mining.js`, whose hook only ever CLEARS: a
+   rooting tile is the one kind whose own creation is a fact this ledger
+   needs, so hanging only a clear off it would delete the entry on the seed's
+   own planting write.
 
-   Note the asymmetry with `model/mining.js`, which that hook only ever
-   CLEARS: a rooting tile is the one kind of tile whose own creation is a
-   fact this ledger needs, so the hook plants as well. Hanging only a clear
-   off it would delete the entry on the seed's own planting write.
-
-   The one clear that hook cannot perform is `clearAll()` from
-   `shell/boot.js#newRun`, because `model/world.js#write.clear` replaces
-   `b.mat` wholesale rather than tile by tile. That call is invariant 8 — a
-   growing seed surviving a restart would make two runs from one seed
-   diverge, the determinism bug docs/FINDINGS.md 8d #2 records happening to
-   `segments`.
-
-   Phase 15, docs/PLAN-phase15-trees.md D15-B, docs/SPEC.md section 22. */
+   The one clear that hook cannot perform is `clearAll()` from `newRun`,
+   because `world.js#write.clear` replaces `b.mat` wholesale. */
 
 import { bump } from './epoch.js';
 import { idx } from './world.js';

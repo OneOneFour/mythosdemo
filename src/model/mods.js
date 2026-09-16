@@ -1,18 +1,13 @@
-/* LAYER model — THE TUNABLE STORE.
-   The ONLY file in the project permitted to import `data/tuning.js`.
-   `tools/layers.mjs` fails the build on any other importer.
-
-   The three-way split (frozen design / run-scoped mods / `eff()` as the only
-   reader), why it is shaped that way and what it costs:
-   docs/DEVELOPER_GUIDE.md#the-tunable-pipeline
+/* LAYER model — THE TUNABLE STORE, and the ONLY file permitted to import
+   `data/tuning.js`. `tools/layers.mjs` fails the build on any other importer.
 
    ORDER OF APPLICATION is fixed, so draft order cannot change a number:
 
        eff = (base + sum of all matching `add`) x product of all matching `mul`
 
-   A mod key matches (id, scope) if it equals `id` -- the unscoped form applies
-   to every scope -- or if it equals `id.scope`. So `hard` softens every
-   material and `hard.stone` softens one, and both stack. */
+   A mod key matches (id, scope) if it equals `id` -- the unscoped form
+   applies to every scope -- or if it equals `id.scope`. So `hard` softens
+   every material and `hard.stone` softens one, and both stack. */
 
 import { TUNE } from '../data/tuning.js';
 import { bump } from './epoch.js';
@@ -40,8 +35,7 @@ export const write = {
 const applies = (key, id, scope) =>
   key === id || (scope !== undefined && key === id + '.' + scope);
 
-/* Per-scope base override -- see
-   docs/DEVELOPER_GUIDE.md#the-tunable-pipeline */
+/* Per-scope base override. */
 const baseOf = (t, scope) =>
   (scope !== undefined && t.scoped && t.scoped[scope] !== undefined)
     ? t.scoped[scope] : t.base;

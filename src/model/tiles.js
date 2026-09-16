@@ -18,11 +18,10 @@
 import { EDGE_SUB, SUB, VOID_SUB } from '../data/substances.js';
 import { AIR, BEDROCK, F, FORM, NATIVE, formOfTile, packTile, subOfTile } from '../data/forms.js';
 import { bump } from './epoch.js';
-/* TWO legal model -> model edges (ARCHITECTURE section 1), and neither is a
-   cycle: `model/mining.js` and `model/growth.js` each import only
-   `model/epoch.js` and `model/world.js`, both of which this file already
-   imports, and neither imports anything from here. `write.setByte` needs
-   them for exactly one line each -- see D14-E and D15-B there. */
+/* TWO legal model -> model edges, and neither is a cycle: `model/mining.js`
+   and `model/growth.js` each import only `model/epoch.js` and
+   `model/world.js`, both of which this file already imports, and neither
+   imports anything from here. `write.setByte` needs them for one line each. */
 import { activeCount as growingCount, write as groww } from './growth.js';
 import { write as digw } from './mining.js';
 import { bandAt, hasOwnSky, idx, inBounds, tileX, tileY, worldX } from './world.js';
@@ -83,21 +82,14 @@ export const skyExposedAt = (b, tx, ty) => {
 };
 
 /* A clear vertical path out of the WORLD, across band seams. True daylight.
+   The walk ends at the top of a band carrying sky of its own and crosses into
+   the band above otherwise, so a shaft dug to `topsoil`'s row 0 keeps walking
+   into the surface band's rock and reports false -- the whole difference from
+   `skyExposedAt`.
 
-   The walk ends at the top of a band that carries sky of its own
-   (`model/world.js#hasOwnSky`), and crosses into the band above otherwise.
-   `topsoil` carries none, so a shaft dug to its row 0 keeps walking up into
-   the surface band's rock and reports false -- which is the whole difference
-   from `skyExposedAt`.
-
-   CHEAP AT ROW 0, which is where both callers ask most. The in-band loop runs
-   zero times there, so the answer costs one `hasOwnSky` test for a band with
-   its own sky and one solidity test per band above for one that has not.
-   Never call it per TILE over a whole band: like `skyExposedAt` it walks the
-   column, so per-tile use over a 128x320 band is close to quadratic.
-
-   `up.ord >= band.ord` ends the walk at a band that is not above this one, so
-   a content layout with two bands claiming each other's sky cannot loop. */
+   CHEAP AT ROW 0, where both callers ask most. NEVER call it per TILE over a
+   band, which is close to quadratic. `up.ord >= band.ord` ends the walk, so
+   two bands claiming each other's sky cannot loop. */
 export function worldSkyAt(b, tx, ty) {
   const wx = worldX(b, tx) + b.tile / 2;
   let band = b, y = ty - 1;
@@ -125,17 +117,13 @@ export const baseHardOf = byte => {
 
 export const baseHardAt = (b, tx, ty) => baseHardOf(tileAt(b, tx, ty));
 
-/* BASE units this tile yields before it is gone: a `deposit` substance's
-   `tile.charge`, or 1. Deliberately the base and not the effective value, for
-   the identical reason `baseHardOf` above is -- the `richness` tunable is
-   applied in `rules/mining.js` and `rules/machines.js#mine`, in the same one
-   place per file that `hard` and `toolTier` are, so a boon that enriches a
-   vein cannot be read around.
+/* BASE units this tile yields before it is gone, deliberately the base and
+   not the effective value -- the `richness` tunable is applied in the two
+   rules modules, in the same one place per file `hard` and `toolTier` are.
 
    ONLY A NATIVE TILE HAS A CHARGE. A placed unit yields back exactly the one
-   unit it cost (`dropOf` below returns the pair itself), and it must: `stair`
-   crosses with `metal`, so `copper/stair` is a real placeable pair, and
-   charging it by its substance would turn one stair into four on the way back
+   unit it cost, and it MUST: `copper/stair` is a real placeable pair, so
+   charging it by its substance would turn one stair into four on the way
    out. Charge describes a body in the ground, not a thing someone built. */
 export const baseChargeOf = byte => {
   if (formOf(byte) !== NATIVE) return 1;
@@ -177,40 +165,23 @@ export const write = {
     const i = idx(b, tx, ty);
     if (b.mat[i] === byte) return false;
     b.mat[i] = byte;
-    /* D14-E: THE TILE IS NOT THE TILE IT WAS, so its accumulated pick time is
-       not about anything any more. Cleared here -- once, in the one place
-       every terrain edit funnels through -- rather than at each caller, because
-       there are already four (mining, placement, worldgen, the `chasm`
-       miracle) and the fifth is whoever adds the next terrain verb. Without
-       it, a `soil/block` placed where a part-depleted copper deposit stood
-       inherits multiple hard-seconds of work and breaks the instant it is
-       touched. Storage still owns no progress: it owns the fact that this
-       coordinate changed, and tells the module that does. */
+    /* THE TILE IS NOT THE TILE IT WAS, so its accumulated pick time is not about
+       anything any more. Cleared HERE, once, in the one place every terrain
+       edit funnels through, rather than at each of the four callers. Without
+       it a `soil/block` placed where a part-depleted deposit stood inherits
+       multiple hard-seconds of work and breaks the instant it is touched. */
     digw.clear(b, tx, ty);
 
-    /* D15-B: THE SAME MOVE, ONE LEDGER OVER, and the reason it is here rather
-       than in `rules/placement.js` is the reason stated immediately above --
-       there is exactly one funnel for a terrain edit and this is it. A form
-       whose `tile` block declares `roots` TAKES ROOT: `rules/growth.js`
-       accumulates simulation seconds against it and eventually replaces it
-       with something else, and `model/growth.js` is the ledger of how far
-       along each one is. So the moment this coordinate becomes a rooting
-       tile it is entered in that ledger, and the moment it stops being one
-       -- mined back out, resolved into a trunk, swallowed by the `chasm`
-       miracle, or overwritten by anything at all -- it leaves.
-       `data/forms.js#seed` is the only row carrying the key today.
+    /* THE SAME MOVE, ONE LEDGER OVER, and here rather than in placement for
+       the reason stated above: there is exactly ONE funnel for a terrain
+       edit. A form whose `tile` block declares `roots` TAKES ROOT, so the
+       moment this coordinate becomes a rooting tile it enters the growth
+       ledger and the moment it stops being one it leaves.
 
-       STORAGE STILL OWNS NO DECISION. When a seed becomes a tree, and how
-       tall, is entirely `rules/growth.js`'s; what this line owns is the same
-       fact the `digw.clear` above owns -- that this coordinate changed, and
-       which ledger needs to hear about it.
-
-       THE `growingCount()` GUARD IS NOT AN OPTIMISATION FOR ITS OWN SAKE.
-       Worldgen drives several hundred thousand `write.set` calls through
-       this function at boot, and with no seed anywhere in the world the
-       clear branch would still cost a key computation and a `Map.delete`
-       per generated tile. `Map.size` is O(1) and is zero for the whole of
-       worldgen. */
+       THE `growingCount()` GUARD IS NOT AN OPTIMISATION FOR ITS OWN SAKE:
+       worldgen drives several hundred thousand writes through here at boot,
+       and with no seed anywhere the clear branch would still cost a key
+       computation and a `Map.delete` per generated tile. */
     const f = byte === AIR || byte === BEDROCK ? NATIVE : formOfTile(byte);
     if (f !== NATIVE && FORM[f]?.tile?.roots === true) groww.plant(b, tx, ty);
     else if (growingCount() > 0) groww.clear(b, tx, ty);

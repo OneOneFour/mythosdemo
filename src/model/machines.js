@@ -41,17 +41,12 @@ export const write = {
         right:  rect(x + def.tw * t - 2, y, 4, def.th * t)
       },
       buf: {}, prog: 0, made: 0, charges: 0, fire: 0, running: false,
-      /* DRIVETRAIN STATE LIVES ON THE MACHINE RECORD, not in a new module,
-         for the reason `running` and `fire` already set the precedent for:
-         `view` must draw a turning gear and `view` may not import `rules`.
-         `torque` is the 0..1 drive actually delivered this frame; `turn` is
-         accumulated rotation, for the sprite. Present on EVERY machine, not
-         only a crank/gear/hub, so `view/paint.js` can read them off any row
-         with no key test -- the same reason `charges` is not conditional.
-         `rules/drive.js` is the ONLY writer of either, and it writes them for
-         every node of every drivetrain component every frame -- so a machine
-         that is not a crank, gear or hub keeps the 0 it was born with, and
-         `view` needs no key test to read them. */
+      /* DRIVETRAIN STATE LIVES ON THE MACHINE RECORD, for the reason `running` and
+         `fire` already set: `view` must draw a turning gear and may not
+         import `rules`. `torque` is the 0..1 drive delivered this frame,
+         `turn` is accumulated rotation for the sprite. Present on EVERY
+         machine rather than only a crank, gear or hub, so `view` needs no key
+         test -- the same reason `charges` is not conditional. */
       torque: 0, turn: 0
     };
     machines.push(m);
@@ -154,27 +149,22 @@ export function fill(m, sel) {
 
 export const full = (m, sel) => count(m, sel) >= capOf(MACH[m.def], sel);
 
-/* does this machine accept this pair, and by which clause
-   TWO CALLERS, TWO SELECTOR LISTS, ONE MATCH RULE. A machine says what it
-   takes twice, for two different mouths: `ports[].accepts` is what may fall
-   or be belted IN, and `handFeed.from` is what a player standing beside it may
-   hand over. The LISTS differ per row and must stay separate; the question
-   asked of each ("which of these selectors covers this pair, if any") is the
-   same one, so it is `firstSel` below and nothing re-implements it.
+/* TWO CALLERS, TWO SELECTOR LISTS, ONE MATCH RULE. A machine says what it
+   takes twice, for two mouths: `ports[].accepts` is what may fall or be
+   belted IN, `handFeed.from` is what a hand may give. The LISTS differ per
+   row and stay separate; the QUESTION asked of each is the same one.
 
-   Returned as the matching SELECTOR rather than a boolean because the CAP is
-   per selector -- the furnace's 8-ore / 2-fuel asymmetry is expressed that
-   way, and a caller that only learned "yes" would have to find the clause
-   again to honour it. */
+   Returned as the matching SELECTOR rather than a boolean, because the CAP is
+   per selector -- the furnace's 8-ore/2-fuel asymmetry is expressed that way,
+   and a caller that only learned "yes" would have to find the clause again. */
 const firstSel = (sels, sub, form) => {
   for (const sel of sels || []) if (matches(sel, sub, form)) return sel;
   return null;
 };
 
-/* Which `in` port selector, if any, accepts this pair. Lives in `model`
-   rather than beside its caller in `rules/machines.js#catchFalling` (where it
-   used to live) so that it and `feedCheck` below cannot drift into two
-   different answers to "does this machine take this". */
+/* Which `in` port selector, if any, accepts this pair. In `model` rather than
+   beside its caller so it and `feedCheck` cannot drift into two different
+   answers to "does this machine take this". */
 export function acceptedBy(def, sub, form) {
   for (const p of def.ports || []) {
     if (p.mode !== 'in') continue;
@@ -184,27 +174,14 @@ export function acceptedBy(def, sub, form) {
   return null;
 }
 
-/* WOULD THIS MACHINE TAKE THIS PAIR FROM A HAND, and how full is the
-   clause that would hold it? `{ ok, why, have, cap }`.
+/* WOULD THIS MACHINE TAKE THIS PAIR FROM A HAND, and how full is the clause
+   that would hold it? ONE DECISION, TWO READERS: `handOne` ENFORCES it and
+   the build ghost PREVIEWS it. `have`/`cap` are both 0 on 'IT DOES NOT WANT
+   THAT', since no clause was found to measure.
 
-   ONE DECISION, TWO READERS, the same arrangement `model/run.js#placementCheck`
-   and `model/segments.js#linkCheck` already have: `rules/machines.js#handOne`
-   ENFORCES this answer and `view/hud.js`'s build ghost PREVIEWS it, and `view`
-   may not import `rules`. `have`/`cap` are here for the preview's sake -- the
-   ghost prints them -- and are meaningless (both 0) when the refusal is
-   'IT DOES NOT WANT THAT', since no clause was found to measure.
-
-   REACH IS DELIBERATELY NOT CHECKED HERE, and this is the one thing to
-   understand before adding a third caller. Reach is a fact about where the
-   player's body is standing at the instant of a gesture, which is
-   `shell/input.js`'s question and is asked exactly once, there, at
-   `pointerdown`. Folding it in would make this
-   query unusable for the ghost, whose whole job is to answer for a machine the
-   player has not walked to yet.
-
-   The ORDER of the two refusals is locked: wrong
-   material beats no room, because a player holding gravel at a full furnace
-   needs to be told the furnace does not want gravel. */
+   REACH IS DELIBERATELY NOT CHECKED HERE: folding it in would make this
+   unusable for a ghost answering about a machine nobody has walked to. The
+   ORDER of the two refusals is locked -- wrong material beats no room. */
 export function feedCheck(m, sub, form) {
   const def = MACH[m.def];
   const sel = def.handFeed ? firstSel(def.handFeed.from, sub, form) : null;
@@ -214,37 +191,16 @@ export function feedCheck(m, sub, form) {
   return { ok: true, why: '', have, cap };
 }
 
-/* THE FEED TARGET
-   The machine LMB rule 2 would hand `armed` to, or null. Two questions, in
-   the cheap-to-expensive order, each asked by whoever owns it:
+/* THE FEED TARGET: the machine LMB rule 2 would hand `armed` to, or null.
+   Reach IS asked here, unlike in `feedCheck`, whose other reader is a ghost.
 
-     is there a machine under the reticle, and can it be hand-fed at all?
-       -- geometry and a frozen data key, both already at hand in this file.
-     is the player standing close enough to reach it?
-       -- HERE too: reach is a fact about where the player's body is right
-       now, which `feedCheck` above deliberately refuses to ask (its other
-       reader is `view`'s build ghost, previewing a machine nobody has
-       walked to yet). `def.handFeed.reach` is the number, so no new tunable
-       exists; `overlaps` with a slack is the same expression
-       `rules/machines.js#handFeed` and `rules/drive.js`'s crank reach
-       already use.
+   DELIBERATELY NOT "would it take this pair?" Folding `feedCheck(...).ok` in
+   would make both its refusal strings unreachable from LMB -- a wrong or
+   unwanted pair would return null and the press would fall through to PLACE,
+   which is how a rung once ended up inside a furnace's footprint. A
+   reachable, hand-feedable machine under the reticle is ALWAYS the target.
 
-   DELIBERATELY NOT "would it take this pair?" -- that is `feedCheck`'s
-   question, not this one. Folding `feedCheck(...).ok` in here would make
-   both of its refusal strings unreachable from LMB: the moment the armed
-   pair was wrong or the machine was full, this would return null and the
-   press would fall through to rule 3 (place), which is how a ladder rung
-   once ended up placed inside a furnace's own footprint instead of refusing
-   to feed it. `docs/SPEC.md` section 23.4 locks the fix: a reachable,
-   hand-feedable machine under the reticle is ALWAYS the target, full stop.
-   Whether THIS pair is welcome is answered once, downstream, by
-   `rules/machines.js#handOne` calling `feedCheck` -- which is where a
-   refusal turns into the journal row the player actually sees.
-
-   Exported (moved here from `shell/input.js` in the same phase that added
-   `view/hud.js`'s player-side feed prompt) so both readers -- the LMB
-   dispatch that fires the press and the HUD reminder that a press is live --
-   share one answer instead of two copies of the reach check drifting apart. */
+   Exported so the LMB dispatch and the HUD's feed prompt share one answer. */
 export function feedTarget(armed) {
   if (!armed || !aim.valid || !aim.band) return null;
   const m = machineAt(aim.band, aim.tx, aim.ty);
@@ -255,18 +211,11 @@ export function feedTarget(armed) {
   return m;
 }
 
-/* Which port/hand-feed/recipe selector, if any, is this definition's fuel
-   requirement -- the exact star-slash-hash-fuel text every fuel-burning row
-   already spells in `data/machines.js`'s `ports`/`handFeed` and
-   `data/recipes.js`'s `in` clauses (see `data/forms.js`'s own selector-
-   grammar comment for why that is spelled in words here too), found rather
-   than re-declared so `statusOf` below can never disagree with what the
-   machine actually accepts. Checked in that order
-   because every fuel-burning row today declares it on a port (and usually
-   hand-feed too); the recipe scan is what still catches a machine whose
-   fuel requirement is expressed only inline (there is none today, but a row
-   is free to be that shape). `null` for a machine that needs no fuel at all.
-   Memoised per definition -- */
+/* Which selector, if any, is this definition's fuel requirement -- FOUND
+   rather than re-declared, so `statusOf` can never disagree with what the
+   machine actually accepts. Checked ports first, because every fuel-burning
+   row today declares it there; the recipe scan catches a machine whose fuel
+   requirement is only inline. `null` for a machine that needs no fuel. */
 const fuelSelCache = new Map();
 export function fuelSelectorOf(def) {
   if (fuelSelCache.has(def)) return fuelSelCache.get(def);
