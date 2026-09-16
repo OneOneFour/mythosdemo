@@ -1,14 +1,12 @@
 /* LAYER model — run-scoped state and meta-state, split by object.
    Imports `core`, `data`, `model`. May be imported by `model`, `rules`, `view`.
 
-   THE SPLIT, in the object shape: two records, `run` and `meta`, and which one
-   a field belongs in is decided by one question -- does a death erase it? See
-   docs/DEVELOPER_GUIDE.md#run-state-and-run_schema
+   Two records, `run` and `meta`, and which one a field belongs in is decided
+   by one question -- does a death erase it?
 
    Every field a `newRun()` must reset is declared ONCE, in RUN_SCHEMA, and
-   reset mechanically. The previous codebase disagreed with itself about the
-   shape of `run` in four places -- three fields that other modules each invented
-   -- and that class of bug is what a schema is for. */
+   reset mechanically. Four fields used to disagree about the shape of `run`,
+   which is the class of bug a schema is for. */
 
 import { AIR, F, byHudOrder, matches } from '../data/forms.js';
 import { CYCLE, CYCLES } from '../data/cycles.js';
@@ -29,76 +27,35 @@ export const RUN_SCHEMA = Object.freeze({
   seed: 1337, t: 0,
   dead: false, deathCause: '',
   hearts: 5, maxHearts: 5, invuln: 0,
-  inv: null,            // FIXED-LENGTH array, `{sub,form,n} | null` per slot
-                        // (docs/PLAN-phase12.md D-G) -- length `mainSlots +
-                        // eff('quickbarSlots')`, the tail being the quickbar's
-                        // own storage, not a mirror of it. A drafted trinket
-                        // and the starting pick both live here too, see
-                        // `rules/trinkets.js` and `hasPick()` below
+  inv: null,            // FIXED-LENGTH `{sub,form,n} | null` per slot, length
+                        // `mainSlots + eff('quickbarSlots')`. The tail IS the
+                        // quickbar's storage, not a mirror of it.
   mainSlots: 0,          // placeholder; `Math.round(eff('invSlots'))` at reset,
                         // fixed for the run -- see `write.reset()` below
   granted: null,        // machine ids this run may place
   deepest: 0,           // world px, for the depth gauge and for `meta`
 
-  /* ---- THE TRIBUTE LEDGER (Phase 10b, docs/SPEC.md section 18.5) ----------
-     Five fields, and the first two are the pair that was scaffolded here
-     with zero callers until now.
-
-     `cycle` is WHICH ROW OF `data/cycles.js` is live, one-based, so
-     `CYCLES[run.cycle - 1]` is the current trial and `run.cycle > CYCLES.length`
-     is "every shipped trial is done". Incremented by `rules/cycles.js` on a
-     completion and by nothing else.
-
-     `tribute` is the LIVE DEMAND or `null` when none is armed:
-     `{ id, have, left, credits }`. `id` is the `data/cycles.js` row's own id,
-     so the record survives a table reorder; `have` is keyed by the `sub/form`
-     string from `model/items.js#keyOf`, the SAME convention `m.buf` still uses
-     (`run.inv` moved to a slot array; `have` did not -- a
-     delivery ledger has no position, only a count per pair), so a receiver's
-     buffer can be poured into it without a translation; `left` is seconds
-     remaining, or `null` for a cycle with no
-     clock.
-
-     `credits` IS THE BATCH CLAUSE'S OWN LEDGER (docs/SPEC.md section 18.10),
-     an array of `{ t, n }` in nondecreasing `t` order holding only credits of
-     the cycle's batched pair. Empty on a row with no `batch` block, which is
-     every shipped row but cycle 4. `write.tribute` below prunes it on every
-     write, so it is bounded by `batch.n` entries rather than by the length of
-     the run.
-
-     `left` IS AN ACCUMULATOR ON `run` AND NOT A MODULE SCALAR, and that is
-     load-bearing rather than stylistic -- see `brandLeft` below, whose own
-     comment records the same decision for the same reason. A timer in
-     `rules/cycles.js`'s module scope would have no `newRun()` hook, which is
-     precisely the invariant-8 bug the schema exists to forbid. It counts down
-     from `dt` at the fixed 1/120 s step and NEVER from `Date.now()`: a deadline
-     is the first wall-clock quantity this game has ever had, and invariant 10
-     applies to it exactly as it does to a falling player.
-
-     `favour` is `{ [godId]: int }`, RUN-SCOPED (decision I): a god you have not
-     dealt with THIS run reads `????????`, so the FAVOUR panel is a picture of
-     this Torment. `meta.godsMet` gets the asking god's id pushed into it on
-     first ask, which is what that field was reserved for -- but the panel is
-     never drawn off `meta`, because `meta` has no save and that would be a
-     cross-run promise the build cannot keep.
-
-     `charted` is band ids, and it is KNOWLEDGE AND NOT ACCESS
-     (docs/PLAN-phase10.md 3.4): there is no band lock anywhere in this game
-     and this does not invent one. Nothing stops a player digging into topsoil
-     on minute three; charting takes the mask off a band's NAME.
-
-     `misses` is how many deadlines have expired. Two ends the run, through the
-     existing `write.hurt` and no new death path.
-
-     `favour` and `charted` are built FRESH in `write.reset()` below, not here,
-     for the identical reason `inv`/`granted`/`known`/`equipped` are: a
-     container on a shared frozen template is the one mutable reference every
-     run in the process would share. */
+  /* THE TRIBUTE LEDGER.
+     `cycle`    which `data/cycles.js` row is live, ONE-BASED.
+     `tribute`  the live demand or `null`: `{ id, have, left, credits }`. `id`
+                is the row's id, so it survives a table reorder; `have` is
+                keyed by `keyOf`'s `sub/form`, so a receiver's buffer pours in
+                untranslated; `left` is seconds, or `null` for a cycle with no
+                clock, counted from `dt` and NEVER from `Date.now()`.
+     `credits`  the batch clause's `{ t, n }` in nondecreasing `t`, pruned on
+                every write so it is bounded by `batch.n`.
+     `favour`   `{ [godId]: int }`, RUN-SCOPED. A god not dealt with this run
+                reads `????????`. Never drawn off `meta`, which has no save.
+     `charted`  band ids, KNOWLEDGE rather than ACCESS -- nothing stops a
+                player digging into topsoil on minute three.
+     `misses`   expired deadlines; two ends the run through `write.hurt`.
+     `favour` and `charted` build FRESH in `write.reset()`, because a
+     container on a frozen template is one reference every run shares. */
   cycle: 1, tribute: null,
   favour: null, charted: null, misses: 0,
 
   /* EVERY SHIPPED TRIAL PAID -- the run's one win state, and the only end
-     condition in the game that is not death (docs/SPEC.md section 20.2).
+     condition in the game that is not death.
      `run.cycle > CYCLES.length` is the FACT; this flag is the EVENT, set
      once by `rules/cycles.js#ensureLiveCycle` the frame it first becomes
      true, and it exists rather than being re-derived in `view` for the same
@@ -108,73 +65,40 @@ export const RUN_SCHEMA = Object.freeze({
      run was won. */
   won: false,
 
-  /* `awarded` IS THE GRANT BRIDGE, and it is `offer`'s sibling immediately
-     below for the identical reason: `rules/cycles.js` may not import
-     `rules/grants.js` (`tools/layers.mjs`'s rules-sibling ban), so a
-     completed trial's `reward.grants` cannot be performed where it is
-     decided. The director writes the MACHINE IDS here and
-     `rules/grants.js#step` -- scheduled immediately after it in
-     `shell/schedule.js`, which is what keeps the latency at zero frames --
-     performs each through the same `award()`/journal-row path a drafted
-     grant already takes. That is what makes it ONE grant path rather than
-     two: `write.grant` below has exactly one CALLING MODULE in `src/`, and it
-     is `rules/grants.js` (its `grant` and `award` are the two entry points).
+  /* THE GRANT BRIDGE, and `offer`'s sibling for the same reason:
+     `rules/cycles.js` may not import `rules/grants.js`, so a completed
+     trial's `reward.grants` cannot be performed where it is decided. The
+     director writes the machine ids here and `rules/grants.js#step` --
+     scheduled immediately after it, which is what keeps latency at zero
+     frames -- performs each through the same path a drafted grant takes.
+     `write.grant` below has exactly one calling module.
 
-     A fresh ARRAY per write and `null` when empty, the same shape `tribute`
-     above uses, so no fresh-container rebuild is needed in `write.reset()`
-     -- the frozen template's own `null` is the reset. */
+     A fresh ARRAY per write and `null` when empty, so the frozen template's
+     own `null` is the reset and `write.reset()` rebuilds nothing. */
   awarded: null,
 
-  /* `offer` IS THE DRAFT BRIDGE, and it exists only because a `rules` module
-     may not reach `shell/input.js#wants` (`tools/layers.mjs`'s `rules -> shell`
-     ban): `rules/cycles.js#complete` cannot call `wants.draft = tier` itself,
-     so it writes the tier NAME here instead and `shell/main.js` dispatches --
-     one event, one dispatch path, regardless of whether a key or a completed
-     trial requested it.
+  /* THE DRAFT BRIDGE, `{ tier, god, ids, pool } | null`. It exists because a
+     `rules` module may not reach `shell/input.js#wants`, so
+     `rules/cycles.js#complete` writes the tier name here and `shell/main.js`
+     dispatches -- one path for a key and for a completed trial.
 
-     `{ tier, god, ids, pool } | null` (D17-F). `ids` IS THE OFFER AND `null`
-     IS A REQUEST FOR ONE: `rules/cycles.js` and the debug keys can only name
-     a tier and its asker, because only `shell` may see all four tiers'
-     `draftable()` lists, so the record is raised half-built and
-     `rules/draft.js#offer` fills it in the same frame. The ids are WORLD
-     STATE and not session state -- they were drawn from the seeded stream,
-     and a run replayed from its seed must lay out the same three cards --
-     which is why this is on `run` and resets with it rather than living
-     beside the panel stack in `shell/ui.js`.
-
-     `god` IS STORED AND NOT DERIVED, and that is a correction: deriving it
-     from `run.cycle` was right only on the completion path (which bumps the
-     cycle in the same call) and named the PREVIOUS trial's god for a
-     debug-key draft, whose favour that god never offered. Whoever raises the
-     request knows who is asking, so it is written down there -- `null` for a
-     debug draft is a legitimate answer, not a missing one: nobody asked, so
-     there is no purse to spend.
-
-     `pool` is HOW MANY CANDIDATES THE CARDS WERE DRAWN FROM, recorded by
-     `rules/draft.js#offer` at the moment it draws. It exists so `canReroll`
-     below can refuse a second look that could only show the same cards (the
-     grant tier is 2 rows and lays out 2), and it is a snapshot rather than a
-     live count because the run is frozen while the offer stands -- nothing
-     can enter or leave a tier underneath it.
-
-     A fresh object per write and `null` when none, the same shape `awarded`
-     above uses, so no fresh-build in `reset()` is needed. */
+     `ids` IS THE OFFER and `null` IS A REQUEST FOR ONE, because only `shell`
+     sees all four tiers' `draftable()` lists. The ids are WORLD state from the
+     seeded stream, so a replayed run lays out the same cards. `god` is STORED
+     rather than derived, since `run.cycle` names the previous trial's god on a
+     debug draft, and `pool` lets `canReroll` refuse a transposition. */
   offer: null,
 
-  /* Phase 4 (docs/BUILD_PLAN.md) STEP 4, CLAUDE.md D1: a fixed-length
-     SELECTION over `run.inv`, not a second inventory -- see
-     `rules/trinkets.js`'s own header on why `run.trinkets` was deleted.
-     Holds substance ORDINALS (or `null` for an empty slot), length capped
-     by `eff('trinketSlots')`. Built fresh in `write.reset()` below, not
-     here: this frozen template holds `null` as a placeholder the same way
-     `inv`/`granted` do immediately above, because an ARRAY on a shared
-     frozen object would be the one mutable reference every run shared. */
+  /* A fixed-length SELECTION over `run.inv`, not a second inventory. Holds
+     substance ORDINALS, or `null` for an empty slot, capped by
+     `eff('trinketSlots')`. Built fresh in `write.reset()`, because an array
+     on a shared frozen object is one mutable reference every run shares. */
   equipped: null,
 
   /* The hand-craft bar. A scalar, not a Map like `model/mining.js#dig.work` --
      a player has one pair of hands, so there is only ever one craft in
      flight, and it belongs on `run` rather than in a dedicated module so it
-     resets with everything else (invariant 8) for free. `craftRecipe` is
+     resets with everything else for free. `craftRecipe` is
      which named recipe the bar is counting toward, so a change of materials
      mid-hold (a different recipe now matches first) starts the bar over
      instead of quietly carrying old progress into a different item. See
@@ -189,45 +113,28 @@ export const RUN_SCHEMA = Object.freeze({
      actually lockable yet, because no source exists that reveals a recipe. */
   known: null,
 
-  /* Seconds left on the one lit `timber/brand`. Same shape as `craftProgress`
-     immediately above and for the identical reason: a player has one pair of
-     hands, there is only ever one lit brand, and a scalar on `run` resets
-     with everything else (invariant 8) for free. Written and ticked by
-     `rules/light.js`; the alternative was module-scoped state there with no
-     `newRun()` hook to clear it, which invariant 8 exists to forbid. */
+  /* Seconds left on the one lit `timber/brand`. A scalar on `run`, like
+     `craftProgress` above, because there is only ever one lit brand and it
+     resets with everything else. Module-scoped state in `rules/light.js`
+     would have no `newRun()` hook to clear it. */
   brandLeft: 0,
 
-  /* Which beat of docs/SPEC.md section 5's first-two-minutes sheet the player
-     has already passed. 0 is "nothing yet"; N means beats 1..N have fired.
-     A COUNTER AND NOT A SET OF FLAGS, because the sheet is a sequence: beat
-     N+1's condition is only ever asked once beat N has fired, so a player
-     who happens to satisfy a later beat early does not skip the lesson
-     before it. Advanced by `rules/tutorial.js` (the decision), read through
-     `model/tutorial.js#beat` (the query). Beat indices 5 and 6 are RESERVED
-     -- the altar and the furnace gift do not exist in code yet, so nothing
-     advances into them until the cycle director does. Here rather
-     than in a module of its own for the same reason `craftProgress` and
-     `brandLeft` above are: it resets with everything else (invariant 8) for
-     free, and a beat sheet surviving a restart is exactly the determinism
-     bug that invariant names. */
+  /* Which tutorial beat the player has passed. 0 is "nothing yet"; N means
+     beats 1..N have fired. A COUNTER and not a set of flags, because the
+     sheet is a sequence -- beat N+1's condition is only asked once beat N has
+     fired, so satisfying a later beat early does not skip the lesson before
+     it. Advanced by `rules/tutorial.js`, read through
+     `model/tutorial.js#beat`. Here rather than in its own module so it resets
+     with everything else; a beat sheet surviving a restart is a determinism
+     bug. */
   tutorialBeat: 0,
 
-  /* WHERE AND WHEN THE DIRECTOR LAST PUT A MACHINE DOWN ON THE PLAYER'S
-     BEHALF, or `null` until it has. `{ x, y, t }` -- world px of the
-     machine's box top-left, and `run.t` at the moment it appeared, so
-     simulated seconds at the fixed 1/120 s substep and never `Date.now()`
-     (invariant 10).
-
-     It exists so `view/scene.js` can tell how far through an arrival is
-     without knowing which machine arrived. The renderer matches the record
-     against `m.box.x`/`m.box.y` and draws the rise and the shaft of light
-     for whatever it finds there, so no machine NAME reaches `view`
-     (ARCHITECTURE section 3). `rules/cycles.js` is the only writer and
-     `view/scene.js` the only reader.
-
-     A POSITION AND NOT A MACHINE REFERENCE: `run` is plain-serialisable
-     everywhere else, and a live record holding a band holding typed arrays
-     would be the one field that is not. */
+  /* Where and when the director last placed a machine for the player, or
+     `null`. `{ x, y, t }` is world px of the box top-left plus `run.t`, so
+     simulated seconds and never `Date.now()`. It lets `view/scene.js` tell
+     how far through an arrival is by matching against `m.box.x`/`m.box.y`,
+     so no machine NAME reaches `view`. A POSITION and not a machine
+     reference, because `run` is plain-serialisable everywhere else. */
   arrival: null
 });
 
@@ -242,15 +149,11 @@ export const meta = {};
 
 /* Drop what the batch clause can no longer use. Credits are appended at
    `run.t`, which only increases, so the array is sorted by `t` and a prefix
-   drop is enough. Two passes -- what has aged out of the window, then the
-   oldest of what is left while the newer suffix still reaches `batch.n`. The
-   second pass is what bounds the array at `batch.n` entries, since every
-   entry carries at least 1; it cannot change a later answer, because
-   `batchMet` below is a threshold on that same suffix and the entries it
-   drops are already surplus to it.
-
-   Returns the array unchanged when nothing is dropped, so ticking a deadline
-   allocates nothing. */
+   drop suffices. Two passes: what has aged out of the window, then the oldest
+   of the rest while the newer suffix still reaches `batch.n`. The second pass
+   is what bounds the array, and cannot change a later answer because
+   `batchMet` is a threshold on that same suffix. Returns the array unchanged
+   when nothing is dropped, so ticking a deadline allocates nothing. */
 function prunedCredits(t) {
   const cs = t.credits;
   const batch = CYCLE[t.id]?.batch;
@@ -310,19 +213,14 @@ export const write = {
 
   deepest(y) { if (y > run.deepest) { run.deepest = y; bump(); } },
 
-  /* Merge first, always. The whole array is searched for an existing stack of
-     this exact pair before any slot is allocated, so two slots can never hold
-     the identical pair and `invCount` stays one lookup, never a sum across
-     positions.
+  /* Merge first, always: the whole array is searched for an existing stack of
+     this exact pair before a slot is allocated, so two slots can never hold
+     the same pair and `invCount` stays one lookup.
 
-     A brand-new pair fills the quickbar's own tail
-     (`run.inv[run.mainSlots ..]`) left to right, and only then the main grid,
-     so mined material lands under the digit keys and is usable with every
-     panel shut. A player who wants a different strip drags it there.
-
-     Returns false when there is no stack and no free slot anywhere, which is
-     the refusal `rules/items.js#step` turns into a journal row and a pickup
-     the ground keeps. */
+     A brand-new pair fills the quickbar's tail left to right and only then
+     the main grid, so mined material lands under the digit keys. Returns
+     false with no stack and no free slot, which `rules/items.js#step` turns
+     into a journal row and a pickup the ground keeps. */
   collect(sub, form, n) {
     const i = run.inv.findIndex(s => s && s.sub === sub && s.form === form);
     if (i !== -1) { run.inv[i].n += n; bump(); return true; }
@@ -343,13 +241,11 @@ export const write = {
     return true;
   },
 
-  /* Unconditional swap of two positions -- reordering within one grid, moving
-     into an empty cell, and moving cross-grid (main <-> quickbar) are all the
-     SAME operation on one array (docs/PLAN-phase12.md D-H): swapping with an
-     empty slot already IS a move, swapping two occupied slots already IS a
-     reorder. Out-of-range or a no-op swap is silently ignored, the same
-     "shrinking a slot count must not crash a frame still iterating the old
-     length" convention `write.equip` below already follows. */
+  /* Unconditional swap of two positions. Reorder within a grid, move into an
+     empty cell, and move cross-grid are the SAME operation on one array:
+     swapping with an empty slot IS a move, swapping two occupied IS a
+     reorder. Out-of-range or a no-op swap is silently ignored, so shrinking
+     a slot count cannot crash a frame still iterating the old length. */
   moveSlot(from, to) {
     if (from < 0 || from >= run.inv.length || to < 0 || to >= run.inv.length || from === to) return;
     const tmp = run.inv[to];
@@ -358,16 +254,13 @@ export const write = {
     bump();
   },
 
-  /* Hearts are SPENT, not consumed as an item -- never through `inv`, which is
-     why the HUD keeps drawing five hearts and nothing here changes shape.
+  /* Hearts are SPENT, never consumed as an item through `inv`, which is why
+     the HUD keeps drawing five and nothing here changes shape.
 
-     NO CALLER TODAY. Its one consumer was `data/sources.js#vital`, which fed
-     the retired winch stage's heart-fuelled recipe and was deleted with it in
-     Phase 8f (docs/PLAN-gears-and-winches.md A5: the crank is manual only and
-     the blood-winch trap does not carry forward). Kept because THE RULE lives
-     here and nowhere else -- "a machine may not kill you", the line below --
-     and re-deriving that on the day something spends hearts again is how two
-     spenders end up disagreeing about whether the last one may go. */
+     NO CALLER TODAY. Kept because THE RULE lives here and nowhere else --
+     "a machine may not kill you", the line below -- and re-deriving it on the
+     day something spends hearts again is how two spenders come to disagree
+     about whether the last one may go. */
   spendHearts(n) {
     if (run.hearts - n < 1) return false;     // a machine may not kill you
     run.hearts -= n;
@@ -383,19 +276,15 @@ export const write = {
 
   grant(machineId)  { if (!run.granted.includes(machineId)) run.granted.push(machineId); bump(); },
 
-  /* ---- the tribute ledger's writers, all in `grant`'s one-line style ----
-     `tribute` sets or clears the WHOLE live-demand record, so a demand and its
-     own deadline can never be observed half-applied -- the same reason
-     `craft` below writes its pair together. `rules/cycles.js` is the only
-     caller of any of these. It also PRUNES the batch ledger, which is what
-     keeps `credits` bounded no matter which caller built the record.
+  /* `tribute` sets or clears the WHOLE live-demand record, so a demand and its
+     deadline can never be observed half-applied. It also prunes the batch
+     ledger, which keeps `credits` bounded whichever caller built the record.
+     `rules/cycles.js` is the only caller of any of these.
 
-     `favour` and `chart` are both IDEMPOTENT-SAFE in the way their field
-     wants: favour accumulates (a second trial for the same god adds), charting
-     is a set (charting a band twice is charting it once). `miss` is a plain
-     increment and the DECISION about what two misses mean stays in
-     `rules/cycles.js` -- death goes through `hurt` below, so there is exactly
-     one death path in this file and the director does not get a second. */
+     `favour` accumulates and `chart` is a set, each idempotent-safe the way
+     its field wants. `miss` is a plain increment; what two misses MEAN stays
+     in `rules/cycles.js`, and death goes through `hurt` below, so this file
+     has exactly one death path. */
   tribute(t)        { if (t) t.credits = prunedCredits(t); run.tribute = t; bump(); },
   favour(god, n)    { run.favour[god] = (run.favour[god] || 0) + n; bump(); },
   chart(bandId)     { if (!run.charted.includes(bandId)) run.charted.push(bandId); bump(); },
@@ -444,11 +333,10 @@ export const write = {
   /* The one lit brand's remaining burn time. See `RUN_SCHEMA.brandLeft`. */
   brand(secsLeft) { run.brandLeft = Math.max(0, secsLeft); bump(); },
 
-  /* One step along docs/SPEC.md section 5's beat sheet. TAKES NO ARGUMENT ON
-     PURPOSE: the field is monotonic and one-way (see
-     `RUN_SCHEMA.tutorialBeat`), and a writer that cannot be handed a number
-     cannot be handed a smaller one. The DECISION about whether a beat's
-     condition holds is `rules/tutorial.js`'s; this is only the increment. */
+  /* One step along the beat sheet. TAKES NO ARGUMENT on purpose: the field is
+     monotonic, and a writer that cannot be handed a number cannot be handed
+     a smaller one. Whether a beat's condition holds is
+     `rules/tutorial.js`'s decision; this is only the increment. */
   advanceBeat() { run.tutorialBeat++; bump(); },
 
   /* Stamp a director placement for the renderer. `x`/`y` are the machine
@@ -457,7 +345,6 @@ export const write = {
   arrival(x, y) { run.arrival = { x, y, t: run.t }; bump(); }
 };
 
-/* ---- queries ---- */
 
 export const invCount = (sub, form) => {
   const s = run.inv.find(s => s && s.sub === sub && s.form === form);
@@ -466,17 +353,13 @@ export const invCount = (sub, form) => {
 export const hearts   = () => run.hearts;
 export const canPlace = machineId => run.granted.includes(machineId);
 
-/* ---- machine items. A machine is a held `<id>/rig` pair, so "may this be
-   placed" is "is one currently held" -- the same `invCount` question a
-   tile-capable form already answers.
-   See docs/DEVELOPER_GUIDE.md#a-machine-is-a-held-item
+/* A machine is a held `<id>/rig` pair, so "may this be placed" is "is one
+   currently held" -- the same `invCount` question a tile-capable form
+   answers.
 
-   THE MIRRORED PAIRS SHARE ONE SUBSTANCE. `belt_r`/`belt_l`,
-   `talos_head`/`talos_head_l` and `cyclops_maw`/`cyclops_maw_l` are each one
-   `variantOf` row overriding only `belt`/`mine`'s own facing key -- derived
-   here from that SHAPE (variantOf + belt-or-mine override) rather than
-   hand-listed, so a future mirrored pair added the same way needs no edit
-   here. See docs/DEVELOPER_GUIDE.md#mirrored-machine-pairs */
+   The mirrored pairs share ONE substance. Each is a `variantOf` row
+   overriding only `belt`/`mine`'s facing key, and they are derived from that
+   SHAPE rather than hand-listed, so a future mirrored pair needs no edit. */
 const MIRROR_TO_BASE = Object.freeze(Object.fromEntries(
   MACHINES.filter(m => m.variantOf && (m.belt || m.mine)).map(m => [m.id, m.variantOf])));
 const BASE_TO_MIRROR = Object.freeze(Object.fromEntries(
@@ -519,22 +402,15 @@ export function machineIdFor(sub) {
   return mirror && player.face < 0 ? mirror : id;
 }
 
-/* Whether a machine may be placed at this exact footprint, RIGHT NOW -- every
-   refusal `rules/placement.js#placeMachine` can produce, as a query instead of
-   a side effect: the ghost preview in `view/` needs the same yes/no the
-   placement rule enforces, and `view` may not import `rules`
-   (docs/DEVELOPER_GUIDE.md#one-decision-two-readers). ONE
-   implementation, TWO readers: this function decides, `rules/placement.js`
-   calls it and turns a `false` into a journal row, `view` calls it and turns
-   a `false` into a tinted ghost with `why` drawn beside it. Neither reader
-   keeps a second copy of the checks.
+/* Whether a machine may be placed at this exact footprint, RIGHT NOW: every
+   refusal `rules/placement.js#placeMachine` can produce, as a query rather
+   than a side effect, because the ghost preview needs the same yes/no and
+   `view` may not import `rules`. One implementation, two readers -- the rule
+   turns a `false` into a journal row, `view` into a tinted ghost.
 
-   Checked in the SAME order `rules/placement.js` always has: footprint, then
-   footing, then depth, then affordability LAST -- so a placement that cannot
-   happen for a structural reason never has to answer "and could you even pay
-   for it". (There used to be a fourth structural check between depth and
-   affordability, for the retired winch stage's own shaft; see below for why
-   nothing replaced it.) */
+   Checked in the SAME order the rule uses: footprint, footing, depth, then
+   affordability LAST, so a placement that cannot happen structurally never
+   has to answer "and could you even pay for it". */
 export function placementCheck(band, machineId, tx, ty) {
   const defIdx = M[machineId];
   const def = MACH[defIdx];
@@ -552,17 +428,11 @@ export function placementCheck(band, machineId, tx, ty) {
   for (let i = 0; i < def.tw; i++) if (solidAt(band, tx + i, ty + def.th)) footing++;
   if (footing < def.footing) return { ok:false, why:'NEEDS A FLOOR' };
 
-  /* BAND GATE (Phase 13d, docs/SPEC.md section 20.1). A BAND ID and not a
-     negative `minDepth`, per CLAUDE.md D9: the depth datum is fixed at the
-     spawn band's own floor line, so "above the datum by at least 30 tiles"
-     and "in astral" would be two independently-driftable ways of saying the
-     same thing -- and the one that drifts is the arithmetic, because the
-     band carries its own `origin` and `floorTy` and may be moved without
-     anyone remembering a threshold derived from them. A band id cannot
-     drift: `tools/content.mjs` proves the row names a real band.
-     Checked BEFORE the depth gate below because it is the coarser of the two
-     location questions, and refused with the band's own display NAME rather
-     than its id, so the message reads as a place. */
+  /* BAND GATE. A band ID and not a negative `minDepth`: a band carries its own
+     `origin` and `floorTy` and may be moved, so a threshold derived from them
+     drifts and a band id cannot. Checked BEFORE the depth gate because it is
+     the coarser location question, and refused with the band's display NAME
+     rather than its id, so the message reads as a place. */
   if (def.band && band.id !== def.band)
     return { ok:false, why:'ONLY IN ' + (BAND[def.band]?.name ?? String(def.band).toUpperCase()) };
 
@@ -575,18 +445,10 @@ export function placementCheck(band, machineId, tx, ty) {
     if (depth < def.minDepth) return { ok:false, why:'TOO SHALLOW' };
   }
 
-  /* THERE IS NO 'NO SHAFT TO SERVE' CHECK ANY MORE, and its absence is the
-     point. The staged winch declared a destination band and a span on its own
-     row, so a stage could be placed where its span reached nothing -- a
-     machine that silently cannot do its one job -- and this function refused
-     it up front by duplicating `reaches()`'s arithmetic across the layer
-     boundary. The winch is deleted. A HUB DECLARES NOTHING: whether it
-     can serve anything at all is a property of a SEGMENT, which is two hubs
-     and the space between them, and `model/segments.js#linkCheck` is where
-     that is decided -- reach, clear path and all. A lone machine no longer
-     has to guess about a band it might one day reach, so there is nothing
-     here to check and nothing duplicated across a boundary to keep in sync.
-     See docs/SPEC.md section 17.6. */
+  /* A HUB DECLARES NOTHING, so there is no "can this reach anything" check
+     here. Whether anything can be served is a property of a SEGMENT, which is
+     two hubs and the space between them, and `model/segments.js#linkCheck`
+     decides it -- reach, clear path and all. */
 
   /* A machine is a held item now, not a bill spent at this moment -- see
      `machineHeldSub`'s own header. `undefined` (a machine id with no
@@ -597,12 +459,10 @@ export function placementCheck(band, machineId, tx, ty) {
   return { ok:true, why:null };
 }
 
-/* Total carried mass, in TALENTS -- CLAUDE.md D3. A query on numbers, so it
-   is `model`, not `rules`: the DECISION about what a burdened player may
-   still do -- `rules/player.js`'s climb falloff and ladder/hop lockout,
-   `rules/items.js`'s pickup refusal, and `rules/drive.js`'s own arithmetic
-   for a rider's weight on a carrier (D4 as amended: boarding is never refused,
-   it is just heavy) -- all read this, but none of that decision lives here. */
+/* Total carried mass, in TALENTS. A query on numbers, so `model` rather than
+   `rules`: the climb falloff, the ladder and hop lockout, the pickup refusal
+   and a rider's weight on a carrier all READ this, and none of those
+   decisions lives here. */
 export function burdenOf() {
   let mass = 0;
   for (const slot of run.inv) if (slot) mass += massOfPair(slot.sub, slot.form) * slot.n;
@@ -624,9 +484,7 @@ export function pocketsHave(sel, n) {
   return false;
 }
 
-/* Largest single matching pair's count -- `rules/machines.js`/`rules/
-   crafting.js`'s own duplicate dict scans, retired onto this and
-   `pocketedPair` below (docs/PLAN-phase12.md D-G). */
+/* Largest single matching pair's count. */
 export function pocketedBest(sel) {
   let n = 0;
   for (const slot of run.inv) if (slot && matches(sel, slot.sub, slot.form) && slot.n > n) n = slot.n;
@@ -649,19 +507,14 @@ export function pocketedPair(sel, need) {
 export const canCraft = recipeIn =>
   Object.keys(recipeIn).every(sel => pocketsHave(sel, recipeIn[sel]));
 
-/* ---- the tribute ledger's queries (Phase 10b, docs/SPEC.md 18.5) ------------
-   ONE DECISION, TWO READERS, and that is why completion lives HERE and not in
-   the director: `rules/cycles.js` enforces "is this trial paid" and the
-   TRIBUTE panel has to draw the same yes/no, and `view` may not import `rules`
-   (docs/DEVELOPER_GUIDE.md#one-decision-two-readers). The identical argument
-   `model/run.js#placementCheck` and `model/segments.js#linkCheck` already
-   stand on.
+/* Completion lives HERE and not in the director, because `rules/cycles.js`
+   enforces "is this trial paid" and the TRIBUTE panel must draw the same
+   yes/no, and `view` may not import `rules`.
 
-   `cycleRow()` is the live row or `null`, resolved by ID and not by index, so
-   the answer does not change if `data/cycles.js` is reordered and a saved
-   `run.tribute` can never come to mean a different trial. Falls back to
-   `run.cycle`'s own row when nothing is armed yet, which is what the director
-   asks for when it decides WHAT to arm. */
+   `cycleRow()` is the live row or `null`, resolved by ID rather than index, so
+   a reorder of `data/cycles.js` cannot make a saved `run.tribute` mean a
+   different trial. Falls back to `run.cycle`'s own row when nothing is armed,
+   which is what the director asks for when deciding what to arm. */
 export function cycleRow() {
   if (run.tribute) return CYCLE[run.tribute.id] ?? null;
   return CYCLES[run.cycle - 1] ?? null;
@@ -672,16 +525,14 @@ export function cycleRow() {
 export const tributeHave = (sub, form) =>
   (run.tribute?.have?.[keyOf(S[sub], F[form])] ?? 0);
 
-/* Is the LIVE cycle paid? Every demand row satisfied AND the batch clause
-   with it (docs/SPEC.md section 18.10) -- one predicate with two clauses, so the
-   director and the TRIBUTE panel cannot disagree about which half is short.
-   False with nothing armed -- an unarmed ledger is not a met one, and a
-   director that read `true` there would complete a trial nobody had been
-   asked to perform.
+/* Is the LIVE cycle paid? Every demand row AND the batch clause, as one
+   predicate with two clauses, so the director and the TRIBUTE panel cannot
+   disagree about which half is short. False with nothing armed, or a director
+   reading `true` would complete a trial nobody was asked to perform.
 
-   NOT CLAMPED PER ROW: `have` may exceed `n` (a haul of five arrives against a
-   demand for three), and over-delivery is accepted rather than refused, which
-   is invariant 5's "material that falls in is free" applied to a receiver. */
+   NOT clamped per row: `have` may exceed `n` when a haul of five lands
+   against a demand for three, and over-delivery is accepted because material
+   that falls in is free. */
 export function tributeMet() {
   const row = run.tribute ? CYCLE[run.tribute.id] : null;
   if (!row) return false;
@@ -689,18 +540,14 @@ export function tributeMet() {
 }
 
 /* Progress towards the batch clause, summed over `run.tribute.credits`
-   against `run.t` -- simulated time at the fixed 1/120 s substep, never
-   `Date.now()` (invariant 10). A credit counts while it is at most
-   `batch.secs` old, so the boundary is inclusive. 0 when no batch clause is
-   armed. The shared query behind both the predicate below and the TRIBUTE
-   panel's bar, for the reason `tributeHave` above exists.
+   against `run.t` -- simulated time, never `Date.now()`. A credit counts
+   while it is at most `batch.secs` old, so the boundary is inclusive, and 0
+   when no batch clause is armed.
 
-   SATURATES NEAR `batch.n` AND IS NOT A DELIVERY COUNT. `prunedCredits` drops
-   entries the clause no longer needs, so this reads at most a little over
-   `batch.n` however many units really landed in the window. It is exact for a
-   bar clamped at `batch.n`, which is what it is for. A raw "X delivered in
-   the last N seconds" readout would under-report and must come from somewhere
-   else. */
+   SATURATES near `batch.n` and is NOT a delivery count: `prunedCredits` drops
+   entries the clause no longer needs, so this reads a little over `batch.n`
+   however many really landed. Exact for a bar clamped at `batch.n`, which is
+   what it is for; a raw delivery readout must come from elsewhere. */
 export function batchHave() {
   const batch = run.tribute ? CYCLE[run.tribute.id]?.batch : null;
   if (!batch) return 0;
@@ -719,42 +566,32 @@ export function batchMet() {
   return !batch || batchHave() >= batch.n;
 }
 
-/* ---- the standing draft offer (D17-B/D17-F) ----
-   Four queries, here rather than in `rules/draft.js`, because both a `rules`
-   module (which SPENDS the favour) and `view` (which draws the price dimmed
-   when it cannot be paid) have to agree on them, and the two may not import
-   each other -- the same one-decision-two-readers argument `tributeMet`
-   above and `placementCheck` already stand on. `canReroll` is the whole
-   predicate: whoever dims the row and whoever refuses the press read this
-   one function, so they cannot disagree about why. */
+/* Four queries, here rather than in `rules/draft.js`, because the module that
+   SPENDS the favour and the one that draws the price dimmed both have to
+   agree and may not import each other. `canReroll` is the whole predicate, so
+   whoever dims the row and whoever refuses the press cannot disagree. */
 export const offerGod = () => run.offer?.god ?? null;
 
 export const rerollPrice = () => Math.max(0, Math.round(eff('rerollCost')));
 
-/* A SECOND LOOK AT THE SAME CARDS IS NOT A SECOND LOOK. With the pool no
+/* A second look at the same cards is not a second look. With the pool no
    bigger than the offer -- the grant tier is 2 rows and lays out 2 -- a
-   re-pick can only transpose what is already on the table, so the reroll is
-   refused rather than sold. This is what makes D17-B's "a god you have
-   pleased will look again" true of every tier rather than of the boons
-   alone. */
+   re-pick can only transpose what is on the table, so the reroll is refused
+   rather than sold. */
 export const offerExhausted = () => !!run.offer?.ids && run.offer.pool <= run.offer.ids.length;
 
 export const canReroll = god =>
   god != null && !offerExhausted() && (run.favour[god] ?? 0) >= rerollPrice();
 
-/* The grant tier's real teeth (see docs/DEVELOPER_GUIDE.md#adding-a-recipe): a
-   MACHINE-BUILD recipe (`data/recipes.js`'s own block of `<id>/rig`-producing
-   rows, e.g. `furnace`, `talos_head`) is known only once that machine id has
-   actually been granted -- `STARTING_MACHINES` or `rules/grants.js#grant()`
-   this run, the SAME `canPlace` check `placementCheck`/`placeMachine` already
-   gate placement on, called here rather than duplicated. Derived from the
-   recipe's OWN output clause, not a second machine-id list kept in sync by
-   hand: an `out` clause naming a literal substance in `rig` form whose `sub`
-   resolves in `data/machines.js#M` names its own gate by construction, so a
-   future machine-build recipe is covered with no edit here. `null` for
-   anything else (a `subFrom` output, a non-`rig` form, an unresolvable
-   `sub`) -- every ORDINARY hand recipe, unaffected, per `RUN_SCHEMA.known`'s
-   own "everything else stays known" seed. */
+/* The grant tier's real teeth: a machine-build recipe is known only once
+   that machine id has been granted, through the SAME `canPlace` check
+   placement gates on rather than a duplicate.
+
+   Derived from the recipe's own `out` clause rather than a hand-kept
+   machine-id list -- an `out` naming a literal substance in `rig` form whose
+   `sub` resolves in `M` names its own gate by construction, so a future
+   machine-build recipe needs no edit. `null` for anything else, which is
+   every ordinary hand recipe. */
 function machineOutputOf(r) {
   const out = r?.out?.[0];
   if (!out || out.sub === undefined || out.form !== 'rig') return null;
@@ -790,12 +627,10 @@ export function bestTool() {
   return best;
 }
 
-/* Whether the player holds ANY mining tool -- `shell/boot.js` plants the
-   stock pick near spawn every run, and this is true from the moment it (or
-   any tool) is picked up. Expressed through `bestTool()` rather than the
-   `S.pick`-specific `invCount` check it used to be, so an auger alone also
-   satisfies it -- nothing that called this for "may this player dig at all"
-   was ever asking about the STOCK pick specifically. */
+/* Whether the player holds ANY mining tool. `shell/boot.js` plants the stock
+   pick near spawn every run, and this reads true from the moment that or any
+   other tool is picked up. Through `bestTool()`, so an auger alone satisfies
+   it. */
 export const hasPick = () => bestTool() !== null;
 
 /* The pocket strip, as data. `view/hud.js` reads this and names nothing:

@@ -38,6 +38,20 @@ const MAX_BLOCK_LINES = 10;
    one in the tree. Prose does not qualify at any length. */
 const MAX_HEADER_LINES = 36;
 
+/* A block whose body is mostly ALIGNED ROWS -- a short key, two or more
+   spaces, then a description -- is a reference table rather than prose, and
+   the length cap does not apply to it. Scannability is the whole point of the
+   shape, so squeezing one costs the reader and saves nothing. Five rows is
+   the floor, so a sentence that happens to contain a double space cannot
+   qualify. */
+const TABLE_ROW = /^\s*(?:\*\s*)?[`'"\w.$#[\]|/<>-]{1,22}\s{2,}\S/;
+const TABLE_MIN_ROWS = 5;
+
+const isTable = text => {
+  const rows = text.split('\n').filter(l => TABLE_ROW.test(l)).length;
+  return rows >= TABLE_MIN_ROWS;
+};
+
 /* More than this many consecutive `//` lines is a block wearing a disguise. */
 const MAX_RUN = 4;
 
@@ -160,7 +174,7 @@ function checkFile(abs) {
     const len = c.end - c.start + 1;
     for (const [re, why] of RULES) if (re.test(c.text)) say(c.start, why);
     const cap = c.start === 1 ? MAX_HEADER_LINES : MAX_BLOCK_LINES;
-    if (len > cap) say(c.start, `block is ${len} lines, cap ${cap}`);
+    if (len > cap && !isTable(c.text)) say(c.start, `block is ${len} lines, cap ${cap}`);
   }
 
   let run = 0, runStart = 0;
