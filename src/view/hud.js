@@ -50,7 +50,7 @@ import { ASKERS, CYCLES } from '../data/cycles.js';
 import { S } from '../data/substances.js';
 import { aim } from '../model/aim.js';
 import { boons } from '../model/boons.js';
-import { committedWithin, markedAt, queued } from '../model/digqueue.js';
+import { committedWithin, markedAt, queued, withinReach } from '../model/digqueue.js';
 import { eff, mods } from '../model/mods.js';
 import { items } from '../model/items.js';
 import { PH, player, playerCentre } from '../model/player.js';
@@ -657,55 +657,53 @@ function favour(g, W, startY) {
 
      WORKED     the tile `rules/mining.js` is committed to. The X inside a
                 1 px frame, primary ink. At most one per frame.
-     IN REACH   a mark waiting inside `eff('reach')`. The X, primary ink.
-     DEFERRED   a mark beyond reach. The X's four tips only, on the STATE
-                tone. It resumes when the player walks over, so it is the
-                same glyph gone sparse rather than a different one in the
-                refusal colour -- `uiDim` already means "inactive, waiting"
-                at every other site in this file.
+     IN REACH   a mark waiting inside `eff('reach')`. The whole X, primary
+                ink.
+     DEFERRED   a mark beyond reach. Two pixels of each of the X's four ends,
+                on the STATE tone. It resumes when the player walks over, so
+                it is the same glyph gone sparse rather than a different one
+                in the refusal colour -- `uiDim` already means "inactive,
+                waiting" at every other site in this file.
 
-   DENSITY CARRIES THE READ AND ALPHA DOES NOT. 4 px, 12 px and 40 px of
-   opaque mark are three states at a glance on lit grass and on unlit rock
-   alike; the same ladder drawn at 0.5 / 0.7 / 1.0 alpha lost the deferred
-   state entirely over grass, measured at 7x on the spawn shelf.
+   DENSITY AND TONE CARRY THE READ, AND ALPHA DOES NOT. 16 px, 22 px and 48 px
+   of opaque mark are three states at a glance; the same ladder drawn at
+   0.5 / 0.7 / 1.0 alpha lost the deferred state entirely over grass, measured
+   at 7x on the spawn shelf.
 
    AN X, BECAUSE THE OTHER TWO WORLD OVERLAYS ARE NOT ONE. `reticle` below
    draws corner elbows and `drawFootprintGhost` fills the tile; three things
    that can coincide must not share a shape.
 
-   REACH IS READ ONCE AND HANDED TO BOTH TESTS. `committedWithin` takes
-   `reach` as a parameter rather than reading `eff` itself
-   (`model/digqueue.js`'s own note) precisely so this pass and the rules step
-   cannot measure against different numbers. */
-
-/* Centre to centre in world px, squared, the formula `model/digqueue.js#d2`
-   measures `nearestWithin` and `committedWithin` with -- inclusive at the
-   boundary, as `d > reach * reach` there is. Mirrored rather than shared
-   because that module exports no per-mark predicate; both sides read the same
-   `eff('reach')`, so the two cannot disagree about the number even though they
-   each apply it. */
-function markInReach(m, cx, cy, reach) {
-  const half = m.band.tile / 2;
-  const dx = worldX(m.band, m.tx) + half - cx;
-  const dy = worldY(m.band, m.ty) + half - cy;
-  return dx * dx + dy * dy <= reach * reach;
-}
+   REACH IS READ ONCE AND HANDED TO BOTH TESTS. `committedWithin` and
+   `withinReach` take `reach` as a parameter rather than reading `eff`
+   themselves (`model/digqueue.js`'s own note) precisely so this pass and the
+   rules step cannot measure against different numbers. */
 
 /* The X, inset a pixel so it reads as a mark on the tile rather than a border
-   of it. `tips` draws the four ends alone. A band's tile is 8 px everywhere
-   today; under 4 px there is no room for a diagonal and the tile fills. */
+   of it, over a shadow of itself one row lower. `tips` keeps two pixels of
+   each end and drops the middle.
+
+   THE SHADOW IS WHAT MAKES A DIAGONAL READ ON ANY GROUND. `uiShade` is the
+   tone `core/font.js#drawText` already uses against the same problem, a 1 px
+   figure drawn straight onto rendered world with nothing behind it -- the
+   light pixels carry on unlit rock and the dark ones carry on lit grass, where
+   an unshadowed sparse glyph measured mean 27 of luminance against the ground
+   and could not be found at 1x (docs/SPEC.md section 28.7). Shadows go down
+   FIRST, in their own pass, so one can never land on top of a mark pixel, and
+   the lowest falls on row `t - 1` and therefore never leaves the tile.
+
+   A band's tile is 8 px everywhere today; under 4 px there is no room for a
+   diagonal and the tile fills. */
 function markGlyph(g, x, y, t, col, tips) {
   const n = t - 2;
   if (n < 2) { R(g, x, y, t, t, col); return; }
-  if (tips) {
-    R(g, x + 1,     y + 1,     1, 1, col); R(g, x + t - 2, y + 1,     1, 1, col);
-    R(g, x + 1,     y + t - 2, 1, 1, col); R(g, x + t - 2, y + t - 2, 1, 1, col);
-    return;
-  }
-  for (let i = 0; i < n; i++) {
-    R(g, x + 1 + i,     y + 1 + i, 1, 1, col);
-    R(g, x + t - 2 - i, y + 1 + i, 1, 1, col);
-  }
+  const keep = tips ? 2 : n;
+  for (const [c, dy] of [[UI.shade, 1], [col, 0]])
+    for (let i = 0; i < n; i++) {
+      if (i >= keep && i < n - keep) continue;
+      R(g, x + 1 + i,     y + 1 + i + dy, 1, 1, c);
+      R(g, x + t - 2 - i, y + 1 + i + dy, 1, 1, c);
+    }
 }
 
 function digMarks(g, f) {
@@ -728,7 +726,7 @@ function digMarks(g, f) {
     if (x <= -t || y <= -t || x >= f.W || y >= f.H) continue;
 
     const worked = !!target && target.b === m.band && target.tx === m.tx && target.ty === m.ty;
-    const near = worked || markInReach(m, c.x, c.y, reach);
+    const near = worked || withinReach(m, c.x, c.y, reach);
 
     markGlyph(g, x, y, t, near ? UI.ink : UI.dim, !near);
     if (worked) {

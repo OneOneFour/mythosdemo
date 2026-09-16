@@ -15,9 +15,15 @@
 
    STORAGE IS A DEVICE, so CONTINUE is not gated on `shell/save.js#hasSave()`
    here -- `view` may not reach `localStorage`. `shell` answers the question
-   and parks the answer on `ui.menu.hasSave`, and `ui.menu.notice` carries
-   `loadError.reason` verbatim. A refused save is a different event from no
-   save at all and the player is told which.
+   and parks the answer on `ui.menu.hasSave`, with `ui.menu.stale` telling
+   another build's header apart from an empty slot, and `ui.menu.notice`
+   carries `loadError.reason` verbatim. A refused save is a different event
+   from no save at all and the player is told which.
+
+   AND `ui.menu.inRun` IS THE SAME KIND OF MIRROR ONE LAYER DOWN, because this
+   file may not import `model` either. Whether a run stands behind the menu
+   decides the RESUME row and whether NEW RUN and CONTINUE are about to throw a
+   run away (docs/SPEC.md section 30.6).
 
    THE CONTROLS PAGE IS GENERATED FROM `f.ui.keymap`, which is
    `shell/ui.js#KEYMAP` -- the one declaration of the binding set, read by this
@@ -96,20 +102,48 @@ export const menuOpen = f => !!f.ui?.menu?.open;
    be taken and must not be dispatched. `note` is drawn only for the row the
    cursor is on, which is what keeps the debug page legible at the floor. */
 
+/* The row taken once and waiting to be taken again. It says so in the warning
+   tone where its value would otherwise sit, and keeps its own note about what
+   is being thrown away. */
+const confirming = r => ({ ...r, value: 'CONFIRM?', valueCol: AMBER });
+
+/* A DEAD CONTINUE STATES WHICH KIND OF NOTHING IT IS. An absent slot and a
+   header from another build are different events, and `hasSave` is false for
+   both (docs/SPEC.md section 27.3). */
+function continueRow(m) {
+  if (!m.hasSave) return {
+    id: 'continue', label: 'CONTINUE', live: false,
+    value: m.stale ? 'STALE SAVE' : 'NO SAVE',
+    note: m.stale ? 'THAT SAVE WAS WRITTEN BY ANOTHER BUILD.' : 'NOTHING IS SAVED YET.'
+  };
+  return {
+    id: 'continue', label: 'CONTINUE', live: true,
+    note: m.inRun ? 'DROPS THE RUN BEHIND THIS MENU AND LOADS THE SAVED ONE.'
+                  : 'RESUME THE ONE SAVED RUN.'
+  };
+}
+
 function rootRows(m) {
   const seed = m.seedFocus ? m.seed + '_' : (m.seed || 'RANDOM');
-  return [
+  const rows = [];
+  /* RESUME EXISTS ONLY WHILE A RUN STANDS BEHIND THE MENU, AND IT IS FIRST.
+     The row the cursor starts on has to be the one that changes nothing, or a
+     reflex ENTER on a menu opened mid-run destroys the run. With nothing
+     played there is nothing to resume and the boot page is unchanged. */
+  if (m.inRun) rows.push({ id: 'resume', label: 'RESUME', live: true,
+    note: 'BACK INTO THE RUN, EXACTLY WHERE IT STOPPED.' });
+  rows.push(
     { id: 'new', label: 'NEW RUN', live: true,
-      note: 'GENERATE A WORLD AND DROP IN.' },
+      note: m.inRun ? 'ABANDONS THE RUN BEHIND THIS MENU. NOTHING IS KEPT.'
+                    : 'GENERATE A WORLD AND DROP IN.' },
     { id: 'seed', label: 'SEED', value: seed, live: true,
       note: 'A RUN IS REPRODUCIBLE FROM ITS SEED. BLANK MEANS PICK ONE.' },
-    { id: 'continue', label: 'CONTINUE', value: m.hasSave ? '' : 'NO SAVE',
-      live: !!m.hasSave,
-      note: m.hasSave ? 'RESUME THE ONE SAVED RUN.' : 'NOTHING IS SAVED YET.' },
+    continueRow(m),
     { id: 'controls', label: 'CONTROLS', live: true, note: 'EVERY KEY, IN ONE TABLE.' },
     { id: 'settings', label: 'SETTINGS', live: true, note: 'OVERLAYS AND THE TWO ASSISTS.' },
     { id: 'debug', label: 'DEBUG', live: true, note: 'NAMED WORLDS TO TEST WITH.' }
-  ];
+  );
+  return rows.map(r => (r.id === m.confirm ? confirming(r) : r));
 }
 
 /* EVERY TOGGLE HERE IS ALREADY READABLE FROM THE FRAME CONTEXT -- three

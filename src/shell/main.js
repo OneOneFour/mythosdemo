@@ -35,14 +35,14 @@ import { render } from '../view/scene.js';
 import { boot, newRun } from './boot.js';
 import { clearEdges, cmd, flags, pointer, wants } from './input.js';
 import { drainJournal } from './notify.js';
-import { clearSave, hasSave, load, loadError, save } from './save.js';
+import { clearSave, load, loadError, save, slotState } from './save.js';
 import { boons, grants, miracles, stepAll, trinkets } from './schedule.js';
 import {
   armLink, armPlace, cancelQueued, clearArmedPlace, clearDrag, clearLink,
   close as closePanel, closeMenu, closeTop, isOpen, menuPage, open as openPanel,
-  openMenu, pausesRun, queueCraft, scrollBy, setDrag, setMenuNotice, setMenuSave,
-  setMenuSeedFocus, setSearchFocus, setTab, toggleAutoCollect, toggleAutoFeed,
-  toggleHints, ui
+  openMenu, pausesRun, queueCraft, scrollBy, setDrag, setMenuConfirm, setMenuInRun,
+  setMenuNotice, setMenuSave, setMenuSeedFocus, setMenuStale, setSearchFocus, setTab,
+  toggleAutoCollect, toggleAutoFeed, toggleHints, ui
 } from './ui.js';
 import { hoverInfo } from '../view/hud.js';
 import { drawn as uiDrawn } from '../view/ui/state.js';
@@ -438,6 +438,19 @@ const menuSeed = () => {
    cannot report a bug against. */
 const DEBUG_SEED = 1337;
 
+/* IS THERE A RUN BEHIND THE MENU THAT TAKING A ROW WOULD THROW AWAY? Three
+   callers read this one answer -- the `ui.menu.inRun` mirror `view` draws
+   RESUME from, the confirmation gate below, and `persist()` at the bottom of
+   this file.
+
+   `run.t` IS THE TEST BECAUSE A PLAYED RUN HAS TIME ON IT AND A GENERATED ONE
+   does not. `boot()` generates a world behind the menu and `load()` leaves a
+   clean run of the stored seed behind a refusal, and both sit at t = 0 because
+   the menu freezes `step()`. A dead or won run is not in progress either,
+   since there is nothing to go back to and the slot is cleared rather than
+   written (docs/SPEC.md section 27.8). */
+const inRun = () => !!player.band && run.t > 0 && !run.dead && !run.won;
+
 function startRun(seed) {
   newRun(seed);
   snapCam();
@@ -455,7 +468,7 @@ function continueRun() {
   const ok = load(newRun);
   snapCam();
   setMenuNotice(ok ? null : loadError.reason);
-  if (ok) closeMenu(); else setMenuSave(hasSave());
+  if (ok) closeMenu(); else setMenuSave(slotState() === 'ok');
 }
 
 /* A DIORAMA IS A SCENARIO APPLIED TO A CLEAN RUN, never a second boot path
@@ -471,19 +484,39 @@ function startScenario(id) {
   if (ok) closeMenu();
 }
 
+/* THE ROWS THAT DISCARD A RUN IN PROGRESS, and therefore the rows that ask
+   twice (docs/SPEC.md section 30.6). Nothing persists while the menu stands
+   over a run that has not been played, so a mistaken NEW RUN here cannot be
+   recovered from the slot -- and the row itself is the confirmation, which
+   costs no modal and no second owner of the keyboard. A scenario row belongs
+   here because it is a `newRun()` with a diorama on top. */
+const discards = id => id === 'new' || id === 'continue' || id.startsWith('scenario-');
+
 function applyMenuIntents() {
   if (!ui.menu.open) return;
-  /* THE MIRROR, REFRESHED WHILE THE MENU STANDS. Storage is a device: `view`
-     may not reach `localStorage`, so `shell` answers and parks the answer
-     (docs/SPEC.md section 30.2). Affordable every frame because `hasSave()`
-     parses a 58-byte header and never reads the body. */
-  setMenuSave(hasSave());
+  /* THE MIRRORS, REFRESHED WHILE THE MENU STANDS. Storage is a device and
+     `model` is a layer `view` may only read through the frame context, so
+     `shell` answers both questions and parks the answers (docs/SPEC.md
+     section 30.2). Affordable every frame because `slotState()` parses a
+     58-byte header and never reads the body. */
+  const slot = slotState();
+  setMenuSave(slot === 'ok');
+  setMenuStale(slot === 'stale');
+  setMenuInRun(inRun());
 
   const id = wants.menuRow;
   if (!id) return;
   wants.menuRow = null;
 
-  if (id === 'new') startRun(menuSeed());
+  /* ARMED, NOT TAKEN. The first press on a destructive row records it and
+     draws CONFIRM? beside it, and only a second press on the SAME row goes
+     through. Any other row taken clears it, as does leaving the page
+     (`shell/ui.js#menuPage`) and closing the menu. */
+  if (discards(id) && ui.menu.inRun && ui.menu.confirm !== id) { setMenuConfirm(id); return; }
+  setMenuConfirm(null);
+
+  if (id === 'resume') closeMenu();
+  else if (id === 'new') startRun(menuSeed());
   else if (id === 'seed') setMenuSeedFocus(true);
   else if (id === 'continue') continueRun();
   else if (id === 'controls' || id === 'settings' || id === 'debug') menuPage(id);
@@ -1276,11 +1309,16 @@ function installTestHook() {
    hearts with no respawn (invariant 6), and a slot that resumes the run from
    before the fall is a respawn with extra steps.
 
-   NOTHING PERSISTS WHILE THE MENU STANDS: the run behind it is either one
-   nobody has played yet or the one CONTINUE has just refused, and neither is
-   worth the player's only slot. */
+   A MENU OVER A RUN NOBODY HAS PLAYED PERSISTS NOTHING, because the run behind
+   it is either the one `boot()` generated or the one CONTINUE has just
+   refused, and neither is worth the player's only slot. A menu opened from
+   INSIDE a run (`shell/input.js`'s Escape branch) is the third case and it
+   DOES write -- the run behind it is the player's, and losing it to the one
+   key that leaves it would make the menu a trap. `inRun()` is the same
+   predicate the RESUME row and the confirmation gate read. */
 function persist() {
-  if (!player.band || ui.menu.open) return;
+  if (!player.band) return;
+  if (ui.menu.open && !inRun()) return;
   if (run.dead || run.won) clearSave(); else save();
 }
 

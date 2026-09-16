@@ -35,8 +35,8 @@ import { audio, unlockAudio } from './audio.js';
 import {
   KEYMAP, armPlace, clearArmedPlace, clearLink, closeMenu, closeTop, isOpen, mapDragEnd,
   mapDragStart, mapDragTo, mapMoveTo, mapPark, mapScroll, menuMove, menuPage, menuScrollTo,
-  setMapZoom, setMenuSeed, setMenuSeedFocus, setSearch, setSearchFocus, toggleMapFollow,
-  toggleMapLayer, top, toggle, ui
+  openMenu, setMapZoom, setMenuSeed, setMenuSeedFocus, setSearch, setSearchFocus,
+  toggleMapFollow, toggleMapLayer, top, toggle, ui
 } from './ui.js';
 
 /* The command set the rules read. One object, mutated by property, per
@@ -133,7 +133,8 @@ let hopHeld = false, dropHeld = false, deconHeld = false, linkHeld = false;
    panel), q (drop), backspace (deconstruct), r (hold to act on a placed
    machine -- turn a crank), c (hold to collect), l (link/unlink two hubs),
    g/h (grid/debug overlays), o (map overview), m (mute), z (cancel a
-   selection, additive to Escape), Escape (close panel / cancel selection),
+   selection, additive to Escape), Escape (close a panel, cancel a selection,
+   and the main menu once neither is standing),
    the digits (arm the quickbar slot at that index), and t/b/k/y/p behind
    `flags.showDebug` (debug drafts, and the chunk overlay). While a draft
    offer stands, 1/2/3 take a card and r rerolls it, and every other key --
@@ -552,18 +553,34 @@ export function installInput() {
        former "place" meaning, which the LMB/RMB dispatch below already
        covers redundantly (D-A). */
     if (k === 'e') toggle('main');
-    /* Escape closes the TOP of the panel stack only -- a modal above the
-       window (none exists yet) would close before the window under it.
-       No-op on an empty stack, so Escape is otherwise free for the browser
-       (leaving pointer capture, etc.) exactly as it was before this phase. */
-    if (k === 'escape' && isOpen(top())) { closeTop(); e.preventDefault(); }
-    /* Escape also cancels an armed placement (Part 1, click-to-arm), whether
-       or not a panel happens to be open -- a player who armed a pair, then
-       closed the panel to go aim, still has one visible "cancel" key. */
-    /* ...and an armed link endpoint, on the same line and for the same
-       reason: a player who armed one hub, then thought better of it, needs one
-       visible cancel key rather than two verbs with different escapes. */
-    if (k === 'escape') { clearArmedPlace(); clearLink(); }
+    /* ESCAPE ESCALATES, AND THE MENU IS THE LAST STEP (docs/SPEC.md section
+       30.6). In order, and only ever one of them per press:
+
+         a raised draft    swallowed, above -- an un-taken permanent gift must
+                           not be losable to a reflex keypress, which is the
+                           one place Escape means nothing at all.
+         the search field  blurs and pops the panel under it, above.
+         the map           leaves the mode, above.
+         the panel stack   pops exactly the top entry.
+         an armed pair or  cancels it, whether or not a panel is open, so a
+         link endpoint     player who armed a pair and closed the panel to go
+                           aim still has one visible cancel key.
+         nothing           opens the menu over the run.
+
+       THE MENU DOES NOT STEAL A CLOSE. `claimed` and `armed` are read BEFORE
+       anything is cleared, so the press that closes a panel or drops a
+       selection does only that, and the menu needs a second press. Escape
+       inside the menu is BACK, THEN PLAY (`menuKey` above), so the pair is a
+       toggle once nothing else is standing. */
+    if (k === 'escape') {
+      const claimed = isOpen(top());
+      const armed = !!ui.armedPlace || !!ui.linkFrom;
+      if (claimed) closeTop();
+      clearArmedPlace();
+      clearLink();
+      if (!claimed && !armed) openMenu('root');
+      e.preventDefault();
+    }
     /* 'z' fires the identical cancel pair, ADDITIVELY (docs/PLAN-phase12.md
        §4.4 item 5): a narrower synonym for Escape's own cancel half that does
        NOT touch the panel stack, so a player mid-build can drop a selection

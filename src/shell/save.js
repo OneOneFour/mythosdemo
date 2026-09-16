@@ -41,7 +41,9 @@
    A REFUSAL IS NAMED. This module has no journal at boot, so `load()` reports
    why it refused on `loadError` and returns false; five reasons, and a caller
    that wants to tell "nothing saved" from "that save is from another build"
-   reads the one it got.
+   reads the one it got. A caller deciding whether to OFFER the slot at all
+   asks `slotState()` instead, which tells those two apart before anything is
+   loaded.
 
    docs/SPEC.md section 27 holds the schema and the round-trip contract. */
 
@@ -472,12 +474,26 @@ function bodyFault(p) {
   return runFault(p.run) || playerFault(p.player) || rowsFault(p);
 }
 
-/* Cheap enough for a menu to ask every frame — it reads and parses the header
-   key only, which is about 80 bytes, and never touches the body. So it answers
-   "a complete body was written under this build", which is a claim only
+/* THE SLOT'S HEADER, CLASSIFIED. 'ok' means this build wrote it, 'stale' that
+   another build did, 'none' that there is nothing there or that storage is
+   unreadable.
+
+   'stale' EXISTS SO A MENU CAN NAME THE THIRD STATE. `hasSave()` is false for
+   a stale header and `load()` is therefore never called on one, so nothing
+   else can tell an absent slot from an unusable one (docs/SPEC.md section
+   27.3).
+
+   Cheap enough for a menu to ask every frame — it reads and parses the header
+   key only, which is about 58 bytes, and never touches the body. */
+export function slotState() {
+  const h = parse(read(HEAD));
+  return h === null ? 'none' : headerOk(h) ? 'ok' : 'stale';
+}
+
+/* "A complete body was written under this build", which is a claim only
    `load()` can test; a `load()` that finds it false takes the header away. */
 export function hasSave() {
-  return headerOk(parse(read(HEAD)));
+  return slotState() === 'ok';
 }
 
 export function clearSave() {

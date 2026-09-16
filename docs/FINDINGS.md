@@ -3720,3 +3720,47 @@ not done.
   line away from it and was deliberately not added: a screenshot scene that
   drives the restart button would move, and the slide is not a bug this phase
   ships on top of.
+
+---
+
+## Phase 6z — the wave 6 closeout
+
+Three parked gaps closed, one mirror deleted, and four things found.
+
+- **`model/digqueue.js#withinReach` now exists and the HUD mirror is gone.**
+  6n's `view/hud.js#markInReach` copied that module's private `d2`; the export
+  the finding asked for replaced it, and `docs/SPEC.md` §28.2 lists it beside
+  the other two queries.
+
+- **`view/hud.js:171`'s z-order is still open, and the mid-run menu makes it
+  slightly more reachable.** `docs/PLAYTEST.md` B5 and the 6n finding: the
+  title banner paints over `drawMainPanel`. The menu is drawn INSTEAD of the
+  HUD (`view/scene.js`) so it is not affected, but a player who now takes NEW
+  RUN mid-run and opens the Character tab inside the fresh run's 2.6 s banner
+  meets it one step sooner than a page reload used to make them. Still a
+  z-order change with baselines behind it.
+
+- **A move and a take inside one animation frame act on the row that was
+  drawn.** `shell/input.js#menuKey`'s `menuSelect` reads
+  `drawn.menu.rows.find(r => r.focused)`, which is last frame's record, so 's'
+  and ENTER dispatched 8 ms apart take the row the cursor was on BEFORE the
+  move. That is the record-what-you-drew contract §30.2 states rather than a
+  defect — a human cannot press two keys inside one frame on purpose — and the
+  confirmation gate (§30.6) means the destructive case still needs two presses
+  on one row. It cost an hour of acceptance-test debugging, which is why it is
+  written down: a test that presses two menu keys with no wait between them is
+  testing the wrong frame.
+
+- **`tools/check.mjs` has no gate on the menu at all**, and now there is more of
+  it to gate: the Escape escalation order, the confirmation, and `slotState()`'s
+  three answers. The escalation and the mid-run rows are covered by
+  `tests/visual.spec.js` (two new 6z tests) and by the scratchpad acceptance
+  spec, which is a browser gate rather than a headless one. The headless
+  harness could drive `applyIntents()` with `wants.menuRow` set directly — it
+  already exports both — but `tools/` was not in this phase's ownership block.
+  The interim `KEYMAP`-literal assertion 6o asked for is still unwritten for
+  the same reason.
+
+- **`data/scenarios.js` rows still carry no seed** (6o). Unchanged, and the
+  confirmation gate now makes a scenario row a two-press action mid-run, which
+  is the same `newRun()` it always was.

@@ -59,6 +59,13 @@ export const KEYMAP = Object.freeze([
     { id: 'menuSelect', codes: ['enter', ' '], keys: 'ENTER', label: 'TAKE THE ROW' },
     { id: 'menuBack',   codes: ['escape'], keys: 'ESC', label: 'BACK, THEN PLAY' }
   ] },
+  /* ESCAPE ESCALATES, and this is its last step rather than a second binding
+     beside `closeTop` below. The key closes a panel, cancels an armed pair or
+     leaves the map first, and reaches the menu only when none of those is
+     standing. `shell/input.js`'s Escape branch states that order. */
+  { when: 'WITH NOTHING ELSE OPEN', rows: [
+    { id: 'menu', codes: ['escape'], keys: 'ESC', label: 'OPEN THE MENU' }
+  ] },
   { when: 'ON FOOT', rows: [
     { id: 'move', codes: ['a', 'd', 'w', 's', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown'],
       keys: 'WASD/ARROWS', label: 'WALK, CLIMB' },
@@ -287,10 +294,21 @@ export const ui = {
      stack above; `view/ui/menu.js` reads it through
      `shell/main.js#frameCtx` and never writes it (CLAUDE.md D2).
 
-     `hasSave` is a MIRROR of `shell/save.js#hasSave()`, and `notice` a mirror
-     of `loadError.reason`, because storage is a device: `view` may not reach
-     `localStorage` and must not have to. `shell` answers the question once
-     and parks the answer here.
+     `hasSave` and `stale` are MIRRORS of `shell/save.js#slotState()`, and
+     `notice` a mirror of `loadError.reason`, because storage is a device:
+     `view` may not reach `localStorage` and must not have to. `inRun` mirrors
+     `model` for the same reason -- `view` reads the world only through the
+     frame context. `shell` answers all three once a frame and parks the
+     answers here.
+
+     `stale` and `inRun` are mirrors for the same reason: a header written by
+     another build is storage, and whether the run behind the menu has been
+     played is `model`. Both are answered once by `shell` and parked here.
+
+     `confirm` is the id of the ONE row that has been taken once and is waiting
+     to be taken again, or null. Only a row that would discard the run in
+     progress ever sets it (docs/SPEC.md section 30.6) -- the row itself is the
+     confirmation, so there is no second modal and no second keyboard owner.
 
      `index` counts rows of the page CURRENTLY DRAWN, so it is only meaningful
      against `view/ui/state.js#drawn.menu.rows`, and `scroll` is a PAGE index
@@ -306,6 +324,9 @@ export const ui = {
     seed: '',            // digits typed into the SEED field; '' means random
     seedFocus: false,
     hasSave: false,
+    stale: false,
+    inRun: false,
+    confirm: null,
     notice: null
   },
 
@@ -535,9 +556,10 @@ export function mapDragTo(sx, sy, scale) {
 
 /* ---------- the main menu (6l) ----------
    Plain mutators in the shape every other function in this file has. NOTHING
-   HERE DRAWS AND NOTHING HERE READS STORAGE: `shell` calls `setMenuSave` with
-   `shell/save.js#hasSave()`'s answer and `setMenuNotice` with
-   `loadError.reason`, and the menu paints whatever it finds.
+   HERE DRAWS AND NOTHING HERE READS STORAGE: `shell` calls `setMenuSave` and
+   `setMenuStale` with `shell/save.js#slotState()`'s answer and
+   `setMenuNotice` with `loadError.reason`, and the menu paints whatever it
+   finds.
 
    `menuMove` and `menuScrollTo` take the COUNT they clamp against, because
    only the drawn record knows it (`view/ui/state.js#drawn.menu.rows.length`
@@ -551,15 +573,18 @@ export function openMenu(page = 'root') {
 export function closeMenu() {
   ui.menu.open = false;
   ui.menu.seedFocus = false;
+  ui.menu.confirm = null;
 }
 
 /* Changing page resets the cursor and the paging, because a row index is only
-   meaningful against the page that was drawn with it. */
+   meaningful against the page that was drawn with it -- and drops a pending
+   confirmation with them, because the row it named is no longer on screen. */
 export function menuPage(page) {
   ui.menu.page = page;
   ui.menu.index = 0;
   ui.menu.scroll = 0;
   ui.menu.seedFocus = false;
+  ui.menu.confirm = null;
 }
 
 export function menuFocus(i, count = Infinity) {
@@ -579,4 +604,7 @@ export function menuScrollTo(page, pages = Infinity) {
 export function setMenuSeed(s) { ui.menu.seed = String(s ?? ''); }
 export function setMenuSeedFocus(v) { ui.menu.seedFocus = !!v; }
 export function setMenuSave(v) { ui.menu.hasSave = !!v; }
+export function setMenuStale(v) { ui.menu.stale = !!v; }
+export function setMenuInRun(v) { ui.menu.inRun = !!v; }
+export function setMenuConfirm(id) { ui.menu.confirm = id ?? null; }
 export function setMenuNotice(s) { ui.menu.notice = s ?? null; }

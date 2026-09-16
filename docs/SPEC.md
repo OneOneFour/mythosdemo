@@ -3594,6 +3594,15 @@ can change under a save with no hash moving.
 ~58-byte header key and never reads the body. Both signatures are computed once
 at import, since both tables are frozen.
 
+**A header from another build is a third state, and `slotState()` names it**
+(Phase 6z). It returns `'ok'`, `'stale'` or `'none'` off the one header parse,
+and `hasSave()` is `slotState() === 'ok'`. `hasSave()` being false for a stale
+header is what made `load()`'s own `STALE SAVE` unreachable from a menu:
+CONTINUE was dead, `load()` was never called, and another build's save
+presented as an empty slot. The menu now draws `STALE SAVE` on the dead row
+(§30.1). The row stays dead — the payload really is unusable — and only the
+word changes.
+
 ### 27.4 The round-trip contract
 
 `load(newRun)` calls `newRun` itself, so a payload can never be applied to a
@@ -3694,7 +3703,7 @@ bindings are read-only for importers.
 |---|---|---|
 | `null` | the load succeeded | kept |
 | `NO SAVE` | no header, or storage is unreadable | untouched |
-| `STALE SAVE` | the header's `v`, `world` or `content` is not this build's | kept, and `hasSave()` is already false |
+| `STALE SAVE` | the header's `v`, `world` or `content` is not this build's | kept, and `hasSave()` is already false; `slotState()` returns `'stale'` |
 | `CORRUPT SAVE: <field>` | the body is missing, torn, or failed validation at that field path | the header is dropped |
 | `WRONG SEED` | the caller's `newRun` built another world, or none | **kept** |
 | `WORLD MOVED` | a band's `gen` hash mismatches, so the generator changed | cleared |
@@ -3717,7 +3726,8 @@ write and nothing else.
 |---|---|
 | a live run, menu closed | written |
 | `run.dead` or `run.won` | **cleared** |
-| the menu is standing | untouched |
+| the menu stands over a run in progress | **written** |
+| the menu stands over a run nobody has played | untouched |
 | no band allocated yet | untouched |
 | `?test=1` | no triggers are installed at all |
 
@@ -3726,9 +3736,16 @@ hearts with no respawn (invariant 6), and a slot that resumes the run from
 before the fall is a respawn with extra steps. Leaving the previous slot in
 place would be the same thing one save older.
 
-**Nothing persists while the menu stands**, because the run behind it is either
-one nobody has played yet or the one CONTINUE just refused, and neither is
-worth the player's only slot (§30.5).
+**A menu over a run nobody has played persists nothing**, because that run is
+either the one `boot()` generated behind the menu or the one CONTINUE just
+refused, and neither is worth the player's only slot (§30.5).
+
+**A menu opened from inside a run does persist** (Phase 6z). The run behind it
+is the player's, `Escape` is the one key that leaves it, and losing a run to
+that key would make the menu a trap. The predicate is `run.t > 0` and not
+alive-and-well: a generated run and a refused load both sit at `t = 0` because
+the menu freezes `step()`, so the two cases separate without a flag to keep in
+sync (§30.6).
 
 **The triggers are not installed under `?test=1`.** There is no RAF loop there
 and the page is a harness: a hidden-page autosave would overwrite the slot a
@@ -3783,6 +3800,7 @@ far as hand aim does.
 | `markedAt(b, tx, ty)` | is there a live mark here |
 | `nearestWithin(px, py, reach)` | the nearest live mark within `reach` of a world point, or null |
 | `committedWithin(px, py, reach)` | the committed target, if it is still live and still within `reach`, or null |
+| `withinReach(m, px, py, reach)` | is one mark within `reach` of a world point |
 | `queued()` | the live map, for `view` to draw |
 | `activeCount()`, `isFull()` | size, and whether the cap is reached |
 
@@ -3950,14 +3968,38 @@ apart is the whole feature.
 
 | state | test | glyph | tone | px on an 8 px tile |
 |---|---|---|---|---|
-| worked | `committedWithin(playerCentre(), eff('reach'))` names this tile | the X inside a 1 px frame | `ui` | 40 |
-| in reach | centre-to-centre distance <= `eff('reach')` | the X | `ui` | 12 |
-| deferred | beyond it | the X's four tips | `uiDim` | 4 |
+| worked | `committedWithin(playerCentre(), eff('reach'))` names this tile | the X inside a 1 px frame | `ui` | 48 |
+| in reach | centre-to-centre distance <= `eff('reach')` | the X | `ui` | 22 |
+| deferred | beyond it | two pixels of each of the X's four ends | `uiDim` | 16 |
 
-**Density carries the read and alpha does not.** 4, 12 and 40 opaque pixels
-are three states at a glance on lit grass and on unlit rock alike. The same
-ladder drawn at 0.5 / 0.7 / 1.0 alpha lost the deferred state entirely over
-grass, measured at 7x on the spawn shelf.
+**Every mark is drawn over a shadow of itself one row lower**, in `uiShade`
+(Phase 6z). That is the tone `core/font.js#drawText` already uses against the
+same problem — a 1 px figure drawn straight onto rendered world with nothing
+behind it — and it is what makes a diagonal read on ground of any tone: the
+light pixels carry on unlit rock, the dark ones carry on lit grass. Shadows go
+down in their own pass first, so one can never land on top of a mark pixel, and
+the lowest falls on the tile's last row and therefore never leaves the tile.
+
+**The unshadowed deferred state did not read at all.** Measured over the four
+deferred tiles of the `dig-marks` scene at the desktop buffer, against the same
+tiles with the queue cleared:
+
+| state | 6n | 6z |
+|---|---|---|
+| worked | 40 px, mean \|ΔL\| 92 | 48 px, mean 93 |
+| in reach | 12 px, mean 80 | 22 px, mean 92 |
+| deferred | **4 px, mean 27** | **16 px, mean 69** |
+
+Phase 6n's four single tips were indistinguishable from the grass dither even
+at 6x. The deferred state still carries the lowest mean contrast of the three,
+which is the ordering the feature wants. On unlit rock the deferred mark
+measures 16 px at mean 69 as well — the light half carries where the shadow
+cannot, which is the whole reason a shadow works.
+
+**Density and tone carry the read, and alpha does not.** 16, 22 and 48 opaque
+pixels are three states at a glance. The same ladder drawn at 0.5 / 0.7 / 1.0
+alpha lost the deferred state entirely over grass, measured at 7x on the spawn
+shelf.
 
 **An X, because the other two world overlays are not one.** `reticle` draws
 corner elbows and `drawFootprintGhost` fills the tile; three overlays that can
@@ -3968,12 +4010,12 @@ on the STATE tone, never the heart colour: a mark out of reach resumes when the
 player walks over (§28.3), so it is not an error. `uiDim` already means
 "inactive, waiting" at every other site in `view/hud.js`.
 
-**Reach is measured once and handed to both reads.** `committedWithin` takes
-`reach` as a parameter rather than reading `eff` itself (§28.6), so this pass
-is passed the same value the step measures with. The per-mark in-reach test
-mirrors `model/digqueue.js#d2` — centre to centre in world px, squared,
-inclusive at the boundary — because that module exports no per-mark predicate;
-`docs/FINDINGS.md` (6n) records the missing export.
+**Reach is measured once and handed to both reads.** `committedWithin` and
+`withinReach` take `reach` as a parameter rather than reading `eff` themselves
+(§28.6), so this pass is passed the same value the step measures with.
+`model/digqueue.js#withinReach` is the per-mark predicate, added in 6z: the HUD
+mirrored that module's private `d2` until then, which `docs/FINDINGS.md` (6n)
+recorded.
 
 **A stale mark is skipped, never cleared.** Reads never mutate (§28.2), so the
 draw asks `markedAt` and leaves the pruning to `rules/mining.js#step`.
@@ -4102,6 +4144,7 @@ and the dispatch 6o added over it.
 | page | rows, in order | ids |
 |---|---|---|
 | `root` | NEW RUN, SEED, CONTINUE, CONTROLS, SETTINGS, DEBUG | `new`, `seed`, `continue`, `controls`, `settings`, `debug` |
+| `root`, mid-run | RESUME first, then the six above | `resume`, then as above |
 | `controls` | none; the shortcuts table, plus BACK | `back` |
 | `settings` | six toggles, plus BACK | `set-grid`, `set-chunks`, `set-debug`, `set-collect`, `set-feed`, `set-hints`, `back` |
 | `debug` | one row per `data/scenarios.js#SCENARIOS`, plus BACK | `scenario-<id>`, `back` |
@@ -4114,7 +4157,9 @@ moving past the content and a click reaches the same id.
 **CONTINUE is gated on `hasSave`, and states why when it is dead.** A dim row
 reading `NO SAVE` is drawn and recorded with `live:false`; a caller must not
 dispatch it. The row is not hidden, because a menu that silently lacks an
-option teaches nothing (D17-B).
+option teaches nothing (D17-B). **A header written by another build reads
+`STALE SAVE`** off `ui.menu.stale` (§27.3), because an absent slot and an
+unusable one are different events.
 
 **A refused load names its reason.** `ui.menu.notice` carries
 `shell/save.js#loadError.reason` verbatim — §27.7's five strings — and the menu
@@ -4148,15 +4193,21 @@ that file. `view` reads it through `shell/main.js#frameCtx` and never writes it.
 | `scroll` | int | the CONTROLS list's **page index**, not a line offset |
 | `seed` | string | digits typed into the SEED field; `''` means random |
 | `seedFocus` | bool | is the SEED field capturing keys |
-| `hasSave` | bool | a mirror of `shell/save.js#hasSave()` |
+| `hasSave` | bool | `shell/save.js#slotState()` is `'ok'` |
+| `stale` | bool | `slotState()` is `'stale'` — another build's header |
+| `inRun` | bool | a run in progress stands behind the menu (§30.6) |
+| `confirm` | string\|null | the one row taken once and waiting to be taken again |
 | `notice` | string\|null | a mirror of `loadError.reason` |
 
-`hasSave` and `notice` are mirrors because **storage is a device**: `view` may
-not reach `localStorage`, so `shell` answers the question once and parks the
-answer. Accessors: `openMenu`, `closeMenu`, `menuPage`, `menuFocus`,
-`menuMove`, `menuScrollTo`, `setMenuSeed`, `setMenuSeedFocus`, `setMenuSave`,
-`setMenuNotice`. `menuMove` and `menuScrollTo` take the count they clamp
-against, because only the drawn record knows it.
+`hasSave`, `stale` and `notice` are mirrors because **storage is a device**:
+`view` may not reach `localStorage`, so `shell` answers the question once and
+parks the answer. `inRun` is a mirror for the same reason one layer down —
+`view` reads the world only through the frame context. Accessors: `openMenu`,
+`closeMenu`, `menuPage`, `menuFocus`, `menuMove`, `menuScrollTo`,
+`setMenuSeed`, `setMenuSeedFocus`, `setMenuSave`, `setMenuStale`,
+`setMenuInRun`, `setMenuConfirm`, `setMenuNotice`. `menuMove` and
+`menuScrollTo` take the count they clamp against, because only the drawn record
+knows it.
 
 `view/ui/state.js#drawn.menu` is what was painted, or `null`:
 `{ page, rows:[{id,x,y,w,h,live,focused,label}], keys:[{id,keys,label,x,y,w,h}],
@@ -4203,7 +4254,7 @@ from a hardcoded origin.
   of content the floor affords.
 - the shortcuts table flows into as many columns as the width really affords
   (two at 640x400, one at the floor) and **pages** when it runs out of height —
-  46 lines against about 18, so three pages at the floor and one at the desktop
+  50 lines against about 18, so three pages at the floor and one at the desktop
   size. The panel keeps its full height while paging, so the frame does not
   jump under the cursor.
 - degradation order inside a list panel, last dropped first and dropped whole:
@@ -4277,6 +4328,7 @@ live one, so a press cannot take a CONTROLS row while DEBUG is showing.
 
 | id | consequence |
 |---|---|
+| `resume` | the menu closes. Drawn only mid-run (§30.6) |
 | `new` | `newRun(<seed field>)`, camera snapped, menu closed |
 | `seed` | the SEED field takes the keyboard |
 | `continue` | `load(newRun)`; on success the menu closes, on refusal the reason is parked and `hasSave` re-mirrored |
@@ -4285,13 +4337,74 @@ live one, so a press cannot take a CONTROLS row while DEBUG is showing.
 | `set-*` | the matching `flags` or `ui` toggle, per `SETTING` in `shell/main.js` |
 | `scenario-<id>` | `newRun(<seed field> or 1337)`, then `rules/scenarios.js#apply(id)` |
 
-`ui.menu.hasSave` is re-mirrored from `shell/save.js#hasSave()` on every frame
-the menu stands, which is affordable because that call parses a 58-byte header
-and never reads the body (§27.3).
+`ui.menu.hasSave`, `ui.menu.stale` and `ui.menu.inRun` are re-mirrored on every
+frame the menu stands, which is affordable because `shell/save.js#slotState()`
+parses a 58-byte header and never reads the body (§27.3) and `inRun` is three
+field reads.
 
-**The menu is not reachable from inside a run.** There is no binding that
-opens it, because adding one means a `KEYMAP` row, and the CONTROLS page is
-generated from `KEYMAP` — so the row would move two committed baselines, which
-is a decision for a phase that owns them. A player leaves a run by reloading
-the page, which is also what writes the save (§27.8). `docs/FINDINGS.md` (6o)
-records it.
+### 30.6 Escape escalates, and the menu is its last step (Phase 6z)
+
+`Escape` opens the menu **only when nothing else claims the key.** The order,
+stated once in `shell/input.js`'s Escape branch and once as the `KEYMAP` group
+`WITH NOTHING ELSE OPEN`:
+
+| what is standing | Escape means |
+|---|---|
+| a raised draft | nothing at all. An un-taken permanent gift must not be losable to a reflex keypress, and this is the one place Escape is deliberately inert |
+| the CRAFTING search field | blur the field, then pop the panel under it |
+| the map | leave the mode |
+| a panel | pop exactly the top entry of the stack |
+| an armed pair or link endpoint | cancel it, panel or no panel |
+| nothing | **open the menu** |
+
+**A press takes exactly one step.** Whether a panel was open and whether
+anything was armed are both read before anything is cleared, so the press that
+closes a panel does only that and the menu needs a second press. Escape inside
+the menu is BACK, THEN PLAY (§30.5), so once nothing else is standing the two
+are a toggle.
+
+**Escape rather than a free letter**, because the escalation is already what
+the key means at five sites and a sixth binding would be a second way out of
+one thing. The cost, stated: a player who wants the menu while a panel is open
+presses it twice.
+
+**Opening the menu mid-run freezes the run and the camera.** Both fall out of
+§30.5's existing guards — `step()` returns on `ui.menu.open` before it ticks
+`clock.t` or eases the camera — and nothing was added for it. Measured over a
+live RAF page: 1.5 s on the CONTROLS page advanced `run.t` by 0 and moved
+`cam.x`/`cam.y` by 0.
+
+**Two rows mean something new mid-run, so the root page gains a third.**
+
+- **RESUME**, first, live, and drawn **only** while a run is in progress. The
+  row the cursor starts on has to be the one that changes nothing, or a reflex
+  ENTER on a menu opened mid-run destroys the run. With nothing played there is
+  nothing to resume and the boot page is unchanged, which is also why the
+  committed `menu-root` baselines did not move.
+- **NEW RUN mid-run abandons the run behind the menu.** It is the same
+  `newRun()` call it always was; what is new is that the run it replaces is
+  somebody's.
+- **CONTINUE mid-run drops that run and loads the slot.** The slot is whatever
+  was last persisted and never the current run, since a menu standing over a
+  played run writes on the way out rather than on the way in (§27.8). With no
+  save it stays dead, as before.
+
+**A row that would discard the run in progress asks twice.** The first press
+records the row in `ui.menu.confirm` and the row draws `CONFIRM?` in `uiAmber`
+beside its own note; only a second press on the same row goes through. Any
+other row taken clears it, as does changing page and closing the menu. The row
+is the confirmation — no modal, and no second owner of the keyboard. `new`,
+`continue` and every `scenario-<id>` are on that list; a scenario row is a
+`newRun()` with a diorama on top.
+
+**A run in progress is `run.t > 0`, and is not remembered.** `boot()` generates
+a world behind the menu and a refused CONTINUE leaves a clean run of the stored
+seed, and both sit at `t = 0` because the menu freezes `step()`. So the
+predicate is derived every frame in `shell/main.js#inRun`, read by three
+callers — the `ui.menu.inRun` mirror, the confirmation gate and `persist()` —
+rather than being a flag set by whoever opened the menu. A dead or won run is
+not in progress: there is nothing to go back to.
+
+**The pointer reaches all of it.** RESUME and a confirming row are ordinary
+recorded rows with `id` and `live`, so `shell/input.js` hit-tests and
+dispatches them through the one path §30.5 already describes.

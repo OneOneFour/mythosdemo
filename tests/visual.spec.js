@@ -7137,6 +7137,9 @@ const showMenu = (page, opts = {}) => page.evaluate(async o => {
   u.openMenu(o.page ?? 'root');
   u.setMenuSeed(o.seed ?? '');
   u.setMenuSave(!!o.hasSave);
+  u.setMenuStale(!!o.stale);
+  u.setMenuInRun(!!o.inRun);
+  u.setMenuConfirm(o.confirm ?? null);
   u.setMenuNotice(o.notice ?? null);
   if (o.index) u.menuFocus(o.index, 99);
   if (o.scroll) u.menuScrollTo(o.scroll, 99);
@@ -7183,6 +7186,16 @@ test('6l: the main menu, the shortcuts page, settings and the debug page', async
      the reason is on screen, verbatim and wrapped. */
   await showMenu(page, { hasSave: false, notice: 'CORRUPT SAVE: bands[0].edits', index: 2 });
   await shot(page, 'menu-root-refused.png');
+
+  /* MID-RUN (docs/SPEC.md 30.6): RESUME is the first row, and NEW RUN --
+     taken once and awaiting a second press -- says CONFIRM? rather than
+     silently arming. */
+  await showMenu(page, { hasSave: true, inRun: true, index: 1, confirm: 'new' });
+  await shot(page, 'menu-root-inrun.png');
+
+  /* A HEADER FROM ANOTHER BUILD IS NOT AN EMPTY SLOT (docs/SPEC.md 27.3). */
+  await showMenu(page, { hasSave: false, stale: true, index: 2 });
+  await shot(page, 'menu-root-stale.png');
 
   await showMenu(page, { page: 'controls' });
   await shot(page, 'menu-controls.png');
@@ -7263,6 +7276,95 @@ test('6l: every menu row lies inside the buffer, at the floor and at the desktop
       expect(ids.has('back'), `${name} at ${w}x${h}: BACK`).toBe(name !== 'root');
     }
   }
+
+  expect(errors).toEqual([]);
+});
+
+test('6z: the mid-run root page adds RESUME first, and a destructive row confirms', async ({ page }) => {
+  const errors = await boot(page);
+  await settle(page);
+
+  for (const [iw, ih] of [[1280, 800], [200, 180]]) {
+    const { w, h } = await atWindow(page, iw, ih);
+    /* THE ROW THE CURSOR STARTS ON MUST CHANGE NOTHING (docs/SPEC.md 30.6).
+       Index 0 and `resume` first is the whole protection against a reflex
+       ENTER on a menu opened mid-run. */
+    await showMenu(page, { hasSave: true, inRun: true });
+    let rec = await menuDrawn(page);
+    expect(rec.rows.map(r => r.id), `${w}x${h}`)
+      .toEqual(['resume', 'new', 'seed', 'continue', 'controls', 'settings', 'debug']);
+    expect(rec.rows.filter(r => r.focused).map(r => r.id), `${w}x${h}`).toEqual(['resume']);
+    for (const r of rec.rows) {
+      const where = `${w}x${h}: row ${r.id}`;
+      expect(r.x, where).toBeGreaterThanOrEqual(0);
+      expect(r.y, where).toBeGreaterThanOrEqual(0);
+      expect(r.x + r.w, where).toBeLessThanOrEqual(w);
+      expect(r.y + r.h, where).toBeLessThanOrEqual(h);
+      expect(r.h, where).toBeGreaterThanOrEqual(7);
+    }
+
+    /* AND THE CONFIRMATION IS A LABEL, NOT A LIVENESS CHANGE: an armed row
+       must still be dispatchable or the second press does nothing. */
+    await showMenu(page, { hasSave: true, inRun: true, index: 1, confirm: 'new' });
+    rec = await menuDrawn(page);
+    expect(rec.rows.length, `${w}x${h}`).toBe(7);
+    expect(rec.rows.find(r => r.id === 'new').live, `${w}x${h}`).toBe(true);
+
+    /* WITH NO RUN BEHIND IT THE BOOT PAGE IS UNCHANGED, which is why the
+       committed `menu-root` baselines did not move. */
+    await showMenu(page, { hasSave: true });
+    expect((await menuDrawn(page)).rows.map(r => r.id), `${w}x${h}`)
+      .toEqual(['new', 'seed', 'continue', 'controls', 'settings', 'debug']);
+  }
+
+  expect(errors).toEqual([]);
+});
+
+test('6z: Escape escalates -- a panel, then a selection, then the menu', async ({ page }) => {
+  const errors = await boot(page);
+  await settle(page);
+
+  const state = () => page.evaluate(async () => {
+    const { ui, top } = await import('/src/shell/ui.js');
+    return { menu: ui.menu.open, top: top(), armed: !!ui.armedPlace };
+  });
+
+  /* A PANEL CLAIMS THE PRESS. `openMenu` is never called here: the real
+     keydown handler is what decides, and it is the only thing that can prove
+     the menu does not steal a close. */
+  await page.evaluate(async () => {
+    const { open } = await import('/src/shell/ui.js');
+    open('main');
+  });
+  await page.keyboard.press('Escape');
+  expect(await state()).toEqual({ menu: false, top: null, armed: false });
+
+  /* AN ARMED PAIR CLAIMS THE NEXT ONE. */
+  await page.evaluate(async () => {
+    const { armPlace } = await import('/src/shell/ui.js');
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    armPlace(S.timber, F.rung);
+  });
+  await page.keyboard.press('Escape');
+  expect(await state()).toEqual({ menu: false, top: null, armed: false });
+
+  /* AND WITH NOTHING STANDING, THE MENU OPENS -- straight out of the key
+     handler, so no frame has to run first. */
+  await page.keyboard.press('Escape');
+  expect((await state()).menu).toBe(true);
+
+  /* Escape inside the menu is BACK, THEN PLAY (docs/SPEC.md 30.5), so the two
+     are a toggle once nothing else is open. */
+  await page.evaluate(() => __mf.draw());
+  await page.keyboard.press('Escape');
+  expect((await state()).menu).toBe(false);
+
+  /* THE MAP CLAIMS IT TOO, and leaving the mode is all one press does. */
+  await page.evaluate(() => { __mf.flags.showMap = true; __mf.draw(); });
+  await page.keyboard.press('Escape');
+  expect(await page.evaluate(() => __mf.flags.showMap)).toBe(false);
+  expect((await state()).menu).toBe(false);
 
   expect(errors).toEqual([]);
 });
@@ -7466,9 +7568,12 @@ const markScene = page => page.evaluate(async () => {
   return { reach, marks };
 });
 
+/* The tile, PLUS the row under it: the shadow every mark is drawn over lands
+   on the mark's own last row, and nothing but a second read can prove it does
+   not spill into the neighbour (docs/SPEC.md 28.7). */
 const markTiles = (page, marks) => page.evaluate(ms => {
   const g = document.getElementById('stage').getContext('2d');
-  return ms.map(m => [...g.getImageData(m.x, m.y, m.t, m.t).data]);
+  return ms.map(m => [...g.getImageData(m.x, m.y, m.t, m.t + 1).data]);
 }, marks);
 
 test('6n: the dig queue draws three distinct states, and none of them is the bare tile', async ({ page }) => {
@@ -7494,19 +7599,26 @@ test('6n: the dig queue draws three distinct states, and none of them is the bar
   const bare = await markTiles(page, scene.marks);
 
   const count = scene.marks.map((m, i) => {
-    let n = 0;
-    for (let p = 0; p < m.t * m.t; p++) {
+    let n = 0, spill = 0;
+    for (let p = 0; p < m.t * (m.t + 1); p++) {
       const o = p * 4;
-      if (withMarks[i][o] !== bare[i][o] || withMarks[i][o + 1] !== bare[i][o + 1]) n++;
+      if (withMarks[i][o] === bare[i][o] && withMarks[i][o + 1] === bare[i][o + 1]) continue;
+      if (p < m.t * m.t) n++; else spill++;
     }
-    return { state: m.state, n };
+    return { state: m.state, n, spill };
   });
 
-  /* The X inside its frame, the X alone, and the X's four tips: 40, 12 and 4
-     opaque pixels on an 8 px tile. Exact rather than "greater than", because
-     the whole feature is that the three do not look alike. */
-  for (const c of count)
-    expect(c.n, `${c.state} mark`).toBe(c.state === 'worked' ? 40 : c.state === 'reach' ? 12 : 4);
+  /* The X inside its frame, the X alone, and two pixels of each of the X's
+     four ends -- each over a shadow of itself one row lower, which is what
+     makes the sparse states read on lit grass at all (docs/SPEC.md 28.7). 48,
+     22 and 16 opaque pixels on an 8 px tile. Exact rather than "greater
+     than", because the whole feature is that the three do not look alike. */
+  for (const c of count) {
+    expect(c.n, `${c.state} mark`).toBe(c.state === 'worked' ? 48 : c.state === 'reach' ? 22 : 16);
+    /* AND THE SHADOW STAYS INSIDE ITS OWN TILE. The lowest shadow pixel falls
+       on the tile's last row, so a mark cannot dirty its neighbour below. */
+    expect(c.spill, `${c.state} mark bled into the tile below`).toBe(0);
+  }
 
   /* AND DRAWING THEM WRITES NOTHING. `npm run check`'s epoch probe renders a
      scene with an EMPTY queue, so `digMarks` returns before it touches

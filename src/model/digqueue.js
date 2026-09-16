@@ -94,6 +94,12 @@ function d2(m, px, py) {
   return dx * dx + dy * dy;
 }
 
+/* Is one mark within `reach` of a world point? The per-mark form of the test
+   the two queries below apply, exported because `view` tints every mark by it
+   and `nearestWithin`/`committedWithin` each answer for exactly one
+   (docs/SPEC.md section 28.7). `reach` is a parameter for their reason. */
+export const withinReach = (m, px, py, reach) => d2(m, px, py) <= reach * reach;
+
 /* The hard cap on marks, floored at 1: a queue that can hold nothing is a
    feature that silently does not exist. */
 const cap = () => Math.max(1, Math.round(eff('digQueueMax')));
