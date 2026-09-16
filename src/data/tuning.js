@@ -106,7 +106,7 @@ export const TUNABLES = [
   { id:'segDown',   kind:'value', base:26,    unit:'px/s',       note:'free descent on a VERTICAL segment, scaled by slope. The ceiling segUp is held to, and free. Also the retired deck\'s own number.' },
   { id:'segBase',   kind:'value', base:1.0,   unit:'drive',      note:'drive needed to raise an EMPTY carrier at full speed. The unit crank.torque is denominated in.' },
   { id:'segLoad',   kind:'value', base:0.0125, unit:'drive/talent', note:'added drive per talent aboard, at full slope. 40 T -- the whole burden cap -- is exactly where one crank stalls.' },
-  { id:'riderMass', kind:'value', base:8,     unit:'talents',    note:"the player's own body on a carrier, before their pockets. Boarding is never refused (D4 as amended); this is the load that makes it physics instead." },
+  { id:'riderMass', kind:'value', base:8,     unit:'talents',    note:"the player's own body on a carrier, before their pockets. Boarding is never refused; this is the load that makes it physics instead." },
 
   /* Three scales, scope `machine`, so a better hub tier or a strength boon is
      one row here and no edit anywhere else. */
@@ -330,7 +330,7 @@ export const TUNABLES = [
   { id:'seedYield',    kind:'value', base:2,   unit:'units',
     note:'seeds dropped when the LAST remaining trunk tile of a tree is felled' },
 
-  { id:'tossUp',     kind:'value', base:50, unit:'px/s', note:'upward toss on a newly dropped item; drop verb only, see docs/FINDINGS.md' },
+  { id:'tossUp',     kind:'value', base:50, unit:'px/s', note:'upward toss on a newly dropped item; drop verb only' },
   { id:'tossSpread', kind:'value', base:12, unit:'px/s', note:'horizontal scatter on the same drop' }
 ];
 
