@@ -1,32 +1,24 @@
-/* LAYER rules — MINING: where the pick points, what it wears down, what breaks
-   and what falls out. Imports `core`, `data`, `model`. Imports no other `rules`
-   module.
+/* LAYER rules — MINING: where the pick points, what it wears down, what
+   breaks and what falls out. Imports `core`, `data`, `model`, and no other
+   `rules` module.
 
-   WHERE THIS LIVES AND WHY. `model/mining.js` owns the accumulated seconds;
-   this file owns the decision that a tile has broken and the consequence that
-   material falls. Storage has the lifetime of the world; a decision has the
-   lifetime of a frame.
+   `model/mining.js` owns the accumulated seconds; this file owns the decision
+   that a tile has broken. While progress lived in the tile-storage module it
+   became a BYTE in the same array as the material, which made granite
+   permanently unmineable above 106 fps -- any 120 Hz display. Progress is
+   seconds compared against seconds, so there is no framerate at which
+   anything becomes unbreakable.
 
-   That split is not cosmetic. While progress lived inside the tile-storage
-   module it was under constant pressure to be a byte in the same array as the
-   material — and it became one, which made hard material permanently unmineable
-   above a threshold framerate. Granite at 2.4 s died above 106 fps, i.e. on any
-   120 Hz display. Progress is now seconds compared against seconds, and there
-   is no framerate at which anything becomes unbreakable.
+   HARDNESS IS BASE PLUS A MODIFIER, ALWAYS. `baseHardAt` returns the base and
+   the `hard` tunable is applied HERE, in exactly one place, so a trinket that
+   softens one material cannot be read around.
 
-   HARDNESS IS BASE PLUS A MODIFIER, ALWAYS. `baseHardAt` deliberately returns
-   the base, and the `hard` tunable is applied HERE, in exactly one place, so a
-   trinket that softens one material cannot be read around. See
-   docs/DEVELOPER_GUIDE.md#the-tunable-pipeline
-
-   TOOL TIER IS A GATE ON TOP OF HARDNESS, NOT A SECOND HARDNESS.
-   `hard` decides how long a legal swing takes; `tile.tier` (absent means 1,
-   `data/substances.js`) decides whether a swing is legal AT ALL, checked
-   against the held tool's own tier (`model/run.js#bestTool()`, itself read off
-   a relic substance's `item.tool` block) and scaled by `eff('toolTier', <the
-   substance being struck>)` so a boon can lend a tier without touching mining
+   TOOL TIER IS A GATE ON TOP OF HARDNESS, NOT A SECOND HARDNESS. `hard`
+   decides how long a legal swing takes; `tile.tier` decides whether a swing is
+   legal AT ALL, checked against the held tool's tier and scaled by
+   `eff('toolTier', <substance>)`, so a boon can lend a tier without touching
    speed. The tool's `power` multiplies `eff('pickPower')` in the same single
-   place `hard` is applied above, for the same reason. */
+   place `hard` is applied. */
 
 import { rand } from '../core/rng.js';
 import { AIR, F, NATIVE } from '../data/forms.js';
@@ -73,18 +65,14 @@ export function aimAtWorld(wx, wy) {
   resolve(c.x + dx, c.y + dy);
 }
 
-/* Keyboard fallback: the tile the player faces, or the one under/over them.
+/* Keyboard fallback: the tile the player faces, or the one under or over them.
 
-   THREE DIRECTIONS ARE SPECIAL-CASED BELOW, and for one reason on two axes.
-   The hitbox is 6 x 16 px on an 8 px tile, so it straddles two columns and
-   fills two rows, and a single point at the centre picks the wrong one of the
-   pair. `resolveStraightDown` and `resolveStraightUp` pick the column and
-   `resolveFacing` picks the row. Down-and-sideways keeps the generic centre-x
-   `resolve()`, because a diagonal aim has a whole tile of slack in both axes.
-
-   A held horizontal key is IGNORED while `up` is held, which is what the
-   single generic branch did before `resolveStraightUp` existed; `down` wins
-   over `up` for the same reason. */
+   THREE DIRECTIONS ARE SPECIAL-CASED, for one reason on two axes. The hitbox
+   is 6 x 16 px on an 8 px tile, so it straddles two columns and fills two
+   rows, and a single centre point picks the wrong one of the pair. Straight
+   down and up pick the COLUMN; facing picks the ROW. Down-and-sideways keeps
+   the generic centre-x resolve, since a diagonal aim has a tile of slack on
+   both axes. A held horizontal key is IGNORED while `up` is held. */
 export function aimAtKeys(cmd) {
   const c = playerCentre();
   const b = player.band;
@@ -96,24 +84,16 @@ export function aimAtKeys(cmd) {
   resolve(c.x + player.face * b.tile, c.y + b.tile);          // down and sideways
 }
 
-/* Targets whichever of the two columns the player's hitbox can straddle is
-   CURRENTLY solid at the row just below their feet — recomputed fresh every
-   call, so no state is needed beyond `model/mining.js`'s existing per-tile
-   work map. Once the targeted column breaks, the next resolve finds it no
-   longer solid and retargets the other one if it still is, so the two break
-   SEQUENTIALLY at their normal one-tile hardness cost each — never both at
-   once for the price of one. When the player is tile-aligned (the two
-   columns coincide) or neither column is currently blocking (e.g. digging
-   ahead of a fall), this degenerates to the same centre-x column the old
-   unconditional `resolve()` always used, so aligned play is unchanged.
+/* Targets whichever of the two straddled columns is CURRENTLY solid at the
+   row just below the feet, recomputed every call, so no state is needed. Once
+   it breaks, the next resolve retargets the other if it is still solid, so the
+   two break SEQUENTIALLY at their own one-tile cost rather than both at once
+   for the price of one.
 
-   `PW` (6px, `model/player.js`) is narrower than a tile (8px), and continuous,
-   never-grid-snapped walk physics almost never leaves `player.x` a multiple of
-   the tile size, so a fixed centre-x column breaks one of the two columns
-   `boxSolid` (`rules/player.js`) tests and leaves the other solid forever —
-   the player then stands wedged on what reads as open air from directly
-   overhead (docs/FINDINGS.md, "Machine status/hover/right-click-deconstruct
-   pass"). */
+   `PW` is 6 px against an 8 px tile and walk physics is never grid-snapped, so
+   a fixed centre-x column breaks one of the two columns `boxSolid` tests and
+   leaves the other solid forever -- the player then stands wedged on what
+   reads as open air from directly overhead. */
 function resolveStraightDown(c, b) {
   const py = c.y + b.tile;                       // the row just below the feet
   const bb = bandAt(c.x, py);
@@ -128,29 +108,16 @@ function resolveStraightDown(c, b) {
   aw.set(bb, target, ty, inBounds(bb, target, ty));
 }
 
-/* The bare horizontal aim, which is also the aim with no direction held at
-   all. `PH` is 16 px on an 8 px tile, so the body fills two rows and only one
-   of them need hold the tile in the way, and this takes the first OCCUPIED of
-   the two in the faced column. The centre row comes first and the row above it
-   second, so a wall comes down belly-height and then head-height.
+/* The bare horizontal aim, and the aim with no direction held. The body fills
+   two rows and only one need hold the tile in the way, so this takes the first
+   OCCUPIED of the two in the faced column -- centre row first, the row above
+   second, so a wall comes down belly-height then head-height.
 
-   PROBING ONLY THE CENTRE ROW IS WHY A KEYBOARD PLAYER COULD NOT CLEAR
-   ANYTHING TWO TILES TALL. Holding right + dig broke the belly tile, the aim
-   then found the air it had just made, and the head-height tile was never
-   targeted, so 400 s of right + dig moved the player exactly as far as `right`
-   alone on 12 seeds (docs/FINDINGS.md, phase 6e-2). The second probe is what
-   makes the aim ADVANCE through an obstacle rather than expire on its own
-   work. docs/SPEC.md section 2.1.
-
-   BOTH PROBES SIT INSIDE `eff('reach')` BY CONSTRUCTION, so neither is
-   clamped. The centre row contains `c.y` and the row above it ends at or below
-   `player.y`, so both overlap the hitbox, and the furthest tile centre either
-   can name is hypot(12, 11) = 16.3 px against a reach of 25.6.
-
-   OCCUPIED MEANS NOT AIR RATHER THAN `solidAt`. A non-solid tile in the faced
-   column is a legitimate thing to swing at — a pegged rung, a sapling — and it
-   is what the centre-row probe has always hit, so preferring a solid tile one
-   row above it would retarget swings that already land. */
+   The SECOND probe is what makes the aim ADVANCE through an obstacle rather
+   than expire on its own work: with only the centre row, a keyboard player
+   could not clear anything two tiles tall. Both probes sit inside
+   `eff('reach')` BY CONSTRUCTION. OCCUPIED means not air rather than
+   `solidAt`, because a pegged rung is a legitimate thing to swing at. */
 function resolveFacing(c, b) {
   const px = c.x + player.face * b.tile;
   for (const py of [c.y, c.y - b.tile]) {
@@ -162,36 +129,16 @@ function resolveFacing(c, b) {
   resolve(px, c.y);
 }
 
-/* The mirror of `resolveStraightDown`, and it has to reach TWO rows because
-   nothing moves the player up out of its own work. It takes the first tile
-   that is not AIR in the two rows above the body, nearest row first, choosing
-   between the two columns the hitbox straddles exactly as straight down does.
+/* The mirror of `resolveStraightDown`, reaching TWO rows because nothing moves
+   the player up out of its own work: the first tile that is not AIR in the two
+   rows above the body, nearest first.
 
-   `cmd.up` RESOLVED TO `centre.y - tile` BEFORE THIS EXISTED, which is
-   `player.y` — always the topmost row the body itself fills, never a row above
-   it. So digging up under rock broke nothing at all: 0 tiles in 20 s of held
-   up + dig in a carved pocket, against 4 for down + dig in the same scene. It
-   read as working only because a player on a ladder mines the rung at head
-   height, and that case is this function's fallback (docs/SPEC.md section 2.1,
-   docs/FINDINGS.md phase 6y).
-
-   THE SECOND ROW IS WHAT MAKES A TWO-TILE CEILING COME DOWN. Breaking the
-   first row leaves the player exactly where they were — down is free and up
-   needs a ladder — so a single probe would find the air it had just made and
-   expire, which is `resolveFacing`'s defect on the vertical axis.
-
-   BOTH ROWS SIT INSIDE `eff('reach')` BY CONSTRUCTION, so neither is clamped.
-   They are measured from the body's top edge rather than from a row index, so
-   an unaligned player mid-fall or mid-climb gets the row partly above their
-   head and the one above that: over every sub-tile pose the furthest tile
-   centre either row can name is 22.1 px from the player's centre, against a
-   reach of 25.6. A THIRD ROW REACHES 29.8 px, past reach, so there are two.
-
-   OCCUPIED MEANS NOT AIR, not `solidAt`. Mining the rung above the head is
-   how a ladder comes back down, and `resolveFacing` already names the first
-   tile that is not AIR on its own axis. Straight down tests `solidAt` instead
-   because what that choice prevents is standing wedged on a half-broken
-   floor, and nothing stands on a ceiling. */
+   THE SECOND ROW IS WHAT MAKES A TWO-TILE CEILING COME DOWN -- breaking the
+   first leaves the player where they were, so a single probe finds the air it
+   just made and expires. Both rows sit inside `eff('reach')` BY CONSTRUCTION,
+   measured from the body's top edge rather than a row index; A THIRD ROW
+   REACHES 29.8 px against a reach of 25.6. Straight down tests `solidAt`
+   instead, because nothing stands on a ceiling. */
 function resolveStraightUp(c, b) {
   for (let i = 0; i < 2; i++) {
     const py = player.y - 1 - i * b.tile;      // world px, just above the body
@@ -226,21 +173,15 @@ function resolve(px, py) {
 const trunkAt = (b, tx, ty) =>
   subAt(b, tx, ty) === S.timber && formAt(b, tx, ty) === NATIVE;
 
-/* the step
-   TWO SOURCES OF A TARGET, AND THE HAND ALWAYS WINS. A held dig key swings at
+/* TWO SOURCES OF A TARGET, AND THE HAND ALWAYS WINS. A held dig key swings at
    the reticle; with nothing held, the dig queue supplies a marked tile inside
-   `eff('reach')`. Both routes go through the one
-   `swing` below, so a queued tile costs exactly the seconds a hand-swung one
-   costs at any framerate -- there is no second progress store and no second
-   rate.
+   `eff('reach')`. Both routes go through the one `swing`, so a queued tile
+   costs exactly what a hand-swung one costs at any framerate.
 
-   THE QUEUE COMMITS TO ONE TILE AND FINISHES IT. `nearestWithin` is asked
-   only when nothing is committed, which is the same hysteresis
-   `shell/input.js`'s pointerdown dispatch applies to itself: decide once, then
-   stop re-deciding every frame. Re-deciding was measured and it does not work
-   -- at `eff('walk')` a column is the nearest mark for about 8 px of travel,
-   0.13 s against soil's 0.50 s, so a player who painted a seam and ran along
-   it finished nothing (docs/FINDINGS.md, phase 6i). */
+   THE QUEUE COMMITS TO ONE TILE AND FINISHES IT -- `nearestWithin` is asked
+   only when nothing is committed. Re-deciding every frame was measured and
+   does not work: a column is the nearest mark for about 8 px of travel, 0.13 s
+   against soil's 0.50 s, so a painted seam finished nothing. */
 export function step(dt, cmd) {
   /* Stale marks are collected HERE, once per substep, and not inside the
      queries that notice them: `view` reads those queries and `view` may not
@@ -262,19 +203,13 @@ export function step(dt, cmd) {
     return;
   }
 
-  /* NO PATHFINDING AND NO AUTO-WALK. Reach is measured from where the
-     player is STANDING, so clearing a marked seam means positioning yourself
-     for it -- which is the whole reason the queue does not make mining
-     something you watch.
+  /* NO PATHFINDING AND NO AUTO-WALK. Reach is measured from where the player is
+     STANDING, which is why the queue does not make mining something you watch.
 
-     A TILE THIS PICK CANNOT BREAK LOSES ITS MARK, and that is the only thing
-     the queue does that a hand swing does not. `swing` returns false for a
-     tier-gated or unmineable tile, and the alternative -- leaving the mark --
-     makes the nearest query hand back the same impossible tile every substep
-     forever, which is both a stalled queue and a mark that reads as merely
-     deferred wherever the HUD draws it. The refusal row is `swing`'s own and
-     is rate-limited by `TIER_REFUSAL_GAP`, so a granite drag says TOO HARD FOR
-     THIS PICK once and then empties rather than 256 times. */
+     A TILE THIS PICK CANNOT BREAK LOSES ITS MARK, the only thing the queue
+     does that a hand swing does not. Leaving the mark makes the nearest query
+     hand back the same impossible tile every substep forever -- a stalled
+     queue, and a mark that reads as merely deferred. */
   if (markCount() === 0) return;
   const c = playerCentre();
   const reach = eff('reach');
@@ -371,68 +306,29 @@ function swing(dt, b, tx, ty) {
   tw.clear(b, tx, ty);
   push(hard > HARD_BREAK ? 'breakHard' : 'breakSoft', at, { sub });
 
-  /* ARCHITECTURE invariant 5: mined material becomes a FALLING ITEM, never a
-     direct inventory credit. This one line is the whole thesis of the game —
-     dig a shaft and your ore collects at the bottom of it for free.
+  /* Mined material becomes a FALLING ITEM, never a direct inventory credit.
+     This one line is the whole thesis of the game -- dig a shaft and your ore
+     collects at the bottom of it for free.
 
-     YIELD QUALITY applies here too -- `dropRoll` above, drawn before the
-     tile is cleared so it always consumes exactly one `rand()` regardless
-     of outcome, is what makes soil and bare stone poor: most swings at
-     them come up empty. A real ore's `dropChance` is 1.0, so the roll
-     always passes and nothing changes for it. */
+     `dropRoll` above is drawn BEFORE the tile is cleared, so it always
+     consumes exactly one `rand()` regardless of outcome. A real ore's chance
+     is 1.0, so the roll always passes for it. */
   if (!drop) return true;
   if (formOf(byte) === NATIVE && sub >= 0 && dropRoll >= eff('dropChance', SUB[sub].id)) return true;
   const it = iw.spawn(b, at.x + b.tile / 2, at.y + b.tile / 2,
                       drop.sub, drop.form, (rand() - 0.5) * 24, -30 - rand() * 20);
   if (it) push('drop', at, { sub: drop.sub, form: drop.form });
 
-  /* THE LAST TILE OF A TRUNK DROPS A SEED (Phase 15,
-     docs/PLAN-phase15-trees.md D15-A, docs/SPEC.md section 22). `log` is the
-     only fuel the game can MINE (`brand` is fuel too, but only ever made
-     from a log, `data/recipes.js#kindle`) -- `data/world.js`'s own `trees`
-     row says so -- so a felled forest is a run that has quietly ended; this
-     is the way back.
+  /* THE LAST TILE OF A TRUNK DROPS A SEED, and `log` is the only fuel the game
+     can MINE, so this is the way back from a felled forest. TWO NEIGHBOUR
+     READS AND NOT A COLUMN SCAN: a trunk is felled from either end or the
+     middle outward, so the last tile standing has no trunk above and none
+     below, and the tile clear has already run.
 
-     WHY THIS IS CODE AND NOT A `data/drops.js` ROW. That table is the
-     existing "mining X also drops Y" hook and it was considered first: a row
-     sees the SUBSTANCE and TIER of the tile just broken and nothing else.
-     "The last remaining trunk tile" is a fact about the COLUMN, which no
-     `DROPS` row can express and which the table must not be bent to try.
-     This file is the only one that can make that decision.
-
-     WHY TWO NEIGHBOUR READS AND NOT A COLUMN SCAN. A trunk is a contiguous
-     vertical run of tiles, and it is felled one tile at a time from either
-     end or from the middle outward -- so the last tile standing is, by
-     definition, the one with no trunk above it and none below it. Two reads,
-     no loop, no state, and correct for every felling order. `tw.clear` above
-     has already run, so both reads are of the world AFTER this tile went.
-
-     `formAt(...) === NATIVE` IS THE HALF THAT KEEPS A PLACED LADDER OUT.
-     `subOf` reads `timber` for a `timber/rung` tile exactly as it does for a
-     trunk -- the substance is the same and only the form differs -- so
-     without the NATIVE test a player could peg rungs into a wall and mine
-     them back out for free seeds. It is the same free predicate
-     `view/paint.js#decorate` already uses to keep a crown off a placed tile.
-     (Phase 14a's D14-H stripped `log`'s own `tile` block, so the placeable
-     timber forms are now `rung`, `stair` and `seed` rather than four; the
-     test is unchanged and excludes all of them, as it always did.)
-
-     ONE SEED, ALWAYS, AND NOT A `chance`. `eff('seedYield')` is a value row
-     and there is deliberately no `seedChance` beside it: a regrowth mechanic
-     that sometimes gives you nothing is a mechanic that sometimes silently
-     ends the timber economy. If scarcity is wanted later the lever is
-     `treeGrowSecs`, not the odds.
-
-     WHERE THIS SITS IN THE `rand()` STREAM IS LOAD-BEARING.
-     It is AFTER the ordinary material drop above and BEFORE the `DROPS` loop
-     below, so the rare-trinket roll keeps its exact position RELATIVE to
-     that drop -- the property `data/drops.js`'s odds were measured against.
-     The two `rand()` draws the toss below consumes are therefore a fixed,
-     deterministic insertion rather than a moving one. This DOES change what
-     an existing seed produces downstream of the first tree ever felled in a
-     run, which is what adding any new spawn to this branch must; what
-     invariant 7 requires is that `newRun(s)` twice still match, and it
-     does. */
+     `formAt(...) === NATIVE` KEEPS A PLACED LADDER OUT, or a player pegs rungs
+     into a wall and mines them out for free seeds. Sits AFTER the ordinary
+     drop and BEFORE the `DROPS` loop, so the trinket roll keeps its position
+     in the stream. */
   if (sub === S.timber && formOf(byte) === NATIVE
       && !trunkAt(b, tx, ty - 1) && !trunkAt(b, tx, ty + 1)) {
     const n = Math.max(0, Math.round(eff('seedYield')));
@@ -443,14 +339,11 @@ function swing(dt, b, tx, ty) {
     }
   }
 
-  /* RARE TRINKET DROP, the one live trinket source.
-     Reads the ODDS from `data/drops.js` so they live in one table a
-     designer can tune without opening this file. Rolled through `rand()`
-     and NOTHING ELSE (invariant 7: a run is bit-reproducible from its
-     seed), immediately after the ordinary material drop above so both draw
-     from the same fixed position in the same run's rand() stream every
-     time. Skips a trinket already held -- one is enough, and a second copy
-     would just be visual noise in the pockets. */
+  /* RARE TRINKET DROP, the one live trinket source. The odds live in
+     `data/drops.js`, so a designer tunes them without opening this file.
+     Rolled through `rand()` and nothing else, immediately after the ordinary
+     material drop, so both draw from a fixed position in the stream. Skips a
+     trinket already held. */
   for (const d of DROPS) {
     if (d.trigger !== 'mine') continue;
     const tileTier = sub >= 0 ? (SUB[sub].tile?.tier ?? 1) : 1;
