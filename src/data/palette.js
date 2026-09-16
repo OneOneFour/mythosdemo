@@ -1,10 +1,7 @@
-/* LAYER data — the named colours that CONTENT ROWS are allowed to use.
-   Imports `core` only. May be imported by `data`, `model`, `rules`, `view`.
+/* LAYER data — the named colours CONTENT ROWS are allowed to use. Imports
+   `core` only.
 
-   Why this exists separately from `core/palette.js`'s hex table:
-   docs/DEVELOPER_GUIDE.md#colour-and-appearance
-
-   Add art-direction aliases here, not new hex — hex belongs in `core`. */
+   Add art-direction ALIASES here, not new hex -- hex belongs in `core`. */
 
 import { P } from '../core/palette.js';
 

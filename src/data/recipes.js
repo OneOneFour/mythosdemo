@@ -1,42 +1,32 @@
-/* LAYER data — RECIPES: shared, named transformations. Frozen.
-   Imports nothing. May be imported by `data`, `model`, `rules`, `view`.
+/* LAYER data — RECIPES: shared, named transformations. Frozen. Imports
+   nothing.
 
-   A machine row may name a recipe from this table or inline a literal one; both
-   forms are the same shape and `recipesOf()` at the bottom returns the resolved
-   list either way. Named rows are for transformations more than one machine
-   performs; inline rows are for a machine's own private behaviour.
+   A machine row may NAME a recipe here or INLINE a literal one; both are the
+   same shape and `recipesOf()` resolves either. Named rows are for
+   transformations more than one machine performs.
 
-   See docs/DEVELOPER_GUIDE.md#adding-a-recipe for the one-smelt-row rule and
-   what `hand:true` promises.
+   in     { selector: units }. Grammar is in `data/forms.js`.
+   from   which `data/sources.js` row the inputs come from, default 'buffer'.
+          With `units:'named'` the input KEYS are bare unit names. NO ROW USES
+          EITHER TODAY; the mechanism stays because it is the only way a
+          non-item input can be expressed.
+   needs  { field: { min, max } } gate on a scalar field at the machine.
+          Delete the line and the recipe runs cold.
+   secs   seconds per run at rate 1.0, before `servo` and the `rate` tunable.
+   out    output clauses. `[]` means it consumes and produces nothing and
+          banks a CHARGE instead, which a belt and a brazier both do.
+            { sub, form, n }      literal output.
+            { subFrom, form, n }  DERIVED: the substance that satisfied the
+                                  named input clause, in the named form.
+          Exactly one of `sub` / `subFrom` per clause.
+   hand   true if a PLAYER may run this exact row by hand. Deliberately not a
+          second row -- one row, two runners.
 
-   Row shape:
-
-     in       { selector: units }. Selector grammar is in `data/forms.js`.
-     from     which `data/sources.js` row the inputs come from. Default 'buffer'.
-              With `units:'named'` the input KEYS are bare unit names, not
-              selectors. NO ROW USES EITHER TODAY: the only one that ever did
-              was the retired winch stage's heart-fuelled recipe, deleted in
-              Phase 8f with the rest of the staged winch
-              (docs/PLAN-gears-and-winches.md A5, rejected outright -- the
-              crank is manual only and there is no passive power source at
-              all). The mechanism stays because it is the only way a non-item
-              input can ever be expressed.
-     needs    { field: { min, max } } gate on a scalar field value at the
-              machine. Delete the line and the recipe runs cold. A temperature
-              BAND is a `max` beside the `min`.
-     secs     seconds per run at rate 1.0, before `servo` and the `rate` tunable.
-     out      output clauses. `[]` means the machine consumes and produces
-              nothing -- it banks a charge instead, which is what a belt, a
-              brazier and a spoil sink all do.
-
-              { sub, form, n }         literal output.
-              { subFrom, form, n }     DERIVED: the substance that satisfied the
-                                       named input clause, in the named form.
-              Exactly one of `sub` / `subFrom` per clause.
-
-     hand     true if a PLAYER may also run this exact row, by hand, not only a
-              machine that names it. See `rules/crafting.js` and `HAND_RECIPES`
-              below. Deliberately not a second row -- one row, two runners. */
+   DECLARATION ORDER IS A CORRECTNESS PROPERTY. `rules/crafting.js#choose`
+   takes the FIRST affordable row, matched by ONE pocketed pair holding the
+   whole count, so if bill A strictly CONTAINS bill B, A must come first or
+   B wins forever and A is uncraftable. Four rows were unobtainable this way
+   before their positions were fixed. */
 
 export const RECIPES = Object.freeze({
 
@@ -115,11 +105,8 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* SEGMENT TRANSPORT, part 1 of 2: the two timber-and-gravel rows.
-     Declared HERE, right after `brazier`, for the containment reasons
-     spelled out in this block's own header -- `crank` after `brazier`, `gear`
-     after both..1 and
-     docs/SPEC.md section 17. */
+  /* SEGMENT TRANSPORT, part 1 of 2: the two timber-and-gravel rows, declared
+     here for the containment reasons in the block header above. */
 
   crank: Object.freeze({
     id:'crank', name:'HAND CRANK',
@@ -141,35 +128,20 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* SEGMENT TRANSPORT, part 2 of 2: the two refined rows. Declared HERE,
-     where the retired WINCH STAGE row used to sit, because both bills
-     were strict subsets of its own and had to follow it. That row is gone,
-     so the containment it forced no longer exists -- but the position
-     is kept, since `hearth`'s {2 plate} is a strict subset of `hub`'s bill and
-     `hearth` being declared LAST OF ALL is what covers that. */
+  /* SEGMENT TRANSPORT, part 2 of 2: the two refined rows. `hearth`'s {2 plate}
+     is a strict subset of `hub`'s bill, and `hearth` being declared LAST OF
+     ALL is what covers that. */
 
-  /* cloud_dock: the tribute receiver in astral, and DECLARED BEFORE
-     `hub` BECAUSE ITS BILL STRICTLY CONTAINS THE HUB'S. {5 plate, 1 ingot,
-     2 log} against the hub's {3 plate, 1 ingot, 2 log}: any pockets that
-     satisfy this one also satisfy the hub, so with `hub` first
-     `rules/crafting.js#choose`'s first-match rule would deterministically
-     build a hub forever and the dock would be uncraftable -- the identical
-     failure `cyclops_maw` before `talos_head` before `press_machine` already
-     records. The reverse is harmless: 3 plate builds a hub and never trips
-     this row.
+  /* DECLARED BEFORE `hub` BECAUSE ITS BILL STRICTLY CONTAINS THE HUB'S:
+     {5 plate, 1 ingot, 2 log} against {3 plate, 1 ingot, 2 log}. Any pockets
+     satisfying this also satisfy the hub, so with `hub` first the dock is
+     uncraftable forever. The reverse is harmless.
 
-     Checked against every other `hand:true` bill in this file, and these are
-     ALL the containments: it contains `hub` (handled above), `daedalan`
-     {3 plate, 1 log}, `auger` {2 plate, 1 log}, `peg_rungs` {2 log} and
-     `kindle` {1 log} (all declared later already), and `hearth` {2 plate}
-     (declared after every plate row, which covers it). It does
-     NOT contain `press_machine` {4 plate, 2 ingot} -- one ingot short -- nor
-     `belt_r` {2 plate, 4 gravel} nor `gear`
-     {2 log, 1 gravel}, and nothing declared before it contains IT (`furnace`
-     wants ore, `brazier` and `crank` want more logs than this). See
-     docs/DEVELOPER_GUIDE.md#hand-recipe-declaration-order
+     It also contains `daedalan`, `auger`, `peg_rungs`, `kindle` and `hearth`,
+     all declared later already, and contains NEITHER `press_machine` (one
+     ingot short) nor `belt_r` nor `gear`.
 
-     14.0s: the hub's own 10.0 plus 4.0 for the deck, in `crank`'s class. */
+     14.0s is the hub's 10.0 plus 4.0 for the deck. */
   cloud_dock: Object.freeze({
     id:'cloud_dock', name:'THE CLOUD DOCK',
     in:{ 'copper/plate':5, 'copper/ingot':1, 'timber/log':2 },
@@ -232,11 +204,8 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* the commented row
-     `docs/DESIGN.md`'s locked compression table fixes ingot at 4:1 (four ore
-     become one ingot), so `in` reads 4 here and not the round-number 2 an
-     earlier draft shipped with -- `docs/SPEC.md` names this explicitly so the
-     two files cannot drift again. */
+  /* The locked compression table fixes ingot at 4:1, so `in` reads 4 and not
+     the round-number 2 an earlier draft shipped with. */
   smelt: Object.freeze({
     id:'smelt', name:'SMELT',
     in:{ '*/#ore':4, '*/#fuel':1 },
@@ -245,18 +214,13 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* press: the SECOND compression tier. `docs/DESIGN.md` locks plate at
-     12:1 against raw ore; since one ingot already costs 4 ore, three ingots
-     is the same 12:1 expressed in ingot terms, so `in` reads 3 rather than a
-     fresh ore-relative number. The input selector is star-slash-hash-ingot,
-     not star-slash-hash-refined, on purpose (written in words, not symbols,
-     for the same reason `forms.js`'s grammar comment does -- a star followed
-     by a slash closes a block comment): `refined` also tags `plate` itself
-     (see `forms.js`), and selecting on it here would let a press eat its own
-     output, one refinement tier "compressing" into itself for free.
-     `subFrom` on the matching selector carries the substance across exactly
-     the way `smelt` carries it from ore, so a tin plate differs from a
-     copper plate with no row written anywhere for tin. */
+  /* The SECOND compression tier, locked at 12:1 against raw ore -- and since
+     one ingot already costs 4 ore, three ingots IS that ratio in ingot terms.
+
+     The input selects on INGOT and not on REFINED, because `refined` also
+     tags `plate` itself, so selecting on it would let a press eat its own
+     output and compress a tier into itself for free. `subFrom` carries the
+     substance across as `smelt` does, so a tin plate needs no row. */
   press: Object.freeze({
     id:'press', name:'PRESS',
     in:{ '*/#ingot':3, '*/#fuel':1 },
@@ -283,26 +247,16 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* daedalan: 3 copper/plate + 1 timber/log -> 2 copper/stair, the
-     tier-2 ladder. Vertical throughput as an upgradeable axis: see
-     `forms.js#stair`'s `climbK`. hand:true for the same reason `peg_rungs`
-     is -- no machine builds a ladder, ever.
+  /* 3 plate + 1 log -> 2 stairs, the tier-2 ladder. `hand:true` because no
+     machine builds a ladder, ever.
 
      THREE PLATE AND ONE LOG, NOT TWO PLATE AND FOUR LOGS, AND THE CHANGE IS
-     WHAT MAKES THIS ROW REACHABLE AT ALL. `peg_rungs` {2 log} and `kindle`
-     {1 log} are both strict subsets of the four-log bill, so every pockets
-     state that could afford a stair could also afford rungs or a brand, and
-     `rules/crafting.js#choose` handed out the cheaper timber row forever --
-     measured in a real run, at every inventory (docs/PLAYTEST.md finding 4).
-     One log is under `peg_rungs`'s two, which breaks the containment in the
-     one direction that matters.
+     WHAT MAKES THIS ROW REACHABLE AT ALL: `peg_rungs` {2 log} and `kindle`
+     {1 log} are both strict subsets of a four-log bill, so the cheaper timber
+     row won at every inventory. One log is under `peg_rungs`'s two, which
+     breaks the containment in the one direction that matters.
 
-     Mass is unchanged at 8.0 consumed against 6.0 produced (3 x plate's 2.4
-     plus log's 0.8, at copper mass 1.0), so `forms.js#stair`'s own massK
-     headroom derivation still reads as written. The 12 extra ore against 3
-     fewer logs is the direction `data/cycles.js`'s header asks for --
-     escalation in refinement, not in volume -- and timber is the scarcer
-     material by a wide margin. */
+     Mass is unchanged at 8.0 consumed against 6.0 produced. */
   daedalan: Object.freeze({
     id:'daedalan', name:'DAEDALAN STAIR',
     in:{ 'copper/plate':3, 'timber/log':1 },
@@ -311,18 +265,13 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* auger: the T2 hand tool. hand:true with no machine ever naming it
-     -- same shape as `peg_rungs`/`daedalan` above, nothing builds a tool but
-     a pair of hands.
+  /* The T2 hand tool, `hand:true` with no machine ever naming it.
 
-     DECLARED AFTER `daedalan` AND BEFORE `kindle`, AND BOTH HALVES ARE
-     LOAD-BEARING. `daedalan` {3 plate, 1 log} asks one more plate at the same
-     log count, so it is the stronger bill and is tried first: 3 plate and a
-     log yields a stair, 2 plate and a log yields the auger. `kindle`
-     {1 log} is a strict subset of this bill and used to be declared above
-     it, which made the auger -- `docs/SPEC.md` section 12's answer to the
-     granite gate -- unobtainable in every run at every inventory, because
-     any pockets that could afford it produced brands instead. */
+     DECLARED AFTER `daedalan` AND BEFORE `kindle`, AND BOTH HALVES MATTER.
+     `daedalan` asks one more plate at the same log count, so it is the
+     stronger bill and is tried first. `kindle` {1 log} is a strict SUBSET of
+     this bill, and above it the auger -- the answer to the granite gate --
+     is unobtainable at every inventory. */
   auger: Object.freeze({
     id:'auger', name:'ADAMANT AUGER',
     in:{ 'copper/plate':2, 'timber/log':1 },
@@ -331,24 +280,16 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* kindle: timber/log -> timber/brand. THE ONLY ROW WHOSE OUTPUT FORM
-     IS NOT A COMPRESSION TIER -- smelt and press both compress toward
-     density; kindling does the opposite, one log splitting into lighter,
-     burnable brands. hand:true because no machine performs it; this is how
-     the player restocks the one carried light source.
+  /* THE ONLY ROW WHOSE OUTPUT FORM IS NOT A COMPRESSION TIER: smelt and press
+     compress toward density, kindling does the opposite.
 
      TWO BRANDS PER LOG, NOT THREE. A log and a brand are each ONE unit to a
-     star-slash-hash-fuel selector (spelled in words for the reason
-     `forms.js`'s grammar block gives), so this count IS the fuel exchange
-     rate: at three, every fuel bill in the game silently cost a third of a
-     log and burning a log directly was never rational. Two still pays for
-     the 1.5 s -- a brand is 0.3 massK against a log's 1.0 and is the only
-     carried light there is -- and leaves 40% of the log as waste.
-     `docs/SPEC.md` section 8 holds the ratio.
+     fuel selector, so this count IS the fuel exchange rate -- at three, every
+     fuel bill silently cost a third of a log and burning a log directly was
+     never rational. Two leaves 40% of the log as waste.
 
-     DECLARED AFTER `daedalan` AND `auger`. This is the weakest log bill in
-     the file, and the weakest bill must be tried last, exactly as `hearth`
-     {2 plate} sits after every other plate row. */
+     DECLARED AFTER `daedalan` AND `auger`: this is the weakest log bill in
+     the file, and the weakest bill must be tried last. */
   kindle: Object.freeze({
     id:'kindle', name:'KINDLE',
     in:{ 'timber/log':1 },
@@ -357,17 +298,10 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* hearth: 2 copper/plate -> hearth/rig, DECLARED LAST OF EVERY
-     PLATE-CONSUMING ROW, after even `auger` -- see the machine-recipe block's
-     own header comment above
-     for why: this bill (2 plate, nothing else) is a strict SUBSET of every
-     other plate-consuming recipe in this table (`cyclops_maw`,
-     `talos_head`, `press_machine`, `belt_r`, and the pre-existing
-     `daedalan`/`auger`), so declaring it any earlier would starve whichever
-     of those came after it the moment a player held 2+ plate, the same
-     "stronger requirement first" rule every other ordering choice on this
-     page already follows, applied to its logical extreme: the weakest bill
-     in the file must be the LAST one tried. */
+  /* DECLARED LAST OF EVERY PLATE-CONSUMING ROW, after even `auger`: this bill
+     is a strict SUBSET of every other plate-consuming recipe here, so
+     declaring it earlier starves whichever came after it the moment a player
+     holds 2+ plate. The weakest bill in the file must be the LAST tried. */
   hearth: Object.freeze({
     id:'hearth', name:'HEARTH',
     in:{ 'copper/plate':2 },
@@ -376,63 +310,16 @@ export const RECIPES = Object.freeze({
     hand:true
   }),
 
-  /* pack: 5 rubble of one BULK element -> 1 `block` of that element, the
-     only way back to solid ground now that `data/forms.js#gravel` has no
-     `tile` block (Phase 14a, docs/PLAN-phase14-mining-and-drops.md D14-A/B,
-     docs/SPEC.md section 19). One row covers soil AND stone AND any future
-     `bulk` element: `subFrom` carries the substance across exactly as
-     `smelt` carries it from ore, so there is no `pack_soil`.
+  /* 5 rubble of one BULK element -> 1 `block` of that element, the only way
+     back to solid ground. One row covers soil AND stone AND any future `bulk`
+     element, because `subFrom` carries the substance across, and
+     `#bulk/gravel` and not `#rock/gravel` is what keeps `cyclops_maw`'s 6
+     granite/gravel out of contention entirely.
 
-     `#bulk/gravel` and not `#rock/gravel` IS THE POINT. `bulk` tags `soil`
-     and `stone` only; `granite` and `adamant` are tagged `deposit`, so
-     neither this input nor `block`'s own `subTags:['bulk']` can ever admit
-     them. `cyclops_maw`'s 6 `granite/gravel` is therefore NOT a containment
-     concern with this row at all -- the two bills cannot be satisfied by the
-     same pocketed pair, whatever the counts.
-
-     DECLARATION POSITION, DERIVED PAIRWISE AGAINST EVERY OTHER `hand:true`
-     BILL IN THIS FILE (the rule is docs/DEVELOPER_GUIDE.md#hand-recipe-
-     declaration-order; note `rules/crafting.js#choose` matches through
-     `model/run.js#pocketedPair`, so a clause must be met by ONE pocketed
-     pair holding the whole count, never by a sum across two elements):
-
-       CONCLUSION: `pack` has NO CONTAINMENT, IN EITHER DIRECTION, WITH ANY
-       ROW IN THIS FILE. Two facts give that, and both are load-bearing.
-
-       1. Nothing here can imply `pack`. Its 5 is strictly MORE gravel than
-          any other bill asks for -- `belt_r` 4, `crank` 3, `brazier` 2,
-          `gear` 1, and `cyclops_maw`'s 6 is granite, which `#bulk` excludes.
-          So no pockets state that satisfies another row also satisfies this
-          one. (If a future row ever wants 5+ plain gravel, it must be
-          declared BEFORE this one or this one starves it.)
-       2. `pack` can imply nothing. It is a ONE-CLAUSE bill and every other
-          gravel-consuming row also demands logs (`brazier` 4, `crank` 3,
-          `gear` 2) or plate (`belt_r` 2), which this row does not ask for at
-          all. Every non-gravel row (`furnace`, `cloud_dock`, `hub`, `axle`,
-          `talos_head`, `press_machine`, `smelt`, `press`, `peg_rungs`,
-          `kindle`, `daedalan`, `auger`, `hearth`) shares no material with it
-          whatsoever.
-
-     SO POSITION IS UNCONSTRAINED BY CONTAINMENT, AND IS DECIDED BY WHO LOSES
-     THE OVERLAP INSTEAD -- first-match-wins still means any two
-     simultaneously-affordable rows contend, and gravel is the most abundant
-     material in the game, so a player will hold 5+ of it almost always.
-     Declared FIRST, this row would win that overlap and a player carrying
-     rubble could not hand-build a `brazier`, `crank`, `gear` or `belt_r` --
-     i.e. most of the drivetrain -- without spending their gravel below 5.
-     Declared LAST, the loss runs the other way and is smaller: `pack` waits
-     until nothing else is affordable, so a player holding 2+ plate has to put
-     the plate down to pack earth. Starving four machine builds is worse than
-     starving one utility craft, so this is declared ABSOLUTE LAST, after even
-     `hearth` -- which loses nothing, since the two bills share no material.
-
-     That residual wart is the known one: `docs/FINDINGS.md` (8d, #4) records
-     that the craft queue cannot choose a recipe, and a real menu is the fix
-     for this the way it is the fix for `daedalan`/`auger`. Nothing here
-     invents a number to dodge it.
-
-     `secs:2.5` -- in `gear`/`kindle`'s cheap class. The cost of a block is
-     the five tiles of rubble, not the time. */
+     NO CONTAINMENT IN EITHER DIRECTION here, so position is decided by WHO
+     LOSES THE OVERLAP. Declared first, a player carrying rubble could not
+     hand-build most of the drivetrain; declared LAST they must put plate down
+     to pack earth, which is the smaller loss. */
   pack: Object.freeze({
     id:'pack', name:'PACK EARTH',
     in:{ '#bulk/gravel':5 },

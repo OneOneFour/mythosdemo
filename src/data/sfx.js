@@ -1,13 +1,12 @@
-/* LAYER data — SOUND: the journal-kind to sound mapping, and the waveform rows.
-   Imports nothing. May be imported by `data`, `model`, `rules`, `view`.
+/* LAYER data — SOUND: the journal-kind to sound mapping, and the waveform
+   rows. Imports nothing.
 
-   This file is the contract between the journal and the audio device -- see
-   docs/DEVELOPER_GUIDE.md#notification-and-the-journal. A journal kind that is
-   not a key in `KIND_SFX` is silent, deliberately: not every fact is audible.
+   The contract between the journal and the audio device. A journal kind that
+   is not a key in `KIND_SFX` is SILENT, deliberately: not every fact is
+   audible.
 
-   There are no audio assets and no loader. That is the point -- the single-file
-   bundle stays a single file. Rows are ZzFX parameter lists; author new ones
-   with the GUI at https://killedbyapixel.github.io/ZzFX/ and paste the array in. */
+   There are no audio assets and no loader, which is the point -- the
+   single-file bundle stays a single file. Rows are ZzFX parameter lists. */
 
 /* THE MAPPING. Journal kind -> sound row name.
    These kind strings are the vocabulary `rules` pushes and `shell` drains.

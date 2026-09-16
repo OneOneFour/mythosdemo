@@ -1,124 +1,76 @@
-/* LAYER data — CYCLES: what the gods ask for, in order. Frozen.
-   Imports nothing. May be imported by `data`, `model`, `rules`, `view`.
+/* LAYER data — CYCLES: what the gods ask for, in order. Frozen. Imports
+   nothing.
 
    A CYCLE IS ONE TRIAL: a god, a place to pay, a bill of concrete pairs, a
-   clock, a reward and a punishment. `rules/cycles.js` arms row `run.cycle - 1`
-   and never looks at any other row, so "which trial am I on" is one integer on
-   `run` and this table is read-only content. docs/SPEC.md section 18 is the
-   contract; docs/DESIGN.md's "Run structure" is the reasoning.
+   clock, a reward and a punishment. `rules/cycles.js` arms row
+   `run.cycle - 1` and never looks at another, so "which trial am I on" is one
+   integer on `run` and this table is read-only content.
 
-     id            stable string, and the key `run.tribute.id` stores.
-     god           who is asking. The same god-id namespace `data/boons.js`,
-                   `data/grants.js`, `data/trinkets.js` and `data/miracles.js`
-                   already use -- one vocabulary, four tiers, no map.
-     at            THE MACHINE ID of the receiver that satisfies this cycle --
-                   `'altar'` or `'cloud_dock'` today. A machine id and not a
-                   nickname, and `tools/content.mjs` assertion 19 checks the row
-                   it names really carries `tribute:{}`: a cycle pointing at the
-                   furnace would be unpayable for ever and nothing would throw.
-                   Cycle 1 is the altar and every later cycle is the dock, which is how
-                   docs/SPEC.md section 4's "cycle 1 is unmoved at the surface"
-                   is expressed as DATA rather than as a branch in the director.
-     demand        [{ sub, form, n }], CONCRETE PAIRS and never selectors. Two
-                   readers need them concrete: a panel has to name the row
-                   exactly, and `model/items.js#massOfPair` has to price it.
-                   Validated two ways in `tools/content.mjs` assertion 19 --
-                   `holdable(sub, form)` proves the pair can exist at all, and
-                   `expand(sub/form)` proves the selector is non-empty, which is
-                   the check `data/forms.js#expand` exists for.
-     batch         OPTIONAL `{ sub, form, n, secs }` -- deliver `n` of that
-                   concrete pair inside ANY window of `secs` seconds of
-                   SIMULATED time. A second
-                   clause on `model/run.js#tributeMet()` and never a
-                   replacement for `demand`: both must hold for the trial to
-                   pay. It constrains the PATTERN of delivery and not the
-                   speed of production -- a credit stamps when cargo reaches
-                   the receiver, so this asks for arrivals bunched together
-                   and refuses a dribble. NOT a throughput quota; section
-                   18.10 says why one cannot be built out of arrivals. One
-                   block per row at most, and the pair is concrete for the
-                   same two reasons `demand`'s rows are.
-     deadlineSecs  seconds, or `null` for NO CLOCK. `null` is a real branch and
-                   not a large number: cycle 1 has no clock, so it can never be missed, and a panel must draw
-                   no timer for it rather than a zero.
-     reward        { favour, grants?, charts?, draft? } -- see below.
-     punishment    { hearts?, favour? }. Absent entirely on a cycle that cannot
-                   be missed.
+   id            stable string, and the key `run.tribute.id` stores.
+   god           who is asking, in the same god-id namespace every other gift
+                 tier uses -- one vocabulary, four tiers, no map.
+   at            THE MACHINE ID of the receiver that satisfies this cycle. A
+                 machine id and not a nickname, and the content lint checks
+                 the row it names really carries `tribute:{}` -- a cycle
+                 pointing at the furnace would be unpayable for ever and
+                 nothing would throw. Cycle 1 is the altar and every later
+                 cycle the dock, which is how "cycle 1 is unmoved at the
+                 surface" is expressed as DATA rather than a branch.
+   demand        [{ sub, form, n }], CONCRETE PAIRS and never selectors: a
+                 panel has to name the row exactly and `massOfPair` has to
+                 price it. Validated two ways -- `holdable` proves the pair
+                 can exist, `expand` proves the selector is non-empty.
+   batch         OPTIONAL `{ sub, form, n, secs }`: deliver `n` of that pair
+                 inside ANY window of `secs` SIMULATED seconds. A SECOND
+                 clause on `tributeMet()` and never a replacement for
+                 `demand`. It constrains the PATTERN of delivery and not the
+                 speed of production, because a credit stamps on ARRIVAL.
+   deadlineSecs  seconds, or `null` for NO CLOCK. `null` is a real branch and
+                 not a large number: a panel must draw no timer rather than a
+                 zero.
+   reward        { favour, grants?, charts?, draft? }. `favour` is always
+                 present. `charts` is KNOWLEDGE, NOT ACCESS -- it takes the
+                 `????????` off a band's name. `draft` names a tier to offer
+                 1-of-3 from, written into `run` for `shell` to perform.
+   punishment    { hearts?, favour? }, absent on a cycle that cannot be missed.
 
-   REWARD KEYS, and each one is a different tier of the same promise:
-     favour   integer added to `run.favour[god]`. Always present: a trial
-              always changes how the asking god feels about you, and the
-              FAVOUR panel is a picture of this run (CLAUDE.md D1, decision I).
-     grants   machine ids appended to `run.granted`, i.e. docs/DESIGN.md's
-              MACHINE tier paid out directly rather than drafted.
-     charts   band ids appended to `run.charted`. KNOWLEDGE, NOT ACCESS:
-              there is no band lock in this game
-              and this does not invent one. It takes the `????????` off a
-              band's name on the ruler.
-     draft    'grant' | 'boon' | 'trinket' | 'miracle' -- a tier to be offered
-              1-of-3 from. The director writes the offer into `run` and
-              `shell/main.js` performs it, because `draftable()` lives in four
-              `rules` siblings a `rules` module may not import.
+   WHY FOUR ROWS AND NOT SIX: the `essence` and `ambrosia` tiers are not
+   implemented, and a cycle demanding a substance nothing can make is exactly
+   the orphan the content lint's reachability fixpoint would catch.
 
-   WHY THESE FOUR ROWS AND NOT SIX. docs/DESIGN.md runs the progression to a
-   sixth cycle asking for three bottles of ambrosia; docs/SPEC.md section 8
-   marks the `essence` (60:1) and `ambrosia` (~400:1) tiers NOT IMPLEMENTED. A
-   cycle demanding a substance nothing can make is precisely the orphan
-   `tools/content.mjs`'s reachability fixpoint exists to catch, and it would
-   catch it. Cycles 5 and 6 arrive with those tiers.
+   ESCALATION IS IN REFINEMENT, NOT VOLUME. Cycle 2 wants three PLATE, which
+   is 36 ore against cycle 1's 10 -- a 3.6x jump in mining that reads as a
+   three-unit ask. Cycle 3 forces DEPTH, cycle 4 the TIER GATE.
 
-   ESCALATION IS IN REFINEMENT, NOT VOLUME. Cycle 2 wants three PLATE, which is
-   36 ore against cycle 1's 10 -- a 3.6x jump in mining that reads as a
-   three-unit ask, which is the whole point of pricing a demand in compression.
-   Cycle 3 forces DEPTH (`tin` starts at topsoil row 60,
-   `data/world.js`). Cycle 4 forces the TIER GATE (`granite` is `tile.tier 2`,
-   so a stock pick cannot break it -- docs/SPEC.md section 12 -- and the auger
-   becomes necessary).
-
-   HADES NEVER ASKS. The asker set is {hephaestus, athena, poseidon}. `ares` is
-   the shipped trap god and stays out of the asking;
-   `hades` is protected by docs/DESIGN.md's Hades act, where his being the FIRST
-   GOD TO ADDRESS THE PLAYER IN PERSON is the whole reveal. A minor god takes
-   cargo off an altar and says nothing. This table must not spend that. */
+   HADES NEVER ASKS. `ares` is the shipped trap god and stays out of the
+   asking; `hades` being the FIRST GOD TO ADDRESS THE PLAYER IN PERSON is a
+   reveal this table must not spend. */
 
 export const CYCLES = [
 
-  /* 1. THE FIRST TRIAL, unmoved and unclocked (docs/SPEC.md section 4 and
-     section 5's beats 5-6). Ten RAW copper on the surface altar, which is a
-     five-tile dig from the guaranteed spawn vein -- the beat sheet's own
-     promise -- and no clock at all, because the only thing this trial teaches
-     is that the gods ask and the player answers.
+  /* THE FIRST TRIAL, unmoved and unclocked. Ten RAW copper on the surface
+     altar, a five-tile dig from the guaranteed spawn vein, and NO CLOCK --
+     the only thing it teaches is that the gods ask and the player answers.
 
-     IT PAYS FOR THE NEXT TRIAL. The furnace is cycle 1's reward, which is what
-     docs/SPEC.md section 4 has always said and what `data/grants.js` was
-     quietly contradicting by putting it in `STARTING_MACHINES`; the dock comes
-     with it, because cycle 2 asks for a delivery to a dock and a reward that
-     does not make the next ask possible is a reward in name only.
-
-     CHARTS ASTRAL, and that is the answer to "give the player a reason to look
-     up". Before this the top of the ruler reads `????????` and always will,
-     because no player enters astral early. Completing the first trial names it
-     -- at exactly the moment the game has finished teaching that up is
-     expensive. */
+     IT PAYS FOR THE NEXT TRIAL: the furnace is cycle 1's reward and the dock
+     comes with it, because cycle 2 asks for a delivery to a dock and a reward
+     that does not make the next ask possible is a reward in name only. It
+     also CHARTS ASTRAL, which is the reason to look up. */
   { id:'first-trial', god:'hephaestus', at:'altar',
     demand:[ { sub:'copper', form:'ore', n:10 } ],
     deadlineSecs:null,
     reward:{ favour:1, grants:['furnace', 'cloud_dock'], charts:['astral'] } },
 
-  /* 2. THE FIRST DELIVERY. Three copper PLATE at the dock: 36 ore and 12
-     fuel through two compression steps, up a three-segment chain the player has
-     to build first.
+  /* THE FIRST DELIVERY. Three copper PLATE at the dock: 36 ore and 12 fuel
+     through two compression steps, up a chain the player must build first.
 
      480 s IS GENEROUS ON PURPOSE and is the number most likely to be wrong.
-     This is the cycle in which the whole ascent gets built --
-     docs/PLAN-phase10.md 4.5 prices it at ~42 s of crafting alone, 108 ore, and
-     some thirty tiles of climbing scaffold. Tune it against a real
-     playthrough, not against this comment.
+     This is the cycle in which the whole ascent gets built. Tune it against a
+     real playthrough, not against this comment.
 
      CHARTS TOPSOIL, and the honest note is that this is nearly a no-op today:
-     any player who has dug at all has already entered topsoil, so `bandKnown`
-     is already true for it. The charting reward is a HOOK whose payoff arrives
-     with more bands. Said here rather than pretended otherwise. */
+     any player who has dug at all is already there. The charting reward is a
+     HOOK whose payoff arrives with more bands. */
   { id:'first-delivery', god:'hephaestus', at:'cloud_dock',
     demand:[ { sub:'copper', form:'plate', n:3 } ],
     deadlineSecs:480,
@@ -135,23 +87,16 @@ export const CYCLES = [
     reward:{ favour:2, draft:'boon' },
     punishment:{ hearts:2, favour:-1 } },
 
-  /* 4. POSEIDON, AND THE TIER GATE. `granite` is `tile.tier 2`, which a
-     stock pick cannot break at any framerate, so this
-     trial is unpayable until the player has built the adamant auger. That is
-     the gate the tool tiers exist for, asked for by name for the first time.
+  /* THE TIER GATE. `granite` is `tile.tier 2`, which a stock pick cannot break
+     at any framerate, so this trial is unpayable until the auger is built.
 
-     AND THE TABLE'S ONLY BATCH CLAUSE, on the plate half. Cycle 2 already
-     taught compression and cycle 3 already taught depth, so a third plate
-     demand teaches nothing on its own; asking for four of them inside two
-     minutes makes this cycle about how you SHIP while the granite half keeps
-     it about the pick. A credit is stamped when cargo reaches the dock and
-     not while it climbs, so this asks for arrivals bunched together and
-     forbids the dribble of one plate per trip. It does not measure how fast
-     the factory runs, and on these numbers it does not bite a player who
-     hauls the whole bill in one climb -- eight plates weigh 19.2 T against a
-     30 T soft cap. Making it bite would take seventeen plates or more, which
-     is triple this trial's cost. docs/SPEC.md section 18.10 holds both
-     halves of that. */
+     AND THE TABLE'S ONLY BATCH CLAUSE, on the plate half. Cycle 2 taught
+     compression and cycle 3 taught depth, so a third plate demand teaches
+     nothing alone; asking for four inside two minutes makes this cycle about
+     how you SHIP. A credit stamps on ARRIVAL, so it forbids the dribble of
+     one plate per trip. On these numbers it does not bite a player who hauls
+     the whole bill in one climb -- eight plates weigh 19.2 T against a 30 T
+     soft cap -- and making it bite would take triple this trial's cost. */
   { id:'salt-tribute', god:'poseidon', at:'cloud_dock',
     demand:[ { sub:'copper',  form:'plate',  n:8 },
              { sub:'granite', form:'gravel', n:8 } ],
