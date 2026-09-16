@@ -1,16 +1,15 @@
 #!/usr/bin/env node
-/* Comments-only diff check for `.claude/commands/tidy.md` phase 3.
-   NOT an AST parser -- there is no parser dependency in this project ("no
-   runtime dependencies", and adding `acorn` as a devDependency to check a
-   comment-tidy pass would outweigh the pass). Instead: strip both line and
-   block comments from both files with a small state machine that tracks
-   whether it is inside a string, template literal or regex literal (so a
-   comment marker inside one of those is not mistaken for a real comment),
-   then diff the stripped text byte-for-byte. Byte-identical stripped output
-   is a strong but not airtight guarantee of "comments only changed" -- it
-   would miss a change that also altered whitespace-insensitive token spacing
-   in a way that happens to restripe identically, which does not occur in
-   practice for a comment-only edit. */
+/* Comments-only diff check: proves an edit changed nothing but comments.
+
+   NOT an AST parser -- adding `acorn` to check a comment pass would cost more
+   than the pass. Instead it strips comments from both files with a state
+   machine that tracks strings, template literals and regex literals, so a
+   comment marker inside one is not mistaken for a comment, then diffs the
+   remainder byte for byte.
+
+   Byte-identical stripped output is a strong but not airtight guarantee: it
+   would miss an edit that also restriped token spacing identically, which a
+   comment-only edit does not do. */
 import { readFileSync } from 'node:fs';
 
 function stripComments(src) {

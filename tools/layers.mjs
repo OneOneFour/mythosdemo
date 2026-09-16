@@ -1,11 +1,9 @@
-// Dependency-direction checker. See ARCHITECTURE.md sections 1 and 8.
-//
-// A rule nobody checks is a comment. This parses every import in src/,
-// resolves it to a layer, and fails on any illegal edge. It runs as section 0
-// of `npm run check`, so an illegal edge cannot be committed green.
-//
-// What it CANNOT do: it checks direction and names, not sense.
-// See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves
+/* Dependency-direction checker: parses every import in `src/`, resolves it to
+   a layer, and fails on any illegal edge. Runs first in `npm run check`, so
+   an illegal edge cannot be committed green.
+
+   It checks direction and names, not sense -- an unreachable recipe, a machine
+   with no way to be fed and a wrong number all pass. */
 
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -14,9 +12,8 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC  = join(ROOT, 'src');
 
-/* ---------- the rule table. This IS the architecture. ---------- */
-
-// what each layer may import. Order in this array is the legal downward flow.
+/* The rule table. This IS the architecture: what each layer may import, in
+   the legal downward order. */
 const MAY_IMPORT = {
   core:  [],                                    // depends on nothing
   data:  ['core'],
@@ -34,15 +31,13 @@ const SIBLING_EXCEPTION = (from, to) =>
   to.split('/').length > from.split('/').length;
 
 // The tunable store is only unbypassable if exactly one file may read the
-// frozen design table. See ARCHITECTURE.md section 5.
+// frozen design table, which is what lets a trinket change walk speed at all.
 const SOLE_READER = {
   'data/tuning.js': 'model/mods.js'
 };
 
 // Ratchet. Starts at 0 and may only ever go down.
 const LAYER_BUDGET = 0;
-
-/* ---------- walk, parse, judge ---------- */
 
 async function jsFiles(dir) {
   const out = [];

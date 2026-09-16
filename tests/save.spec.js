@@ -1,29 +1,17 @@
 import { expect, test } from '@playwright/test';
 
-/* ============================================================
-   THE SAVE SLOT IN A REAL BROWSER
+/* THE SAVE SLOT IN A REAL BROWSER.
 
-   `tools/check.mjs` section 8r covers the payload's shape, the four version
-   hashes, the 47-case refusal matrix and the round trip, all against a
-   Map-backed `localStorage` stub. That stub is faithful to the three methods
-   `src/shell/save.js` calls and blind to the one thing that matters here:
-   a real origin, a real quota, and a real page RELOAD, which throws the whole
-   module graph away and builds it again from nothing.
-
-   So this file asserts exactly what the stub cannot. It plays a scripted run,
-   saves, reloads the page, loads, and compares a fingerprint of the model
-   across the two processes.
-
-   NO SCREENSHOTS AND NO BASELINES. Nothing here is about appearance, and a
-   spec that photographed a loaded run would couple a save regression to a
-   palette change.
-
-   `import('/src/shell/save.js')` inside `page.evaluate` reaches the live
-   module: `tools/serve.mjs` serves untransformed ES modules, so the URL
-   resolves to the same registry entry `shell/main.js` holds. `tests/visual.spec.js`
-   reaches `model/run.js` the same way. Nothing in `src/` calls `save()` yet,
-   which is why the module needs driving from a test at all.
-   ============================================================ */
+   `tools/check.mjs` covers the payload's shape, the version hashes, the
+   refusal matrix and the round trip against a Map-backed `localStorage` stub.
+   That stub is faithful to the three methods `shell/save.js` calls and blind
+   to what matters here: a real origin, a real quota, and a real page RELOAD,
+   which throws the module graph away and rebuilds it from nothing. So this
+   file plays a scripted run, saves, reloads, loads, and compares a
+   fingerprint of the model across the two processes. No screenshots:
+   photographing a loaded run would couple a save regression to a palette
+   change. `import('/src/shell/save.js')` inside `page.evaluate` reaches the
+   live module because `tools/serve.mjs` serves untransformed ES modules. */
 
 const SAVE_KEYS = ['mythos-factory/save-head', 'mythos-factory/save'];
 
@@ -37,19 +25,15 @@ async function boot(page) {
 }
 
 /* A fingerprint of everything the payload claims to carry, computed in the
-   page and returned as a string. Typed arrays are rolled into one number each
-   -- three bands of `mat` and `seen` is 200 kB of JSON otherwise -- and the
-   hash is order-sensitive, so a transposition inside a band would still show.
+   page and returned as a string. Typed arrays roll into one order-sensitive
+   number each -- three bands of `mat` and `seen` is 200 kB of JSON otherwise
+   -- so a transposition inside a band still shows.
 
-   `b.light` IS DELIBERATELY ABSENT. The payload does not carry it and should
-   not: `rules/light.js` relaxes the field over frames from the tile grid and
-   the sky, so a freshly loaded run converges to the same values rather than
-   starting at them. Fingerprinting it would assert a claim `src/shell/save.js`
-   never makes.
-
-   Floats are fixed to four places. A round trip through JSON is exact for a
-   double, but `run.t` accumulates and printing it is what a regression would
-   be read off. */
+   `b.light` IS DELIBERATELY ABSENT. `rules/light.js` relaxes the field over
+   frames from the tile grid and the sky, so a loaded run converges to the
+   same values rather than starting at them; fingerprinting it would assert a
+   claim `shell/save.js` never makes. Floats are fixed to four places because
+   `run.t` accumulates. */
 const fingerprint = page => page.evaluate(async () => {
   const [w, items, machs, segs, mining, growth, runm, playerm, boons, rng] =
     await Promise.all(['model/world.js', 'model/items.js', 'model/machines.js',
@@ -168,9 +152,8 @@ test('a reloaded run draws the same future as the one that was saved', async ({ 
   const clockAtSave = await page.evaluate(() => __mf.clock.t);
 
   /* The saved run plays on for another 5 simulated seconds. Its state here is
-     the prediction the reloaded run has to reproduce, which is invariant 7
-     with persistence in the game: same seed, same cursor, same input, same
-     future. */
+     the prediction the reloaded run has to reproduce: same seed, same cursor,
+     same input, same future. */
   await phase(page, { dig: true, collect: true }, 600);
   const future = await fingerprint(page);
 

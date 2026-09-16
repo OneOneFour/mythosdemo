@@ -70,8 +70,9 @@ const MAX_RUN = 4;
 const RULES = [
   [/\b[A-Za-z][A-Za-z0-9_-]*\.md\b/, 'references a document; state the constraint instead'],
   [/\u00a7\s*\d|\bsections?\s+\d/i, 'cites a document section'],
-  /* Capital-P `Phase 13d`, or a lowercase one with a letter suffix (`phase 6e`).
-     Bare lowercase `phase 0` is a gear's rotational phase, not a project one. */
+  /* comment-lint-ignore-next-line -- a rule may name what it rejects.
+     Capital-P `Phase 13d`, or a lowercase one with a letter suffix
+     (`phase 6e`). Bare lowercase `phase 0` is a gear's rotational phase. */
   [/\bPhases?\s?\d|\bphases?\s?\d+[a-z]\b|\bgate\s?\d|\bwave\s?\d/, 'names a phase, gate or wave'],
   [/(?<![A-Za-z])D1?\d(-[A-Z]\b|\b(?!\s*(px|ms|s\b|tiles?|talents?)))/, 'cites a decision number'],
   [/\binvariants?\s+\d/i, 'cites an invariant by number'],
@@ -88,8 +89,8 @@ const RULES = [
   [/\bused to (be|say|live|claim|hold|call|return|sit|mean)\b|\bthis (comment|file) used to\b|\ban earlier (version|comment|pass)\b/i, 'describes a previous version'],
   [/^\s*(?:\/\/|\/\*)\s*[=*\-~#_]{4,}/m, 'section banner'],
   [/^\s*\/\/\s*(?:const|let|var|if|for|while|return|function|import|export|class)\b.*[;{)]\s*$/m, 'commented-out code'],
-  /* docs/STYLE.md's miscellany bans both words outright. A comment that calls
-     a line important instead of saying what breaks without it is the reason. */
+  /* comment-lint-ignore-next-line -- naming the style rule that bans them.
+     Both words call a line important instead of saying what breaks. */
   [/\bload-bearing\b|\bcrux\b/i, 'banned word; say what breaks instead'],
 ];
 
@@ -184,11 +185,15 @@ function checkFile(abs) {
   lines.forEach((l, i) => { if (l.includes(ESCAPE)) exempt.add(i + 2); });
 
   const cs = comments(src).filter(c => !c.text.includes(ESCAPE));
+  /* The header is the file's FIRST block, not necessarily the one on line 1: a
+     shebang, a `use strict` or a lone import ahead of it does not make it an
+     ordinary mid-file block. */
+  const header = cs.find(c => c.kind === 'block' && !c.inline)?.start ?? -1;
   for (const c of cs) {
     if (exempt.has(c.start)) continue;
     const len = c.end - c.start + 1;
     for (const [re, why] of RULES) if (re.test(c.text)) say(c.start, why);
-    const cap = c.start === 1 ? MAX_HEADER_LINES : MAX_BLOCK_LINES;
+    const cap = c.start === header && c.start <= 8 ? MAX_HEADER_LINES : MAX_BLOCK_LINES;
     if (len > cap && !isTable(c.text)) say(c.start, `block is ${len} lines, cap ${cap}`);
   }
 

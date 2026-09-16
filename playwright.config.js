@@ -25,11 +25,10 @@ export default defineConfig({
          is not enough. Playwright's `threshold` is a per-pixel YIQ distance a
          difference must exceed before pixelmatch counts the pixel at all, and
          it defaults to 0.2 — wide enough to swallow an 11-unit shift in a
-         near-black pixel. Phase 17g1 measured what that hid: `fc3a40e` gave
-         the bellows relic a sprite and moved 100 pixels of
-         `hollow-relic-unlit`, the suite stayed green, and a later blanket
-         re-accept wrote the drift into the reference image. Raise neither
-         without a written reason. */
+         near-black pixel. What the default hid, measured: giving the bellows
+         relic a sprite moved 100 pixels of `hollow-relic-unlit`, the suite
+         stayed green, and a later blanket re-accept wrote the drift into the
+         reference image. Raise neither without a written reason. */
       threshold: 0,
       maxDiffPixels: 0,
       animations: 'disabled',
@@ -38,9 +37,9 @@ export default defineConfig({
   },
   /* ONE PROJECT, DELIBERATELY. The game is keyboard-and-mouse only — there is
      no touch handling anywhere in `src/` — so a second device project would
-     re-photograph every scene without testing a single input path. Wave 6
-     deleted the 18 `*-phone.png` baselines that used to pair with these; what
-     they actually exercised was the 200x180 buffer floor, which is a DESKTOP
+     re-photograph every scene without testing a single input path. The 18
+     `*-phone.png` baselines that used to pair with these are gone; what they
+     actually exercised was the 200x180 buffer floor, which is a DESKTOP
      condition (`core/canvas.js#resize`), and the four tests that care about it
      now assert against it through `narrowFloor` instead of photographing it.
      Do not add a device project without an input path that needs one. */
