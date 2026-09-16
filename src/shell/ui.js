@@ -1,57 +1,35 @@
-/* LAYER shell — MUTABLE UI STATE for the canvas-drawn widget layer (D2 in
-   CLAUDE.md §"Resolved decisions", docs/BUILD_PLAN.md Phase 5a). Imports
+/* LAYER shell — MUTABLE UI STATE for the canvas-drawn widget layer. Imports
    nothing.
 
-   WHY THIS IS SHELL AND NOT VIEW: which panel is open, the active tab per
-   panel, the focused slot, the drag payload, the search string and each
-   grid's scroll offset are all facts about the SESSION, not about the WORLD.
-   view` may not import
-   `shell`, so this object is handed to `view` through
-   `shell/main.js#frameCtx`, exactly as `shell/input.js#flags` already is.
+   SHELL AND NOT VIEW: which panel is open, the active tab, the focused slot,
+   the drag payload, the search string and each grid's scroll offset are facts
+   about the SESSION, not the WORLD. `view` may not import `shell`, so this
+   object is handed over through `shell/main.js#frameCtx`.
 
-   `ui.stack` is a STACK, not a single id, so a future modal (a "really
-   deconstruct this?" confirmation) can sit on top of the tabbed window
-   without the window losing its own open/tab state. Escape pops exactly the
-   top entry — see `closeTop()` — never the whole stack, so a modal closes
-   without also closing the window underneath it.
+   `ui.stack` is a STACK rather than a single id, so a modal can sit over the
+   tabbed window without the window losing its open/tab state. Escape pops
+   exactly the top entry, never the whole stack.
 
-   Every export here is a plain function mutating properties on the one `ui`
-   object below, per docs/DEVELOPER_GUIDE.md#cross-module-mutable-state. */
+   Every export is a plain function mutating properties on the one `ui`
+   object. */
 
-/*
-   THE KEYMAP, DECLARED ONCE, READ BY TWO LAYERS.
+/* THE KEYMAP, DECLARED ONCE, READ BY TWO LAYERS. The CONTROLS page is
+   generated from this array. It is here rather than in `view` because a
+   binding is a DEVICE fact, and `view` reaches it through `f.ui.keymap`.
+   `shell/input.js` imports `KEYMAP` directly; same layer, legal.
 
-   `view/ui/menu.js`'s CONTROLS page is generated from this array. It is here
-   and not in `view` because a binding is a DEVICE fact and `shell` owns
-   devices, and it is reachable from `view` without an illegal import because
-   `ui` below carries it (`keymap`) and `shell/main.js#frameCtx` already hands
-   `ui` to every render — so the menu reads `f.ui.keymap` the same way it reads
-   `f.ui.menu`. `shell/input.js` imports `KEYMAP` directly; same layer, legal.
+     id      the VERB, unique across the table, what `input.js` dispatches on.
+     codes   the `e.key` values, LOWERCASED as `input.js` compares them.
+             `null` for a binding with no key.
+     keys    the DISPLAY string, given rather than derived, because the
+             derived movement row is 'W A S D ARROWUP ARROWDOWN ...'.
+     label   what the verb does, present tense. Measured by the menu's layout
+             pass, so a long one widens the page rather than overrunning it.
+     hold    the key must stay down for the verb to keep happening.
 
-   ONE LIST, NOT TWO. Before this, the binding set existed as prose in
-   `shell/input.js`'s own header plus one `if (key === ...)` clause per verb,
-   and a shortcuts page hand-copied from either would have drifted from both
-   the first time a letter moved.
-
-   ROW SHAPE, and what each field is for:
-
-     id      the VERB. Unique across the whole table, and what
-             `shell/input.js` is to dispatch on.
-     codes   the `e.key` values, LOWERCASED, exactly as `input.js` compares
-             them. `null` for a binding with no key (the pointer).
-     keys    the DISPLAY string. Given rather than derived from `codes`,
-             because the derived form of the movement row is
-             'W A S D ARROWUP ARROWDOWN ARROWLEFT ARROWRIGHT'.
-     label   what the verb does, in the present tense. Measured by the menu's
-             layout pass, so a long one widens the page rather than
-             overrunning it (CLAUDE.md D8).
-     hold    the key must stay down for the verb to keep happening. Mining,
-             cranking and collecting are holds on purpose; everything else is
-             an edge.
-
-   A GROUP'S `when` IS THE CONTEXT ITS ROWS ONLY EXIST IN, and it is drawn as
-   the group heading, so a row that only works while the map is open says so
-   rather than reading as a global binding that does nothing. */
+   A group's `when` is the context its rows only exist in, and it is drawn as
+   the heading, so a map-only row says so rather than reading as a global
+   binding that does nothing. */
 export const KEYMAP = Object.freeze([
   { when: 'IN THE MENU', rows: [
     { id: 'menuMove',   codes: ['w', 's', 'arrowup', 'arrowdown'], keys: 'W/S', label: 'MOVE THE CURSOR' },
@@ -124,196 +102,107 @@ export const ui = {
   searchFocus: false,           // is the CRAFTING tab's search field capturing keys
   scroll: Object.create(null),  // `${panel}:${grid}` -> row offset (integer)
 
-  /* both UI STATE and both deliberately NOT model
+  /* `craftQueue` is an ARRAY of recipe ids, FIFO, head in progress, and it is
+     NOT a mechanic change: `rules/crafting.js` is still a scalar on `run`,
+     because a player has one pair of hands. The queue re-asserts the SAME one
+     intent every frame it is non-empty and drains one entry per completed
+     craft. Cancelling refunds nothing because nothing was spent -- no input
+     goes until the recipe's `secs` is reached.
 
-     `craftQueue`: an ARRAY of recipe ids, FIFO, head = in progress. THE QUEUE
-     IS NOT A MECHANIC CHANGE. `rules/crafting.js` is a SCALAR on `run`
-     (`craftProgress`/`craftRecipe`) because a player has one pair of hands,
-     and it forgets the bar the instant the craft intent goes false. Actually
-     running more than one craft in flight would be a change to THAT. So the
-     queue re-asserts the SAME one intent every frame it is non-empty
-     (`shell/main.js#step`), and drains one entry per completed hand-craft
-     (`shell/main.js#tickCraftQueue`, which reads `model/journal.js#peek()`'s
-     'produce' rows rather than touching `rules/crafting.js` at all).
-     Cancelling costs nothing to refund: `rules/crafting.js` never spends a
-     single input until the recipe's `secs` is reached, so removing a queued
-     entry before then has nothing to give back.
-
-     The quickbar is NOT session state any more (docs/PLAN-phase12.md §3
-     D-H): its cells are the tail of `run.inv` itself
-     (`run.inv[run.mainSlots ..]`), the same physical storage the Character
-     tab's grid draws. There is no `ui.quickbar` left to own here. */
+     The quickbar is NOT session state: its cells are the tail of `run.inv`
+     itself, the same storage the Character tab's grid draws. */
   craftQueue: [],
   /* One toggleable line of key hints (the QUICKBAR section),
      collapsed by default so the permanent bottom bar stays as dense as the
      rest of this layer. */
   hintsOpen: false,
 
-  /* AUTO COLLECT (docs/PLAN-phase12.md §3 D-E/D-F): whether the old
-     always-on pickup magnet is restored. Default FALSE -- items no longer
-     auto-collect; holding 'c' (`cmd.collect`, a HOLD) collects manually
-     instead.
+  /* AUTO COLLECT: whether the always-on pickup magnet is restored. Default
+     FALSE, so holding 'c' collects manually instead.
 
-     IT LIVES IN `shell` FOR A LAYERING REASON, not because it is cosmetic:
-     `rules/items.js` may only import `core`/`data`/`model`
-     (`tools/layers.mjs`), so it could never read a `shell` field by import
-     even if it wanted to, and `shell/main.js#step()` already folds a "which
-     device/preference asked" question into the narrowed command object it
-     hands every `rules` step (`digging = cmd.dig || cmd.mouse`) -- this is
-     the identical shape, not a new mechanism. Putting it on `run` would need
-     a `RUN_SCHEMA` field for a fact no world-state fingerprint should carry.
-
-     BUT IT IS SIMULATION-AFFECTING INPUT STATE, NOT A PRESENTATION
-     PREFERENCE LIKE MUTE OR THE GRID OVERLAY, and it is therefore RESET ON
-     EVERY RUN -- `shell/boot.js#newRun`'s teardown calls
-     `setAutoCollect(false)` beside every model `clear()`. It ORs into `cmd.collect`, which gates
-     `model/run.js#write.collect`, which changes `run.inv`, which changes
-     burden, which changes climb speed and carrier load. Left sticky, a
-     restart on the same seed would replay differently depending on what the
-     player had clicked before dying -- precisely the determinism bug
-     invariant 8 names, and the cost of losing one click in a panel the
-     player opens anyway is worth paying to avoid it. There is no
-     `localStorage` (CLAUDE.md forbids it), so nothing survives a page
-     reload either way. */
+     In `shell` for a LAYERING reason -- `rules/items.js` may import only
+     `core`/`data`/`model`, and on `run` it would need a `RUN_SCHEMA` field
+     for a fact no world-state fingerprint should carry. SIMULATION-AFFECTING
+     input state rather than a presentation preference, so RESET ON EVERY RUN:
+     it ORs into `cmd.collect`, which gates `write.collect`, which changes
+     `run.inv`, burden, climb speed and carrier load. */
   autoCollect: false,
 
-  /* AUTO FEED (Phase 16b, docs/PLAN-phase16-interaction-model-v2.md §5
-     D16-C): whether the old always-on PROXIMITY DRAIN is restored. Default
-     FALSE -- standing beside a machine no longer empties your pockets into
-     it; the feed verb (click a slot to arm the pair, aim at a
-     reachable machine, LMB) hands over ONE unit per press instead.
+  /* AUTO FEED: whether the always-on PROXIMITY DRAIN is restored. Default
+     FALSE, so standing beside a machine no longer empties your pockets into
+     it and the feed verb hands over ONE unit per press.
 
-     THE EXACT SHAPE OF `autoCollect` ABOVE, DELIBERATELY, and for the same
-     two reasons. It lives in `shell` because `rules/machines.js` may only
-     import `core`/`data`/`model` (`tools/layers.mjs`), so it could never read
-     a `shell` field by import even if it wanted to -- `shell/main.js#step()`
-     folds it into the narrowed command object every `rules` step already
-     receives, which is the same "which device/preference asked is a shell
-     question" merge `digging` and `collect` are. And it is not on `run`
-     because that would need a `RUN_SCHEMA` field for a fact no world-state
-     fingerprint should carry.
-
-     AND IT IS SIMULATION-AFFECTING INPUT STATE, NOT A PRESENTATION
-     PREFERENCE LIKE MUTE OR THE GRID OVERLAY, so it is RESET ON EVERY RUN
-     the same way -- `shell/boot.js#newRun`'s teardown calls
-     `setAutoFeed(false)` immediately beside `setAutoCollect(false)`. This is
-     D13-A's answer applied unchanged rather than a second policy invented
-     beside it (D16-C says so in as many words): it gates
-     `rules/machines.js#handFeed`, which spends `run.inv` and fills a
-     machine buffer, which moves burden, climb speed, what a recipe can run
-     and -- through `rules/cycles.js#drainReceivers` -- whether a trial gets
-     paid. Left sticky, a restart on the same seed would replay differently
-     depending on what the player had clicked before dying, which is exactly
-     invariant 8's determinism bug. */
+     The exact shape of `autoCollect` above, for the same two reasons, and
+     reset on every run the same way. It gates
+     `rules/machines.js#handFeed`, which spends `run.inv` and fills a machine
+     buffer, which moves burden, climb speed, what a recipe can run and
+     whether a trial gets paid. */
   autoFeed: false,
 
-  /* CLICK-TO-ARM PLACEMENT: `{ sub, form } | null` -- the specific held pair
-     a click on its Character-tab or quickbar slot has selected as "place
-     THIS one next", replacing the placeholder rule (`rules/placement.js
-     #placeableFromPockets`'s own header: "the first placeable pair in the
-     pockets, in HUD order... a real build menu would let the player
-     choose") with a real choice. Still just a fact about the SESSION, same
-     as everything else in this file: arming a pair does not touch `run` at
-     all, only which pair `shell/main.js#applyIntents`'s `cmd.place` branch
-     reaches for first. Cleared by `shell/main.js` the instant it stops
-     being true -- placed successfully, no longer held (spent by a craft,
-     dropped, picked clean), or Escape (`shell/input.js`). */
+  /* CLICK-TO-ARM PLACEMENT: `{ sub, form } | null`, the held pair a slot click
+     selected as "place THIS one next". A fact about the SESSION -- arming
+     touches no `run` state, only which pair `applyIntents`'s `cmd.place`
+     branch reaches for first. Cleared the instant it stops being true:
+     placed, no longer held, or Escape. */
   armedPlace: null,
 
-  /* THE ARMED LINK ENDPOINT: the machine RECORD a first `l` press has selected as "one end of the
-     next cable", or null. Which endpoint is armed is a fact about the SESSION,
-     exactly like `armedPlace` above -- arming one touches no `model` state at
-     all, only which pair `shell/main.js#applyIntents`'s `cmd.link` branch
-     passes to `rules/placement.js#linkSegment` on the SECOND press. Handed to
-     `view` through `frameCtx` for the cable ghost; `view` may not
-     import `shell`.
+  /* THE ARMED LINK ENDPOINT: the machine RECORD a first `l` press selected as
+     one end of the next cable, or null. A session fact like `armedPlace`.
 
-     A RECORD, not a `{tx, ty}` pair: `linkCheck` needs the machine itself,
-     machines never move, and holding the record is what makes the stale test
-     in `shell/main.js` a one-line identity check against `machines` rather
-     than a coordinate search. The `__mf` projection serialises it to
-     `{tx, ty, def}` at the boundary instead -- a projection of real state,
-     never a copy of it (CLAUDE.md D2).
+     A RECORD, not a `{tx, ty}` pair, because `linkCheck` needs the machine
+     itself and machines never move -- which is what makes the stale test in
+     `shell/main.js` one identity check against `machines` rather than a
+     coordinate search. The test handle serialises it at the boundary.
 
-     Cleared by `shell/main.js` the instant it stops being true: linked
-     successfully, cut, aimed at the same machine again, the machine
-     deconstructed out from under it, or Escape (`shell/input.js`). */
+     Cleared the instant it stops being true: linked, cut, aimed at the same
+     machine again, deconstructed from under it, or Escape. */
   linkFrom: null,
 
-  /* THE OVERVIEW'S SCROLL, ZOOM AND LAYER TOGGLES
-     Where the map is looking, how far in, whether it is following the player
-     and which metadata layers are on. All of it is a fact about the SESSION,
-     exactly like every other field in this file: opening the map, scrolling
-     it and turning the ORE layer off touch no `model` state at all. Handed to
-     `view` through `shell/main.js#frameCtx`; `view` may not import `shell`
-     (CLAUDE.md D2).
-
-     `x`/`y` are WORLD PIXELS of the map viewport's top-left corner, not tiles
-     and not screen px -- a tile offset is meaningless between two bands whose
-     `tile` sizes differ (`data/world.js`'s own reasoning for `origin` being in
-     pixels), and a screen offset would change meaning on every zoom step.
-     They are stored UNCLAMPED and `view/overview.js#transform` clamps them to
-     the band union every frame, reading that union exactly the way
-     `shell/main.js#clampCam` does -- so there is one clamp, it cannot be
-     bypassed, and a stale offset from before a `newRun()` reallocated the
-     world simply lands back inside it.
-
-     `zoom` is 0 for "the default this viewport width implies" and otherwise
-     one of `view/overview.js#MAP_ZOOM`'s integer levels. Stored rather than
-     derived so a chosen zoom survives a window resize; 0 rather than a
-     concrete number so the default can be a function of the viewport, which
-     `shell` has no business computing.
-
-     `follow` defaults TRUE and ANY manual scroll turns it off -- opening the
-     map should show you where you are, and then get out of the way.
-
-     `drag` is `{ sx, sy, x, y } | null`: the screen point a press started at
-     plus the world offset at that moment, which is what makes a drag absolute
-     (no accumulated rounding) rather than incremental. */
+  /* THE OVERVIEW'S SCROLL, ZOOM AND LAYER TOGGLES, all session facts.
+     `x`/`y`   WORLD PIXELS of the map viewport's top-left, not tiles and not
+               screen px: a tile offset is meaningless between bands whose
+               `tile` sizes differ, and a screen offset changes meaning on
+               every zoom step. Stored UNCLAMPED, clamped by
+               `view/overview.js#transform` every frame, so there is one
+               clamp and a stale offset from before a `newRun()` lands back
+               inside the world.
+     `zoom`    0 for "the default this viewport width implies", otherwise one
+               of `MAP_ZOOM`'s integer levels. Stored so a chosen zoom
+               survives a resize; 0 so the default can be a function of the
+               viewport, which `shell` has no business computing.
+     `follow`  defaults TRUE, and any manual scroll turns it off.
+     `drag`    `{ sx, sy, x, y } | null`, the screen point a press started at
+               plus the world offset then, which is what makes a drag
+               absolute rather than incremental. */
   map: {
     zoom: 0,
     x: 0, y: 0,
     follow: true,
     drag: null,
-    /* Every layer is individually toggleable (docs/BUILD_PLAN.md Phase 9
-       section 4). LIGHT is the one that starts OFF: it is a shading overlay
-       over the whole map rather than a marker on top of it, so it changes how
-       everything else reads and is better asked for than imposed. */
+    /* Every layer is individually toggleable. LIGHT is the one that starts
+       OFF: it shades the whole map rather than marking on top of it, so it
+       changes how everything else reads. */
     layers: {
       chain: true, machines: true, piles: true, ore: true,
       light: false, bands: true, hover: true
     }
   },
 
-  /* THE MAIN MENU (6l)
-     Which page is showing, which row the cursor is on, what the player has
-     typed into the SEED field, whether a save exists and why the last load
-     refused. All of it is a fact about the SESSION, exactly like the panel
-     stack above; `view/ui/menu.js` reads it through
-     `shell/main.js#frameCtx` and never writes it (CLAUDE.md D2).
-
-     `hasSave` and `stale` are MIRRORS of `shell/save.js#slotState()`, and
-     `notice` a mirror of `loadError.reason`, because storage is a device:
-     `view` may not reach `localStorage` and must not have to. `inRun` mirrors
-     `model` for the same reason -- `view` reads the world only through the
-     frame context. `shell` answers all three once a frame and parks the
-     answers here.
-
-     `stale` and `inRun` are mirrors for the same reason: a header written by
-     another build is storage, and whether the run behind the menu has been
-     played is `model`. Both are answered once by `shell` and parked here.
-
-     `confirm` is the id of the ONE row that has been taken once and is waiting
-     to be taken again, or null. Only a row that would discard the run in
-     progress ever sets it -- the row itself is the
-     confirmation, so there is no second modal and no second keyboard owner.
-
-     `index` counts rows of the page CURRENTLY DRAWN, so it is only meaningful
-     against `view/ui/state.js#drawn.menu.rows`, and `scroll` is a PAGE index
-     into the CONTROLS list rather than a line offset -- the menu reports how
-     many pages it laid out, so a caller clamps against what was drawn rather
-     than recomputing the layout. Both are clamped for DRAWING by the menu and
-     for MOVEMENT by `menuMove`/`menuScrollTo` below; neither side guesses. */
+  /* THE MAIN MENU, all session facts, read by `view` and never written by it.
+     `hasSave`/`stale`  mirrors of `shell/save.js#slotState()`, because
+                        storage is a device and `view` may not reach it.
+     `notice`           a mirror of `loadError.reason`.
+     `inRun`            a mirror of `model`, for the same reason.
+     `confirm`          the id of the ONE row taken once and waiting to be
+                        taken again, or null. Only a row that would discard
+                        the run sets it, so the row IS the confirmation and
+                        there is no second modal or keyboard owner.
+     `index`            counts rows of the page CURRENTLY DRAWN, so it is
+                        meaningful only against `drawn.menu.rows`.
+     `scroll`           a PAGE index into CONTROLS, not a line offset. The
+                        menu reports how many pages it laid out, so a caller
+                        clamps against what was drawn rather than recomputing
+                        the layout. */
   menu: {
     open: false,
     page: 'root',        // 'root' | 'controls' | 'settings' | 'debug'
@@ -398,12 +287,10 @@ export function clearDrag() { ui.drag = null; }
 
 export function setSearch(s) { ui.search = s; }
 
-/* per-grid scroll
-   Keyed by `panel:grid` rather than nesting an object per panel, so a grid
-   id is guaranteed unique across the whole session state with one string
-   compare instead of a two-level lookup — the same flattening
-   `model/mods.js`'s scoped keys (`rate.furnace`) already uses. See
-   docs/DEVELOPER_GUIDE.md#the-tunable-pipeline */
+/* Keyed by `panel:grid` rather than an object per panel, so a grid id is
+   unique across the whole session state with one string compare instead of a
+   two-level lookup -- the same flattening `model/mods.js`'s scoped keys
+   use. */
 const scrollKey = (panel, grid) => panel + ':' + grid;
 
 export function scrollOf(panel, grid) { return ui.scroll[scrollKey(panel, grid)] || 0; }
@@ -451,27 +338,17 @@ export function clearCraftQueue() { ui.craftQueue.length = 0; }
 
 export function toggleHints() { ui.hintsOpen = !ui.hintsOpen; }
 
-/* auto collect (docs/PLAN-phase12.md §3 D-F)
-   TWO functions on purpose. `toggleAutoCollect` is what the Character-tab row
-   calls -- a click on a checkbox knows nothing but "flip it". `setAutoCollect`
-   states the state it wants, which is what `shell/boot.js#newRun` needs (a
-   teardown that TOGGLED would leave the next run in whichever state the last
-   one ended in, i.e. exactly the bug D13-A fixes) and what a test needs (a
-   blind toggle asserts the caller already knows the current value; a setter
-   does not). Not a new UI affordance -- docs/PLAN-phase13.md §7 keeps the
-   Character-tab row as the one control. */
+/* TWO functions on purpose. `toggleAutoCollect` is what the Character-tab row
+   calls, since a click on a checkbox knows only "flip it". `setAutoCollect`
+   STATES the state it wants, which is what `shell/boot.js#newRun` needs -- a
+   teardown that toggled would leave the next run in whichever state the last
+   one ended in -- and what a test needs. */
 export function toggleAutoCollect() { ui.autoCollect = !ui.autoCollect; }
 export function setAutoCollect(v) { ui.autoCollect = !!v; }
 
-/* auto feed
-   TWO functions, for the two callers the pair above already has and for the
-   identical reasons: the Character-tab row flips it blind, and
-   `shell/boot.js#newRun` (plus every probe in `tools/check.mjs` and
-   `tests/visual.spec.js` that wants the old magnet back for a scene whose
-   subject is something else) has to STATE the state it wants. A teardown
-   that toggled would leave the next run in whichever state the last one
-   ended in -- which is the determinism bug D13-A named, not a smaller
-   version of it. */
+/* TWO functions, for the two callers the pair above has and for the same
+   reasons: the Character-tab row flips it blind, and a teardown or a test
+   probe has to STATE the state it wants. */
 export function toggleAutoFeed() { ui.autoFeed = !ui.autoFeed; }
 export function setAutoFeed(v) { ui.autoFeed = !!v; }
 
@@ -552,17 +429,13 @@ export function mapDragTo(sx, sy, scale) {
   ui.map.y = d.y - (sy - d.sy) / scale;
 }
 
-/* the main menu (6l)
-   Plain mutators in the shape every other function in this file has. NOTHING
-   HERE DRAWS AND NOTHING HERE READS STORAGE: `shell` calls `setMenuSave` and
-   `setMenuStale` with `shell/save.js#slotState()`'s answer and
-   `setMenuNotice` with `loadError.reason`, and the menu paints whatever it
-   finds.
+/* Plain mutators. NOTHING HERE DRAWS AND NOTHING HERE READS STORAGE: `shell`
+   calls these with `slotState()`'s answer and `loadError.reason`, and the menu
+   paints what it finds.
 
    `menuMove` and `menuScrollTo` take the COUNT they clamp against, because
-   only the drawn record knows it (`view/ui/state.js#drawn.menu.rows.length`
-   and `.pages`) and a second copy of the layout in `shell` is the one thing
-   the record-what-you-drew idiom exists to prevent. */
+   only the drawn record knows it and a second copy of the layout in `shell`
+   is what the record-what-you-drew idiom exists to prevent. */
 export function openMenu(page = 'root') {
   ui.menu.open = true;
   menuPage(page);
