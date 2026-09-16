@@ -2,109 +2,46 @@
    Imports `core` and `data` only. May be imported by `data`, `model`, `rules`,
    `view`.
 
-   See docs/DEVELOPER_GUIDE.md#adding-a-substance before adding a row.
+   tags   free strings; `#metal` in a selector means "any row tagged metal".
+          THREE OF THEM CLASSIFY TERRAIN, and a row carrying both a `tile`
+          block and `mineable` must carry EXACTLY ONE:
+            bulk     filler you tunnel through. Mines to `gravel`, and 5
+                     gravel pack back into one placeable `block`.
+            deposit  a NAMED body, never player-placeable -- no tile-capable
+                     form's `subTags` admit one, so the pair cannot be
+                     CONSTRUCTED, let alone placed.
+            organic  grown and felled.
+   tile   present -> the element can exist in the grid as native rock. Absence
+          is a DECLARATION, not an omission.
+            hard    SECONDS to break at pick power 1, never a 0..255 byte --
+                    that byte is what made granite unmineable above 106 fps.
+            drops   the FORM the element yields when mined. The substance is
+                    always itself, which is why one smelt row covers every ore.
+            tier    OPTIONAL, absent means 1. A SEPARATE gate from `hard`:
+                    `hard` is how long a legal swing takes, `tier` is whether
+                    a swing is legal at all. Monotonic against `hard`.
+            charge  OPTIONAL, `deposit` rows only. UNITS a native tile yields
+                    before it is gone; absent means 1. Each unit costs a full
+                    `hard`, so SECONDS PER UNIT DO NOT MOVE.
+   item   present -> the element can be carried, in any form whose own `item`
+          block permits it.
+            mass    base mass; the form multiplies it.
+            hud     `{ order }` in the pocket strip, so the HUD is data-driven.
+            tool    OPTIONAL `{ tier, power }`. TOOLS ARE RELIC SUBSTANCES,
+                    not a new table. `power` multiplies `eff('pickPower')` in
+                    the one place `hard` and `toolTier` are read, so a trinket
+                    cannot be read around.
+   look   appearance, and NOTHING but `view/` reads it. `treatments` name pure
+          functions in `view/treatments.js`.
+            speckle OPTIONAL fraction of a tile's pixels that get a grain dot.
+            face    OPTIONAL palette name for an EXPOSED VERTICAL FACE. The
+                    row names the material, never the side.
+            contact OPTIONAL palette name for the 1 px line along a strata
+                    boundary, this substance's top edge.
 
-     tags   free strings. `#metal` in a selector means "any row tagged metal".
-
-            THREE OF THEM CLASSIFY TERRAIN, and every row carrying both a
-            `tile` block and `mineable` must carry EXACTLY ONE of them
-            (tools/content.mjs assertion 20, so a future terrain row cannot
-            forget to classify itself). docs/SPEC.md section 19:
-
-              bulk     FILLER terrain you tunnel through -- `soil`, `stone`.
-                       Mines to `gravel`, and 5 gravel pack back into one
-                       placeable `block` (`data/recipes.js#pack`).
-              deposit  a NAMED body -- `copper`, `tin`, `granite`, `adamant`.
-                       Never player-placeable, and that is a property of the
-                       tables rather than a check anyone can forget: no
-                       tile-capable form's `subTags` admit a deposit, so the
-                       pair cannot be CONSTRUCTED, let alone placed.
-              organic  grown and felled -- `timber`. Neither bucket;
-                       docs/PLAN-phase15-trees.md owns its regrowth.
-
-     tile   present -> the element can exist in the grid as native rock.
-            absent  -> it never can. Absence is a declaration, not an omission.
-            hard    -> SECONDS to break at pick power 1. Not a 0..255 byte: that
-                       byte is what made granite unmineable above 106 fps.
-            drops   -> the FORM the element yields when mined. The substance is
-                       always itself, which is why one smelt row covers every
-                       ore that will ever exist.
-            tier    -> OPTIONAL. Absent means tier 1. A SEPARATE gate from
-                       `hard`: `hard` decides how long a legal swing against
-                       this substance takes; `tier` decides whether a swing is
-                       legal at all, checked against the held tool's tier in
-                       rules/mining.js. Monotonic against `hard` by
-                       convention and by tools/content.mjs's check: nothing at
-                       a higher tier may be softer than something at a lower
-                       one.
-            charge  -> OPTIONAL, and only ever on a `deposit` row. How many
-                       UNITS a NATIVE tile of this element yields before it is
-                       gone. Absent means 1, which is what `bulk` and `organic`
-                       terrain keeps. Each unit costs a full `hard` of
-                       accumulated work, so SECONDS PER UNIT DO NOT MOVE --
-                       docs/SPEC.md section 8's compression table and
-                       docs/DESIGN.md's break-even figures still hold, and the
-                       only thing that changes is that the player stops walking
-                       between tiles. Read through `eff('richness', <id>)` in
-                       the same one place `hard` and `toolTier` are read
-                       (rules/mining.js and rules/machines.js#mine), so a boon
-                       could enrich a vein. docs/SPEC.md section 19.
-
-     item   present -> the element can be carried, in any of the forms whose
-            own `item` block permits it.
-            mass   -> base mass; the form multiplies it (see `forms.js`).
-            hud    -> `{ order }` position in the pocket strip. `view/hud.js`
-                      reads only this, so the HUD is data-driven.
-            tool   -> OPTIONAL. `{ tier, power }`. TOOLS ARE RELIC SUBSTANCES,
-                      not a new table: the stock pickaxe and the
-                      adamant auger are both ordinary `relic`-tagged rows, and
-                      this is the only new thing on either of them. `tier` is
-                      compared against a tile's `tile.tier` (above) in
-                      `rules/mining.js`'s gate; `power` multiplies
-                      `eff('pickPower')` in exactly the one place `hard` and
-                      `toolTier` already multiply theirs, so a trinket cannot
-                      be read around. `model/run.js#bestTool()` is the query
-                      that finds the highest-tier one currently held.
-
-     look   appearance, and NOTHING but `view/` reads it. `base/hi/lo` and
-            `item` are keys into `data/palette.js`. `treatments` name pure
-            functions in `view/treatments.js`, which is how "this glows" is
-            added without editing a paint function.
-            speckle -> OPTIONAL. Fraction of a tile's pixels that get a grain
-                       dot, 0..1. Absent means 0.26, which is exactly the fixed
-                       density every substance used to share. Soil is noisy,
-                       adamant is nearly smooth; that difference is most of
-                       what makes two strata read as two materials rather than
-                       as one material in two colours.
-            face    -> OPTIONAL palette name for an EXPOSED VERTICAL FACE --
-                       a cliff, a shaft wall. Freshly broken rock, and it need
-                       not be the tone of the weathered top. Absent means
-                       `base`. `view/paint.js` lights or shades it from the one
-                       declared light direction, so a row names the material,
-                       never the side.
-            contact -> OPTIONAL palette name for the 1 px line along a strata
-                       boundary: this substance's top edge, where the substance
-                       ABOVE it is a different one. Absent means `lo`.
-
-   ROWS ARE APPEND-ONLY -- EXCEPT FOR A TILE-CAPABLE ROW, WHICH CANNOT BE
-   APPENDED AT ALL. Appending is safe for anything that never reaches the tile
-   byte (a relic, a miracle, a machine item); those cost an ordinal and nothing
-   else. It is NOT safe for a row with a `tile` block, or one crossable with a
-   tile-capable form: `data/forms.js`'s import-time guard prices the highest
-   PACKABLE ordinal against `BEDROCK`, and `SUB.length` is already past
-   `PACKABLE_LIMIT`, so appending such a row THROWS AT IMPORT today. Measured,
-   not predicted -- at 27 rows and 13 forms an appended packable row packs to
-   `1 + 27 * 14 + 13 = 392` of 255.
-
-   docs/SPEC.md section 15 used to read as if twelve ordinals of tile-capable
-   headroom remained. That was true as a SLOT COUNT and misleading as advice:
-   all twelve of those slots (ordinals 9-20) are already occupied by
-   non-packable rows, so real APPENDABLE headroom for a tile-capable row is
-   ZERO. Such a row must be INSERTED at an ordinal <= `PACKABLE_LIMIT`
-   instead, which is safe because no tile byte is ever persisted (no save file,
-   no `localStorage`) -- an insertion is only ever a renumbering. See
-   docs/SPEC.md sections 15 and 19 and
-   docs/DEVELOPER_GUIDE.md#adding-a-substance. */
+   ROWS ARE APPEND-ONLY, EXCEPT A TILE-CAPABLE ROW, WHICH CANNOT BE APPENDED AT
+   ALL -- `SUB.length` is already past `PACKABLE_LIMIT`, so one THROWS AT
+   IMPORT. Insert it at an ordinal at or below that limit instead. */
 
 export const SUBSTANCES = [
 
@@ -123,7 +60,6 @@ export const SUBSTANCES = [
            item:['cuA', 'cuC'],
            treatments:[ { fn:'glint', col:'veinA', n:2 } ] } },
 
-  /* tin: see docs/DEVELOPER_GUIDE.md#adding-a-substance */
   { id:'tin', name:'TIN', tags:['metal', 'mineable', 'deposit'],
     tile:{ solid:true, hard:1.10, drops:'ore', charge:4 },
     item:{ mass:1.0, hud:{ order:2 } },
@@ -131,15 +67,10 @@ export const SUBSTANCES = [
            item:['snA', 'snC'],
            treatments:[ { fn:'glint', col:'snA', n:2 } ] } },
 
-  /* timber: the fuel and the ladder STOCK. `organic` is its terrain
-          classification (see the header): neither `bulk` nor `deposit`, and
-          docs/PLAN-phase15-trees.md owns the regrowth.
-
-          Felling a tree yields `log`, which is FEEDSTOCK ONLY -- fuel and a
-          recipe ingredient, never a placed tile (CLAUDE.md D12). Felling a
-          tree and building a ladder are one noun apart,
-          `data/recipes.js#peg_rungs`, which turns 2 logs into 4 `rung`. See
-          `forms.js#log`. */
+  /* timber: the fuel and the ladder STOCK. Felling a tree yields `log`, which
+          is FEEDSTOCK ONLY -- fuel and a recipe ingredient, never a placed
+          tile -- so felling a tree and building a ladder are one noun apart,
+          `recipes.js#peg_rungs`, which turns 2 logs into 4 `rung`. */
   { id:'timber', name:'TIMBER', short:'WOOD', tags:['organic', 'mineable'],
     tile:{ solid:true, hard:0.35, drops:'log' },
     item:{ mass:0.8, hud:{ order:3, always:true } },
@@ -162,23 +93,20 @@ export const SUBSTANCES = [
               read as a lit box rather than a lit crown. */
            canopy:{ leaves:['vdC', 'vdB', 'vdA'], w:6, h:4 } } },
 
-  /* stone: the bulk of the world. Mines to gravel, never to ore, and has
-          no ingot -- see docs/DEVELOPER_GUIDE.md#adding-a-form */
+  /* stone: the bulk of the world. Mines to gravel, never to ore, and has no
+          ingot. */
   { id:'stone', name:'STONE', tags:['rock', 'mineable', 'spoil', 'bulk'],
     tile:{ solid:true, hard:1.60, drops:'gravel' },
     item:{ mass:0.6, hud:{ order:4 } },
     look:{ base:'irC', hi:'irB', lo:'irD', speckle:0.24,
            face:'irB', contact:'irD',
            item:['limeB', 'limeD'],
-           /* Bedding planes, per docs/ART_DESIGN.md -- a stratum that used to
-              be a flat noise field now reads as sedimentary rock at a
-              glance, with no new rendering code. */
+           /* Bedding planes, so a stratum reads as sedimentary rock at a
+              glance with no new rendering code. */
            treatments:[ { fn:'banded', col:'irD', every:8 } ] } },
 
-  /* bellows: the trinket tier. See
-          docs/DEVELOPER_GUIDE.md#the-four-gift-tiers. Divine glow per the same
-          rule every relic/miracle substance carries -- see `pick` below and
-          `tools/content.mjs` assertion 17. */
+  /* bellows: the trinket tier. Divine glow, per the rule every
+          relic and miracle substance carries. */
   { id:'bellows', name:'BELLOWS OF THE FORGE', short:'BELLOWS', tags:['relic'],
     item:{ mass:0.4, hud:{ order:5 } },
     /* `sprite:'bellows'` (`view/sprites.js`), the same treatment `pick`
@@ -198,26 +126,15 @@ export const SUBSTANCES = [
           one tool the game hands you rather than one you find. */
   { id:'pick', name:'STOCK PICKAXE', short:'PICK', tags:['relic'],
     item:{ mass:0.5, hud:{ order:6 }, tool:{ tier:1, power:1.0 } },
-    /* THE GLOW IS A RECOVERY, and a content-only one. docs/ARCHAEOLOGY.md
-       section 4.2 quotes the flat prototype's own `drawPickup()`: the relic on
-       the ground had a `glow()` halo in a warm gold, and section 4.3 records
-       that it was dropped unported when `_old_src/` was deleted -- while every
-       piece of machinery needed to have it back (`look.treatments`,
-       `TREAT.halo`, `core/pixels.js#glow`) survived intact and in use. `ichor`
-       is the divine gold this codebase already uses for "special, look here".
+    /* THE HALO IS A RULE, NOT A ONE-OFF. `bellows`/`auger`/`chasm` carry the
+       identical `treatments:[{fn:'halo'}]` shape, and the content lint
+       enforces that every `relic`- or `miracle`-tagged substance has one and
+       no `machine`-tagged substance does -- so a future trinket fails the
+       build the moment someone forgets it, rather than reading as ordinary
+       loot forever.
 
-       THIS IS A RULE, NOT A ONE-OFF: `bellows`/`auger`/`chasm` below carry the
-       identical `treatments:[{fn:'halo',...}]` shape, and `tools/content.mjs`
-       assertion 17 enforces that every `relic`/`miracle`-tagged substance has
-       one and no `machine`-tagged substance does -- so a future trinket
-       `data/drops.js` produces fails the build the moment someone forgets it,
-       rather than silently reading as ordinary loot forever.
-
-       `sprite:'pick'` (`view/sprites.js`) replaces the generic two-colour
-       square with an angled haft-and-head shape and its own slow bob, ported
-       freehand from the same `drawPickup()` this comment already cites --
-       `view/paint.js#paintItem` still runs `treat()` after either path, so the
-       sprite and the halo are independent additions, not alternatives. */
+       `sprite` and the halo are independent additions rather than
+       alternatives, because `paintItem` runs `treat()` after either path. */
     look:{ item:['irB', 'woodC'], sprite:'pick',
            treatments:[ { fn:'halo', col:'ichor', r:8, a:0.2 } ] } },
 
@@ -240,19 +157,12 @@ export const SUBSTANCES = [
            item:['soilA', 'soilC'],
            treatments:[ { fn:'banded', col:'soilC', every:5 } ],
            /* A TURF CAP, drawn only where `skyExposedAt` says this tile has
-              an open shot straight up to the top of the band -- true sky, not
-              a dug-out ceiling. `hi` above is a plain soil tone rather than
-              green FOR EXACTLY THIS REASON: `paintTile`'s generic "exposed
-              face" highlight fires for ANY open neighbour, tunnels included,
-              and painting it green was grass appearing on cave ceilings.
-
-              Three greens, not one, and a whole tile rather than two pixels:
-              docs/ARCHAEOLOGY.md section 1a records the older look this
-              recovers -- a full band of `grassA` over a lower edge of `grassB`
-              with a `noiseFill` speckle of `grassC` across both. `drape` is
-              the part that is new rather than recovered: turf spilling a few
-              pixels down an exposed vertical face, so the relief reads
-              as banks of earth instead of a stack of cut cubes. */
+              an open shot straight up -- true sky, not a dug-out ceiling.
+              `hi` above is a plain soil tone rather than green FOR THAT
+              REASON: the generic exposed-face highlight fires for ANY open
+              neighbour, tunnels included, and painting it green put grass on
+              cave ceilings. `drape` spills turf a few pixels down an exposed
+              vertical face, so relief reads as banks of earth. */
            grassCap:{ col:'grassA', low:'grassB', dark:'grassC',
                       lowH:3, drape:4, grain:0.16 } } },
 
@@ -286,46 +196,30 @@ export const SUBSTANCES = [
            item:['adamantA', 'adamantC'],
            treatments:[ { fn:'glint', col:'adamantA', n:2 } ] } },
 
-  /* auger: the T2 hand tool. See
-          docs/DEVELOPER_GUIDE.md#tools-are-relic-substances
-
-          `tool:{tier:2, power:1.8}` is the ONE number this whole tier's
-          equality proof rests on: `rules/machines.js`'s Talos Head reads it
-          back generically (scanning every substance's `item.tool` block for
-          the largest `power`, no id named) rather than carrying a second,
-          hand-copied literal of its own -- so "mines at exactly the T2 hand
-          rate" is true by construction, not by two authors remembering to
-          agree. `power:1.8` also bites `tile.tier:2` (granite) that a
-          `power:1.0` pick's `tier:1` cannot reach at all, per the gate in
-          `rules/mining.js`. `data/recipes.js#auger` forges it: 2 copper/plate
-          + 1 timber/log. */
+  /* auger: the T2 hand tool. `power:1.8` is the one number the tier's
+          equality proof rests on -- the Talos Head reads it back generically,
+          scanning every `item.tool` block for the largest `power` with no id
+          named, so "mines at exactly the T2 hand rate" is true by
+          construction. It also bites the `tier:2` granite a `power:1.0` pick
+          cannot reach at all. */
   { id:'auger', name:'ADAMANT AUGER', short:'AUGER', tags:['relic'],
     item:{ mass:0.9, hud:{ order:10 }, tool:{ tier:2, power:1.8 } },
     look:{ item:['adamantA', 'irB'],
            treatments:[ { fn:'halo', col:'ichor', r:9, a:0.2 } ] } },
 
-  /* chasm: the one miracle this phase ships (Phase 4,
-          `docs/BUILD_PLAN.md`), same shape as `bellows`/`pick`/`auger`
-          above -- a miracle is a HELD PAIR, per the substance x form rule
-          (CLAUDE.md "Resolved decisions" D1), and needs an element of its
-          own for the identical reason a trinket does: it refines from
-          nothing, it IS the element. `tags:['miracle']` (NOT `relic`) is
-          what lets it cross into `forms.js#phial` and NOTHING else --
-          `phial`'s own `subTags:['miracle']` is the whole reason that form
-          exists separately from `relic`, so a miracle can never satisfy a
-          trinket selector by accident. */
+  /* chasm: a miracle is a HELD PAIR and needs an element of its own for
+          the reason a trinket does -- it refines from nothing, so it IS the
+          element. `tags:['miracle']` and NOT `relic` is what lets it cross
+          into `forms.js#phial` and nothing else, so a miracle can never
+          satisfy a trinket selector by accident. */
   { id:'chasm', name:'RIFT OF HADES', tags:['miracle'],
     item:{ mass:0.2, hud:{ order:11 } },
     look:{ item:['abyC', 'vioHi'],
            treatments:[ { fn:'halo', col:'ichor', r:10, a:0.24, pulse:0.12 } ] } },
 
-  /* MACHINE SUBSTANCES: one row per machine.
-          See docs/DEVELOPER_GUIDE.md#a-machine-is-a-held-item */
+  /* MACHINE SUBSTANCES: one row per machine. */
 
-  /* 12 copper/ore + 6 timber/log, `model/items.js#massOfPair` summed:
-     12x1.0 + 6x0.8 = 16.8 T (`docs/SPEC.md` section 13's own number,
-     unchanged -- the bill moved from a placement-time gate to a recipe
-     input, it was not retuned). */
+  /* 12 copper/ore + 6 timber/log: 12x1.0 + 6x0.8 = 16.8 T. */
   { id:'furnace', name:'CRUDE FURNACE', tags:['machine'],
     item:{ mass:16.8, hud:{ order:12 } },
     look:{ item:['irC', 'irB'] } },
@@ -337,19 +231,13 @@ export const SUBSTANCES = [
      SORTS by this number: renumbering nine rows to close a hole would be a
      nine-row diff that changes nothing a player can see. */
 
-  /* 4 copper/plate + 2 copper/ingot: 4x2.4 + 2x1.6 = 12.8 T, `docs/SPEC.md`'s
-     own press number, unchanged. */
+  /* 4 copper/plate + 2 copper/ingot: 4x2.4 + 2x1.6 = 12.8 T. */
   { id:'press', name:'PRESS', tags:['machine'],
     item:{ mass:12.8, hud:{ order:14 } },
     look:{ item:['irB', 'irA'] } },
 
-  /* THE MIRRORED PAIR, ONE SUBSTANCE (see
-     docs/DEVELOPER_GUIDE.md#mirrored-machine-pairs): two substances would mean
-     two hand-recipes with a BIT-IDENTICAL bill, which
-     `rules/crafting.js#choose`'s "first match wins" would starve one of
-     forever with no float-management workaround, unlike `daedalan`/`auger`'s
-     differing log counts.
-     id is `belt_r`, the base row's own id, per the 1:1 naming precedent --
+  /* THE MIRRORED PAIR IS ONE SUBSTANCE. Two would mean two hand-recipes with a
+     BIT-IDENTICAL bill, which first-match-wins would starve one of forever.
      2 copper/plate + 4 stone/gravel: 2x2.4 + 4x0.3 = 6.0 T. */
   { id:'belt_r', name:'CONVEYOR', tags:['machine'],
     item:{ mass:6.0, hud:{ order:15 } },
@@ -383,26 +271,15 @@ export const SUBSTANCES = [
     item:{ mass:50.7, hud:{ order:19 } },
     look:{ item:['adamantB', 'adamantD'] } },
 
-  /* SEGMENT TRANSPORT. Four machine substances, priced as one family against the 40 T
-     `burden` cap and section 8's compression tiers.
-     Every mass below is `Σ substance.item.mass x form.massK x n` over the
-     build recipe in `data/recipes.js` -- the identical
-     `model/items.js#massOfPair` arithmetic every other row here uses, never a
-     second sum.
+  /* SEGMENT TRANSPORT, four substances priced as one family against the 40 T
+     `burden` cap. Every mass is `Σ item.mass x form.massK x n` over the build
+     recipe, the same arithmetic every other row uses.
 
-     THE NUMBER THE FAMILY IS PRICED AROUND: a segment needs TWO hubs, so
-     2 x 10.4 = 20.8 T is the pair -- exactly what the one WINCH STAGE it
-     replaces weighs, to the decigram. A complete minimal segment (two hubs
-     plus one crank) is 24.1 T, so it still fits inside one 40 T trip; adding a
-     gear makes it 26.0 T and it still does (24.1 + 1.9). That is the reason the hub
-     is HALF the retired winch rather than equal to it: pricing a hub at the
-     stage's own 20.8 T would have put a working segment at 44.9 T and made
-     "carry the way up down a shaft" a two-trip errand for no design gain.
-
-     These carry no `tile` block and their only tag is `machine`, so no
-     tile-capable form crosses into them and none of them ever reaches the
-     tile byte -- see `data/forms.js`'s packing block and
-     `tools/content.mjs` assertion 16. */
+     A segment needs TWO hubs, so 2 x 10.4 = 20.8 T is the pair, and a minimal
+     segment with a crank is 24.1 T -- inside one 40 T trip. Pricing a hub at
+     the retired winch stage's own 20.8 T would put a segment at 44.9 T. None
+     carries a `tile` block and their only tag is `machine`, so none ever
+     reaches the tile byte. */
 
   /* 3 copper/plate + 1 copper/ingot + 2 timber/log:
      3x2.4 + 1x1.6 + 2x0.8 = 10.4 T. REFINED, not raw -- the same class that
@@ -431,23 +308,14 @@ export const SUBSTANCES = [
     item:{ mass:4.8, hud:{ order:23 } },
     look:{ item:['woodB', 'cuA'] } },
 
-  /* 5 copper/plate + 1 copper/ingot + 2 timber/log:
-     5x2.4 + 1x1.6 + 2x0.8 = 15.2 T. PRICED AS A HUB PLUS A DECK, against
-     docs/SPEC.md 17.3's hub anchor: the hub's own bill with two more plate,
-     nothing else changed, because a dock is a hub with a platform bolted to
-     it and the platform is the plate. That makes it the heaviest single
-     machine substance in this table except `cyclops_maw`, which is the honest
-     statement of what the top of the chain costs -- docs/PLAN-phase10.md 4.5
-     prices the whole ascent at 3 hubs plus this against a 40 T cap, i.e. more
-     than one trip, by design.
+  /* 5 copper/plate + 1 copper/ingot + 2 timber/log: 15.2 T. PRICED AS A HUB
+     PLUS A DECK -- the hub's own bill with two more plate, because a dock is a
+     hub with a platform bolted on and the platform is the plate.
 
-     THE PLATE AND NOT GRAVEL is also an ordering decision: a bill with gravel
-     in it would strictly contain `gear`'s {2 log, 1 gravel}, and `gear` is
-     declared before `hub` in `data/recipes.js`, so this row would have had to
-     jump ahead of the whole segment-transport block. With no gravel the only
-     containment is `hub`'s own bill, so `cloud_dock` is declared immediately
-     before `hub` and nothing else moves. See `data/recipes.js`'s
-     declaration-order block. */
+     THE PLATE AND NOT GRAVEL is also an ORDERING decision: a bill with gravel
+     would strictly contain `gear`'s, and `gear` is declared first, so this row
+     would have to jump ahead of the whole segment block. With no gravel the
+     only containment is `hub`'s own bill. */
   { id:'cloud_dock', name:'THE CLOUD DOCK', tags:['machine'],
     item:{ mass:15.2, hud:{ order:24 } },
     look:{ item:['marbleB', 'ichor'] } },
