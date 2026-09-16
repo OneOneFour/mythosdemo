@@ -1,16 +1,11 @@
-/* LAYER core — seeded randomness and a positional hash.
-   Depends on nothing. May be imported by every layer.
+/* LAYER core — seeded randomness and a positional hash. Depends on nothing.
 
    Two different things live here and confusing them is a determinism bug:
-
-     rand()      the RUN's stream. Stateful. Consuming it out of order changes
-                 the world, so nothing may draw from it during rendering
-                 (ARCHITECTURE invariant 7).
-     hash2()     stateless. Same input, same value, forever. This is the only
-                 randomness `view` may use, because a repaint must not be a
-                 mutation of anything — not even of an RNG cursor.
-
-   Ported near-verbatim from the previous codebase's `core/rng.js`. */
+     rand()   the RUN's stream. STATEFUL, so consuming it out of order
+              changes the world and nothing may draw from it while rendering.
+     hash2()  STATELESS. Same input, same value, forever. The only randomness
+              `view` may use, because a repaint must not be a mutation of
+              anything -- not even of an RNG cursor. */
 
 /* mulberry32. Small, fast, and good enough that a run is worth sharing. */
 export function mulberry(seed) {
@@ -34,8 +29,8 @@ export const hash2 = (x, y) => {
   return ((h ^ h >>> 16) >>> 0) / 4294967296;
 };
 
-/* See docs/DEVELOPER_GUIDE.md#cross-module-mutable-state for why the generator
-   lives on an object. */
+/* The generator lives on an object, because ES module bindings are read-only
+   for importers. */
 export const rng = { next: Math.random };
 
 export function seedRng(seed) { rng.next = mulberry(seed | 0); }

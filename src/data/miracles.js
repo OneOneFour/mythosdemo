@@ -1,45 +1,26 @@
-/* LAYER data — MIRACLES: the ONE-SHOT tier of docs/DESIGN.md's four god-gift
-   tiers (CLAUDE.md "Resolved decisions" D1). Frozen. Imports nothing.
-   May be imported by `data`, `model`, `rules`, `view`.
+/* LAYER data — MIRACLES: the ONE-SHOT god-gift tier. Frozen. Imports nothing.
 
    A miracle is a HELD PAIR: `id` is a substance id crossed with the one
-   `phial` form, so "holding a miracle" is exactly
-   `invCount(S[id], F.phial) > 0`. See
-   docs/DEVELOPER_GUIDE.md#the-four-gift-tiers
+   `phial` form, so "holding a miracle" is `invCount(S[id], F.phial) > 0`.
+   `rules/miracles.js#use` spends one unit, applies `effect`, and may grant a
+   boon afterward as a side-effect.
 
-   `rules/miracles.js#use` spends exactly one unit on use, applies `effect` to
-   the world through `model/tiles.js#write`, and may grant a `data/boons.js`
-   row afterward as a side-effect.
+     effect.kind   OPTIONAL -- a row carrying only `effect.boon` edits no
+                   tiles. The content lint holds the closed set:
+                   'collapse'   clear every tile in a `radius`-tile square to
+                                AIR. Picked over petrifying rock because it
+                                needs no tile-write verb mining does not
+                                already use.
+                   'transmute'  turn every ALREADY-SOLID tile in that square
+                                into native `effect.sub`. It converts rock and
+                                never creates it, so it can neither entomb the
+                                player nor hand them a free step upward.
+     effect.sub    the substance a 'transmute' turns rock into.
+     effect.boon   OPTIONAL, granted the instant the miracle is used.
 
-     effect.kind    OPTIONAL -- a row carrying only `effect.boon` edits no
-                    tiles at all. Two kinds exist, and
-                    `tools/content.mjs` holds the closed set:
-
-                    'collapse'  clear every tile in a `radius`-tile square
-                                centred on the aim reticle to AIR, THROUGH
-                                `model/tiles.js#write.clear`, which already
-                                repaints only the chunks it touches.
-                                Picked over "petrify"
-                                (converting tiles TO a harder substance)
-                                because it needs no new tile-write verb
-                                beyond one already used everywhere mining
-                                breaks a tile.
-                    'transmute' turn every ALREADY-SOLID tile in that same
-                                square into native `effect.sub`, through
-                                `model/tiles.js#write.set`. Same argument
-                                for the same reason: an existing verb, no
-                                new one. It converts rock and never creates
-                                it, so it can neither entomb the player nor
-                                hand them a free step upward.
-
-     effect.sub     the substance a 'transmute' turns rock into.
-     effect.boon    OPTIONAL. A `data/boons.js` id granted as a side-effect
-                    the instant the miracle is used.
-
-   USE IS AIMED, EVEN WHEN THE EFFECT IS NOT. `rules/miracles.js#use`
-   returns before spending anything when the reticle resolves to no band, so
-   a boon-only phial still cannot be drunk while aiming at open sky -- the
-   same rule every other aimed verb obeys. */
+   USE IS AIMED, EVEN WHEN THE EFFECT IS NOT: `use` returns before spending
+   anything when the reticle resolves to no band, so a boon-only phial cannot
+   be drunk while aiming at open sky. */
 
 export const MIRACLES = [
 
@@ -57,14 +38,13 @@ export const MIRACLES = [
     effect:{ boon:'poseidon-flood' } },
 
   /* IT CREATES ORE, and `radius` is the number that prices it: 9 tiles at
-     copper's `tile.charge` of 4 is 36 raw copper out of worthless rock --
-     3.6x cycle 1's whole demand -- with 34 s of swings still to pay. That is
-     the intended size of a one-shot god gift, and docs/SPEC.md section 14
-     states it in full rather than calling it walking saved.
-     `effect.sub` must be PACKABLE terrain (tools/content.mjs assertion 26):
-     this is the one caller of `packTile` that neither worldgen nor
-     `rules/placement.js` validates. It can do nothing at all to air, which
-     keeps it out of the "up is expensive" argument entirely. */
+     copper's charge of 4 is 36 raw copper out of worthless rock -- 3.6x cycle
+     1's whole demand -- with 34 s of swings still to pay.
+
+     `effect.sub` must be PACKABLE terrain, which the content lint proves,
+     because this is the one caller of `packTile` that neither worldgen nor
+     placement validates. It can do nothing at all to air, which keeps it out
+     of the "up is expensive" argument entirely. */
   { id:'lodestone', name:'LODESTONE OF THE FORGE', god:'hephaestus',
     text:'BASE ROCK REMEMBERS THE VEIN',
     effect:{ kind:'transmute', radius:1, sub:'copper' } }

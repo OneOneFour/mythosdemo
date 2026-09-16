@@ -31,8 +31,8 @@ for (let code = FONT5X7_FIRST; code <= FONT5X7_LAST; code++) {
 
 /* A 1 px diagonal shadow does NOT change advance width, so this is untouched
    by `drawText`'s `shadow` argument and must stay that way -- every anchored
-   layout pass in `view` measures with it (CLAUDE.md D8), and widening it by
-   the offset would move every panel that shadows any of its text. */
+   layout pass in `view` measures with it, and widening it by the offset would
+   move every panel that shadows any of its text. */
 export function textWidth(s, sc = 1, tr = 1) { return s.length * (5 * sc + tr) - tr; }
 
 /* Break `s` on spaces so no line measures wider than `budget` px. Lives here
@@ -54,24 +54,16 @@ export function wrap(s, budget, sc = 1, tr = 1) {
   return lines;
 }
 
-/* `shadow` is a colour string or `null`. When set,
-   the WHOLE STRING is rasterised once at (x+sc, y+sc) in the shadow tone and
-   then once at (x, y) in `col`.
+/* `shadow` is a colour string or `null`. When set, the WHOLE STRING is
+   rasterised once at (x+sc, y+sc) in the shadow tone and then once at (x, y)
+   in `col`.
 
    TWO COMPLETE TRAVERSALS, NOT ONE INTERLEAVED PASS. `fillStyle` is set once
    per traversal, outside the glyph loop, so a shadowed string costs exactly
    TWO `fillStyle` writes -- not two per glyph, and emphatically not two per
-   pixel, which is what drawing the shadow bit and the ink bit together inside
-   the innermost loop would cost. At ~11-14 `fillRect`s a glyph the second
-   pass is a few thousand extra 1x1 fills on the heaviest screen, which is
-   negligible beside world painting; a `fillStyle` swap per pixel would not
-   be.
-
-   Used ONLY where a site draws straight onto rendered world with nothing
-   behind it. A site inside a panel gets no shadow -- the panel is the
-   backing -- and a site next to an already-backed one gets a backing rect
-   instead, extending the idiom `view/ui/ruler.js` and `view/overview.js`
-   already use rather than putting a second mechanism beside it. */
+   pixel. Used ONLY where a site draws straight onto rendered world with
+   nothing behind it; a site inside a panel gets no shadow, and one next to an
+   already-backed site gets a backing rect instead. */
 export function drawText(g, s, x, y, col, sc = 1, tr = 1, shadow = null) {
   if (shadow) pass(g, s, (x | 0) + sc, (y | 0) + sc, shadow, sc, tr);
   pass(g, s, x | 0, y | 0, col, sc, tr);

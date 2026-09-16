@@ -1,14 +1,11 @@
-/* LAYER core — the drawing surface and the viewport.
-   Depends on nothing. May be imported by every layer, but in practice only
-   `view` and `shell` have any use for it.
+/* LAYER core — the drawing surface and the viewport. Depends on nothing.
 
-   The world has its own fixed coordinate space and the canvas is only a window
-   onto it. Resizing changes VIEW, never the world (ARCHITECTURE invariant 2).
+   The world has its own fixed coordinate space and the canvas is only a
+   window onto it, so resizing changes VIEW and never the world.
 
    The canvas is not looked up at module load. `stage` is an object mutated by
    `attach()`, which also lets a headless tool run the whole stack with
-   `stage.ctx === null` instead of stubbing `document` globally.
-   See docs/DEVELOPER_GUIDE.md#cross-module-mutable-state for the convention. */
+   `stage.ctx === null` instead of stubbing `document` globally. */
 
 /* Base resolution in world pixels. `w`/`h` are how much world is visible;
    `scale` is the nearest-neighbour upscale factor applied by CSS. */
@@ -27,9 +24,8 @@ export function attach(cv) {
 }
 
 /* The narrowest base buffer any widget must stay legible at. Every HUD panel
-   clamps to `VIEW.w`, so this is the width that decides whether a layout
-   fits at all -- `view/hud.js#calloutLines` wraps against it and
-   `tools/check.mjs` section 8n asserts the content still fits. */
+   clamps to `VIEW.w`, so this is the width that decides whether a layout fits
+   at all, and the harness asserts the content still does. */
 export const BASE_W_MIN = 200;
 
 export function resize(iw, ih) {

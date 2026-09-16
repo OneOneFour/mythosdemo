@@ -30,32 +30,16 @@ export const P = {
   vdA:'#63947a', vdB:'#4b7460', vdC:'#365746', vdD:'#243c30',
   irA:'#a3a3ad', irB:'#74747f', irC:'#4a4a54', irD:'#2c2c34',
   ichor:'#ffd97a', hot:'#ff9a3c', ui:'#d2c9b2', uiDim:'#98907c', uiBack:'#0d0b12',
-  /* THE THREE INK TONES, and which one a call site is allowed to use.
-     The old two-tone split made "secondary" and
-     "illegible" the same colour: `uiDim` at '#7b7361' is 4.3:1 against
-     `uiBack` at FULL opacity, and every panel draws `uiBack` at 0.6-0.92 alpha
-     over the live world, so the effective figure was lower -- and under 2:1
-     with no panel behind it at all.
-
+  /* THE THREE INK TONES, and which one a call site may use. A two-tone split
+     made "secondary" and "illegible" the same colour.
        ui       PRIMARY. A label, a heading, line 0 of a tooltip.
-       uiInk2   SECONDARY. De-emphasised text that must still READ: a bar's
-                value, a tooltip's body, a stat row, a key hint.
-       uiDim    STATE. Dim MEANS something at the ten sites listed in
-                docs/PLAN-phase13.md 2.3 -- unknown, unfuelled, idle, off,
-                inactive, a placeholder. Raised from '#7b7361' so it is
-                legible, NOT retired: the fix for "the dim tone is illegible"
-                is not "delete the dim tone", it is "stop using the state tone
-                for body text".
-
-     `uiShade` is a text shadow, for the handful of sites that draw straight
-     onto rendered world with nothing behind them (`core/font.js#drawText`'s
-     8th argument). Derived rather than picked, following
-     `view/ui/panel.js#SHADOW`'s own idiom -- it is `mix(uiBack, '#000000',
-     0.5)`, precomputed to hex because this table is hex by construction (see
-     the header) and `mix`'s helpers are declared below it. It must be OPAQUE
-     rather than an alpha: several call sites draw under a live
-     `g.globalAlpha < 1` (the callout fade, the title banner, the overview
-     legend) and an alpha shadow would let the ink pass bleed through it. */
+       uiInk2   SECONDARY. De-emphasised text that must still READ.
+       uiDim    STATE -- unknown, unfuelled, idle, off. The fix for "the dim
+                tone is illegible" is not deleting it, it is not using a state
+                tone for body text.
+     `uiShade` is a text shadow, OPAQUE rather than an alpha: several call
+     sites draw under a live `globalAlpha < 1`, where an alpha shadow would
+     let the ink bleed through. */
   uiInk2:'#e8e2d2', uiShade:'#060509',
   /* the widget layer's status colours; same hex as hud.js's UI row */
   uiGood:'#9ad86a', uiAmber:'#e0a030', uiHeart:'#d8433a',
