@@ -31,6 +31,7 @@ npm run build            # esbuild -> dist/mythos-factory.html, one file
 npm run preview          # serve the built artifact on :5174
 npm run parity           # build, then assert dev and dist render identically
 npm run test             # check + build + full visual suite
+npm run test:save        # the save-slot browser spec alone (tests/save.spec.js)
 npm run lint             # oxlint; .oxlintrc.json turns no-undef on
 npm run test:visual:update   # re-accept deliberate visual changes
 ```
