@@ -77,23 +77,25 @@ export function aimAtWorld(wx, wy) {
 
 /* Keyboard fallback: the tile the player faces, or the one under/over them.
 
-   TWO DIRECTIONS ARE SPECIAL-CASED BELOW, and for one reason in two axes. The
-   hitbox is 6 x 16 px on an 8 px tile, so it straddles two columns and fills
-   two rows, and a single point at the centre picks the wrong one of the pair.
-   `resolveStraightDown` picks the column and `resolveFacing` picks the row.
-   Up, and down-and-sideways, go through the generic centre-x `resolve()`. */
+   THREE DIRECTIONS ARE SPECIAL-CASED BELOW, and for one reason on two axes.
+   The hitbox is 6 x 16 px on an 8 px tile, so it straddles two columns and
+   fills two rows, and a single point at the centre picks the wrong one of the
+   pair. `resolveStraightDown` and `resolveStraightUp` pick the column and
+   `resolveFacing` picks the row. Down-and-sideways keeps the generic centre-x
+   `resolve()`, because a diagonal aim has a whole tile of slack in both axes.
+
+   A held horizontal key is IGNORED while `up` is held, which is what the
+   single generic branch did before `resolveStraightUp` existed; `down` wins
+   over `up` for the same reason. */
 export function aimAtKeys(cmd) {
   const c = playerCentre();
   const b = player.band;
   if (!b) return;
 
   if (cmd.down && !cmd.left && !cmd.right) { resolveStraightDown(c, b); return; }
-  if (!cmd.down && !cmd.up) { resolveFacing(c, b); return; }
-
-  let px = c.x, py = c.y;
-  if (cmd.down) { py += b.tile; px += player.face * b.tile; }
-  else          py -= b.tile;
-  resolve(px, py);
+  if (cmd.up && !cmd.down) { resolveStraightUp(c, b); return; }
+  if (!cmd.down) { resolveFacing(c, b); return; }
+  resolve(c.x + player.face * b.tile, c.y + b.tile);          // down and sideways
 }
 
 /* Targets whichever of the two columns the player's hitbox can straddle is
@@ -160,6 +162,51 @@ function resolveFacing(c, b) {
     if (tileAt(bb, tx, ty) !== AIR) { aw.set(bb, tx, ty, inBounds(bb, tx, ty)); return; }
   }
   resolve(px, c.y);
+}
+
+/* The mirror of `resolveStraightDown`, and it has to reach TWO rows because
+   nothing moves the player up out of its own work. It takes the first tile
+   that is not AIR in the two rows above the body, nearest row first, choosing
+   between the two columns the hitbox straddles exactly as straight down does.
+
+   `cmd.up` RESOLVED TO `centre.y - tile` BEFORE THIS EXISTED, which is
+   `player.y` — always the topmost row the body itself fills, never a row above
+   it. So digging up under rock broke nothing at all: 0 tiles in 20 s of held
+   up + dig in a carved pocket, against 4 for down + dig in the same scene. It
+   read as working only because a player on a ladder mines the rung at head
+   height, and that case is this function's fallback (docs/SPEC.md section 2.1,
+   docs/FINDINGS.md phase 6y).
+
+   THE SECOND ROW IS WHAT MAKES A TWO-TILE CEILING COME DOWN. Breaking the
+   first row leaves the player exactly where they were — down is free and up
+   needs a ladder — so a single probe would find the air it had just made and
+   expire, which is `resolveFacing`'s defect on the vertical axis.
+
+   BOTH ROWS SIT INSIDE `eff('reach')` BY CONSTRUCTION, so neither is clamped.
+   They are measured from the body's top edge rather than from a row index, so
+   an unaligned player mid-fall or mid-climb gets the row partly above their
+   head and the one above that: over every sub-tile pose the furthest tile
+   centre either row can name is 22.1 px from the player's centre, against a
+   reach of 25.6. A THIRD ROW REACHES 29.8 px, past reach, so there are two.
+
+   OCCUPIED MEANS NOT AIR, not `solidAt`. Mining the rung above the head is
+   how a ladder comes back down, and `resolveFacing` already names the first
+   tile that is not AIR on its own axis. Straight down tests `solidAt` instead
+   because what that choice prevents is standing wedged on a half-broken
+   floor, and nothing stands on a ceiling. */
+function resolveStraightUp(c, b) {
+  for (let i = 0; i < 2; i++) {
+    const py = player.y - 1 - i * b.tile;      // world px, just above the body
+    const bb = bandAt(c.x, py);
+    if (!bb) continue;
+    const ty = tileY(bb, py);
+    const tx0 = tileX(bb, player.x), tx1 = tileX(bb, player.x + PW - 1);
+    let target = null;
+    if (tileAt(bb, tx0, ty) !== AIR) target = tx0;
+    else if (tx1 !== tx0 && tileAt(bb, tx1, ty) !== AIR) target = tx1;
+    if (target !== null) { aw.set(bb, target, ty, inBounds(bb, target, ty)); return; }
+  }
+  resolve(c.x, c.y - b.tile);            // nothing overhead: the body's own head row
 }
 
 function resolve(px, py) {

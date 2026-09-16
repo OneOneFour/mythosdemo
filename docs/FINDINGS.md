@@ -4036,3 +4036,40 @@ one cost taken knowingly inside it.
   rock at head height — measured as a rung placed before 6y and nothing placed
   after. `docs/SPEC.md` §2.1 records it as deliberate, because the reticle must
   tell the truth about a swing and every placing gesture is a pointer gesture.
+
+## Phase 6y-2 — held up + dig reaches a ceiling
+
+`rules/mining.js#resolveStraightUp` is the mirror of `resolveStraightDown`: the
+first tile that is not AIR in the two rows above the body, nearest row first,
+over the two columns the hitbox straddles (`docs/SPEC.md` §2.1.1). Two rows
+because a third sits 29.8 px from the player's centre and `eff('reach')` is
+25.6. Two things parked, and one cost taken knowingly inside the block.
+
+- **`resolveStraightDown` finds the row below the feet only because `PH / 2`
+  and `band.tile` are both 8.** `src/rules/mining.js:121` reads
+  `c.y + b.tile`, which is the first pixel below a 16 px body when the tile is
+  8 px and eight pixels past it when the tile is 16. Every band in
+  `src/data/world.js` is `tile:8` today, so nothing is wrong now, and my brief
+  required that function to stay byte-identical, so it was left alone.
+  `resolveStraightUp` beside it takes `player.y - 1` for its first row, which
+  is the body's top edge at any tile size; its second row still steps by
+  `b.tile`, so a mixed-tile-size world would need both functions revisited
+  together. A band whose `tile` is not `PH / 2` is the condition.
+
+- **A horizontal key is ignored while `up` is held, and that is now stated
+  rather than incidental.** `aimAtKeys` sent `up+left` and `up+right` through
+  the same single centre-x resolve as bare `up`, so the diagonal was never a
+  direction; `resolveStraightUp` keeps that. Down-and-sideways IS a diagonal
+  (`c.x + face * tile`, `c.y + tile`), so the two axes disagree. Making
+  `up+left` name the tile above and to the left is a design change, not a
+  defect fix, and it was out of this phase's scope. `docs/SPEC.md` §2.1.1
+  records the asymmetry.
+
+- **THE COST TAKEN INSIDE THE BLOCK: a no-pointer place verb loses the head
+  row under a ceiling.** With the aim naming the first occupied tile above the
+  body, an armed rung and a bare `cmd.place` + `up` can no longer fill the
+  body's own head row while anything sits above it — measured as a rung placed
+  in the head row before 6y-2 and nothing placed after, in a 2-tall and a
+  3-tall pocket alike. It is the exact mirror of the cost `docs/SPEC.md` §2.1
+  already took for the horizontal branch, and it costs a real player nothing:
+  no key is bound to `cmd.place` and a pointer resolves through `aimAtWorld`.

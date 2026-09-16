@@ -112,6 +112,8 @@ blocked this number for a wave.
 
 ### 2.1 The keyboard aim probes both rows of the body (Phase 6y)
 
+The horizontal aim is below and the vertical one is in §2.1.1.
+
 The body is 16 px on an 8 px tile, so it fills two rows, and the tile blocking
 a step sideways can be in either of them. `rules/mining.js#aimAtKeys`'s bare
 horizontal branch therefore probes the faced column twice and takes the first
@@ -167,12 +169,74 @@ AIR or off the world. A shaft driven 240 px straight down from spawn takes the
 same time to the millisecond as before at all eight of the harness's
 framerates, on three seeds.
 
-**Digging straight up still cannot reach a ceiling, and that is a separate
-defect.** `cmd.up` resolves to `centre.y - tile`, which is always the topmost
-row the body itself fills, so it only ever names the player's own head row.
-That row is air unless something non-solid is pegged in it, which is why a
-player on a ladder can mine the rung at head height and a player under rock
-cannot break it. `docs/FINDINGS.md` phase 6y records it.
+### 2.1.1 Straight up probes the two rows above the body (Phase 6y-2)
+
+`cmd.up` used to resolve to `centre.y - tile`, which is `player.y` — always the
+topmost row the body itself fills, never a row above it. So digging up under
+rock broke nothing at all, and it read as working only because a player on a
+ladder mines the rung at head height. `resolveStraightUp` is the mirror of
+`resolveStraightDown`: it takes the first tile that is not AIR in the two rows
+above the body, nearest row first, choosing between the two columns the hitbox
+straddles exactly as straight down does.
+
+| order | row | what it is |
+|---|---|---|
+| 1 | the row holding `player.y - 1` | just above the body's top edge, which is the body's own top row while the pose is not tile-aligned |
+| 2 | one row above that | |
+| fallback | `tileY(centre.y - tile)` at centre x | the body's own head row, the pre-6y-2 aim, kept so that a rung at head height still comes out |
+
+**Two rows, because `eff('reach')` allows exactly two.** Over every sub-tile
+pose the furthest tile centre the first row can name is 14.8 px from the
+player's centre and the second 22.1 px, against a reach of 25.6 px. A third row
+reaches 29.8 px and is out of reach, so a ceiling two tiles thick comes down
+from a standing start and a third tile needs a ladder, a pointer or a boon.
+Neither probe is clamped, for the same reason §2.1's pair is not.
+
+**The aim advances, and it has to.** Nothing moves the player up out of their
+own work — down is free and up needs a ladder — so a single probe would find
+the air it had just made and expire, which is §2.1's defect on the vertical
+axis. Measured in a carved 2-tall pocket in solid stone, holding `up` + `dig`:
+**0 tiles in 20 s before, 2 after**, at 1.60 s and 3.21 s, which is stone's own
+`hard` each and never two tiles for the price of one. The same scene holding
+`down` + `dig` breaks 4 tiles in the same 20 s, before and after alike, to the
+millisecond.
+
+**When the first row above the head is air, up means the second row.** From a
+3-tall pocket the first row is the pocket's own top row, the ceiling is the
+second, and the ceiling comes down — one tile in 20 s, after which the next row
+up is 29.8 px away and the aim falls back to the head row. A 3-tall corridor is
+therefore the deepest ceiling a standing player can start on, and the reticle
+sits on whichever tile the swing will actually hit.
+
+**Both columns, sequentially, exactly as straight down.** A ceiling broken in
+only one of the two columns the hitbox straddles still stops a climb, because
+`rules/player.js#boxSolid` tests both — so a rung placed under the half-broken
+row could not be climbed. Each column pays its own full `hard`.
+
+**Not AIR, rather than solid**, for §2.1's reason in the other axis: mining the
+rung above the head is how a ladder comes back down. Straight down tests
+`solidAt` instead because what that choice prevents is standing wedged on a
+half-broken floor, and nothing stands on a ceiling.
+
+**The price, the mirror of §2.1's.** With no pointer on the canvas, an armed
+rung and a bare `cmd.place` can no longer fill the body's own head row while
+anything sits above it: measured as a rung placed in the head row before 6y-2
+and nothing placed after, in both a 2-tall and a 3-tall pocket. No key is bound
+to `cmd.place` and a pointer resolves through `aimAtWorld`, so no gesture a real
+player makes is affected.
+
+**Every other direction and the mouse path are untouched, measured rather than
+asserted.** Over 20,000 sampled poses per direction in mixed terrain, against
+the aim as of 6y: `down`, `down+left`, `down+right`, `down+up`, `down+up+right`,
+the bare horizontal branch and no key at all differ in **0** cases each.
+`up`, `up+left` and `up+right` differ in 10,309 of 20,000 — a held horizontal
+key is ignored while `up` is held, before and after. Restricted to the 1,032 of
+those poses the physics could actually produce, with the body clear of solid
+rock: 417 unchanged, 550 moved off AIR onto an occupied tile, 65 moved off a
+rung in the body's own head row onto a tile above it, and 0 moved off a solid
+tile. `aimAtWorld` is not edited at all, and a 240 px shaft driven straight down
+from spawn takes the same time to the millisecond at all eight of the harness's
+framerates on seeds 1337, 4242 and 9550.
 
 ## 3. Fall damage
 
