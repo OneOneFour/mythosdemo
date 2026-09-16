@@ -1,23 +1,14 @@
 /* LAYER shell — KEYBOARD AND POINTER. Imports `core`, `model` (read), `view`
    (read, the drawn-rect registry only) and `shell`.
 
-   ============================================================================
-   NOTE FOR FUTURE EDITS, kept from the previous codebase because it is still
-   the relevant warning: in the original mockup this module existed, was
-   imported by nothing, and did not even parse. It is wired into
-   `shell/main.js` now, and the test hook exercises it, so it cannot silently
-   rot again.
-   ============================================================================
+   `hop` and `place` are EDGE-TRIGGERED, because a held key must not
+   repeat-fire: a held space bar turned a one-tile hop into flight, and a held
+   place key emptied the pockets into a wall in half a second. `clearEdges()`
+   runs once per frame AFTER the rules read them, which is why the flag lives
+   here rather than on the key state.
 
-   `hop` and `place` are EDGE-TRIGGERED. A held key must not repeat-fire: a held
-   space bar that re-launched every frame turned a one-tile hop into flight, and
-   a held place key emptied the pockets into a wall in half a second.
-   `clearEdges()` is called once per frame AFTER the rules have read them, which
-   is why the flag lives here and not on the key state.
-
-   AUDIO IS UNLOCKED FROM THE FIRST GESTURE, on both the key and pointer paths.
-   Browsers refuse to start an AudioContext before one, and the gesture is not
-   ours to fake. */
+   Audio unlocks from the first gesture, on both paths, because browsers refuse
+   to start an AudioContext before one. */
 
 import { VIEW, stage } from '../core/canvas.js';
 import { AIR, F } from '../data/forms.js';
@@ -39,82 +30,49 @@ import {
   toggleMapFollow, toggleMapLayer, top, toggle, ui
 } from './ui.js';
 
-/* The command set the rules read. One object, mutated by property, per
-   docs/DEVELOPER_GUIDE.md#cross-module-mutable-state. `craft` is a HOLD, like
-   `dig`, not an edge -- `rules/crafting.js` accumulates while it is true and
-   forgets the bar the instant it is not.
-
-   `craftId` is WHICH recipe that hold is on: a `data/recipes.js` id, or null
-   for "whatever the hands can make". It travels with `craft` and is therefore
-   a HOLD too, absent from `clearEdges()` and released with the other holds on
-   blur. No key writes it -- the CRAFTING panel's queue is the live source and
-   `shell/main.js#step` folds its head in, the same way that function folds a
-   device and a preference into `dig` and `collect`. It is declared here
-   anyway, because this object is the whole of what `rules` may see of the
-   input and a test naming a target needs somewhere to write it. */
+/* The command set the rules read. One object, mutated by property. `craft` is
+   a HOLD, like `dig`, accumulated while true and forgotten the instant it is
+   not. `craftId` is WHICH recipe that hold is on, or null for "whatever the
+   hands can make" -- also a hold, so absent from `clearEdges()`. No key
+   writes it; the CRAFTING queue is the source and `shell/main.js#step` folds
+   its head in. Declared here anyway, because this object is the whole of what
+   `rules` may see of the input. */
 export const cmd = {
   left: false, right: false, up: false, down: false,
   hop: false, dig: false, place: false, craft: false, craftId: null, drop: false,
   deconstruct: false, link: false, action: false, collect: false,
-  /* THE FEED VERB (Phase 16a, docs/SPEC.md section 23.3). EDGE-TRIGGERED, the
-     same shape as `place` beside it and for the same reason this file's own
-     header gives: one physical press hands over exactly ONE unit, so a player
-     can count what they gave. A hold at 120 Hz is precisely what made the
-     automatic proximity drain (`rules/machines.js#handFeed`) unreadable.
-     Set by `pointerdown`'s LMB rule 2 below, consumed and self-cleared by
-     `shell/main.js#applyIntents`, and cleared by `clearEdges()` regardless. */
+  /* EDGE-TRIGGERED, like `place`: one press hands over exactly ONE unit, so a
+     player can count what they gave. A hold at 120 Hz is what made the
+     automatic proximity drain unreadable. */
   feed: false,
   mouse: false, mx: 0, my: 0, hasMouse: false,
 
-  /* UI pointer intents -- see docs/DEVELOPER_GUIDE.md#input-intents.
-     THE OPEN PANEL STACK CAPTURES INPUT: the pointer handlers below route to
-     THESE fields instead of `mouse`/`place` whenever `shell/ui.js#top()` is
-     open, so a click on a slot can never also place a tile in the world the
-     panel is sitting over.
+  /* An open panel captures input: the pointer handlers route to THESE fields
+     instead of `mouse`/`place`, so a click on a slot can never also place a
+     tile in the world under the panel.
 
-     `uiClick`/`uiRight` are EDGE, cleared every real frame by `clearEdges()`
-     regardless of button state -- correct for "was this clicked", but it
-     cannot answer "is the button still down", and a DRAG needs the second
-     question to tell a press-and-hold apart from a press-and-release one
-     frame later. So `uiDown` mirrors `cmd.mouse`'s shape instead: true on
-     pointerdown, false on pointerup, untouched by `clearEdges()`.
-     `shell/main.js`'s dispatcher watches its RISING edge to pick a drag
-     payload and its FALLING edge to resolve the drop.
-
-     `uiCtrl`/`uiShift` are the modifier snapshot taken at click time.
-     `uiWheel` is a per-FRAME signed delta, not one-shot -- it accumulates
-     between clears so a fast scroll is not dropped. There is no drag FIELD
-     here: `shell/ui.js#setDrag`/`clearDrag` already hold that payload. */
+     `uiClick`/`uiRight` are EDGE, cleared every frame regardless of button
+     state, which answers "was this clicked" but not "is it still down". A drag
+     needs the second question, so `uiDown` mirrors `cmd.mouse` instead and is
+     untouched by `clearEdges()`. `uiWheel` is a per-FRAME signed delta, so a
+     fast scroll is not dropped. */
   uiClick: false, uiRight: false, uiCtrl: false, uiShift: false, uiWheel: 0, uiDown: false
 };
 
 /* One-shot intents, consumed and cleared by `shell/main.js`. Separate from
-   `cmd` because these are requests to the shell, not movement. `machine`
-   (the old digit-driven BUILD menu's own field) is gone along with the menu
-   that set it -- placement now has exactly one path, `cmd.place`, whether
-   the pair placed is a tile or a machine; see `shell/input.js`'s own digit-
-   key comment and `docs/FINDINGS.md`.
+   `cmd` because these are requests to the shell, not movement. `draft`
+   REQUESTS an offer of a tier; `takeCard` is the 0-based index taken;
+   `reroll` asks for a second look, and the last two are the only intents
+   dispatched while the run is frozen behind the modal.
 
-   `draft` REQUESTS an offer of a tier (a debug key); `takeCard` is the
-   0-based index of the card taken from the offer standing now, and `reroll`
-   asks for a second look at the same tier. The three are separate fields
-   rather than one because they are three different verbs, and the last two
-   are the only intents `applyIntents` still dispatches while the run is
-   frozen behind the modal.
-
-   `menuRow` is the ID of the main-menu row a key or a click has taken, out of
-   `view/ui/state.js#drawn.menu.rows`. It is an intent rather than a direct
-   call because taking a row starts a run, loads a save or applies a scenario,
-   which means `shell/boot.js`, `shell/save.js` and `rules/scenarios.js` --
-   and `shell/boot.js` imports THIS file, so reaching them from here would be
-   a cycle inside `shell`. `shell/main.js#applyMenuIntents` dispatches it. */
+   `menuRow` is the row id a key or click took, out of `drawn.menu.rows`. An
+   intent rather than a direct call, because taking a row reaches
+   `shell/boot.js`, which imports THIS file -- a cycle inside `shell`. */
 export const wants = { restart: false, draft: null, takeCard: null, reroll: false, menuRow: null };
 
-/* Presentation toggles. Read by `view` through the frame context — `view` may
-   not import `shell`, so they are passed in rather than imported. `showMap` is
-   the full-world overview: `shell/main.js#frame()` reads it to freeze the
-   substep loop, and `view/scene.js#render()` reads it to take the overview
-   render path instead of the normal camera-relative one. */
+/* Presentation toggles, handed to `view` on the frame context because `view`
+   may not import `shell`. `showMap` freezes the substep loop in
+   `shell/main.js` and switches `view/scene.js` to the overview path. */
 export const flags = { showGrid: false, showChunks: false, showDebug: false, showMap: false };
 
 const KEYS = {
@@ -126,93 +84,54 @@ const KEYS = {
 
 let hopHeld = false, dropHeld = false, deconHeld = false, linkHeld = false;
 
-/* THE LIVE BINDING SET, per docs/PLAN-phase12.md §4.1's final keymap --
-   the one place this file states it in prose
-   rather than leaving it to be reconstructed from every `if (key === ...)`
-   clause below: wasd/arrows (move), space (hop), e (open/close the main
-   panel), q (drop), backspace (deconstruct), r (hold to act on a placed
-   machine -- turn a crank), c (hold to collect), l (link/unlink two hubs),
-   g/h (grid/debug overlays), o (map overview), m (mute), z (cancel a
-   selection, additive to Escape), Escape (close a panel, cancel a selection,
-   and the main menu once neither is standing),
-   the digits (arm the quickbar slot at that index), and t/b/k/y/p behind
-   `flags.showDebug` (debug drafts, and the chunk overlay). While a draft
-   offer stands, 1/2/3 take a card and r rerolls it, and every other key --
-   Escape included -- is swallowed; see that branch's own header. Mining, placing,
-   feeding a machine by hand and using a held miracle have no dedicated key at
-   all -- they are all LMB, resolved once at `pointerdown` (D-A, widened to
-   four rules -- docs/SPEC.md section 23.2) -- and restart is a clickable button
-   on the death screen (D-C), not a key. `x`/`j` (dig), `v` (use miracle),
-   `i` (open panel) and `f` (crank) are RETIRED; `p` (equip) was retired
-   and its letter reused for the chunk toggle; `u` (hand-craft) is
-   RETIRED too -- the recipe-click queue already covers it with no key held
-   at all, so its own hold was fully redundant (D-B). */
+/* THE LIVE BINDING SET, stated once rather than reconstructed from the
+   `if (key === ...)` clauses below:
+     wasd/arrows move · space hop · e main panel · q drop
+     backspace deconstruct · r hold to act on a machine · c hold to collect
+     l link/unlink two hubs · g/h overlays · o map · m mute
+     z cancel a selection · Escape close, then cancel, then the menu
+     digits arm that quickbar slot · t/b/k/y/p behind `flags.showDebug`
+   While an offer stands, 1/2/3 take a card and r rerolls, and every other key
+   is swallowed. Mining, placing, hand-feeding and using a miracle have no key
+   at all: all four are LMB, resolved once at `pointerdown`. */
 function set(k, down) {
   const key = k.toLowerCase();
   if (KEYS[key]) cmd[KEYS[key]] = down;
   if (key === ' ')                  { if (down && !hopHeld) cmd.hop = true; hopHeld = down; }
-  /* 'r' to ACT on a placed machine within reach -- turn a crank, today's only
-     such machine (Phase 8f, docs/PLAN-gears-and-winches.md section 4.2),
-     renamed from `f`/`cmd.turn` per docs/PLAN-phase12.md §3 D-J: the brief
-     asked for a GENERIC "hold to operate" verb, not a crank-specific one that
-     happens to sit on `r`, so both the key and the field moved together. A
-     HOLD, exactly like `craft` above, and deliberately NOT an edge: the whole
-     design is that the player must stand there holding it, so this file's
-     "a held key must not repeat-fire" warning does not apply. There is nothing
-     to fire; there is only a key that is either down or not, and
-     `rules/drive.js` supplies torque for exactly the frames it is down.
-     `r` was restart until this relocated that onto a real death-screen
-     button (D-C), shared with the win screen -- see
-     `pointerdown`'s own end-restart branch below.
-     Released on blur with the other holds below; NOT listed in
+  /* ACT on a placed machine within reach, today only a crank. A generic verb
+     rather than a crank-specific one. A HOLD and deliberately NOT an edge:
+     the design is that the player stands there holding it, so the
+     repeat-fire warning does not apply -- `rules/drive.js` supplies torque
+     for exactly the frames it is down. Released on blur, and NOT in
      `clearEdges()`, which would turn a hold into an edge. */
   if (key === 'r')                  cmd.action = down;
-  /* 'q' for the drop verb -- EDGE-TRIGGERED, same `*Held` latch idiom as
-     `hop` above: this file's own header already records that a held
-     key emptying the pockets into a wall in half a second is a bug, and a held
-     drop would empty the pockets one pair at a time just as fast. */
+  /* EDGE-TRIGGERED, same `*Held` latch as `hop`: a held drop would empty the
+     pockets a pair at a time as fast as a held place emptied them into a
+     wall. */
   if (key === 'q')                  { if (down && !dropHeld) cmd.drop = true; dropHeld = down; }
-  /* 'backspace' for deconstruct -- the inverse of placement,
-     EDGE-TRIGGERED for the identical reason: a held key that tore down every
-     machine the aim reticle crossed in half a second would be the same bug
-     this file's header already warns about for `place`, running backwards. */
+  /* The inverse of placement, edge-triggered for the same reason: a held key
+     would tear down every machine the reticle crossed. */
   if (key === 'backspace')          { if (down && !deconHeld) cmd.deconstruct = true; deconHeld = down; }
-  /* 'c' to COLLECT: a HOLD, exactly like `craft`/`action` above --
-     docs/PLAN-phase12.md §3 D-E. By default items no longer auto-collect
-     (`rules/items.js#step`'s pickup branch is now gated on this, folded
-     with `ui.autoCollect` in `shell/main.js#step`'s narrowed command
-     object); standing in a small pile with this held sweeps it up over a
-     couple of frames, the same "must stand there holding it" idiom `r`'s
-     own comment above already states for the crank. */
+  /* COLLECT: a HOLD, like `craft` and `action`. Items do not auto-collect by
+     default, so standing in a pile with this held sweeps it up over a couple
+     of frames. */
   if (key === 'c')                  cmd.collect = down;
-  /* 'l' to LINK two hubs into a segment
-     (docs/PLAN-gears-and-winches.md section 4.5) -- EDGE-TRIGGERED, the same
-     `*Held` latch every other real verb on this list uses, and for the same
-     reason this file's header already records: a held key that laid and cut
-     the same cable sixty times a second would be the identical bug as a held
-     place key emptying the pockets into a wall. TWO PRESSES ARE ONE GESTURE
-     (arm an endpoint, then choose the other), which is exactly why the second
-     press must be a second physical press and not frame 2 of the first.
-     `l` is free -- the old `L` machine-spawn key was retired in `66ad0e7`. */
+  /* LINK two hubs into a segment. Edge-triggered, or a held key would lay and
+     cut the same cable sixty times a second. Two presses are ONE gesture --
+     arm an endpoint, then choose the other -- which is why the second must be
+     a second physical press and not frame 2 of the first. */
   if (key === 'l')                  { if (down && !linkHeld) cmd.link = true; linkHeld = down; }
 }
 
-/* ============================================================================
-   THE MAIN MENU'S OWN INPUT (docs/SPEC.md section 30).
+/* THE MENU TAKES THE WHOLE KEYBOARD AND POINTER, as the first branch of both
+   handlers below, above even the draft modal. The run is frozen behind it and
+   it covers the screen, so nothing under it can mean anything. Every
+   unrecognised key is swallowed, because a stray 'g' toggling an overlay the
+   player cannot see is worse than a dropped keystroke.
 
-   THE MENU TAKES THE WHOLE KEYBOARD AND THE WHOLE POINTER, and it is the first
-   branch of both handlers below -- above the draft modal, which is otherwise
-   the topmost thing the game can raise. The run is frozen behind the menu
-   (`shell/main.js#step`) and the menu covers the screen, so there is nothing
-   under it for a key to mean. Every key it does not recognise is swallowed,
-   for the reason the search field's branch already gives: a stray 'g' toggling
-   an overlay the player cannot see is worse than a dropped keystroke.
-
-   THE FOUR VERBS COME FROM `shell/ui.js#KEYMAP` rather than from key literals,
-   so the CONTROLS page the menu draws and the handler that obeys it cannot
-   disagree. The rest of this file still dispatches on key literals, which
-   docs/SPEC.md section 30.3 states and does not excuse.
-   ============================================================================ */
+   The four verbs come from `shell/ui.js#KEYMAP` rather than key literals, so
+   the CONTROLS page and the handler that obeys it cannot disagree. The rest of
+   this file still dispatches on literals. */
 const MENU_VERBS = ['menuMove', 'menuPage', 'menuSelect', 'menuBack'];
 
 /* Lowercased `e.key` -> the menu verb it means. Built once at import; `KEYMAP`
@@ -233,10 +152,9 @@ const MENU_PREV = ['w', 'a', 'arrowup', 'arrowleft'];
    nine -- and bounds the field against a held key. */
 const SEED_DIGITS = 10;
 
-/* WHAT THE MENU ACTUALLY DREW, or null. The record carries its own `page` and
-   it is tested against the live one, so a key can never take a CONTROLS row
-   while the DEBUG page is showing (docs/SPEC.md section 30.2). Row indices are
-   never recomputed here: the focused row is the one that says it is. */
+/* What the menu actually drew, or null. The record carries its own `page`,
+   tested against the live one, so a key cannot take a CONTROLS row while the
+   DEBUG page shows. Row indices are never recomputed here. */
 const menuDrawn = () => {
   const rec = uiDrawn.menu;
   return rec && rec.page === ui.menu.page ? rec : null;
@@ -251,10 +169,8 @@ function menuKey(e, k) {
   const rows = rec ? rec.rows : [];
   e.preventDefault();
 
-  /* THE SEED FIELD CAPTURES KEYS, above the navigation verbs and for the same
-     reason the CRAFTING search field pre-empts movement: with the field
-     focused, 's' is not "move down". Digits only -- a seed is a number, and a
-     field that accepted a letter would then have to reject it. */
+  /* Captures keys above the navigation verbs, because with the field focused
+     's' is not "move down". Digits only. */
   if (ui.menu.seedFocus) {
     if (k === 'escape' || k === 'enter') setMenuSeedFocus(false);
     else if (k === 'backspace') setMenuSeed(ui.menu.seed.slice(0, -1));
@@ -283,21 +199,12 @@ function menuKey(e, k) {
   }
 }
 
-/* ============================================================================
-   THE DIG QUEUE'S DRAG-PAINT (docs/SPEC.md section 28, wave 6 U5).
-
-   A DRAG THAT STARTED ON RULE 4 PAINTS; ONE THAT STARTED ON RULES 1-3 DOES
-   NOT. Which rule fired is decided once at `pointerdown` (section 23.2), and
-   `paintAt` is set in that one branch and nowhere else -- so a press that meant
-   "place" or "feed" cannot turn into a paint stroke by moving the mouse. That
-   is the same decide-once hysteresis that stops mining starting on a tile the
-   press just placed.
-
-   THE POINTER, NOT THE RETICLE. `model/aim.js` is clamped to `eff('reach')`
-   (`rules/mining.js#aimAtWorld`) and U5's whole point is marking well past
-   where you stand, so the tile is resolved from the pointer's own world
-   position instead.
-   ============================================================================ */
+/* A drag that started on LMB rule 4 paints; one that started on rules 1-3
+   does not. Which rule fired is decided once at `pointerdown`, and `paintAt`
+   is set in that one branch, so a press that meant "place" or "feed" cannot
+   become a paint stroke by moving the mouse. The POINTER, not the reticle:
+   `model/aim.js` is clamped to `eff('reach')` and the point of painting is
+   marking well past where you stand. */
 
 /* The tile under the pointer, in whichever band it is over, or null off the
    world. `cmd.mx`/`my` are WORLD px and `toWorld` has already set them. */
@@ -306,16 +213,14 @@ function tileUnderPointer() {
   return b ? { b, tx: tileX(b, cmd.mx), ty: tileY(b, cmd.my) } : null;
 }
 
-/* `paintAt` is the last tile this stroke painted, and null when no stroke is
-   live -- which is also how the pointer handlers know whether the button is
-   still down for painting purposes. `paintFull` is a once-per-stroke latch on
-   the cap's refusal, so a 256-tile drag into a full queue says so once rather
-   than 256 times (docs/SPEC.md section 28.3 makes the same argument for
-   granite). */
+/* `paintAt` is the last tile this stroke painted, null when no stroke is
+   live, which is also how the pointer handlers know the button is still down.
+   `paintFull` is a once-per-stroke latch on the cap's refusal, so a 256-tile
+   drag into a full queue says so once rather than 256 times. */
 let paintAt = null, paintFull = false;
 
-/* `model/digqueue.js` cannot push the row itself: no `model` module imports
-   `model/journal.js`, so the cap's refusal is the caller's (section 28.5). */
+/* `model/digqueue.js` cannot push the row itself, because no `model` module
+   imports `model/journal.js`, so the cap's refusal is the caller's. */
 function markOne(b, tx, ty) {
   if (dqw.mark(b, tx, ty) !== 'full' || paintFull) return;
   paintFull = true;
@@ -344,27 +249,16 @@ function paintTo() {
 
 const paintEnd = () => { paintAt = null; paintFull = false; };
 
-/* ============================================================================
-   THE OVERVIEW'S OWN INPUT (docs/BUILD_PLAN.md Phase 9 section 2).
+/* THE MAP IS A MODE, so it takes the keyboard. Nothing simulates while
+   `flags.showMap` is true, so the movement keys are free to mean "scroll".
+   Pre-empted BEFORE `set()` rather than layered on top: a key that latched
+   `cmd.up` on the way in would still be latched on the way out. Same reason
+   the digits do not also arm a quickbar slot. Unrecognised keys fall through,
+   so 'o' still closes the map and 'm' still mutes.
 
-   THE MAP IS A MODE, SO IT TAKES THE KEYBOARD. While `flags.showMap` is true
-   `shell/main.js#step` returns immediately -- nothing simulates -- so the
-   movement keys have nothing to move and are free to mean "scroll". They are
-   pre-empted BEFORE `set()` below rather than doubled up on top of it, for the
-   reason that function's own header gives: a key that latched `cmd.up` on the
-   way into the map would still be latched on the way out, and the player would
-   come back to a character climbing a ladder they never asked to climb. The
-   same pre-emption is why the digits do not also arm a quickbar slot.
-
-   Unrecognised keys FALL THROUGH to the ordinary handler on purpose, so 'o'
-   still closes the map, 'r' still restarts and 'm' still mutes: this function
-   claims the keys the map has a use for and no others.
-
-   PAN AND ZOOM ARE MEASURED IN SCREEN PIXELS, converted to world px through
-   `mapView.scale`, so one press moves the view the same visible distance at
-   every zoom level -- a fixed world-px step would crawl at x8 and leap a third
-   of the world at x1.
-   ============================================================================ */
+   Pan and zoom are in SCREEN px, converted through `mapView.scale`, so one
+   press moves the same visible distance at every zoom -- a fixed world-px
+   step would crawl at x8. */
 const MAP_PAN = 24;        // screen px per arrow/WASD press
 const MAP_WHEEL_PAN = 48;  // screen px per wheel notch
 const MAP_FAST = 4;        // shift multiplier
@@ -373,28 +267,15 @@ const MAP_FAST = 4;        // shift multiplier
    is no scale to divide by yet, and nothing to look at either). */
 const mapWorld = px => (mapView.active && mapView.scale > 0 ? px / mapView.scale : 0);
 
-/* EVERY PAN GOES THROUGH HERE, and it seeds the offset from WHERE THE VIEW
-   ACTUALLY IS before adding the delta. Two bugs, one fix, both found by driving
-   the real key events rather than by reading the code:
+/* Every pan seeds the offset from WHERE THE VIEW ACTUALLY IS, which fixes
+   two things. `ui.map.x/y` is unrelated to the screen while FOLLOW is on, so
+   seeding from `mapView.wx/wy` -- the clamped position the last frame drew --
+   is what makes the handoff seamless.
 
-     HANDING OFF FROM FOLLOW. `ui.map.x/y` is whatever it was last set to, which
-     while FOLLOW is on is nothing to do with what is on screen -- so the first
-     manual scroll used to JUMP to a stale offset (0,0 on a fresh run) instead of
-     nudging the view the player was looking at. Seeding from `mapView.wx/wy`,
-     the clamped position the last frame actually drew, makes the handoff
-     seamless.
-
-     NO OVERSCROLL. The stored
-     offset is deliberately unclamped -- `view` owns the clamp -- so holding the
-     pan key at the bottom of the world parked it thousands of pixels past the
-     edge, and it then took as many presses the other way before anything moved.
-     Clamping the SEED through `view/overview.js#mapClamp` (the same `fit` the
-     transform uses, not a second copy) bounds the stored value to one press
-     outside the world at worst.
-
-   Two presses inside one frame still both count: the first leaves a value
-   already inside the bounds, so clamping it again is a no-op and the second adds
-   to it. */
+   The stored offset is unclamped, because `view` owns the clamp, so holding
+   pan at the world's bottom parked it thousands of px past the edge. Clamping
+   the SEED through `mapClamp` bounds it to one press outside the world. Two
+   presses in one frame still both count. */
 function mapPan(dx, dy) {
   const m = ui.map;
   const seed = m.follow && mapView.active
@@ -404,12 +285,10 @@ function mapPan(dx, dy) {
   mapScroll(dx, dy);
 }
 
-/* ZOOM KEEPS THE CENTRE, not the top-left corner. The new scale is derived from
-   the recorded one by ratio rather than recomputed from `minTile` -- one file
-   owns that arithmetic (`view/overview.js`) and this is the same number it just
-   used. FOLLOW ON MEANS THERE IS NOTHING TO RE-ANCHOR: the transform recentres
-   on the player every frame, so parking an offset would be writing a value
-   nothing reads. See `shell/ui.js#mapPark`. */
+/* Zoom keeps the CENTRE, not the top-left. The new scale is derived from the
+   recorded one by ratio rather than recomputed, so `view/overview.js` stays
+   the only owner of that arithmetic. With FOLLOW on there is nothing to
+   re-anchor, because the transform recentres every frame. */
 function mapZoomBy(dir) {
   const i = MAP_ZOOM.indexOf(mapView.zoom);
   const next = MAP_ZOOM[Math.max(0, Math.min(MAP_ZOOM.length - 1, (i < 0 ? 0 : i) + dir))];
@@ -423,13 +302,10 @@ function mapZoomBy(dir) {
   setMapZoom(next);
 }
 
-/* A DIGIT TOGGLES THE NTH LAYER, and the order is `ui.map.layers`' own key
-   order -- the single declaration in `shell/ui.js`, which `view/overview.js`'s
-   legend also iterates. One list, so "press 3" and "the third row of the
-   legend" cannot disagree about which layer that is. Every digit is swallowed
-   whether or not a layer sits at that index, because falling through to the
-   quickbar while the world is frozen behind a full-screen map would arm a
-   placement the player cannot see. */
+/* A digit toggles the Nth layer, in `ui.map.layers`' own key order, which the
+   legend also iterates -- so "press 3" and the third legend row cannot
+   disagree. Every digit is swallowed whether or not a layer sits there, or it
+   would arm a placement the player cannot see. */
 function mapDigit(k) {
   const i = '1234567890'.indexOf(k);
   if (i < 0) return false;
@@ -447,12 +323,9 @@ function mapKey(k, shift) {
     case 'd': case 'arrowright': mapPan( step, 0); return true;
     case '=': case '+': case ']': mapZoomBy(1);  return true;
     case '-': case '_': case '[': mapZoomBy(-1); return true;
-    /* 'f' means only "toggle follow" here -- it stopped being doubled up with
-       the crank hold once that moved to `r` (docs/PLAN-phase12.md §3 D-J).
-       'r' is not claimed by this switch either; it falls through to
-       `mapDigit`, then to `set()` below, exactly like every other
-       unrecognised key, but `cmd.action` cannot latch anything anyway while
-       the run is frozen -- nothing is cranking while the map is open. */
+    /* 'f' means only "toggle follow" here. 'r' is not claimed either and falls
+       through like any unrecognised key, but `cmd.action` cannot latch
+       anything while the run is frozen. */
     case 'f': toggleMapFollow(); return true;
     default: return mapDigit(k);
   }
@@ -471,23 +344,16 @@ export function installInput() {
        can be standing when it is. See `menuKey`'s own header. */
     if (ui.menu.open) { menuKey(e, k); return; }
 
-    /* THE DRAFT MODAL CLAIMS THE WHOLE KEYBOARD, above the search field and
-       above the map, because it is the topmost thing the game can raise and
-       the run is frozen behind it (D17-A). FIRST, and not merely early: the
-       CRAFTING search field below is the only other branch that captures
-       every key, and with the field focused when a trial pays it swallowed
-       1/2/3/r into the search string and let Escape pop the modal off the
-       stack. A raised offer outranks a text field for the same reason it
-       outranks the world. 1/2/3 take a card, 'r' asks for a second look, and
-       every other key is swallowed -- a stray 'e' opening the tabbed window
-       UNDER a modal the player cannot leave is worse than a dropped
-       keystroke.
+    /* The draft modal claims the whole keyboard, above the search field and the
+       map, because it is the topmost thing the game can raise. FIRST, not
+       merely early: with the search field focused when a trial pays, it
+       swallowed 1/2/3/r into the search string and let Escape pop the modal
+       off the stack. 1/2/3 take a card, 'r' asks for a second look, and every
+       other key is swallowed.
 
-       ESCAPE IS DELIBERATELY NOT A WAY OUT, which is the one place this
-       block differs from every other panel in this file. An un-taken
-       permanent gift is not recoverable, so it must not be losable to the
-       key a player presses reflexively -- the offer stands until a card is
-       taken. */
+       Escape is deliberately NOT a way out, the one place this differs from
+       every other panel here. An un-taken permanent gift is unrecoverable, so
+       it must not be losable to a reflex keypress. */
     if (isOpen('draft')) {
       const card = '123'.indexOf(k);
       if (card >= 0) wants.takeCard = card;
@@ -496,31 +362,18 @@ export function installInput() {
       return;
     }
 
-    /* THE CRAFTING TAB'S SEARCH FIELD, captured HERE rather than
-       inside `set()` below, because it must pre-empt every other binding in
-       this file except the draft modal above -- 'wasd' are movement, 'e'
-       places, 'p' equips, and a typed search string must not also walk the
-       player into a wall or place a tile. `ui.searchFocus` is set by a click on the field itself
-       (`shell/main.js`'s UI dispatcher) and cleared by Enter, Escape or a
-       click elsewhere -- the same "only one thing owns the keyboard" rule a
-       real text input enforces, done by hand because this project has no
-       DOM input element to delegate to (invariant 11: no `fillText`, and no
-       markup at all under `stage.cv`). Every other key this branch does not
-       recognise is swallowed, not passed through -- a stray 'g'/'h' toggling
-       a debug overlay while the player is mid-sentence would be worse than
-       one dropped keystroke. */
+    /* The search field is captured HERE rather than inside `set()`, because it
+       must pre-empt every binding except the draft modal -- a typed search
+       string must not also walk the player into a wall. Only one thing owns
+       the keyboard, enforced by hand because there is no DOM input to
+       delegate to. Unrecognised keys are swallowed rather than passed
+       through. */
     if (ui.searchFocus) {
-      /* BUG FIX: Escape used to only blur the field, stopping short of the
-         `isOpen(top())` close-panel branch further down this function --
-         reachable only once the field had already lost focus, i.e. after a
-         SECOND press. A player who clicked into search had no single key
-         that reliably left the window. Escape now does both in the one
-         press it already owns: blur, then pop the panel stack exactly as it
+      /* Escape does BOTH in one press: blur, then pop the panel stack as it
          would have if the field had never been focused. Enter stays
-         blur-only -- it commits a search, it does not mean "leave". 'i' is
-         deliberately NOT special-cased out of this block: it is a legitimate
-         search character (filtering for "ingot"), and the same Escape fix is
-         the actual way out, not carving a hole in the search alphabet. */
+         blur-only, because it commits a search rather than meaning "leave".
+         'i' is deliberately not special-cased out; it is a legitimate search
+         character. */
       if (e.key === 'Escape') {
         setSearchFocus(false);
         if (isOpen(top())) closeTop();
@@ -536,10 +389,8 @@ export function installInput() {
       return;
     }
 
-    /* THE MAP CLAIMS ITS KEYS FIRST -- see `mapKey`'s own header for why this
-       pre-empts `set()` rather than running alongside it. Escape leaves the
-       mode, so a player who opened the map has the same one way out of it
-       every other panel in this game has. */
+    /* The map claims its keys first, pre-empting `set()` rather than running
+       alongside it. Escape leaves the mode. */
     if (flags.showMap) {
       if (k === 'escape') { flags.showMap = false; e.preventDefault(); return; }
       if (mapKey(k, e.shiftKey)) { e.preventDefault(); return; }
@@ -548,30 +399,18 @@ export function installInput() {
     set(e.key, true);
     if (k === 'g') flags.showGrid   = !flags.showGrid;
     if (k === 'h') flags.showDebug  = !flags.showDebug;
-    /* 'e' opens/closes the main panel -- moved off `i` outright
-       (docs/PLAN-phase12.md §3 D-K, one binding per verb), and off its own
-       former "place" meaning, which the LMB/RMB dispatch below already
-       covers redundantly (D-A). */
+    /* 'e' opens and closes the main panel. */
     if (k === 'e') toggle('main');
-    /* ESCAPE ESCALATES, AND THE MENU IS THE LAST STEP (docs/SPEC.md section
-       30.6). In order, and only ever one of them per press:
+    /* ESCAPE ESCALATES, one step per press, and the menu is last:
+         a raised draft    swallowed above; it means nothing at all there
+         the search field  blurs and pops the panel under it, above
+         the map           leaves the mode, above
+         the panel stack   pops exactly the top entry
+         an armed pair     cancels it, panel open or not
+         nothing           opens the menu over the run
 
-         a raised draft    swallowed, above -- an un-taken permanent gift must
-                           not be losable to a reflex keypress, which is the
-                           one place Escape means nothing at all.
-         the search field  blurs and pops the panel under it, above.
-         the map           leaves the mode, above.
-         the panel stack   pops exactly the top entry.
-         an armed pair or  cancels it, whether or not a panel is open, so a
-         link endpoint     player who armed a pair and closed the panel to go
-                           aim still has one visible cancel key.
-         nothing           opens the menu over the run.
-
-       THE MENU DOES NOT STEAL A CLOSE. `claimed` and `armed` are read BEFORE
-       anything is cleared, so the press that closes a panel or drops a
-       selection does only that, and the menu needs a second press. Escape
-       inside the menu is BACK, THEN PLAY (`menuKey` above), so the pair is a
-       toggle once nothing else is standing. */
+       The menu does not steal a close: `claimed` and `armed` are read BEFORE
+       anything is cleared. Escape inside the menu is BACK, then PLAY. */
     if (k === 'escape') {
       const claimed = isOpen(top());
       const armed = !!ui.armedPlace || !!ui.linkFrom;
@@ -581,27 +420,19 @@ export function installInput() {
       if (!claimed && !armed) openMenu('root');
       e.preventDefault();
     }
-    /* 'z' fires the identical cancel pair, ADDITIVELY (docs/PLAN-phase12.md
-       §4.4 item 5): a narrower synonym for Escape's own cancel half that does
-       NOT touch the panel stack, so a player mid-build can drop a selection
-       without also closing whatever panel they have open. */
+    /* The same cancel pair as Escape's middle step, but it does NOT touch the
+       panel stack, so a player mid-build can drop a selection without
+       closing the panel they have open. */
     if (k === 'z') { clearArmedPlace(); clearLink(); }
     /* Same edge-triggered boolean-flip idiom as `showGrid`/`showChunks`/
        `showDebug` -- a held key does not matter here, since the map is a
        mode you sit in, not an action you repeat. */
     if (k === 'o') flags.showMap    = !flags.showMap;
     if (k === 'm') audio.muted = !audio.muted;
-    /* Restart used to be `r`, live at any time -- `r` is now the crank/action
-       hold (D-J), so restart moved to a real clickable button on the death
-       screen, and the win screen shares it: see
-       `pointerdown`'s own end-restart branch below. */
-
-    /* Every "spawn a tier from nothing" path lives behind `flags.showDebug`
-       and nowhere else: 't' trinket, 'b' the timed boon tier, 'k' the machine
-       grant, 'y' a miracle phial. 'p' joins this gate too (docs/PLAN-
-       phase12.md §3 D-D) -- freed by retiring the equip key, and folded
-       behind the same single debug gate rather than left a bare letter, per
-       the brief's own suggestion. A no-op with `flags.showDebug` off. */
+    
+    /* Every "spawn a tier from nothing" path is behind `flags.showDebug` and
+       nowhere else: 't' trinket, 'b' timed boon, 'k' machine grant, 'y'
+       miracle phial, 'p' the chunk overlay. */
     if (flags.showDebug) {
       if (k === 't') wants.draft = 'trinket';
       if (k === 'b') wants.draft = 'boon';
@@ -610,38 +441,15 @@ export function installInput() {
       if (k === 'p') flags.showChunks = !flags.showChunks;
     }
 
-    /* DIGIT KEYS ARM THE MATCHING QUICKBAR SLOT.
-       A digit key does exactly what a click on that quickbar slot
-       already does (`shell/main.js#applyUiIntents`'s click-to-arm branch):
-       arm the slot's assigned pair for the next placement. Reached through
-       `view/ui/quickbar.js#slotForDigit`, the SAME digit-to-slot mapping
-       that file's own `digitOf` draws each cell's glyph from, so "press 3"
-       and "the slot showing 3" cannot disagree about which slot that is.
-       Unconditional -- no panel gate at all -- because the
-       quickbar is part of the PERMANENT HUD (`view/ui/quickbar.js`'s own
-       header), the same reasoning that already made its KEYS/legend toggle
-       clickable with no panel open.
+    /* A digit does what a click on that quickbar slot does: arm its pair for
+       the next placement. Through `slotForDigit`, the same mapping the cell
+       glyphs are drawn from, so "press 3" and "the slot showing 3" cannot
+       disagree. Unconditional, because the quickbar is permanent HUD.
 
-       ANY OCCUPIED SLOT ARMS (Phase 16a, docs/SPEC.md section 23.1). The
-       tile-form-or-rig-or-phial gate that used to be here is gone: an arm
-       now has two possible consequences, not one, and every ore, ingot,
-       plate and brand -- click-inert before this phase, a confirmed silent
-       no-op -- is exactly what the feed verb hands over. A pair that can
-       neither be placed nor fed still arms, and is inert until it is aimed
-       at something; `rules/placement.js#placeTile`'s own
-       'THAT DOES NOT BUILD' is what refuses it then, one press later, with a
-       reason. `shell/main.js`'s click-to-arm branch carries the IDENTICAL
-       gate, and must: `view/ui/quickbar.js#DIGITS`'s "press 3 and the slot
-       showing 3 cannot disagree" property is only true while the two ways of
-       reaching a slot accept the same slots.
-
-       An empty slot still does nothing at all -- no arm, no journal row, no
-       error. Reads `run.inv[run.mainSlots + qslot]` directly (docs/
-       PLAN-phase12.md §3 D-H) -- a positioned slot, not an assignment table
-       or a derived list, so there is no staleness to guard: an occupied slot
-       always has `n >= 1` by construction (`write.spend` clears to `null` at
-       `n <= 0`), and the old `invCount(...) > 0` check this replaced has
-       nothing left to disagree with. */
+       Any OCCUPIED slot arms, with no form gate, because an arm has two
+       consequences -- place or feed. `shell/main.js`'s click-to-arm branch
+       carries the identical gate and must. Reads `run.inv` by position, so an
+       occupied slot always has `n >= 1` and there is no staleness. */
     const qslot = slotForDigit(k);
     if (qslot >= 0) {
       const slot = run.inv[run.mainSlots + qslot];
@@ -709,19 +517,13 @@ export function installInput() {
     return (!!p && inRect(p, sx, sy)) || (!!q && inRect(q, sx, sy));
   };
 
-  /* THE END-SCREEN RESTART BUTTON (docs/PLAN-phase12.md §3 D-C). Restart
-     moved off `r` (now the crank/action hold, D-J) onto a real, discoverable
-     control -- `view/hud.js#endScreen` draws it and registers its rect
-     into `drawn.panels`, the identical idiom `onAlwaysOnUi` above already
-     uses for the hints toggle.
+  /* `view/hud.js#endScreen` draws the button and registers its rect into
+     `drawn.panels`, the same idiom `onAlwaysOnUi` uses for the hints toggle.
 
-     TWO IDS, ONE HIT-TEST: the death screen records
-     `'death-restart'` and the win screen `'win-restart'`, and the gate below
-     is `run.dead || run.won` -- so the id existing at all (from a stale
-     previous frame) can never fire outside a frame in which one of the two
-     screens is actually being drawn. Kept as one function rather than two
-     because the button means the same thing on both screens, and a second
-     copy would be a second place to forget the `run.*` gate. */
+     Two ids, one hit-test: death records `'death-restart'`, win records
+     `'win-restart'`, and the gate is `run.dead || run.won`, so a stale id
+     from a previous frame cannot fire. One function rather than two, because
+     a second copy would be a second place to forget that gate. */
   const onEndRestart = e => {
     if (!run.dead && !run.won) return false;
     const { sx, sy } = toScreen(e);
@@ -729,17 +531,13 @@ export function installInput() {
     return !!p && sx >= p.x && sx < p.x + p.w && sy >= p.y && sy < p.y + p.h;
   };
 
-  /* A CLICK ON THE BAND RULER JUMPS TO THAT BAND, centred rather than pinned to
-     the band's top edge -- the question a click there asks is "show me that
-     band", and a band shorter than the viewport pinned to its top would show
-     mostly the band after it. The rect carries its own world range
-     (`view/ui/ruler.js` records `wy0`/`wy1`), so nothing here re-derives which
-     band a click landed on.
+  /* A click on the band ruler jumps to that band, CENTRED rather than pinned
+     to its top edge -- a band shorter than the viewport would otherwise show
+     mostly the band after it. The rect carries its own world range, so
+     nothing here re-derives which band was hit.
 
-     THE HIT AREA IS WIDER THAN THE BAR. The bar is 6 px and the numeral column
-     sits beside it, which is a 6 px target at the very edge of the canvas --
-     unhittable in practice. Nothing else on the map's right edge is clickable,
-     so the strip is generous on both sides of it. */
+     The hit area is wider than the bar, because the bar is 6 px at the very
+     edge of the canvas and nothing else there is clickable. */
   const mapRulerJump = (sx, sy) => {
     const p = uiDrawn.panels.find(p =>
       typeof p.id === 'string' && p.id.startsWith('map-ruler-band-') &&
@@ -802,10 +600,9 @@ export function installInput() {
       e.preventDefault();
       return;
     }
-    /* THE OPEN PANEL STACK CAPTURES INPUT: route to the UI intents instead of
-       the gameplay ones whenever a panel is open, so a click meant for a slot
-       can never also dig, mine or place through to the world underneath it.
-       See docs/DEVELOPER_GUIDE.md#input-intents */
+    /* An open panel captures input, routing to the UI intents instead of the
+       gameplay ones, so a click meant for a slot can never also dig or place
+       through to the world underneath. */
     if (isOpen(top()) || onAlwaysOnUi(e)) {
       if (e.button === 2) cmd.uiRight = true; else { cmd.uiClick = true; cmd.uiDown = true; }
       cmd.uiCtrl = e.ctrlKey || e.metaKey;
@@ -824,22 +621,16 @@ export function installInput() {
     } else if (e.button === 2) {
       cmd.place = true;
     } else {
-      /* LMB, D-A's dispatch (docs/PLAN-phase12.md §4.4, widened to FOUR rules
-         by Phase 16a -- docs/SPEC.md section 23.2), decided ONCE here at
-         pointerdown rather than every frame of a held press: if this press
-         decides "place" or "feed", `cmd.mouse` is never set true for the rest
-         of the hold, so mining cannot spuriously start on the tile just
-         placed even if the button stays down through a later frame.
-         `aim.mode` records which rule fired, through the previously-dead
-         `model/aim.js#write.mode` setter, so the reticle colour
-         (`view/hud.js#reticle`) finally reflects it.
+      /* The LMB dispatch, decided ONCE here at pointerdown rather than every
+         frame of a held press: if this press decides "place" or "feed",
+         `cmd.mouse` is never set true for the rest of the hold, so mining
+         cannot start on the tile just placed. `aim.mode` records which rule
+         fired, so the reticle colour reflects it.
 
-         RULE 2 SITS ABOVE RULE 3 DELIBERATELY, and the precedent is a dozen
-         lines up in this same handler: RMB already puts "a machine is under
-         the reticle, so deconstruct" above "place". A machine under the
-         reticle means the machine. The stated cost is that a machine cannot
-         be mined through while something is armed -- `z` clears the hand in
-         one press, the same mitigation D-A already accepted for rule 1. */
+         Rule 2 sits above rule 3 deliberately, following RMB a dozen lines
+         up -- a machine under the reticle means the machine. The cost is that
+         a machine cannot be mined through while something is armed, and `z`
+         clears the hand in one press. */
       const armed = ui.armedPlace && invCount(ui.armedPlace.sub, ui.armedPlace.form) > 0
         ? ui.armedPlace : null;
       if (armed && armed.form === F.phial && aim.valid && aim.band) {
@@ -854,10 +645,10 @@ export function installInput() {
       } else {
         aw.mode('dig');                   // rule 4 -- mine, exactly as today
         cmd.mouse = true;
-        /* AND ONLY RULE 4 ARMS THE PAINT STROKE (docs/SPEC.md section 28.5).
-           The press itself marks nothing: a stroke starts on the first
-           `pointermove` that leaves this tile, so an ordinary mining click
-           does not leave a mark behind on the tile it is already breaking. */
+        /* Only rule 4 arms the paint stroke, and the press itself marks nothing:
+           a stroke starts on the first `pointermove` that leaves this tile,
+           so an ordinary mining click leaves no mark on the tile it is
+           already breaking. */
         paintAt = tileUnderPointer();
         paintFull = false;
       }
