@@ -1,37 +1,6 @@
-/* LAYER shell — THE SAVE SLOT. One `localStorage` slot, five exports, no
-   listeners and no input. Imports every layer, as a `shell` device may.
-
-   THE PAYLOAD IS THE SEED PLUS WHAT THE PLAYER CHANGED. A run is
-   bit-reproducible from its seed, so the terrain is not stored -- `load()`
-   regenerates from the seed through `newRun()` and replays the edits on top.
-   Serialising the per-band `mat` arrays is ~1.3 MB raw and was rejected.
-
-   A SAVE IS ALWAYS APPLIED ON TOP OF A CLEAN RUN: `load()` takes `newRun` and
-   calls it itself, so a payload can never reach a dirty world. `newRun` is an
-   ARGUMENT rather than an import, so this module imports no other `shell`
-   module and both `boot.js` and `main.js` can import it without a cycle.
-
-   FOUR THINGS ARE VERSIONED, and the last two cover the generator:
-     v        the payload shape, a literal below.
-     world    FNV-1a of the band table, so a dimension or strata change
-              invalidates every stored tile coordinate.
-     content  FNV-1a of the substance, form and machine id lists, so an
-              ordinal cannot come to mean another row.
-     gen      FNV-1a of each band's freshly generated `mat`, recorded at save
-              time and re-checked after `newRun()`. This catches a rewritten
-              generator without asking anyone to remember to bump a number.
-   `hasSave()` checks the first three, which live in a small header key.
-   `gen` needs a world, so `load()` checks it after `newRun()` and discards the
-   save on a mismatch, leaving a clean run of the same seed.
-
-   THE HEADER IS THE CLAIM THAT A COMPLETE BODY EXISTS. `save()` removes it
-   first and writes it last, and clears both keys on any failure, so a header
-   can never outlive its body. `load()` drops the header when the claim proves
-   false, or a menu offers CONTINUE forever and it never does anything.
-
-   A REFUSAL IS NAMED on `loadError`, because this module has no journal at
-   boot. `slotState()` answers the narrower question a caller deciding whether
-   to OFFER the slot needs, before anything is loaded. */
+/* shell layer — one `localStorage` save slot. The payload is the seed plus the
+   player's edits, so `load()` regenerates the terrain through the `newRun` it
+   is handed — an argument, so this module imports no other `shell` module. */
 
 import { cursor, rng, seedRng } from '../core/rng.js';
 import { BOON } from '../data/boons.js';
@@ -53,13 +22,16 @@ import { write as tilew } from '../model/tiles.js';
 import { bandOf, bands, idx, seenAt, write as worldw } from '../model/world.js';
 import { generate } from '../rules/generate.js';
 
+/* Four claims gate a load: `v` the payload shape, `world` the band table,
+   `content` the ordinal tables, `gen` each band's generated `mat`. The first
+   three sit in the header key; `gen` needs a world, so `load()` checks it. */
 const V = 2;
 const BODY = 'mythos-factory/save';
 const HEAD = 'mythos-factory/save-head';
 
-/* `localStorage` THROWS in private-mode and sandboxed contexts rather than
+/* `localStorage` throws in private-mode and sandboxed contexts rather than
    returning null, so every call goes through one of these three and a failure
-   reads as "no save". That breakage is accepted. */
+   reads as "no save". */
 
 const read = key => {
   try { return globalThis.localStorage?.getItem(key) ?? null; } catch { return null; }
@@ -73,8 +45,6 @@ const dropKey = key => {
   try { globalThis.localStorage?.removeItem(key); } catch { /* nothing to undo */ }
 };
 
-/* signatures */
-
 function fnv(str) {
   let h = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
@@ -87,24 +57,20 @@ function fnvBytes(a) {
   return h >>> 0;
 }
 
-/* Both are computed once at import. The tables are frozen, so neither can
-   change at runtime, and `hasSave()` is cheap enough for a menu to ask every
-   frame only because of that. */
+/* Both signatures are computed once at import; the tables are frozen. */
 const WORLD_SIG = fnv(JSON.stringify(BANDS));
 
-/* The three ORDINAL tables. A substance or form ordinal is an index, so a row
-   inserted anywhere but the end silently re-points every stored pair, and
-   `MACH`'s ids back the machine rows the payload names. Every other id in the
-   payload is a string and is validated where a stale one would throw. */
+/* The three ordinal tables: a substance or form ordinal is an index, so a row
+   inserted anywhere but the end re-points every stored pair. Every other id in
+   the payload is a string. */
 const CONTENT_SIG = fnv(
   SUB.map(s => s.id).join(',') + '|' +
   FORM.map(f => f.id).join(',') + '|' +
   MACH.map(m => m.id).join(','));
 
-/* base64 over a bitset
-   Fog of war is one bit per tile, which is 6.5 KB packed for the three shipped
-   bands against 52 KB as the raw `Uint8Array`. Chunked, because
-   `String.fromCharCode` takes its arguments on the stack. */
+/* Fog of war is one bit per tile: 6.5 KB packed over the three shipped bands
+   against 52 KB raw. Chunked, because `String.fromCharCode` takes its
+   arguments on the stack. */
 
 const CHUNK = 4096;
 
@@ -115,9 +81,8 @@ function toB64(bytes) {
   return globalThis.btoa(s);
 }
 
-/* Null rather than a throw on anything `atob` will not take. The decode is the
-   one step of the restore that can fail on a hand-edited slot, so it happens
-   during validation and never during the apply. */
+/* Null rather than a throw on anything `atob` will not take, so the one step
+   that can fail on a hand-edited slot fails during validation. */
 function fromB64(str) {
   let s;
   try { s = globalThis.atob(str); } catch { return null; }
@@ -126,16 +91,9 @@ function fromB64(str) {
   return out;
 }
 
-/* The baseline world, regenerated to be DIFFED against, because nothing
-   records which tiles the player changed. 25 ms over the three shipped bands.
-   Three things must not leak out of this function:
-     the RNG cursor   held and put back in a `finally`, or a save rewinds
-                      the run's randomness to boot.
-     the band ledgers `write.setByte` plants into `model/growth.js` by a key
-                      starting with the band ordinal, so a scratch band
-                      carries `ord + ORD_GAP`.
-     the mod store    `eff('hollowOre')` is read during generation, so a
-                      baseline under live mods differs from `newRun()`'s. */
+/* The baseline world, regenerated to be diffed against, since nothing records
+   which tiles the player changed. The RNG cursor and the mod store are restored
+   in the `finally`, and a scratch band keys growth by `ord + ORD_GAP`. */
 
 /* Must exceed the number of resident bands, which `data/world.js` puts at 3. */
 const ORD_GAP = 64;
@@ -162,14 +120,9 @@ function baseline(seed) {
   }
 }
 
-/* capture */
-
 /* One traversal per band collects all three per-tile facts. `workAt` is asked
-   per tile rather than walked as a Map because `model/mining.js` keys its
-   ledger by a packed ordinal-plus-index and exports no inverse — a second
-   implementation of that packing here would be wrong the first time a band's
-   `tw` changed. Costs one `Map.get` per tile, which is 3 ms at the shipped
-   band sizes. */
+   per tile rather than walked as a Map, because `model/mining.js` keys its
+   ledger by a packed ordinal-plus-index and exports no inverse. */
 function bandRow(b, base) {
   const edits = [], work = [];
   const bits = new Uint8Array(Math.ceil(b.mat.length / 8));
@@ -183,9 +136,8 @@ function bandRow(b, base) {
   return { id: b.id, gen: fnvBytes(base), edits, work, seen: toB64(bits) };
 }
 
-/* Machine records, in `machines` order, which is placement order. A segment
-   names its two hubs by index into this array, so the order is part of the
-   payload rather than incidental to it. */
+/* Machine records in `machines` order, which is placement order. A segment
+   names its two hubs by index into this array. */
 function machineRows() {
   return machines.map(m => ({
     band: m.band.id, id: defOf(m).id, tx: m.tx, ty: m.ty,
@@ -202,10 +154,8 @@ function segmentRows() {
   }));
 }
 
-/* `rest` and `age` are deliberately absent. Both are re-established by the
-   first `rules/items.js` step — support is a tile query re-asked every frame,
-   and `age` only gates the pickup magnet delay. `mod` is null on every item
-   in the game today. */
+/* `rest` and `age` are absent: both are re-established by the first
+   `rules/items.js` step. */
 function itemRows() {
   return items.map(it => ({
     band: it.band.id, x: it.x, y: it.y, vx: it.vx, vy: it.vy,
@@ -223,14 +173,9 @@ function playerRow() {
   };
 }
 
-/* Write the run to one slot. Returns false when storage refuses, and then
-   there is no save at all: a refused write takes the previous slot with it,
-   because the alternative is a header that outlives its body and a CONTINUE
-   that can never do anything.
-
-   The header is removed first and written last, so nothing — not a quota
-   refusal, not the tab closing between the two calls — can leave a header in
-   front of a body that was never finished. */
+/* Write the run to one slot. The header is removed first and written last, and
+   any failure clears both keys, so a header can never outlive its body.
+   Returns false when storage refuses, and then there is no save at all. */
 export function save() {
   if (!bands.length) return false;
   const seed = run.seed;
@@ -244,8 +189,8 @@ export function save() {
     run: { ...run },
     player: playerRow(),
     bands: bands.map((b, i) => bandRow(b, base[i])),
-    /* A planted entry whose band is gone is dropped rather than stored with a
-       null id, so every band id in the payload resolves. */
+    /* A planted entry whose band is gone is dropped, so every band id in the
+       payload resolves. */
     growth: [...planted().values()].filter(e => bands[e.ord]).map(e => ({
       band: bands[e.ord].id, tx: e.tx, ty: e.ty, secs: e.secs
     })),
@@ -260,8 +205,6 @@ export function save() {
   return true;
 }
 
-/* validation */
-
 function parse(raw) {
   if (raw === null) return null;
   try { return JSON.parse(raw); } catch { return null; }
@@ -273,20 +216,13 @@ function headerOk(h) {
       && Number.isFinite(h.seed);
 }
 
-/* WHAT THE BODY MUST CARRY BEFORE THE APPLY IS ALLOWED TO RUN. The apply
-   writes through a dozen model writers and none checks its argument. A
-   `typeof` gate was not enough -- a `seen` string of `'!!!!'` reached `atob`
-   and threw out of the restore with band 0's tile edits already written, and
-   `run` has no whole-record setter to roll that back.
-
-   The fog bitset is DECODED HERE, so there is one `atob` per band and the
-   check cannot disagree with the use. Every id this module or `model`
-   DEREFERENCES is resolved; ids only `rules` looks up optionally are checked
-   as strings and no further. */
+/* What the body must carry before the apply runs: the apply writes through a
+   dozen model writers, none checks its argument, and there is no rollback.
+   Every dereferenced id is resolved and the fog bitset decoded here. */
 
 /* `misses` and `tutorialBeat` restore by repeated one-way increments, since
-   their writers take no argument, so an edited 1e9 would hang the boot rather
-   than corrupt it. Nothing legitimate comes near 10,000. */
+   their writers take no argument, so an edited 1e9 would hang the boot.
+   Nothing legitimate comes near 10,000. */
 const REPLAY_MAX = 1e4;
 const INT32 = 2147483648;
 
@@ -392,9 +328,7 @@ function rowsFault(p) {
     for (const k in m.buf) if (!bufKey(k) || !num(m.buf[k])) return `machines[${i}].buf.${k}`;
     if (!num(m.prog) || !num(m.fire) || !num(m.torque) || !num(m.turn))
       return `machines[${i}].prog`;
-    /* `made` is the lifetime total and `charges` the unspent part of it, which
-       is what lets `applyMachines` restore the pair through `charge` then
-       `spendCharge`. */
+    /* `made` is the lifetime total and `charges` the unspent part of it. */
     if (!int(m.made, 0, INT32) || !int(m.charges, 0, m.made)) return `machines[${i}].charges`;
   }
   if (!Array.isArray(p.segments)) return 'segments';
@@ -421,23 +355,16 @@ function bodyFault(p) {
   return runFault(p.run) || playerFault(p.player) || rowsFault(p);
 }
 
-/* THE SLOT'S HEADER, CLASSIFIED. 'ok' means this build wrote it, 'stale' that
+/* The slot's header, classified: 'ok' means this build wrote it, 'stale' that
    another build did, 'none' that there is nothing there or that storage is
-   unreadable.
-
-   'stale' EXISTS SO A MENU CAN NAME THE THIRD STATE. `hasSave()` is false for
-   a stale header and `load()` is therefore never called on one, so nothing
-   else can tell an absent slot from an unusable one.
-
-   Cheap enough for a menu to ask every frame — it reads and parses the header
-   key only, which is about 58 bytes, and never touches the body. */
+   unreadable. Reads and parses the ~58-byte header key only. */
 export function slotState() {
   const h = parse(read(HEAD));
   return h === null ? 'none' : headerOk(h) ? 'ok' : 'stale';
 }
 
-/* "A complete body was written under this build", which is a claim only
-   `load()` can test; a `load()` that finds it false takes the header away. */
+/* "A complete body was written under this build" — a claim only `load()` can
+   test, and a `load()` that finds it false takes the header away. */
 export function hasSave() {
   return slotState() === 'ok';
 }
@@ -447,11 +374,9 @@ export function clearSave() {
   dropKey(BODY);
 }
 
-/* restore
-
-   ORDER MATTERS WITHIN A BAND. `tilew.setByte` clears the dig ledger
-   and plants the growth ledger for the coordinate it writes, so both ledgers
-   are restored after every tile edit rather than before. */
+/* Order matters within a band: `tilew.setByte` clears the dig ledger and plants
+   the growth ledger for the coordinate it writes, so both ledgers are restored
+   after every tile edit rather than before. */
 
 function applyBand(b, row) {
   for (let k = 0; k < row.edits.length; k += 3)
@@ -465,15 +390,11 @@ function applyBand(b, row) {
 }
 
 /* `run` has no whole-record setter, so each field goes back through the writer
-   that owns it. Three fields are reproduced rather than stored, because no
-   writer can set them and `write.reset` already produces the same value —
-   `mainSlots` is rounded from `eff('invSlots')`, `maxHearts` has no writer at
-   all, and `known` is seeded from every `HAND_RECIPES` id with nothing in
-   `src/` adding to it. */
+   that owns it. `mainSlots`, `maxHearts` and `known` are reproduced by
+   `write.reset` rather than stored, since no writer can set them. */
 function applyRun(r) {
-  /* Before `tick`, so `arrival.t` lands at 0 and a director placement from
-     earlier in the run reads as long finished rather than replaying its rise
-     and its shaft of light. */
+  /* Before `tick`, so `arrival.t` lands at 0 and a placement from earlier in
+     the run reads as finished rather than replaying its rise. */
   if (r.arrival) runw.arrival(r.arrival.x, r.arrival.y);
   runw.tick(r.t);
 
@@ -482,9 +403,7 @@ function applyRun(r) {
     if (!s) continue;
     /* `write.collect` picks the slot by its own fill order, so the stack is
        collected and then swapped into the slot it was saved in. Working
-       upward, slots below `i` already hold their final pair, so `collect`
-       cannot have taken one of them and the swap can only displace an empty
-       slot or one still to be filled. */
+       upward, `collect` cannot have taken a slot below `i`. */
     if (!runw.collect(s.sub, s.form, s.n)) continue;
     const at = run.inv.findIndex(x => x && x.sub === s.sub && x.form === s.form);
     if (at !== i) runw.moveSlot(at, i);
@@ -507,8 +426,8 @@ function applyRun(r) {
   if (r.awarded) runw.award(r.awarded);
   if (r.offer) runw.offer(r.offer.tier, r.offer.god, r.offer.ids, r.offer.pool);
 
-  /* `write.hurt` is the only writer of `hearts`, and it is what sets `dead`
-     and `deathCause` too. A saved 0 therefore restores the death with it. */
+  /* `write.hurt` is the only writer of `hearts`, and sets `dead` and
+     `deathCause` too, so a saved 0 restores the death with it. */
   if (r.hearts < run.hearts) runw.hurt(run.hearts - r.hearts, r.deathCause);
 }
 
@@ -533,7 +452,7 @@ function applyMachines(rows) {
     machw.prog(m, row.prog);
     /* `charge` raises `charges` and `made` together and `spendCharge` only
        lowers `charges`, so the pair is restored by adding the lifetime total
-       and then spending the difference back down. */
+       and spending the difference back down. */
     machw.charge(m, row.made);
     machw.spendCharge(m, row.made - row.charges);
     machw.fire(m, row.fire);
@@ -545,31 +464,24 @@ function applyMachines(rows) {
   return out;
 }
 
-/* Why the last `load()` refused, or null when it succeeded: `NO SAVE`,
-   `STALE SAVE`, `CORRUPT SAVE` plus the field that failed, `WRONG SEED`, or
-   `WORLD MOVED`. An OBJECT and not an exported scalar, because module bindings
-   are read-only for importers. */
+/* Why the last `load()` refused, or null when it succeeded. An object rather
+   than an exported scalar, because module bindings are read-only for
+   importers. */
 export const loadError = { reason: null };
 
 const refuse = why => { loadError.reason = why; return false; };
 
-/* Start a fresh run from the stored seed and replay the stored edits on top.
-   Returns false and names the reason on `loadError`; a refusal either touches
-   nothing or leaves a clean run of the stored seed, never a half-applied one.
-
-   `newRun(seed)` is called HERE rather than by the caller, so a payload can
-   never reach a world it did not generate. The camera is NOT restored --
-   `shell/main.js` owns the follow and the clamp. */
+/* Start a fresh run from the stored seed and replay the stored edits on top. A
+   refusal names its reason on `loadError` and either touches nothing or leaves
+   a clean run of the stored seed; `newRun(seed)` is called here, not outside. */
 export function load(newRun) {
   const head = parse(read(HEAD));
   if (!head) return refuse('NO SAVE');
   if (!headerOk(head)) return refuse('STALE SAVE');
 
-  /* The header promised a complete body (see `save()`), so a body that is
-     missing, unparseable or malformed is a torn slot rather than a save. The
-     header goes with it, which is what stops a menu offering CONTINUE forever;
-     the body's bytes stay for a post-mortem and the next `save()` overwrites
-     them. */
+  /* The header promises a complete body, so a missing, unparseable or
+     malformed one is a torn slot and the header goes with it. The body's bytes
+     stay for a post-mortem until the next `save()`. */
   const p = parse(read(BODY));
   const f = p === null ? 'no body'
     : p.seed !== head.seed ? 'seed disagrees with the header'
@@ -578,19 +490,17 @@ export function load(newRun) {
 
   newRun(p.seed);
 
-  /* THE CALLER'S HALF OF THE CONTRACT, CHECKED RATHER THAN ASSUMED. A `newRun`
-     that built another world would fail the `gen` check below for a reason
-     that has nothing to do with the generator. A wrong seed is a programming
-     error, so the save is KEPT and the console says so. */
+  /* The caller's half of the contract, checked rather than assumed: a `newRun`
+     that built another world would fail the `gen` check below for an unrelated
+     reason. A wrong seed is a programming error, so the save is kept. */
   if (run.seed !== p.seed || bands.length !== p.bands.length) {
     console.warn(`save: load(newRun) must generate the seed it is handed (${p.seed}); the slot was kept`);
     return refuse('WRONG SEED');
   }
 
-  /* The generator check, which can only happen now that a world exists. A
-     mismatch means the ground moved under the stored coordinates, so the save
-     goes rather than being replayed onto terrain it does not describe. The
-     player keeps a clean run of the same seed. */
+  /* The generator check, which needs the world that now exists. A mismatch
+     means the ground moved under the stored coordinates, so the save goes and
+     the player keeps a clean run of the same seed. */
   for (let i = 0; i < bands.length; i++) {
     if (fnvBytes(bands[i].mat) === p.bands[i].gen) continue;
     clearSave();
@@ -607,11 +517,9 @@ export function load(newRun) {
     groww.add(b, g.tx, g.ty, g.secs);
   }
 
-  /* `newRun` plants the starting pick on the ground, and the stored list
-     already says whether it is still lying there. Clearing first makes the
-     restore an assignment rather than a merge that would duplicate it.
-     `newRun` leaves the machine, segment and boon lists empty, so those need
-     no equivalent. */
+  /* `newRun` plants the starting pick and the stored list already says whether
+     it is still lying there, so clearing first makes this an assignment rather
+     than a merge. The machine, segment and boon lists start empty. */
   itemw.clear();
   for (const it of p.items)
     itemw.spawn(bandOf(it.band), it.x, it.y, it.sub, it.form, it.vx, it.vy);
@@ -624,18 +532,15 @@ export function load(newRun) {
     segw.load(seg, s.load);
   }
 
-  /* `model/mods.js` is NOT restored. `rules/trinkets.js` and `rules/boons.js`
-     both rebuild their rows from scratch every step off `run.equipped` and
-     `boons.active`, so restoring the rows here would double them for one
-     frame and then be corrected anyway. */
+  /* `model/mods.js` is not restored: `rules/trinkets.js` and `rules/boons.js`
+     rebuild their rows every step off `run.equipped` and `boons.active`. */
   for (const a of p.boons) boonw.grant(a.id, a.left);
 
   applyRun(p.run);
   applyPlayer(p.player);
 
-  /* LAST, so nothing above can leave the stream anywhere but where the save
-     found it. Without this the loaded run keeps the saved world and draws a
-     different future from it — */
+  /* Last, so nothing above can leave the RNG stream anywhere but where the
+     save found it. */
   if (p.cursor !== null) seedRng(p.cursor);
   loadError.reason = null;
   return true;

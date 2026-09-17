@@ -1,10 +1,5 @@
-/* LAYER shell — THE LOOP. Fixed timestep, camera, and the wiring of input to
-   rules. Imports every layer; the entry point `index.html` loads.
-
-   No `rules` module ever sees a variable dt, so fall damage, mining time and
-   machine throughput are functions of the world rather than of the display.
-   The accumulator is capped, so a backgrounded tab does not simulate a minute
-   in one frame. The journal drains once per FRAME, not per substep. */
+/* shell layer — the loop — fixed timestep, camera, and the wiring of input to
+   rules. The entry point `index.html` loads. */
 
 import { VIEW, resize, stage } from '../core/canvas.js';
 import { clamp } from '../core/math.js';
@@ -42,127 +37,80 @@ import {
 import { hoverInfo } from '../view/hud.js';
 import { drawn as uiDrawn } from '../view/ui/state.js';
 
-export const STEP = 1 / 120;
+export const STEP = 1 / 120;                 // s; no rules module sees a variable dt
 export const MAX_CATCHUP = 0.25;             // s of real time simulated per frame
 
 export const clock = { t: 0, dt: 0, frame: 0, acc: 0 };
 export const cam = { x: 0, y: 0 };
 
-/* The cam position as of the LAST `draw()`. The UI dispatcher hit-tests
-   against this, never the live easing `cam`. */
+/* The camera as of the last `draw()`. The UI dispatcher hit-tests against
+   this, never the live easing `cam`. */
 const drawCam = { x: 0, y: 0 };
 
-/* The frame context handed to `view`. One object, reused, to avoid allocating
-   sixty times a second. `mouse` is WORLD px, same space as `cam`. `ui` is
-   `shell/ui.js`'s live state, which `view` may read and never write. */
+/* Reused rather than allocated per frame. `mouse` is world px, as `cam` is;
+   `ui` is live state `view` may read and never write. */
 const frameCtx = { cam, t: 0, dt: 0, frame: 0, W: 0, H: 0, flags, ui, mouse: { x: 0, y: 0, has: false } };
 
 export function step(dt) {
-  /* The four freezes are guarded HERE and not in `frame()`: the test hook
-     calls `step()` directly, so a pause has to be a fact about this function.
-     `frame()`'s accumulator keeps draining, so no catch-up backlog waits. */
+  /* The four freezes guard here, not in `frame()`: the test hook calls
+     `step()` directly. The accumulator keeps draining, so nothing backs up. */
   if (flags.showMap) return;
-
-  /* The clock does not advance either, so a run entered from the menu starts
-     at t = 0 however long the player spent reading. */
-  if (ui.menu.open) return;
-
-  /* `run.dead` is deliberately NOT on this line: death leaves the world live
-     behind the death screen, and items still fall. */
-  if (run.won) return;
-
-  /* The predicate is `shell/ui.js#pausesRun`, stated once there and read by
-     `applyIntents()` too, rather than a `'draft'` string in two functions. */
+  if (ui.menu.open) return;   // the clock stops too, so a run starts at t = 0
+  if (run.won) return;        // `run.dead` deliberately not here: items still fall
   if (pausesRun()) return;
 
   clock.dt = dt;
   clock.t += dt;
   clock.frame++;
 
-  /* Left mouse and X are the same intent. Resolved here because which DEVICE
-     asked is a shell question. */
   const digging = cmd.dig || cmd.mouse;
-  /* The queue is a second device for a hold no key binds, folded here because
-     `rules` may not import `shell`. Its head names the recipe, so a click on
-     GEAR cannot produce a furnace; a hold naming nothing makes the first
-     affordable row. */
+  /* The queue's head names the recipe, so a click on GEAR cannot produce a
+     furnace; a hold naming nothing takes the first row. */
   const craftId = ui.craftQueue[0] ?? cmd.craftId ?? null;
   const c = {
     left: cmd.left, right: cmd.right, up: cmd.up, down: cmd.down,
     hop: cmd.hop, dig: digging, place: cmd.place,
     craft: cmd.craft || craftId !== null, craftId,
-    /* A HOLD, like `craft` and `dig`. `rules/drive.js` supplies torque for
-       exactly the substeps it is down. This narrowed object is the whole of
-       what `rules` may see of the input device. */
-    action: cmd.action,
-    /* A key and a preference folded into one hold. Either makes
-       `rules/items.js` pick up. */
-    collect: ui.autoCollect || cmd.collect,
-    /* A preference with no key beside it, because the manual path is the feed
-       verb (`cmd.feed`, a one-shot event, not a substep intent). The whole of
-       what `rules/machines.js#step` asks before running the magnet. */
-    autoFeed: ui.autoFeed,
+    action: cmd.action,                       // a hold, one substep's worth of torque
+    collect: ui.autoCollect || cmd.collect,  // either the key or the preference
+    autoFeed: ui.autoFeed,                   // no key: the manual path is `cmd.feed`
     hasMouse: cmd.hasMouse, mx: cmd.mx, my: cmd.my
   };
 
   stepAll(dt, c);
 
-  /* Presentational, so not a rule. The pick swings on the clock. */
+  // presentational, not a rule: the pick swings on the clock
   playerw.set('digging', digging && ((clock.t * 9) | 0) % 2 === 0);
   updateCamera(dt);
 }
 
-/* One-shot intents. Placement and drafting are EVENTS, not steps, so they run
-   once per ANIMATION FRAME rather than once per substep. Below 120 Hz a frame
-   runs several substeps and would re-read the same still-true intent; above
-   120 Hz a frame can run ZERO substeps and `clearEdges()` would drop the
-   press. Each branch self-clears the flag it consumed immediately, so a flag
-   this function never reaches survives to the next frame.
-
-   Exported so the harness can drive a one-shot intent without re-implementing
-   the loop. */
+/* One-shot intents, once per animation frame rather than per substep: below
+   120 Hz a frame would re-read a still-true intent, and above it a frame can
+   run zero substeps. Each branch clears the flag it consumed. */
 export function applyIntents() {
-  /* Resolved above the freeze it sits behind, because taking a row is the only
-     thing that ends the pause. Everything after this call is a WORLD intent. */
+  /* Above the freeze it sits behind, since taking a row is the only thing that
+     ends the pause. Everything past it is a world intent. */
   applyMenuIntents();
   if (ui.menu.open) return;
-
-  /* Placing resolves against `aim`, a reading of the world the map covers. A
-     press that lands while it is open is dropped, not queued. */
-  if (flags.showMap) return;
-
-  /* `wants.restart` is unaffected: `frame()` consumes it before either
-     guard. */
-  if (run.won) return;
-
-  /* Before the guard, not beside the branches below, because taking a card is
-     the only thing that ends the pause. */
-  applyDraftIntents();
+  if (flags.showMap) return;   // the map covers the world `aim` reads; drop, don't queue
+  if (run.won) return;         // `frame()` consumes `wants.restart` before this
+  applyDraftIntents();         // likewise above its own freeze
   if (pausesRun()) return;
 
-  /* The arm is stale the instant the pockets no longer hold that exact pair.
-     Swept once here, before anything below can act on it. */
+  /* Both arms go stale silently — a spent pair, or a hub deconstructed between
+     the two `l` presses — so they are swept before anything below acts. */
   if (ui.armedPlace && invCount(ui.armedPlace.sub, ui.armedPlace.form) <= 0) clearArmedPlace();
-
-  /* Same sweep for the other armed thing. A hub deconstructed between the two
-     `l` presses would leave `linkFrom` holding a ghost, and `linkCheck` would
-     validate a span to it. `machines` is the authority on what exists. */
   if (ui.linkFrom && !machines.includes(ui.linkFrom)) clearLink();
 
-  /* The panel draws over everything and pauses nothing, so placing with it
-     open means aiming at a live world you cannot see. Closed HERE so the same
-     press both closes it and places. Gated on the intent being present this
-     frame, so an open panel alone does not close on an unrelated frame. */
+  /* The panel pauses nothing, so one press both closes it and places. */
   if (isOpen('main') && (cmd.place || cmd.deconstruct)) closeTop();
 
   if (cmd.place && aim.valid && aim.band) {
-    /* Armed first: a clicked slot means THAT pair, not whichever placeable
-       sorts first in HUD order. Re-checked as still held rather than trusted
-       from the sweep above, since a craft or a drag could have spent it. */
+    /* Armed first: a clicked slot means that pair, not whichever sorts first
+       in HUD order. Re-checked, since a craft or drag could have spent it. */
     const armed = ui.armedPlace && invCount(ui.armedPlace.sub, ui.armedPlace.form) > 0
       ? ui.armedPlace : null;
-    /* An armed miracle is USED, not placed. `use` has no occupancy
-       precondition, so this fires whether or not the aimed tile is solid. */
+    /* Used, not placed; `use` has no occupancy precondition. */
     if (armed && armed.form === F.phial) {
       miracles.use(aim.band, aim.tx, aim.ty);
       clearArmedPlace();
@@ -170,9 +118,8 @@ export function applyIntents() {
       const p = armed || placeableFromPockets(pocketRows())[0];
       let placed = false;
       if (p && p.form === F.rig) {
-        /* `machineIdFor` resolves a mirrored pair off the player's facing.
-           Anchored bottom row at the aimed tile, so you point at the space a
-           machine stands in, not at its top-left corner. */
+        /* `machineIdFor` resolves a mirrored pair off the facing. The bottom
+           row is anchored at the aimed tile, not the top-left corner. */
         const id = machineIdFor(p.sub);
         const def = id && MACH[M[id]];
         if (def) placed = !!placeMachine(aim.band, id, aim.tx, aim.ty - def.th + 1);
@@ -184,13 +131,9 @@ export function applyIntents() {
     cmd.place = false;
   }
 
-  /* `shell/input.js`'s `pointerdown` already resolved "this press means
-     feed", reach test included, so this branch re-litigates none of it. It
-     re-checks only the armed pair, the way `cmd.place` does. Nothing armed, or
-     the machine gone, and the press evaporates with no journal row.
-
-     THE ARM IS DELIBERATELY NOT CLEARED ON SUCCESS: ten ore into an altar is
-     one action, and the sweep at the top clears it when the last unit goes. */
+  /* `shell/input.js` already resolved "this press means feed", reach included.
+     The arm is not cleared on success — ten ore into an altar is one action —
+     and the sweep above clears it when the last unit goes. */
   if (cmd.feed && aim.valid && aim.band) {
     const armed = ui.armedPlace && invCount(ui.armedPlace.sub, ui.armedPlace.form) > 0
       ? ui.armedPlace : null;
@@ -199,28 +142,21 @@ export function applyIntents() {
     cmd.feed = false;
   }
 
-  /* No aim needed; it acts at the player's feet, so no validity gate. */
+  // acts at the player's feet, so no aim gate
   if (cmd.drop) {
     dropHeaviest();
     cmd.drop = false;
   }
 
-  /* The inverse of `place`, on the same aim gate: you point at the machine
-     you mean to remove. */
+  // the inverse of `place`, on the same aim gate
   if (cmd.deconstruct && aim.valid && aim.band) {
     deconstruct(aim.band, aim.tx, aim.ty);
     cmd.deconstruct = false;
   }
 
-  /* Two presses, one key: arm on the first, act on the second. The four
-     second-press cases:
-       a DIFFERENT machine, not yet joined -> link it. The arm clears on
-         SUCCESS only, so a mis-aimed second press costs one retry.
-       a machine ALREADY joined -> cut that cable. One key, both directions.
-       the SAME machine -> cancel the arm silently. There is no A-to-A cable.
-       nothing armed -> arm it.
-     `linkedTo` is a `model` query because "is there a cable" is a question;
-     `unlinkSegment` is the consequence. */
+  /* Two presses, one key: arm on the first, then link, cut an existing cable,
+     or cancel on the same machine. The arm clears on success only, so a
+     mis-aimed second press costs one retry. */
   if (cmd.link && aim.valid && aim.band) {
     const m = machineAt(aim.band, aim.tx, aim.ty);
     const from = ui.linkFrom;
@@ -234,22 +170,15 @@ export function applyIntents() {
     cmd.link = false;
   }
 
-  /* A debug key raises a request, not a gift, through the same `run.offer` a
-     completed trial writes. `!run.offer` means a completion the same frame
-     wins rather than the two overwriting each other. */
+  /* `!run.offer` lets a completion in the same frame win. */
   if (wants.draft) { if (!run.offer) runw.offer(wants.draft, null); wants.draft = null; }
 
   raiseOffer();
   applyUiIntents();
 }
 
-/* The world stands BEHIND the menu, not after it: `boot()` generates a run and
-   the menu opens over it, so there is one boot path and `view/scene.js` always
-   has a world to draw under the wash. The cost is one worldgen a CONTINUE
-   throws away. A row is taken by ID, never by index. */
-
-/* The ids `view/ui/menu.js#settingsRows` draws, and the only coupling between
-   the two files. A row this table does not name is a row that does nothing. */
+/* The ids `view/ui/menu.js#settingsRows` draws. A row not named here does
+   nothing. */
 const SETTING = {
   'set-grid':    () => { flags.showGrid = !flags.showGrid; },
   'set-chunks':  () => { flags.showChunks = !flags.showChunks; },
@@ -259,24 +188,17 @@ const SETTING = {
   'set-hints':   toggleHints
 };
 
-/* The seed typed into the menu field, or undefined for "pick one", which is
-   `newRun`'s own default, so blank means random without this knowing what
-   random is. */
+/* The typed seed, or undefined to leave "pick one" to `newRun`'s default. */
 const menuSeed = () => {
   const n = Number.parseInt(ui.menu.seed, 10);
   return Number.isFinite(n) ? n : undefined;
 };
 
-/* The seed a debug entry point uses when nothing names one. Shared with
-   `?test=1`, so a diorama is always reproducible. */
+/* Shared with `?test=1`, so a diorama is reproducible. */
 const DEBUG_SEED = 1337;
 
-/* Is there a run behind the menu that taking a row would throw away? Read by
-   the RESUME mirror, the confirmation gate and `persist()`.
-
-   `run.t` is the test because a PLAYED run has time on it and a generated one
-   does not -- both `boot()` and a refused `load()` sit at t = 0, since the
-   menu freezes `step()`. */
+/* Would taking a menu row throw a run away? `run.t` is the test: the menu
+   freezes `step()`, so a generated but unplayed run sits at t = 0. */
 const inRun = () => !!player.band && run.t > 0 && !run.dead && !run.won;
 
 function startRun(seed) {
@@ -286,10 +208,8 @@ function startRun(seed) {
   closeMenu();
 }
 
-/* `load()` calls `newRun` itself with the stored seed, so a payload can never
-   be applied to a world it did not generate, and a refusal leaves the menu
-   over a clean run of that seed. `loadError.reason` is verbatim, because NO
-   SAVE and CORRUPT SAVE are different events. */
+/* `load()` calls `newRun` itself, so a payload never reaches a world it did
+   not generate. `loadError.reason` is passed through verbatim. */
 function continueRun() {
   const ok = load(newRun);
   snapCam();
@@ -297,9 +217,6 @@ function continueRun() {
   if (ok) closeMenu(); else setMenuSave(slotState() === 'ok');
 }
 
-/* A diorama is a scenario applied to a clean run, never a second boot path. A
-   row naming content that cannot be built says so rather than dropping the
-   player into a world that ignored the request. */
 function startScenario(id) {
   newRun(menuSeed() ?? DEBUG_SEED);
   const ok = applyScenario(id);
@@ -308,16 +225,13 @@ function startScenario(id) {
   if (ok) closeMenu();
 }
 
-/* The rows that discard a run in progress, and therefore the rows that ask
-   twice. Nothing persists while the menu stands over an unplayed run, so a
-   mistaken NEW RUN cannot be recovered from the slot. */
+/* The rows that discard a run, and so the rows that ask twice. */
 const discards = id => id === 'new' || id === 'continue' || id.startsWith('scenario-');
 
 function applyMenuIntents() {
   if (!ui.menu.open) return;
-  /* Storage is a device, so `shell` answers both questions and parks the
-     answers for `view`. Affordable every frame because `slotState()` parses a
-     58-byte header and never reads the body. */
+  /* Storage is a device, so `shell` parks the answers for `view`. Affordable
+     per frame: `slotState()` parses a 58-byte header, never the body. */
   const slot = slotState();
   setMenuSave(slot === 'ok');
   setMenuStale(slot === 'stale');
@@ -327,8 +241,7 @@ function applyMenuIntents() {
   if (!id) return;
   wants.menuRow = null;
 
-  /* The first press on a destructive row draws CONFIRM? beside it; only a
-     second press on the SAME row goes through. */
+  // first press draws CONFIRM?; only a second on the same row goes through
   if (discards(id) && ui.menu.inRun && ui.menu.confirm !== id) { setMenuConfirm(id); return; }
   setMenuConfirm(null);
 
@@ -342,37 +255,30 @@ function applyMenuIntents() {
   else if (id.startsWith('scenario-')) startScenario(id.slice('scenario-'.length));
 }
 
-/* `shell` is the only layer that may see all four tiers at once, because each
-   tier's `draftable()` lives in a `rules` module and those four are siblings
-   that may not import one another. `rules/draft.js` owns what is between --
-   which candidates are offered, what a reroll costs, whose favour pays. */
+/* All four tiers in one table: their `draftable()`s are `rules` siblings that
+   may not import one another. */
 const TIERS = { trinket: trinkets, grant: grants, boon: boons, miracle: miracles };
 
 const candidatesFor = tier => (TIERS[tier]?.draftable() ?? []).map(r => r.id);
 
-/* Turn a half-built `run.offer`, a tier with no ids, into a real offer and
-   raise the modal. An offer with nothing in it never opens, so the pause can
-   never begin with no way to end it. */
+/* Fill a half-built `run.offer` and raise the modal. An empty offer never
+   opens, so the pause cannot begin with no way to end it. */
 function raiseOffer() {
   if (!run.offer) return;
   const o = run.offer;
   if (!o.ids && !draft.offer(o.tier, o.god, candidatesFor(o.tier)).length) return;
-  /* Unreachable while the modal stands, since the caller's guard returns
-     first, so this cannot churn the stack. */
+  // unreachable while the modal stands, so this cannot churn the stack
   openPanel('draft');
 }
 
 function applyDraftIntents() {
-  /* The same staleness sweep `armedPlace` and `linkFrom` get. A `newRun()`
-     under an open modal would freeze a run with no offer and no way out. */
+  /* A `newRun()` under an open modal would freeze a run with no way out. */
   if (isOpen('draft') && !run.offer?.ids) { closePanel('draft'); return; }
   if (!isOpen('draft')) return;
 
-  /* `view/hud.js` draws `deathScreen` ABOVE the draft so the restart button
-     stays reachable, so without this the 1/2/3 keys would grant a gift off an
-     invisible panel. The window is narrow but real: `run.offer` is written in
-     a SUBSTEP and the panel opens once per frame, so a lethal fall can land in
-     the rest of that frame. */
+  /* `deathScreen` draws above the draft, so without this 1/2/3 grants off an
+     invisible panel. `run.offer` is written in a substep and the panel opens
+     once a frame, so a lethal fall can land between the two. */
   if (run.dead) return;
 
   draftPointer();
@@ -392,17 +298,12 @@ function applyDraftIntents() {
   }
 }
 
-/* `view/ui/draft.js`'s own ids. The index is the position in `run.offer.ids`,
-   so a click and a number key reach the identical card. */
+/* `view/ui/draft.js`'s ids; the index is the position in `run.offer.ids`. */
 const DRAFT_CARD = /^draft-card-(\d+)$/;
 
-/* A second CALLER, not a second dispatch. `applyUiIntents()` is unreachable
-   while a draft stands, so the cards would have nothing to click. This sets
-   only the same two `wants` the 1/2/3 and `r` keys set. Hit-tested in screen
-   space against the `drawCam` snapshot.
-
-   A press on the wash, or on the panel beneath the modal, is swallowed:
-   `uiHitPanel` returns the topmost rect and the cards are recorded last. */
+/* Sets only the `wants` the 1/2/3 and `r` keys set, in screen space against
+   the `drawCam` snapshot. A press on the wash is swallowed: `uiHitPanel`
+   returns the topmost rect and the cards are recorded last. */
 function draftPointer() {
   if (!cmd.hasMouse || !cmd.uiClick) return;
   const hit = uiHitPanel(cmd.mx - drawCam.x, cmd.my - drawCam.y);
@@ -413,24 +314,20 @@ function draftPointer() {
   else if (hit.id === 'draft-reroll') wants.reroll = true;
 }
 
-/* A click that does something is `shell` calling `rules`. `view` only draws
-   and RECORDS its rectangles into `view/ui/state.js#drawn`; this hit-tests the
-   pointer against LAST FRAME's `drawn` and turns a hit into a `shell/ui.js`
-   state change or a `rules` call. One frame of lag is accepted. */
+/* `view` records the rectangles it drew into `view/ui/state.js#drawn`; the
+   hit-tests below run against last frame's, and one frame of lag is
+   accepted. */
 
 let prevUiDown = false;
 
-/* A plain click on a slot arms it for placement; a real drag does the
-   equip/reposition job. Both start from the same pointerdown, so they are told
-   apart by a movement threshold -- the release counts as a drag only if the
-   pointer moved past a few px. Screen-space px, same as `sx`/`sy`. */
+/* A plain click arms a slot; a real drag equips or repositions. Both start
+   from one pointerdown, so a movement threshold tells them apart. */
 let dragStart = null;      // { sx, sy, gridId, index } | null, set at the down edge
 let dragExceeded = false;  // has the pointer moved past the threshold since?
 const DRAG_THRESHOLD = 3;
 
-/* A local grid index to `run.inv`'s absolute index. The quickbar's cells are
-   `run.inv[run.mainSlots ..]`, the inventory grid's are
-   `run.inv[0 .. run.mainSlots)`, and this is the one place that translates. */
+/* A local grid index to `run.inv`'s absolute one: the quickbar's cells are
+   `run.inv[run.mainSlots ..]`, the inventory grid's the slots below. */
 const absIndex = (gridId, i) => gridId === 'quickbar' ? run.mainSlots + i : i;
 
 function uiHitPanelClose(sx, sy) {
@@ -471,20 +368,15 @@ function uiHitSlot(sx, sy) {
 }
 
 function applyUiIntents() {
-  /* A panel closing mid-drag strands `cmd.uiDown`, because `shell/input.js`
-     only routes a pointerup into it while the panel is still open. Both halves
-     of the drag state reset here, so no phantom drag survives. */
+  /* A panel closing mid-drag strands `cmd.uiDown`, since `shell/input.js`
+     routes a pointerup into it only while the panel is open. */
   if (!isOpen('main')) {
     prevUiDown = false;
     if (ui.drag) clearDrag();
     dragStart = null;
-    /* The two controls drawn with no panel open: the KEYS legend toggle and
-       the quickbar cells. Without a dispatch here the early return below
-       swallows the click. Nothing else is live.
-
-       Any OCCUPIED cell arms, the same gate the digit keys carry, so "press 3
-       and the slot showing 3" cannot disagree. Armed on the PRESS, since with
-       no panel open a drag out of a cell has no second meaning. */
+    /* The only two controls drawn with no panel open, so without a dispatch
+       here the return below swallows the click. Any occupied cell arms on the
+       press, the same gate the digit keys carry. */
     if (cmd.hasMouse && cmd.uiClick) {
       const sx = cmd.mx - drawCam.x, sy = cmd.my - drawCam.y;
       const hit = uiHitSlot(sx, sy);
@@ -508,11 +400,8 @@ function applyUiIntents() {
       const panelHit = uiHitPanel(sx, sy);
       const onSearch = panelHit?.id === 'main-craft-search';
       const onHints = panelHit?.id === 'hints-toggle';
-      /* Hit-tested against its own registered rect, the way the search box
-         and the hints toggle are. This is the one place that reacts. */
+      /* Each on its own registered rect, as the search box is. */
       const onAutoCollect = panelHit?.id === 'main-auto-collect';
-      /* Its own registered rect, so a click is never mistaken for AUTO
-         COLLECT above it or the inventory grid below. */
       const onAutoFeed = panelHit?.id === 'main-auto-feed';
 
       if (tabHit) setTab(tabHit.row, tabHit.tab);
@@ -526,11 +415,8 @@ function applyUiIntents() {
         if (id) {
           if (slotHit.gridId === 'craft-queue') cancelQueued(slotHit.slot.index);
           else {
-            /* Refused at the click, with the same `'refused'` journal row
-               `rules/placement.js` uses. A queued entry spends nothing until
-               its `secs` is reached, so an unaffordable one never completes --
-               and a stalled queue looks exactly like a progressing one.
-               `tickCraftQueue` covers a head that becomes unaffordable. */
+            /* Refused at the click: a queued entry spends nothing until its
+               `secs`, so a stalled queue would look like a progressing one. */
             const r = RECIPES[id];
             const known = r && isKnown(id);
             if (known && canCraft(r.in)) queueCraft(id, cmd.uiCtrl ? 99 : cmd.uiShift ? 5 : 1);
@@ -539,8 +425,7 @@ function applyUiIntents() {
         }
       }
 
-      /* Any other click blurs the search field, the way clicking outside a
-         real text input does. */
+      // any other click blurs the search field
       if (ui.searchFocus && !onSearch) setSearchFocus(false);
     }
   }
@@ -550,9 +435,8 @@ function applyUiIntents() {
     if (g) scrollBy('main', g.id, Math.sign(cmd.uiWheel));
   }
 
-  /* `cmd.uiDown` is a HOLD. The rising edge picks a payload off the slot
-     under the cursor; the falling edge resolves it against whatever slot is
-     under the cursor NOW, which may be a different one. */
+  /* A hold: the rising edge picks a payload up, the falling edge resolves it
+     against whatever slot is under the cursor by then. */
   const downEdge = cmd.uiDown && !prevUiDown, upEdge = !cmd.uiDown && prevUiDown;
   prevUiDown = cmd.uiDown;
 
@@ -567,8 +451,7 @@ function applyUiIntents() {
     }
   }
 
-  /* Checked every frame the button is down, not only on the edges, so a slow
-     drag crossing the threshold between polls is still caught. */
+  // every frame the button is down, so a slow crossing is still caught
   if (cmd.uiDown && dragStart && !dragExceeded &&
       (Math.abs(sx - dragStart.sx) > DRAG_THRESHOLD || Math.abs(sy - dragStart.sy) > DRAG_THRESHOLD))
     dragExceeded = true;
@@ -576,16 +459,9 @@ function applyUiIntents() {
   if (upEdge && ui.drag) {
     const hit = uiHitSlot(sx, sy);
 
-    /* A plain click, no threshold crossed, released on the SAME slot: arm that
-       exact pair rather than running the drag branches below. Restricted to
-       the two grids a player holds material in, so it never steals a click an
-       equip drag needed.
-
-       Any OCCUPIED slot arms, with no form gate, because an arm has two
-       consequences: LMB on open ground places, LMB on a machine feeds. A pair
-       that can do neither arms and stays inert until aimed, when
-       `placeTile`'s 'THAT DOES NOT BUILD' refuses it with a reason. The
-       digit-arm gate in `shell/input.js` carries the identical test. */
+    /* Released on the same slot with no threshold crossed arms that pair
+       instead of running the drag branches. Restricted to the two grids a
+       player holds material in, so it never steals an equip drag's click. */
     const clicked = !dragExceeded && hit && dragStart &&
       hit.gridId === dragStart.gridId && hit.slot.index === dragStart.index;
     if (clicked && (hit.gridId === 'inv' || hit.gridId === 'quickbar') &&
@@ -593,16 +469,12 @@ function applyUiIntents() {
       armPlace(hit.slot.sub, hit.slot.form);
     } else if (hit && (hit.gridId === 'inv' || hit.gridId === 'quickbar') &&
                (ui.drag.from === 'inv' || ui.drag.from === 'quickbar')) {
-      /* The Character grid and the quickbar are the SAME array, `run.inv`,
-         sliced differently. `moveSlot` is an unconditional swap, so same-grid
-         reorder, cross-grid move and swap-with-occupied are all this one
-         call. */
+      /* One array, sliced two ways. `moveSlot` is an unconditional swap, so
+         reorder, cross-grid move and swap-with-occupied are all this call. */
       runw.moveSlot(absIndex(ui.drag.from, ui.drag.index), absIndex(hit.gridId, hit.slot.index));
     } else if (hit && hit.gridId === 'equip') {
-      /* `write.equip(slot, sub)` trusts the caller to have checked that the
-         equip is legal, which is what the three tests below do.
-         `form === F.relic` is how `data/forms.js` says a pair IS a trinket,
-         so this can never equip ordinary material. */
+      /* `write.equip` trusts the caller, hence the three tests.
+         `form === F.relic` is how `data/forms.js` says a pair is a trinket. */
       if (ui.drag.from === 'inv' && ui.drag.form === F.relic &&
           invCount(ui.drag.sub, F.relic) > 0 && !run.equipped.includes(ui.drag.sub)) {
         runw.equip(hit.slot.index, ui.drag.sub);
@@ -620,16 +492,9 @@ function applyUiIntents() {
   }
 }
 
-/* The completion signal is `rules/crafting.js`'s own `'produce'` journal row,
-   shaped `{ sub, form, made }` -- no `def` key, which is what tells it apart
-   from `rules/machines.js#produce`'s row (`{ def, made }`, no `sub`).
-   `journal.js#peek()` is non-destructive, so `shell/notify.js` still drains
-   the same rows for sound and text.
-
-   A head the pockets cannot pay for says so ONCE. The entry is KEPT rather
-   than dropped, since the answer is to go and mine. `refusedHead` is the id a
-   row was pushed for, so a minute-long stall is one journal line, and it
-   clears when the queue empties so a restart cannot leave it stale. */
+/* The completion signal is `rules/crafting.js`'s `'produce'` row, which has no
+   `def` key and so is told apart from `rules/machines.js#produce`'s. A head the
+   pockets cannot pay for says so once, and clears when the queue empties. */
 let refusedHead = null;
 
 function tickCraftQueue() {
@@ -647,9 +512,7 @@ function tickCraftQueue() {
   } else refusedHead = null;
 }
 
-/* Leads the player in the direction of travel, and looks further DOWN than up.
-   Clamped to the band the player is in, so resizing the window moves the
-   camera and nothing else. */
+/* Leads the direction of travel, and looks further down than up. */
 function updateCamera(dt) {
   const b = player.band;
   if (!b) return;
@@ -664,17 +527,14 @@ function updateCamera(dt) {
 function clampCam() {
   const b = player.band;
   if (!b) return;
-  /* A band narrower than the viewport centres rather than clamping to a
-     corner. Bands differ in width, so X clamps to the CURRENT band only. */
+  /* A band narrower than the viewport centres rather than cornering. Bands
+     differ in width, so X clamps to the current band only. */
   const w = widthPx(b);
   cam.x = w > VIEW.w ? clamp(cam.x, b.origin.x, b.origin.x + w - VIEW.w)
                      : b.origin.x + (w - VIEW.w) / 2;
 
-  /* Y clamps to the UNION of every band, not the current one. Bands stack
-     contiguously, each `origin.y` at the previous band's bottom edge, so this
-     is one seamless column. A per-band clamp capped `cam.y` at the current
-     floor while the player descended past it, then snapped a full viewport
-     height the instant `player.band` flipped. */
+  /* Y clamps to the union of every band: they stack contiguously, each
+     `origin.y` at the previous band's bottom edge, so this is one column. */
   const top = bands[0].origin.y;
   const last = bands[bands.length - 1];
   const bottom = last.origin.y + heightPx(last);
@@ -683,9 +543,8 @@ function clampCam() {
                           : top + (totalH - VIEW.h) / 2;
 }
 
-/* `updateCamera` only EASES, so a camera parked over the previous world would
-   spend a second sliding across the map. `shell/save.js` restores nothing
-   about the camera; the follow and the clamp are this file's. */
+/* `updateCamera` only eases, so a camera over the previous world would spend a
+   second sliding across the map. */
 function snapCam() {
   cam.x = player.x + PW / 2 - VIEW.w / 2;
   cam.y = player.y + PH / 2 - VIEW.h / 2;
@@ -704,11 +563,8 @@ export function draw() {
   frameCtx.mouse.y = cmd.my;
   frameCtx.mouse.has = cmd.hasMouse;
   render(g, frameCtx);
-  /* `render()` rounds `cam` to integers IN PLACE, and that is the position
-     every rectangle in `drawn` was laid out against. `updateCamera()` eases
-     `cam` again continuously, even at rest, so the live `cam` by the time
-     `applyUiIntents()` runs can differ by more than a pixel. Snapshotted HERE,
-     right after the rounding, so a click resolves against what was drawn. */
+  /* `render()` rounds `cam` in place, and that is what every rect in `drawn`
+     was laid out against, so the snapshot has to be taken right after it. */
   drawCam.x = cam.x; drawCam.y = cam.y;
 }
 
@@ -719,9 +575,7 @@ export function frame(now) {
   const real = last ? t - last : STEP;
   last = t;
 
-  /* Self-cleared here rather than by `clearEdges()`, which is skipped on a
-     zero-substep frame -- a restart left set would fire every frame until a
-     substep finally ran. */
+  /* Cleared here, not by `clearEdges()`, which a zero-substep frame skips. */
   if (wants.restart) { newRun(); wants.restart = false; }
 
   clock.acc += Math.min(MAX_CATCHUP, real);
@@ -732,9 +586,8 @@ export function frame(now) {
   tickCraftQueue();
   applyIntents();
 
-  /* `cmd.hop` is read inside a fixed substep, so it may only be cleared once
-     one has run. Above 120 Hz a frame can run zero substeps, and clearing
-     unconditionally erased a hop before the physics saw it. */
+  /* `cmd.hop` is read in a substep, so above 120 Hz an unconditional clear
+     would erase a hop before the physics saw it. */
   if (n) clearEdges();
   stepFx(real);
   drainJournal(clock.t);
@@ -743,7 +596,7 @@ export function frame(now) {
   requestAnimationFrame(frame);
 }
 
-/* With `?test=1` the RAF loop does not start. The handle advances an exact
+/* With `?test=1` the RAF loop does not start: the handle advances an exact
    number of substeps at an exact dt and renders once, so a screenshot is
    bit-reproducible. Nothing here runs in a normal session. */
 function installTestHook() {
@@ -752,16 +605,12 @@ function installTestHook() {
     newRun, step, draw, resize,
     clock, cam, player, run, aim, items, machines, cmd, flags,
 
-    /* The array itself, not a copy, as `items` and `machines` are. Records
-       hold live band and machine references, so a Playwright test must project
-       the fields it wants INSIDE `page.evaluate` rather than return a record
-       across the boundary. */
+    /* The array itself, as `items` and `machines` are. Records hold live band
+       references, so a test must project fields inside `page.evaluate`. */
     segments,
 
-    /* Projected rather than handed over, unlike `segments` above: a mark holds
-       its band RECORD, which holds typed arrays, so none of it survives
-       `page.evaluate`'s structured clone. `ord` identifies the band instead. A
-       getter, so every read is current. */
+    /* Projected, unlike `segments`: a mark holds a band record holding typed
+       arrays, which no structured clone survives. `ord` names the band. */
     get digQueue() {
       return {
         activeCount: digCount(),
@@ -770,13 +619,11 @@ function installTestHook() {
       };
     },
 
-    /* What a WORLD-hover tooltip would show right now. A panel's own tooltip
-       is a separate read-back, `ui().tooltip` below. */
+    // a WORLD hover; a panel's own tooltip is `ui.tooltip` below
     hover: hoverInfo,
 
-    /* Composed HERE, in `shell`, because it merges two layers that may not
-       import each other: `shell/ui.js#ui` and `view/ui/state.js#drawn`. A
-       GETTER, so every read reflects the last `draw()`. */
+    /* Merges two layers that may not import each other. A getter, so every
+       read reflects the last `draw()`. */
     get ui() {
       return {
         open: ui.stack.slice(),
@@ -785,30 +632,20 @@ function installTestHook() {
         drag: ui.drag ? { ...ui.drag } : null,
         search: ui.search,
         searchFocus: ui.searchFocus,
-        /* The pair, if any, a slot click has armed for the next `cmd.place`. */
         armedPlace: ui.armedPlace ? { ...ui.armedPlace } : null,
-        /* Serialised to `{tx, ty, def}` rather than handed over, because
-           `linkFrom` holds a live machine holding typed arrays and everything
-           this getter returns must survive a structured clone. */
+        /* Serialised: everything here must survive a structured clone. */
         linkFrom: ui.linkFrom
           ? { tx: ui.linkFrom.tx, ty: ui.linkFrom.ty, def: ui.linkFrom.def }
           : null,
-        /* Recipe ids, FIFO, and the quickbar's slice of `run.inv` as
-           `{sub,form,n}|null` per slot. */
+        /* Recipe ids, FIFO; then the quickbar's slice of `run.inv`. */
         craftQueue: ui.craftQueue.slice(),
         quickbar: run.inv.slice(run.mainSlots).map(s => s ? { ...s } : null),
         hintsOpen: ui.hintsOpen,
-        /* Readable, so a test can state the value it wants and verify it took
-           rather than blind-toggle and assume. */
         autoCollect: ui.autoCollect,
-        /* Decides whether a player standing beside a machine loses their
-           pockets to it, so a test must read it back. */
         autoFeed: ui.autoFeed,
-        /* Flattened into plain values that survive a structured clone. `god`
-           is null for a debug-key draft, which can never be rerolled. `pool`
-           is how many candidates the cards were drawn from, and a `pool` no
-           bigger than `ids` is the other reason `canReroll` reads false.
-           `ids` is what makes an offer real. */
+        /* Flattened to values a structured clone survives. `god` is null for a
+           debug draft, which can never be rerolled; `pool` is how many
+           candidates the cards came from. */
         offer: run.offer?.ids
           ? {
               tier: run.offer.tier,
@@ -824,9 +661,8 @@ function installTestHook() {
         grids: uiDrawn.grids.map(gr => ({ ...gr, slots: gr.slots.map(s => ({ ...s })) })),
         bars: uiDrawn.bars.map(b => ({ ...b })),
         tooltip: uiDrawn.tooltip ? { ...uiDrawn.tooltip, lines: uiDrawn.tooltip.lines.slice() } : null,
-        /* Both halves, not one merged view: `ui.menu` is the session state,
-           `drawn.menu` is what was painted from it, and a disagreement is the
-           bug worth seeing. Null while the menu drew nothing. */
+        /* Both halves, not a merged view: a disagreement between the state and
+           what was painted from it is the bug worth seeing. */
         menu: { ...ui.menu },
         menuDrawn: uiDrawn.menu
           ? { ...uiDrawn.menu,
@@ -836,18 +672,15 @@ function installTestHook() {
       };
     },
 
-    /* TEST ONLY, and the only caller of `write.revealAll`. Screenshot tests
-       park the camera at a band the player never walked to, to prove terrain
-       rendering, which fog of war would otherwise swallow. */
+    /* Test only: screenshot tests park the camera at a band the player never
+       walked to, which fog of war would otherwise swallow. */
     revealAll: b => worldw.revealAll(b),
 
-    /* Move the pointer to a SCREEN pixel without a real DOM event.
-       `cmd.mx/my` are WORLD px, so this is `toWorld`'s arithmetic. */
+    /* A screen pixel without a DOM event; `cmd.mx/my` are world px. */
     mouseAt(sx, sy) { cmd.mx = cam.x + sx; cmd.my = cam.y + sy; cmd.hasMouse = true; },
 
-    /* Advance n substeps at a fixed dt, then draw once. `applyIntents()` runs
-       per substep rather than per call, which is safe because it self-clears
-       what it consumes, so an intent set once still fires exactly once. */
+    /* `applyIntents()` runs per substep rather than per call, which is safe
+       because it clears what it consumes: an intent fires exactly once. */
     frames(n, dt = STEP) {
       for (let i = 0; i < n; i++) { step(dt); applyIntents(); clearEdges(); }
       tickCraftQueue();
@@ -856,8 +689,8 @@ function installTestHook() {
       draw();
     },
 
-    /* Hold a command set down for n substeps. Edge-triggered commands release
-       after the first substep, as a real key would. */
+    /* Edge-triggered commands release after the first substep, as a key
+       would. */
     hold(keys, n, dt = STEP) {
       for (const k of Object.keys(keys)) cmd[k] = keys[k];
       for (let i = 0; i < n; i++) {
@@ -873,12 +706,9 @@ function installTestHook() {
       draw();
     },
 
-    /* Driven through what the `ui` getter says was actually drawn, NEVER a
-       hardcoded pixel coordinate -- one fails at a different base buffer size,
-       and against a still-easing camera. Each case locates its rect, converts
-       to a WORLD position as `mouseAt` does, arms the matching `cmd.ui*` flag
-       and runs one substep. Returns false if the target was not drawn this
-       frame. */
+    /* Driven through what the `ui` getter says was drawn, never a hardcoded
+       pixel, which fails at a different buffer size and against an easing
+       camera. False if the target was not drawn this frame. */
     intent(name, args = {}) {
       const proj = this.ui;
       const at = (sx, sy, { shift = false, ctrl = false, down = false } = {}) => {
@@ -931,30 +761,22 @@ function installTestHook() {
       return false;
     },
 
-    /* TEST ONLY. Credits into the pockets, bypassing every mining and pickup
-       rule, to arrange a scenario without re-proving either. */
+    /* Test only: credits the pockets, bypassing mining and pickup. */
     give(sub, form, n) { runw.collect(sub, form, n); }
   };
 }
 
-/* The slot is written when the page goes away, and there is no save key. A
-   `save()` costs about 25 ms of baseline regenerate, three dropped frames, so
-   it lands where there is no next frame to drop. `pagehide` backs
-   `visibilitychange` up for the browsers that skip it; both firing on one
-   reload costs a second identical write and nothing else.
-
-   A dead or won run CLEARS the slot, because a slot that resumes from before
-   the fall is a respawn with extra steps. A menu over an unplayed run persists
-   nothing; a menu opened from INSIDE a run does write, or the one key that
-   leaves a run would be a trap. */
+/* There is no save key: the slot is written when the page goes away, since
+   `save()` costs ~25 ms of baseline regenerate. A dead or won run clears the
+   slot, and a menu over an unplayed run persists nothing. */
 function persist() {
   if (!player.band) return;
   if (ui.menu.open && !inRun()) return;
   if (run.dead || run.won) clearSave(); else save();
 }
 
-/* Both listeners are optional: the headless harness stands in a `document`
-   with `getElementById` and nothing else. */
+/* Both are optional: the headless harness stands in a `document` with
+   `getElementById` and nothing else. */
 function installSaveTriggers() {
   if (typeof addEventListener === 'function') addEventListener('pagehide', persist);
   if (typeof document.addEventListener === 'function')
@@ -964,10 +786,9 @@ function installSaveTriggers() {
 }
 
 if (typeof document !== 'undefined' && document.getElementById('stage')) {
-  /* The menu is the default boot state and a URL naming a world is the
-     exception. `?test=1`, `?seed=` and `?scenario=` all skip it, so a diorama
-     is one URL. A headless import has no URL and no player, and the menu
-     freezes `step()`, so it must not open in front of a harness. */
+  /* The menu is the default and a URL naming a world the exception. The menu
+     freezes `step()`, so it must never open in front of the headless harness,
+     which has no URL at all. */
   const inPage = typeof location !== 'undefined';
   const q = new URLSearchParams(inPage ? location.search : '');
   const testMode = q.has('test');

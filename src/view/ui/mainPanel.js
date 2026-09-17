@@ -1,22 +1,12 @@
-/* LAYER view — THE MAIN PANEL: the one tabbed window, built on the primitives
-   in this directory. Imports `core`, `data` and READ-ONLY `model` queries,
-   plus those primitives (same-layer imports are legal). No `rules`, no
-   `shell`.
+/* view layer — the main panel: the one tabbed window, built on the primitives
+   in this directory.
 
-   IT PAUSES NOTHING. Unlike `flags.showMap` (guarded inside
-   `shell/main.js#step`), opening this panel does not freeze the simulation --
-   this is an automation game and the factory keeps running while you read
-   about it. Nothing here reads `flags.showMap` for that reason; it is drawn
-   from `view/hud.js#drawHUD` exactly like every other HUD element, over
-   whatever the world is doing this frame.
-
-   A CLICK THAT DOES SOMETHING IS SHELL CALLING RULES: every function below
-   only DRAWS and RECORDS the rectangles it drew, via the `./state.js#drawn`
-   idiom the primitives already use. `shell/main.js`'s UI dispatcher hit-tests
-   those rectangles against the pointer and calls into `rules`/`shell/ui.js`
-   itself; nothing in this file ever does that. This also means the panel is
-   read ONE FRAME STALE by the dispatcher, which is invisible at any real
-   frame rate. */
+   Opening it does not freeze the simulation, and nothing here reads
+   `flags.showMap`; it is drawn from `view/hud.js#drawHUD` like every other HUD
+   element, over whatever the world is doing. Every function below only draws
+   and records the rectangles it drew into `./state.js#drawn`, which
+   `shell/main.js`'s UI dispatcher hit-tests -- so the panel is read one frame
+   stale. */
 
 import { drawText, textWidth } from '../../core/font.js';
 import { mix } from '../../core/palette.js';
@@ -44,20 +34,13 @@ import { drawn } from './state.js';
 import { drawTabs } from './tabs.js';
 import { drawTooltip } from './tooltip.js';
 
-/* `DIM` IS THE STATE TONE IN THIS FILE, NOT A BODY TONE. Four of the ten
-   greys the HUD distinguishes live here and all four keep it: AUTO COLLECT's
-   and AUTO FEED's off reading, the search box's empty placeholder, an
-   undiscovered recipe's frame and notice, and `STATE_COLOUR`'s
-   UNFUELLED/IDLE rungs (which `view/overview.js#drawMachines` also reads, so
-   whitening either would change the map's glyphs too). `INK2` is the
-   secondary body tone and is what the stat rows and the LOGISTICS table now
-   use. No shadow anywhere in this file: every line of it is drawn inside
-   `view/ui/panel.js`'s own frame. */
+/* `DIM` is the state tone in this file and `INK2` the secondary body tone; the
+   UNFUELLED/IDLE rungs of `STATE_COLOUR` reach `view/overview.js#drawMachines`
+   too. No shadow anywhere: every line draws inside `view/ui/panel.js`'s frame. */
 const INK = colour('ui'), INK2 = colour('uiInk2'), DIM = colour('uiDim'), BACK = colour('uiBack');
 const GOOD = colour('uiGood'), AMBER = colour('uiAmber'), HEART = colour('uiHeart');
 const RELIC = colour('ichor');
-/* The scroll thumb's track, the same mix `view/ui/bar.js` paints a bar's
-   own track with, so the two read as one material. */
+/* The same track mix `view/ui/bar.js` paints a bar's own track with. */
 const TRACK = mix(BACK, DIM, 0.3);
 
 const MAIN_TABS = [
@@ -66,43 +49,31 @@ const MAIN_TABS = [
   { id: 'log',   label: 'LOGISTICS' }
 ];
 
-/* `f.ui.tab.main` is a plain string handed through by `shell/main.js`'s frame
-   context, the same precedent `f.flags` sets -- `view` may not import
-   `shell/ui.js`, so its `activeTab()` fallback (first tab if the stored one
-   is stale or absent) is re-stated here in one line rather than called. */
+/* `f.ui.tab.main` arrives on the frame context because `view` may not import
+   `shell/ui.js`; this restates that file's `activeTab()` fallback -- the first
+   tab when the stored one is stale or absent -- in one line. */
 const activeOf = (stored, list) => list.some(t => t.id === stored) ? stored : list[0].id;
 
-/* `sub`/`form` ordinals plus a resolved swatch hex -- the one shape
-   `slot.js#drawSlot` accepts, built here because `view/hud.js#pockets`
-   already proves the rule this file must also respect: a swatch colour is a
-   fact about a substance's `look`, and `slot.js` may not know how to look
-   one up itself. */
+/* `sub`/`form` ordinals plus a resolved swatch hex, the one shape
+   `slot.js#drawSlot` accepts: a swatch colour is a fact about a substance's
+   `look`, and `slot.js` may not look one up itself. */
 function swatchOf(sub) {
   const l = SUB[sub].look;
   return l?.item ? colour(l.item[0]) : DIM;
 }
 
-/* A PLACEHOLDER ICON, not real art: a 1-2 letter code off the substance's own
-   `short`/`name`. Callers that already have a MORE useful glyph (a locked
-   recipe's '?', a missing ingredient's own letter, the quickbar's slot digit)
-   keep that instead -- this is only ever the fallback. */
+/* A placeholder 1-2 letter code off the substance's own `short`/`name`, used
+   only where the caller has no more useful glyph of its own. */
 function glyphOf(sub) {
   const s = SUB[sub];
   return (s.short || s.name || '').slice(0, 2).toUpperCase();
 }
 
-/* A unique held THING: a trinket or a miracle, the two tags `data/forms.js`
-   reserves the `relic`/`phial` forms for. `view/hud.js#pockets` already
-   frames a relic in this same `ichor` divine-gold; extended to `miracle`
-   here rather than a second "this is special" colour. */
+/* A unique held thing: the `relic`/`phial` tags `data/forms.js` reserves. */
 const isUnique = sub => !!sub.tags?.some(t => t === 'relic' || t === 'miracle');
 
-/* `grid.js#drawSlot` draws no per-item border of its own (its contract is
-   `{sub,form,n,mass,colour,glyph}` -- see that file's own header). Rather
-   than teach the grid primitive a new field, this overlays the frame
-   directly on the ABSOLUTE rectangles `drawGrid` already returned for each
-   slot, the same "read back what was actually drawn" discipline every hit
-   test in this project already uses. */
+/* `drawSlot` draws no per-item border, so the frame is overlaid on the absolute
+   rectangles `drawGrid` already returned for each slot. */
 function frameUniqueSlots(g, gridResult) {
   for (const s of gridResult.slots) {
     if (s.sub == null || !isUnique(SUB[s.sub])) continue;
@@ -110,15 +81,9 @@ function frameUniqueSlots(g, gridResult) {
   }
 }
 
-/* THE ARMED-PLACEMENT HIGHLIGHT (Part 1, click-to-arm placement): whichever
-   slot's pair matches `ui.armedPlace` gets the SAME border treatment a
-   relic's frame above already uses, just in `GOOD` -- the "this is what
-   will happen" colour the crafting grid's craftable tint and the placement
-   ghost's ok tint both already use, rather than `RELIC`'s divine gold, so
-   arming reads as a placement fact and not a second "this is special"
-   marker. `armed` is `ui.armedPlace` itself (`{sub,form}|null`), read
-   straight off the frame context exactly as `f.flags`/`f.ui.drag` already
-   are. */
+/* The armed-placement highlight: the relic frame's border in `GOOD`, the tint
+   the craftable grid and the placement ghost already use. `armed` is
+   `ui.armedPlace` (`{sub,form}` or null), read off the frame context. */
 function frameArmedSlot(g, gridResult, armed) {
   if (!armed) return;
   for (const s of gridResult.slots) {
@@ -149,11 +114,6 @@ export function drawMainPanel(g, f) {
   else drawLogisticsTab(g, f, body);
 }
 
-/* The one place this project deliberately diverges from every other factory
-   game's inventory: slots are stack-based, but the BINDING constraint is
-   mass, so the burden bar is the most legible thing this tab draws --
-   amber past the soft cap, red (and spelled out in words) at the hard one.
-*/
 function drawCharacterTab(g, f, body) {
   const { x, y, w, vw, vh } = body;
   const bottom = contentBottom(body);
@@ -168,20 +128,9 @@ function drawCharacterTab(g, f, body) {
 
   let ry = bar.y + bar.h + 5;
 
-  /* AUTO COLLECT: items no longer pick themselves up -- holding 'c' does --
-     and this toggle restores the old always-on magnet. Its own `drawPanel`
-     id, hit-tested the way the search box and the hints toggle are, so a
-     click here is never mistaken for one on the grid beneath it. */
-  /* AUTO FEED is the machine-side half of the same preference: arming a pair
-     and clicking a machine hands over one unit per press, and this restores
-     the old always-on drain. Two magnets, items and machines, one line.
-
-     THE TWO SHARE A ROW WHEN BOTH FIT, AND THAT IS A MEASUREMENT. Stacking
-     them cost 11 px, and this tab has no spare 11 px -- the STATS block
-     already clips to `body.bottom`, and a second row pushed the last
-     surviving stat line off the panel. Side by side costs zero rows and is
-     legible at both the desktop buffer and the 200 px floor. The fallback is
-     not dead code: a longer label or a narrower floor makes it right. */
+  /* Each toggle gets its own `drawPanel` id, so a click here is never taken for
+     one on the grid beneath. They share a row because stacking them costs 11 px
+     this tab has not got; the stacked fallback still fits a longer label. */
   const acLabel = 'AUTO COLLECT ' + (f.ui.autoCollect ? 'ON' : 'OFF');
   const afLabel = 'AUTO FEED ' + (f.ui.autoFeed ? 'ON' : 'OFF');
   const acW = Math.min(textWidth(acLabel) + 4, w);
@@ -198,24 +147,19 @@ function drawCharacterTab(g, f, body) {
 
   ry = afY + 11;
 
-  /* Inventory grid: one cell per SLOT, empty slots INCLUDED and drawn empty.
-     Capacity is a real positioned fact now, and hiding empty slots would hide
-     the exact information -- how much room is left -- this shape exists to
-     make legible. `drawGrid` needed no change to draw a `null`-inclusive
-     array; it already did. */
+  /* One cell per slot, empty slots included and drawn empty, so how much room
+     is left stays legible. */
   const invSlots = run.inv.slice(0, run.mainSlots);
   const items = invSlots.map(slot => !slot ? null : {
     sub: slot.sub, form: slot.form, n: slot.n, mass: massOfPair(slot.sub, slot.form) * slot.n,
     colour: swatchOf(slot.sub),
-    /* The tile-capable marker '#' carries real meaning (this is what a
-       ladder is built from) and keeps priority; everything else falls back
-       to the placeholder identity glyph rather than no glyph at all. */
+    /* The tile-capable marker '#' keeps priority; everything else falls back to
+       the placeholder identity glyph rather than to no glyph at all. */
     glyph: FORM[slot.form].tile ? '#' : glyphOf(slot.sub)
   });
-  /* The 22 px is the TRINKETS heading plus its own row of slots; `STAT_MIN_H`
-     is what the scroll region below needs to show anything at all. Both come
-     out of the inventory grid's budget rather than off the bottom of the
-     panel, because the inventory already scrolls and the tail did not. */
+  /* The 22 px is the TRINKETS heading plus its own row of slots, and
+     `STAT_MIN_H` what the scroll region needs to show anything. Both come out
+     of the inventory grid's budget, since the inventory already scrolls. */
   const invRows = Math.min(3, Math.max(1,
     Math.floor((bottom - ry - 22 - STAT_MIN_H) / (SLOT_SIZE + 1))));
   const grid = drawGrid(g, {
@@ -239,11 +183,9 @@ function drawCharacterTab(g, f, body) {
   frameUniqueSlots(g, eqGrid);
   ry = eqGrid.y + eqGrid.h + 5;
 
-  /* Each equipped trinket's own rows, RESOLVED through `model/mods.js#explain`
-     -- the same query the debug overlay reads to answer "why is my walk
-     speed 71" -- rather than the raw `{key,mul,add}` a content row carries.
-     They share the scroll region below with the stat rows, because a run
-     with three trinkets equipped pushes the stats off the panel on its own. */
+  /* Each equipped trinket's rows resolved through `model/mods.js#explain`
+     rather than the raw `{key,mul,add}` a content row carries, sharing the
+     scroll region below with the stat rows. */
   const lines = [];
   for (const t of Object.values(TRINKET)) {
     if (!run.equipped.includes(S[t.id])) continue;
@@ -258,8 +200,7 @@ function drawCharacterTab(g, f, body) {
   drawCharacterTooltip(g, f, grid, eqGrid);
 }
 
-/* The numbers a player can actually bend, so a trinket or a boon's effect is
-   legible rather than inferred from feel. */
+/* The numbers a player can bend, so a trinket or a boon's effect is legible. */
 const STAT_ROWS = [
   { id: 'walk', label: 'WALK' }, { id: 'climb', label: 'CLIMB' },
   { id: 'pickPower', label: 'PICK POWER' },
@@ -269,16 +210,9 @@ const STAT_ROWS = [
 const STAT_LINE_H = 8;
 const STAT_MIN_H = 3 * STAT_LINE_H;
 
-/* WHERE THIS TAB'S CONTENT HAS TO STOP. The panel is drawn over the quickbar
-   and covers it, but `shell/main.js#uiHitGrid` scans `drawn.grids` in draw
-   order and the quickbar is recorded first, so a grid of this tab's that
-   reached into the strip's rectangle would hand its wheel notches to a strip
-   the player cannot even see. At the 200 px floor the panel is 172 px of a
-   180 px buffer and that is exactly what happens.
-
-   Measured off the rectangle the quickbar actually drew, and only where
-   the two overlap in x, so the desktop buffer -- where the strip is 95 px
-   below the panel -- keeps every pixel it had. */
+/* Where this tab's content stops. `shell/main.js#uiHitGrid` scans `drawn.grids`
+   in draw order with the quickbar recorded first, so a grid overlapping the
+   strip's rectangle hands its wheel notches to a strip the panel covers. */
 function contentBottom(body) {
   const qb = drawn.grids.find(gr => gr.id === 'quickbar');
   if (!qb || qb.y >= body.bottom) return body.bottom;
@@ -286,13 +220,9 @@ function contentBottom(body) {
   return Math.max(body.y + STAT_MIN_H, qb.y - 2);
 }
 
-/* THE TAB'S LAST BLOCK SCROLLS, because it has never fitted: of four stat
-   rows the desktop buffer drew one and the rest clipped at `body.bottom`.
-
-   It reuses the mechanism the inventory grid has: the rectangle goes into
-   `drawn.grids`, which is what a wheel notch is hit-tested against. `slots`
-   is EMPTY deliberately -- every click path is keyed on a slot, so an empty
-   list makes the region wheel-only with no guard anywhere. */
+/* The tab's last block scrolls on the inventory grid's mechanism: the rectangle
+   goes into `drawn.grids`, which is what a wheel notch is hit-tested against.
+   `slots` is empty, so the region is wheel-only with no click path into it. */
 function statList(g, f, { x, y, w, bottom, lines }) {
   const visible = Math.floor((bottom - y) / STAT_LINE_H);
   if (visible < 1) return;
@@ -301,9 +231,8 @@ function statList(g, f, { x, y, w, bottom, lines }) {
   const shown = lines.slice(first, first + visible);
   shown.forEach((l, i) => drawText(g, l.s, x + l.ind, y + i * STAT_LINE_H, l.col, 1, 1));
 
-  /* A 2 px thumb against the region's right edge, drawn only when something
-     is off one of the ends -- a scroll region with no affordance is a region
-     nobody finds. */
+  /* A 2 px thumb against the region's right edge, drawn only when something is
+     off one of the ends. */
   const trackH = visible * STAT_LINE_H;
   if (lines.length > visible) {
     const thumbH = Math.max(2, Math.round(trackH * visible / lines.length));
@@ -318,12 +247,9 @@ function statList(g, f, { x, y, w, bottom, lines }) {
   });
 }
 
-/* `data/tuning.js` may only ever be imported by `model/mods.js`, so this file
-   cannot read a tunable's own `unit` off the frozen row -- and does not need
-   to: the stat readout only ever names a handful of ids, so their units are
-   spelled out here as presentation text, the same way `view/hud.js#billOf`
-   already turns a content key into a word without importing the table it
-   came from. */
+/* `data/tuning.js` may only be imported by `model/mods.js`, so a tunable's own
+   `unit` is out of reach here; the handful of ids this readout names carry
+   their units as presentation text instead. */
 const UNITS = { walk: ' PX/S', climb: ' PX/S', pickPower: 'X', rate: 'X' };
 const unitOf = id => UNITS[id] || '';
 
@@ -362,9 +288,9 @@ function formatModRow(row) {
   return lines;
 }
 
-/* A pair's tooltip: name, mass each/total, tier, what it is for -- and, for a
-   unique drop, its god and flavour line. Driven off TAGS, not a hand-written
-   per-substance switch. */
+/* A pair's tooltip: name, mass each and total, tier, what it is for, and a
+   unique drop's god and flavour line. Driven off tags, not a per-substance
+   switch. */
 function pairTooltip(sub, form, n) {
   const label = FORM[form] ? `${SUB[sub].name} ${FORM[form].label}`.trim() : SUB[sub].name;
   const each = massOfPair(sub, form);
@@ -404,15 +330,9 @@ function drawCharacterTooltip(g, f, grid, eqGrid) {
   }
 }
 
-/* `all` filters nothing and comes first, so it is also the default --
-   `activeOf` falls back to the first row, and a first open of CRAFTING shows
-   every recipe rather than only RAW. It bypasses `categoryOf` below instead
-   of becoming a sixth branch in it, because "all" is the absence of a filter
-   and not a kind of thing a recipe can be.
-
-   The six labels cost 204 px and the crafting body is 188 px wide at the
-   200 px floor, so `tabs.js#drawTabs` wraps DIVINE onto a second line there.
-   That is the reason it wraps at all. */
+/* `all` filters nothing and comes first, so `activeOf`'s first-row fallback
+   makes it the default; it bypasses `categoryOf` instead of becoming a branch
+   in it. The six labels cost 204 px against the floor's 188, so DIVINE wraps. */
 const CATEGORY_TABS = [
   { id: 'all', label: 'ALL' },
   { id: 'raw', label: 'RAW' }, { id: 'refined', label: 'REFINED' },
@@ -420,10 +340,9 @@ const CATEGORY_TABS = [
   { id: 'divine', label: 'DIVINE' }
 ];
 
-/* Category is DERIVED from substance/form TAGS on the recipe's own output --
-   never a hand-written per-recipe list. `out[0]` is enough: nothing in
-   `data/recipes.js` ships a recipe whose clauses disagree about what kind of
-   thing they make. */
+/* Category is derived from substance/form tags on the recipe's own output,
+   never a per-recipe list. `out[0]` is enough: no shipped recipe's clauses
+   disagree about what kind of thing they make. */
 function categoryOf(r) {
   const out = r.out?.[0];
   if (!out) return 'raw';
@@ -438,11 +357,9 @@ function categoryOf(r) {
   return 'raw';
 }
 
-/* The substance a recipe's icon should show right now: a literal `sub` names
-   it outright; a `subFrom` clause is resolved against whichever pocketed
-   pair currently satisfies it (so a smelt slot shows tin the moment tin ore
-   is what is actually held), falling back to the first substance the
-   selector could EVER cross (`data/forms.js#expand`) when nothing does. */
+/* The substance a recipe's icon shows right now: a literal `sub` names it
+   outright, a `subFrom` clause resolves against whichever pocketed pair
+   satisfies it, and the fallback is `data/forms.js#expand`'s first crossing. */
 function representativePair(r) {
   const out = r.out?.[0];
   if (!out) return null;
@@ -469,9 +386,8 @@ function drawCraftingTab(g, f, body) {
   const catTabs = drawTabs(g, { id: 'main-craft-cat', x, y, w, tabs: CATEGORY_TABS, active: catActive, vw });
   let ry = catTabs.y + catTabs.h + 2;
 
-  /* The search field: a borderless little box, its own `drawPanel` id so the
-     dispatcher can hit-test it apart from every other panel-shaped rect this
-     frame -- see `shell/main.js`'s UI dispatcher. */
+  /* The search field: its own `drawPanel` id so the dispatcher can hit-test it
+     apart from every other panel-shaped rect this frame. */
   const searchBox = drawPanel(g, { id: 'main-craft-search', x, y: ry, w, h: 9, vw, vh, alpha: 0.7 });
   const searchText = f.ui.search ? f.ui.search.toUpperCase() : (f.ui.searchFocus ? '_' : 'SEARCH...');
   drawText(g, searchText, searchBox.x + 2, searchBox.y + 1, f.ui.search ? INK : DIM, 1, 1);
@@ -493,9 +409,8 @@ function drawCraftingTab(g, f, body) {
                colour: BACK, glyph: '?', frameColour: DIM };
     }
     const base = rep ? swatchOf(rep.sub) : DIM;
-    /* The placeholder identity glyph shows on a craftable recipe. A recipe
-       missing an ingredient keeps its own, more useful, single-letter
-       selector glyph instead. */
+    /* The placeholder identity glyph shows on a craftable recipe; one missing an
+       ingredient keeps its own single-letter selector glyph instead. */
     if (craftable) return { sub: rep?.sub, form: rep?.form, n: 0, mass: 0, colour: base, frameColour: GOOD,
                              glyph: rep ? glyphOf(rep.sub) : null };
     const miss = missingSelector(r);
@@ -508,13 +423,9 @@ function drawCraftingTab(g, f, body) {
     id: 'recipes', x, y: ry, h: gridH, vw, vh,
     cols: Math.max(1, Math.floor((w + 1) / (SLOT_SIZE + 1))), items
   });
-  /* Recorded so the dispatcher (`shell/main.js`) can turn a slot index back
-     into a recipe id -- a grid slot only carries `{sub,form,n,mass}` (Phase
-     5a's own contract), which is not enough to name a recipe with a
-     `subFrom` output. Own map, own key, reset every call by
-     `./state.js#resetDrawn` alongside everything else in `drawn`, so it
-     cannot be confused with the widget layer's `drawn.grids` and does not
-     need that shape to change. */
+  /* Recorded so `shell/main.js` can turn a slot index back into a recipe id: a
+     grid slot carries only `{sub,form,n,mass}`, which cannot name a recipe with
+     a `subFrom` output. Reset by `./state.js#resetDrawn` with the rest. */
   drawn.recipeIndex[grid.id] = recipes.map(r => r.id);
 
   let qy = grid.y + grid.h + 3;
@@ -550,30 +461,22 @@ function recipeTooltip(r) {
   if (out) {
     const form = FORM[F[out.form]];
     const n = out.n || 1;
-    /* POLISH: the SHORT name/label here, not the full one -- this is an
-       inline reference inside an already-multi-line tooltip, the exact
-       "recipe tooltips' inline references" spot named for abbreviation,
-       unlike `r.name` above (the recipe's own title line, which stays full
-       length) and unlike the Character tab's `pairTooltip` (deliberately
-       left full, see that function's own header). */
+    /* The short name here, not the full one: this is an inline reference inside
+       an already multi-line tooltip, unlike `r.name` above. */
     const name = out.sub !== undefined ? (SUB[S[out.sub]].short || SUB[S[out.sub]].name) : 'MATCHED';
     lines.push(`-> ${n} ${name} ${form.short || form.label}`);
   }
   const machineName = MACH.find(m => (m.recipes || []).some(x => x === r.id || x?.id === r.id))?.name;
   lines.push(`BY HAND: ${r.secs.toFixed(1)} S` + (machineName ? ` -- SAME AS ${machineName}` : ''));
-  /* THE ONE BODY LINE IN THE GAME THAT KEEPS THE STATE TONE. Every other
-     tooltip body line draws in `uiInk2`; this one is not de-emphasis, it is
-     the same "you have not stolen this yet" state the '?' glyph and the
-     dimmed slot frame already say. Handed its own colour rather than letting
-     the tooltip primitive guess from the string. */
+  /* The one body line that keeps the state tone -- not de-emphasis but the same
+     "you have not stolen this yet" state the '?' glyph says -- handed its own
+     colour rather than letting the tooltip primitive guess from the string. */
   if (!isKnown(r.id)) lines.push('', { s: 'UNKNOWN -- NOT YET STOLEN', col: DIM });
   return lines;
 }
 
-/* Best count currently pocketed toward a selector, for the tooltip's
-   have/need line. `pocketedBest` is the single-largest-matching-pair query
-   every other reader of the slot array shares, so this no longer hand-rolls
-   its own scan. */
+/* Best count currently pocketed toward a selector, for the tooltip's have/need
+   line. */
 const countTowards = sel => pocketedBest(sel);
 
 function drawCraftingTooltip(g, f, grid, recipes) {
@@ -588,32 +491,16 @@ function drawCraftingTooltip(g, f, grid, recipes) {
   }
 }
 
-/*
-   TAB 3 -- LOGISTICS (a stub, honestly labelled) */
 
-/* State is a HEURISTIC over what `model/machines.js` already exposes, not a
-   duplicate of `rules/machines.js`'s own decisions (`view` may not import
-   `rules`, and should not want to: this tab is explicitly a stub).
-   RUNNING mirrors `m.running`, plus a banked belt/brazier charge (`m.charges`)
-   reads as doing its job even on the frame it is not literally ticking.
-   UNFUELLED fires only for a machine that actually HAS a fuel-accepting
-   port and none buffered. Anything else with SOME buffer contents reads as
-   STALLED (present but not moving -- a full output port, a cold `needs`
-   gate, a servo throttle: this file cannot tell those apart without
-   importing `rules`); an entirely empty buffer reads as BLOCKED. */
-/* EXPORTED FOR THE OVERVIEW'S MACHINES LAYER, which was
-   told in as many words to read the same query as this tab rather than write a
-   second one. Same-layer import, and the heuristic above is stated once, here,
-   where the tab that made it lives. */
+/* A heuristic over what `model/machines.js` exposes, since `view` may not import
+   `rules`: UNFUELLED needs a fuel-accepting port and nothing buffered, STALLED is
+   some buffer contents, BLOCKED an empty one. `view/overview.js` reads it too. */
 export function machineState(m) {
   const def = defOf(m);
   if (m.running || m.charges > 0 || m.torque > 0) return 'RUNNING';
-  /* A DRIVETRAIN OR STRUCTURAL MACHINE IS NOT A PROCESSOR, so an empty buffer
-     is not BLOCKED. A hub, crank, gear and axle have no `ports`; a receiver
-     has `ports` and no `recipes`; the two placed miners have `ports`, no
-     `recipes` and a `mine:{}` block that says they are active. The clause
-     true of every structural-or-receiver machine and false of every active
-     one is "no recipes AND no mine job". */
+  /* A drivetrain or structural machine is not a processor, so its empty buffer
+     is not BLOCKED: "no recipes and no mine job" is the clause true of every
+     hub, crank, gear, axle and receiver, and false of every active machine. */
   if (!def.recipes?.length && !def.mine) return 'IDLE';
   const fuelSels = [];
   for (const p of def.ports || [])

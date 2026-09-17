@@ -1,11 +1,6 @@
-/* LAYER core — the palette, lifted from the concept art, plus colour
-   arithmetic. Depends on nothing. May be imported by every layer.
-
-   Hex lives here because mixing two colours is arithmetic. The NAMES that
-   content rows are allowed to use live in `data/palette.js`, which re-exports
-   this table and is what `tools/content.mjs` checks a `look` key against.
-
- */
+/* core layer — the palette plus colour arithmetic. Depends on nothing.
+   `data/palette.js` re-exports this table and owns the set of names a content
+   row's `look` key may use. */
 
 export const P = {
   skyHi:'#c4dcee', skyLo:'#8fb9d8', cloudA:'#ffffff', cloudB:'#dbe8f4', cloudC:'#b9cfe4',
@@ -14,7 +9,7 @@ export const P = {
   soilA:'#8d6842', soilC:'#5e4229',
   limeA:'#dcd6c6', limeB:'#c5beaa', limeC:'#a99f89', limeD:'#8b8270',
   ochreA:'#b8823f', ochreB:'#9d6a33', ochreC:'#7d5228', ochreD:'#5d3a1b',
-  /* fired-clay aliases; the concept art calls these the same three ochres */
+  /* fired-clay aliases; same hex as the three ochres above */
   clayA:'#b8823f', clayB:'#9d6a33', clayC:'#7d5228',
   veinA:'#f0aa5e', veinB:'#dd8433', veinC:'#a35a1f',
   aquA:'#2d5975', aquB:'#22465f', aquC:'#183449',
@@ -30,29 +25,16 @@ export const P = {
   vdA:'#63947a', vdB:'#4b7460', vdC:'#365746', vdD:'#243c30',
   irA:'#a3a3ad', irB:'#74747f', irC:'#4a4a54', irD:'#2c2c34',
   ichor:'#ffd97a', hot:'#ff9a3c', ui:'#d2c9b2', uiDim:'#98907c', uiBack:'#0d0b12',
-  /* THE THREE INK TONES, and which one a call site may use. A two-tone split
-     made "secondary" and "illegible" the same colour.
-       ui       PRIMARY. A label, a heading, line 0 of a tooltip.
-       uiInk2   SECONDARY. De-emphasised text that must still READ.
-       uiDim    STATE -- unknown, unfuelled, idle, off. The fix for "the dim
-                tone is illegible" is not deleting it, it is not using a state
-                tone for body text.
-     `uiShade` is a text shadow, OPAQUE rather than an alpha: several call
-     sites draw under a live `globalAlpha < 1`, where an alpha shadow would
-     let the ink bleed through. */
+  /* Ink tones: `ui` is primary text, `uiInk2` de-emphasised text that must
+     still read, `uiDim` a state tone (unknown, unfuelled, idle, off) and not
+     body text. `uiShade` is an opaque text shadow rather than an alpha,
+     because call sites draw under a live `globalAlpha < 1`. */
   uiInk2:'#e8e2d2', uiShade:'#060509',
-  /* the widget layer's status colours; same hex as hud.js's UI row */
+  /* widget status colours; same hex as the HUD's own row */
   uiGood:'#9ad86a', uiAmber:'#e0a030', uiHeart:'#d8433a',
-  /* granite: a cool light grey, distinct from ir* (iron-grey, warmer/darker)
-     so the two rocks read apart at a glance. adamant: a dark teal-black with
-     a pale cyan glint highlight, consistent with the `glint` treatment
-     already used on copper (veinA) and tin (snA) -- reads as worked/magical
-     metal-rock rather than plain stone. */
   graniteA:'#d8d6dc', graniteB:'#b3b0ba', graniteC:'#8b8792', graniteD:'#5a5760',
   adamantA:'#8fe3d9', adamantB:'#2b4a52', adamantC:'#1c3238', adamantD:'#0f1c1f'
 };
-
-/* colour arithmetic */
 
 export function hex2rgb(h) {
   const n = parseInt(h.slice(1), 16);
@@ -65,13 +47,9 @@ export function mix(a, b, t) {
   return `rgb(${(A[0] + (B[0] - A[0]) * t) | 0},${(A[1] + (B[1] - A[1]) * t) | 0},${(A[2] + (B[2] - A[2]) * t) | 0})`;
 }
 
-/* `mix`, but the result is HEX and can therefore be mixed AGAIN. `mix` returns
-   an `rgb(...)` string, which `hex2rgb` cannot read back — feeding one to the
-   other yields NaN channels and a silently black fill. Depth shading needs two
-   stages (darken the row's own tone, then derive an edge from the darkened
-   tone), so it needs this one. Two functions rather than one because every
-   existing call site takes a single mix and a canvas fillStyle is happy with
-   either form; changing `mix`'s return type would be a wider edit for no gain. */
+/* `mix`, but returns hex, so the result can be mixed again. `mix`'s
+   `rgb(...)` string fed back through `hex2rgb` gives NaN channels and a
+   silently black fill. */
 const hex2 = v => (v < 0 ? 0 : v > 255 ? 255 : v | 0).toString(16).padStart(2, '0');
 
 export function blend(a, b, t) {

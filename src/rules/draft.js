@@ -1,25 +1,11 @@
-/* LAYER rules — THE DRAFT: which of a tier's rows a god lays out, and what a
-   second look costs. Imports `core`, `data`, `model`. Imports no other
-   `rules` module.
+/* rules layer — which of a tier's rows an offer shows, and what a reroll costs.
+   Event-driven from `shell/main.js#applyIntents`, not stepped. Candidate ids
+   are gathered by `shell` from each tier's own `draftable()`, since the four
+   tier modules are siblings this file may not import.
 
-   EVENT-DRIVEN, SO NOT IN `shell/schedule.js`: that file orders the modules
-   STEPPED at the fixed 1/120 s substep, and an offer happens once, when a
-   trial pays. `shell/main.js#applyIntents` calls this exactly as it already
-   calls `rules/placement.js`.
-
-   WHY THE CANDIDATES ARE HANDED IN. Each of the four tiers knows what is
-   still undrafted in its own table (`draftable()` in `rules/trinkets.js`,
-   `rules/grants.js`, `rules/boons.js`, `rules/miracles.js`), and those four
-   are siblings this file may not import. `shell` is the one layer that may
-   see all four, so it gathers the ids; this file decides WHICH of them are
-   offered, and dispatching the taken card back to the right tier's `grant()`
-   is `shell`'s again for the same reason.
-
-   DETERMINISM, AND THE DRAW COUNT. An offer of k cards consumes EXACTLY k
-   `rand()` draws -- a partial Fisher-Yates over a copy of the candidate list,
-   one draw per card laid out -- and a reroll consumes exactly as many again.
-   Reordering or adding a draw here changes every later draw in the run and
-   breaks seed compatibility. */
+   An offer of k cards consumes exactly k `rand()` draws (partial Fisher-Yates
+   over a copy of the candidates), and a reroll consumes as many again.
+   Changing the draw count shifts every later draw in the run. */
 
 import { rand } from '../core/rng.js';
 import { push } from '../model/journal.js';
@@ -35,13 +21,9 @@ function pick(candidateIds) {
   return out;
 }
 
-/* Lay out an offer of `tier`, asked by `god` (`null` for a debug draft),
-   over `candidateIds`, and write it to `run.offer`.
-   FEWER CANDIDATES OFFER FEWER CARDS, honestly: the grant tier ships at two
-   rows by decision, so two-of-two is a
-   real case and padding it would mean offering something already taken. With
-   NO candidates left there is nothing to choose between, so the request is
-   dropped with a refusal rather than raising a modal holding nothing.
+/* Lay out an offer of `tier`, asked by `god` (`null` for a debug draft), over
+   `candidateIds`, and write it to `run.offer`. Fewer candidates than
+   `offerSize` offer fewer cards; none clears the offer and pushes a refusal.
    Returns the ids offered. */
 export function offer(tier, god, candidateIds) {
   const ids = pick(candidateIds);
@@ -54,16 +36,9 @@ export function offer(tier, god, candidateIds) {
   return ids;
 }
 
-/* Spend `god`'s favour to re-pick the standing offer. Refuses -- spending
-   nothing -- through the same `'refused'` row every other refusal in `rules`
-   pushes, because a price the player cannot pay must say so rather than
-   quietly do nothing.
-
-   TWO REFUSALS, TWO MESSAGES, because they are two different facts about the
-   world and only one of them is about the purse: a tier with no more rows
-   than the offer already shows would sell a transposition of the same cards.
-   `model/run.js#canReroll` is the single predicate -- the same one `view`
-   dims the row with -- and `offerExhausted` is which half of it failed. */
+/* Spend `god`'s favour to re-pick the standing offer, or refuse and spend
+   nothing. `model/run.js#canReroll` is the predicate `view` also dims the row
+   with; `offerExhausted` says which half of it failed. */
 export function reroll(god, candidateIds) {
   if (!run.offer?.ids) return false;
   if (!canReroll(god)) {

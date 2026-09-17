@@ -1,10 +1,7 @@
-/* LAYER rules — MIRACLES: the ONE-SHOT gift tier. Imports `data`, `model`,
-   and no other `rules` module.
-
-   `use()` is the whole mechanic: find the first held miracle, spend exactly
-   one unit, apply its `effect` to the tile grid at the AIMED tile, and grant
-   its side-effect boon if it has one. `grant()`/`draftable()` are the
-   debug-only spawn path. */
+/* rules layer — the one-shot gift tier. `use()` spends one unit of the first
+   held miracle, applies its `effect` to the tile grid at the aimed tile, and
+   grants its side-effect boon if it has one. `grant()` / `draftable()` are the
+   debug spawn path. */
 
 import { F } from '../data/forms.js';
 import { S } from '../data/substances.js';
@@ -17,10 +14,9 @@ import { player, playerCentre } from '../model/player.js';
 import { invCount, run, write as rw } from '../model/run.js';
 import { solidAt, write as tw } from '../model/tiles.js';
 
-/* The first held miracle, spent and applied at (band, tx, ty) -- the AIMED
-   tile, resolved by `model/aim.js` exactly as a dig or a placement is.
-   Returns false with nothing spent if no miracle is held or nowhere is
-   aimed at, so a stray press against open sky costs nothing. */
+/* `(band, tx, ty)` is the aimed tile, resolved by `model/aim.js` as for a dig
+   or a placement. Returns false with nothing spent if no miracle is held or
+   nothing is aimed at. */
 export function use(band, tx, ty) {
   if (run.dead || !band) return false;
   const held = MIRACLES.find(m => invCount(S[m.id], F.phial) > 0);
@@ -35,36 +31,27 @@ export function use(band, tx, ty) {
 function applyEffect(m, band, tx, ty) {
   const e = m.effect;
 
-  /* 'collapse': the simplest real terrain edit available -- clear a
-     radius-tile square to AIR through the SAME `model/tiles.js#write.clear`
-     every dig already uses, which is why a chasm repaints only the chunks
-     it touches with no new tile-write verb. */
+  /* Clears a `radius`-tile square to air through the same
+     `model/tiles.js#write.clear` a dig uses, so only the chunks it touches
+     repaint. Bounds are inclusive on both axes. */
   if (e.kind === 'collapse') {
     for (let dy = -e.radius; dy <= e.radius; dy++)
       for (let dx = -e.radius; dx <= e.radius; dx++)
         tw.clear(band, tx + dx, ty + dy);
   }
 
-  /* 'transmute': the same square, one verb over -- `write.set` instead of
-     `write.clear`. The `solidAt` test is NOT redundant with `write.set`'s own
-     bounds check and must not be "simplified" away: it is the whole reason
-     this cannot conjure floor out of air, and without it the miracle is a
-     terrain generator.
-
-     THE THIRD CALLER OF `packTile`, and the only one nothing validates on the
-     way in, so the content lint proves `e.sub` exists and is packable -- an
-     absent one packs to NaN and stores as AIR, a non-packable one wraps the
-     byte into an unrelated pair. */
+  /* The `solidAt` test is not redundant with `write.set`'s own bounds check:
+     without it this conjures floor out of air. `e.sub` reaches `packTile`
+     unvalidated, so an absent or non-packable row corrupts the tile byte. */
   if (e.kind === 'transmute') {
     for (let dy = -e.radius; dy <= e.radius; dy++)
       for (let dx = -e.radius; dx <= e.radius; dx++)
         if (solidAt(band, tx + dx, ty + dy)) tw.set(band, tx + dx, ty + dy, S[e.sub]);
   }
 
-  /* The side-effect boon. Reads `data/boons.js` and calls
-     `model/boons.js#write.grant` rather than `rules/boons.js#grant`, because
-     siblings may not import one another -- this is the same primitive that
-     file's own `grant()` wraps. */
+  /* Calls `model/boons.js#write.grant` directly rather than
+     `rules/boons.js#grant`, since sibling `rules` modules may not import one
+     another. */
   if (e.boon) {
     const b = BOON[e.boon];
     if (b) {
@@ -74,10 +61,8 @@ function applyEffect(m, band, tx, ty) {
   }
 }
 
-/* debug spawn path
-   Same idiom `rules/trinkets.js#grant` uses for a drafted trinket: the
-   miracle falls at the player's feet as a physical item, never a direct
-   inventory credit. */
+/* Debug spawn: the miracle falls at the player's feet as a physical item
+   rather than a direct inventory credit. */
 export function grant(id) {
   const m = MIRACLE[id];
   if (!m) throw new Error(`grant: no miracle "${id}"`);
@@ -87,8 +72,6 @@ export function grant(id) {
   return true;
 }
 
-/* Miracles not currently held -- same shape as the other three tiers'
-   `draftable()`, so a debug key that grants `draftable()[0]` repeatedly does
-   not just hand out the same miracle every press once one is already in the
-   pockets. */
+/* Excludes anything already in the pockets, so repeated debug drafts of
+   `draftable()[0]` do not hand out the same miracle every press. */
 export const draftable = () => MIRACLES.filter(m => invCount(S[m.id], F.phial) === 0);

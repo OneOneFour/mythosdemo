@@ -1,10 +1,6 @@
-/* Produces dist/mythos-factory.html: one self-contained file, no external
-   requests, openable from disk. esbuild bundles and minifies; the only
-   hand-written part is inlining the result into the HTML shell.
-
-   Dev does NOT go through here -- `npm start` serves `src/` as untransformed
-   native ES modules, so what you debug is what you wrote. `npm run parity`
-   asserts the two agree. */
+/* Produces dist/mythos-factory.html: one self-contained file, openable from
+   disk. esbuild bundles and minifies, and the result is inlined into the HTML
+   shell. `npm start` does not go through here; it serves `src/` untransformed. */
 import { build } from 'esbuild';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -34,16 +30,13 @@ const TAG = '<script type="module" src="./src/shell/main.js"></script>';
 if (!shell.includes(TAG))
   throw new Error(`index.html no longer contains the expected script tag:\n  ${TAG}`);
 
-// A literal </script> anywhere in the code would close the tag early. Splitting
-// the sequence is safe inside a JS string and inside a regex/comment alike.
+// A literal </script> in the bundle would close the tag early; the split
+// sequence is inert inside a string, regex or comment alike.
 const safe = js.replaceAll('</script', '<\\/script');
 
-/* Use a REPLACER FUNCTION, not a replacement string. `String.replace`
-   interprets `$&`, `$'`, `` $` `` and `$1`..`$99` in a replacement string, and
-   minified JS contains `$` in identifiers -- one `$&` re-inserted the very
-   `<script src>` tag it was replacing, into the middle of the bundle, and the
-   artifact still had a plausible size and no build error. A function replacer
-   disables all `$` interpretation. */
+/* A replacer function, not a replacement string: `String.replace` interprets
+   `$&`, `$'`, `` $` `` and `$1`..`$99` in a string, and minified JS contains
+   `$` in identifiers. A function replacer disables all of it. */
 const html = shell.replace(TAG, () => `<script type="module">\n${safe}\n</script>`);
 
 await mkdir(dirname(OUT), { recursive: true });

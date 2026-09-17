@@ -1,12 +1,7 @@
-/* LAYER view — the SLOT primitive: a swatch, the count in the bottom-right
-   corner in a compact face, and an optional corner glyph. The CALLER decides
-   what the glyph means; this file draws pixels and carries no substance or
-   machine name.
-
-   A LEAF, deliberately: it does not push into `./state.js#drawn` itself.
-   Every caller so far (`grid.js`) is already a container that records the
-   slot's content alongside its own geometry -- one record per slot, not two.
-   A standalone equipment slot would be a 1xN `grid.js` call. */
+/* view layer — the slot primitive: a swatch, the count in the bottom-right
+   corner in a compact face, and an optional corner glyph whose meaning the
+   caller owns. Registers nothing in `./state.js#drawn`; the container drawing
+   the slots (`grid.js`) records each one alongside its own geometry. */
 import { drawText, textWidth } from '../../core/font.js';
 import { R } from '../../core/pixels.js';
 import { mix } from '../../core/palette.js';
@@ -16,12 +11,9 @@ const DIM = colour('uiDim'), INK = colour('ui'), BACK = colour('uiBack');
 
 export const SLOT_SIZE = 16;
 
-/* `opts`: { x, y, size?, item, focused?, frameColour? }.
-   `item` is `{ sub, form, n, mass, colour, glyph }` or `null` for empty.
-   `colour` is a resolved hex/rgb string: a swatch colour is a fact about a
-   substance's `look`, and this file may not import `data/substances.js` to
-   find it, so the CALLER resolves `SUB[sub].look.item`.
-   Returns `{ sub, form, n, mass }`, the shape `__mf.ui` projects. */
+/* `item` is `{ sub, form, n, mass, colour, glyph }` or `null` for empty, and
+   `item.colour` is a resolved hex/rgb string the caller reads out of
+   `SUB[sub].look.item`, since this file may not import content. */
 export function drawSlot(g, opts) {
   const { item, focused = false, frameColour = null } = opts;
   let { x, y, size = SLOT_SIZE } = opts;
@@ -51,15 +43,9 @@ export function drawSlot(g, opts) {
   return { sub, form, n, mass };
 }
 
-/* A slot's own highlight border, drawn as a POST-HOC overlay against the
-   ABSOLUTE rectangle `grid.js#drawGrid` already returned for it. `s` is one
-   entry of that returned `slots` array, not a fresh rectangle -- callers
-   never recompute geometry `drawGrid` already settled.
-
-   TWO CONCENTRIC 1-PX BORDERS, the second inset by one pixel in the same
-   colour: at ~1/3 window resolution one pixel of `uiGood` against a substance
-   swatch reads as an edge rather than as a choice. No caller opts out -- "this
-   slot is called out" must look like one thing, not two. */
+/* A slot's highlight border, overlaid on the absolute rectangle
+   `grid.js#drawGrid` already returned for it: `s` is one entry of that `slots`
+   array, not a fresh rectangle. Two concentric 1-px borders in one colour. */
 export function frameSlot(g, s, col) {
   R(g, s.x, s.y, s.w, 1, col);
   R(g, s.x, s.y, 1, s.h, col);

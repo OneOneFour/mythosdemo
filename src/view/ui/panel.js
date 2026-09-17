@@ -1,15 +1,8 @@
-/* LAYER view — the PANEL primitive. A titled window: 2px bevelled chrome, dark
-   fill, an optional close box. Imports `core` and `data/palette.js` only — no
-   model, no gameplay content; a panel does not know what it contains.
-
-   Registers what it drew into `./state.js#drawn.panels`, so a caller's
-   hit-testing (and the test hook) reads what was actually painted rather
-   than a second copy of this layout math.
-
-   CLAMPED to the viewport it is given (`vw`/`vh`) — below roughly 240 px of
-   base width an unclamped panel overlaps the depth gauge and anything else
-   centred; `view/hud.js`'s own header records learning this the hard way.
-   Every primitive in this directory takes `vw`/`vh` for the same reason. */
+/* view layer — the panel primitive: a titled window with 2 px bevelled chrome,
+   a dark fill and an optional close box. Records what it drew into
+   `./state.js#drawn.panels`, so a caller hit-tests what was painted rather
+   than a second copy of this layout math. Clamped to the `vw`/`vh` viewport it
+   is given, as every primitive here is. */
 import { drawText } from '../../core/font.js';
 import { R } from '../../core/pixels.js';
 import { mix } from '../../core/palette.js';
@@ -23,9 +16,8 @@ const SHADOW = mix(BACK, DIM, 0.35);
 export const TITLE_H = 9;
 export const CLOSE_SIZE = 7;
 
-/* `opts`: { id, x, y, w, h, vw, vh, title?, closable?, alpha? }.
-   Returns `{ id, x, y, w, h, contentY, closeHit }` — `contentY` is where a
-   caller's own content should start drawing (below the title bar, if any). */
+/* Returns `contentY`, where the caller's own content starts: below the title
+   bar when there is one. */
 export function drawPanel(g, opts) {
   const { id, vw, vh, title = '', closable = false, alpha = 0.92 } = opts;
   let { x, y, w, h } = opts;
@@ -38,7 +30,6 @@ export function drawPanel(g, opts) {
   g.globalAlpha = alpha;
   R(g, x, y, w, h, BACK);
   g.globalAlpha = 1;
-  /* bevel: light on top/left, shadow on bottom/right */
   R(g, x, y, w, 1, LIGHT);
   R(g, x, y, 1, h, LIGHT);
   R(g, x, y + h - 1, w, 1, SHADOW);

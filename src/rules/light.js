@@ -1,26 +1,16 @@
-/* LAYER rules — LIGHT: the current-lit-level field, and the one carried light
-   source. Imports `core`, `data`, `model`, and no other `rules` module.
+/* rules layer — the current lit-level field, and the one carried light source.
+   Owns `b.light`; `rules/reveal.js` owns `b.seen` and reads only `lightAt()`
+   from here.
 
-   TWO SEPARATE FACTS, AND THIS FILE OWNS ONLY THE SECOND: `b.seen` is memory,
-   `b.light` is a current condition. `rules/reveal.js` owns `seen` and reads
-   only `lightAt()` from here, to keep its flood from mapping a pitch-black
-   cavern by standing in it.
-
-   PROPAGATION is a multi-source flood from every emitter, decrementing
+   A multi-source weighted flood from every emitter, decrementing
    `lightFalloffAir` per tile of open air and `lightFalloffRock` per tile of
-   solid rock, so light does not leak through strata the way sight does not.
-   A BAND'S ROW 0 IS NOT SKY -- only a band with sky of its own seeds daylight.
+   solid rock. Only a band with sky of its own seeds daylight — a band's row 0
+   is not inherently sky. Consumes no `rand()`: order is fixed by tile index
+   within each level's bucket.
 
-   Bucketed relaxation rather than a plain BFS, because a WEIGHTED spread
-   cannot be visited in insertion order the way an unweighted flood can.
-
-   NO `rand()`. The order is fixed by tile index inside each level's bucket.
-
-   RECOMPUTE ONLY WHEN SOMETHING THAT MATTERS CHANGED, never per frame, and
-   "changed" is two things: the band's chunk versions summed over EVERY chunk
-   (a distant emitter's light can pass through a tunnel dug anywhere), and a
-   SIGNATURE of the active emitter set, because a charge running out never
-   touches a tile byte. */
+   Recomputes only when the band's chunk versions summed over every chunk
+   change, or when the emitter signature does — a charge running out touches
+   no tile byte. */
 
 import { F } from '../data/forms.js';
 import { S } from '../data/substances.js';
@@ -33,14 +23,9 @@ import { solidAt } from '../model/tiles.js';
 import { bandAt, bandSpans, bands, hasOwnSky, inBounds, lightAt, tileX, tileY, worldX,
          write as ww } from '../model/world.js';
 
-/* THE SEAM CASCADE. `recompute` carries light down across a band seam, so a
-   band's field depends on the band above having settled. `bands` is in
-   top-down declaration order (`model/world.js#bandAbove` is the previous
-   element, by construction), so one pass in that order is enough -- and a
-   band whose upstairs neighbour relit must relight too, or it keeps a flood
-   seeded from a field that has since moved. `carried` is that signal, and it
-   is a scalar rather than a set because the only band it ever has to describe
-   is the one immediately above. */
+/* `recompute` carries light down across a band seam, so a band's field depends
+   on the band above having settled. `bands` is in top-down order, so one pass
+   suffices; `carried` relights a band whose upstairs neighbour just relit. */
 export function step(dt) {
   tickBrand(dt);
   const brand = brandSeeds();
@@ -53,10 +38,8 @@ export function step(dt) {
   }
 }
 
-/* `run.brandLeft` is a SCALAR rather than per-item state, because a player has
-   one pair of hands and there is only ever one lit brand. It resets with the
-   run for free by living on `RUN_SCHEMA`; module-scoped state here would have
-   no way for `newRun()` to reset it. */
+/* `run.brandLeft` lives on the run schema so `newRun()` resets it; a
+   module-scoped counter here would survive a restart. */
 function tickBrand(dt) {
   if (run.brandLeft > 0) rw.brand(Math.max(0, run.brandLeft - dt));
   if (run.brandLeft <= 0 && invCount(S.timber, F.brand) > 0 &&
@@ -64,16 +47,10 @@ function tickBrand(dt) {
     rw.brand(eff('brandSecs'));
 }
 
-/* emitters
-   Every source this band's flood seeds from, besides open sky and the seam
-   carry (both in `forEachSeed`). NO MACHINE NAME APPEARS HERE -- `def.light` is
-   a generic `{ level, whileRunning }` key any row may carry, read exactly like
-   every other interpreter key in `rules/machines.js`. `level:'max'` is the
-   one sentinel, for a fixture (the hearth) whose brightness must track
-   `eff('lightMax')` itself rather than a fixed number -- data cannot call
-   `eff()` (only `model/mods.js` may import `data/tuning.js`), so the row
-   says the WORD and this, the interpreter, resolves it.
-*/
+/* Sources besides open sky and the seam carry, both of which live in
+   `forEachSeed`. `def.light` is a generic `{ level, whileRunning }` key any
+   `data/machines.js` row may carry; `level:'max'` resolves to `eff('lightMax')`
+   here, since `data` may not call `eff()`. */
 function emittersFor(b, brand) {
   const out = [];
   for (const m of machines) {
@@ -89,14 +66,10 @@ function emittersFor(b, brand) {
   return out;
 }
 
-/* WHERE A LIT BRAND SEEDS, one entry per band the player's hitbox overlaps.
-   `player.band` alone leaves the half of a straddling player's body that sits
-   in the other band's grid unlit, since the flood is per band and the seam
-   carry only runs downward.
-
-   The tile is the occupied one nearest the box CENTRE, clamped into that
-   band's own span, so a player standing clear of a seam seeds exactly the one
-   tile their centre falls in and nothing about the common case moves. */
+/* One seed per band the player's hitbox overlaps: the flood is per band and
+   the seam carry only runs downward, so `player.band` alone would leave a
+   straddling player's other half unlit. The tile is the one under the box
+   centre, clamped into that band's own span. */
 function brandSeeds() {
   if (run.brandLeft <= 0 || !player.band) return [];
   const box = playerBox();
@@ -108,10 +81,8 @@ function brandSeeds() {
   }));
 }
 
-/* A cheap rolling hash of the active emitter set, so "a brazier just ran dry"
-   is detectable without a deep-equal against last frame's array. Position and
-   level both fold in, so a machine merely MOVING (nothing does today, but
-   nothing should have to know that) would also be caught. */
+/* Rolling hash of the active emitter set, so an emitter running dry or moving
+   is detected without a deep compare against last substep's array. */
 function signatureOf(emitters) {
   let sig = 0;
   for (const e of emitters)
@@ -119,12 +90,9 @@ function signatureOf(emitters) {
   return sig;
 }
 
-/* the dirty check
-   Keyed by the band OBJECT, not by `b.ord`, and deliberately module-local
-   rather than in `model/` -- exactly `rules/reveal.js#passB`'s own perf
-   cache, for the identical reason: `newRun()` always hands out fresh band
-   records, so a stale entry here can never be read back into a live run,
-   and there is no reset call to wire up or forget. */
+/* Keyed by the band object rather than `b.ord`: `newRun()` hands out fresh
+   band records, so a stale entry can never be read back into a live run and
+   there is no reset call to wire up. */
 const bandState = new WeakMap();
 
 function isDirty(b, sig) {
@@ -135,27 +103,20 @@ function isDirty(b, sig) {
   return !prev || prev.verSum !== verSum || prev.sig !== sig;
 }
 
-/* Dial's algorithm: `buckets[lvl]` holds every tile CURRENTLY BELIEVED to be
-   at level `lvl`, and levels only fall as the flood spreads, so walking
-   buckets from `max` down to 1 visits every tile at its FINAL level the first
-   time a live entry is popped. `best[i] !== lvl` on pop ignores a
-   since-beaten stale entry rather than searching a bucket to remove it.
-
-   THE SCRATCH FIELD IS THE LIT REGION'S BOUNDING BOX, NOT THE BAND: a
-   band-sized `Int8Array` is 320 KB at 1,024 columns, allocated and thrown
-   away every time a tile broke anywhere. Indices here are WINDOW-LOCAL. */
+/* Dial's algorithm: `buckets[lvl]` holds every tile currently believed to be
+   at level `lvl`, and levels only fall, so walking buckets from `max` down to
+   1 visits each tile at its final level the first time a live entry pops. */
+/* The scratch field spans the lit region's bounding box, not the band — a
+   band-sized `Int8Array` is 320 KB at 1,024 columns, reallocated whenever any
+   tile broke. Indices in `best` are window-local. */
 function recompute(b, emitters) {
   const max = Math.max(1, Math.round(eff('lightMax')));
   const air = eff('lightFalloffAir'), rock = eff('lightFalloffRock');
 
-  /* HOW FAR ONE SEED CAN POSSIBLY REACH, in tiles. `relax` charges at least
-     `min(air, rock)` per hop and drops a tile below 1 rather than seeding it,
-     so a seed at `max` dies after `(max - 1) / step` hops: 14 at the shipped
-     15/1/3. A tile outside the box is further than that from EVERY seed in
-     Chebyshev distance and therefore in hops, so it can be neither lit nor a
-     live relay -- which is what makes the window bit-identical to the whole
-     band rather than an approximation of it. A zero or negative falloff would
-     spread without bound, so it falls back to the band. */
+  /* Hops one seed can reach, in tiles: `relax` charges at least
+     `min(air, rock)` per hop and drops a tile below 1 rather than seeding it.
+     Anything further in Chebyshev distance can neither light nor relay, so the
+     window is exact. A non-positive falloff spreads unbounded, so fall back. */
   const step = Math.min(air, rock);
   const reach = step > 0 ? Math.floor((max - 1) / step) : b.tw + b.th;
 
@@ -203,34 +164,23 @@ function recompute(b, emitters) {
   ww.touchLight(b);
 }
 
-/* Every tile this band's flood starts from, with the level it starts at, in a
-   fixed order. Called TWICE per recompute -- once to measure the bounding box,
-   once to fill it -- rather than materialising a seed list, because a band with
-   sky of its own seeds tens of thousands of tiles and a list of them costs more
-   than the scratch field the box exists to shrink. Both passes see the same
-   seeds in the same order, so the flood is unaffected by which one is running.
-
-   Levels are clamped and a seed under 1 is dropped here, so the box never grows
-   around a seed that would not have seeded. */
+/* Every tile this band's flood starts from, with its starting level, in a
+   fixed order. Called twice per recompute — to measure the bounding box, then
+   to fill it — rather than listing the tens of thousands of seeds a sky band
+   produces. Both passes see the same seeds in the same order. */
 function forEachSeed(b, emitters, max, air, rock, cb) {
-  /* `max` is already an integer at least 1 (`recompute` clamps it once), so the
-     sky pass calls `cb` directly and only the two sources that can hand over a
-     fractional or out-of-range level pay for `emit`. That matters: the sky pass
-     is tens of thousands of seeds in a band with sky of its own, and this is
-     walked twice. */
+  /* Clamps and drops a seed under 1, so the box never grows around a tile that
+     would not have seeded. The sky pass calls `cb` directly instead: `max` is
+     already an integer at least 1, and that pass is the expensive one. */
   const emit = (tx, ty, level) => {
     const lvl = Math.min(max, Math.max(0, Math.round(level)));
     if (lvl >= 1) cb(tx, ty, lvl);
   };
 
-  /* SKY, and only a band carrying sky of its own gets any. Walk DOWN from row 0
-     once per COLUMN and stop after the first solid tile -- running a
-     whole-column query per TILE over a band this deep is close to quadratic.
-     Every tile down to and including that first solid one has a clear path to
-     the band's sky, so all of them seed at `max`, not just the ground line.
-
-     `topsoil` carries no sky, and its row 0 used to seed at `max` under 28
-     rows of surface rock: row 0 was the first solid tile the loop saw. */
+  /* Only a band carrying sky of its own gets any. Walk down from row 0 once
+     per column and stop after the first solid tile; every tile down to and
+     including it has a clear path to sky, so all of them seed at `max`. A
+     whole-column query per tile would be close to quadratic. */
   if (hasOwnSky(b))
     for (let tx = 0; tx < b.tw; tx++)
       for (let ty = 0; ty < b.th; ty++) {
@@ -238,15 +188,10 @@ function forEachSeed(b, emitters, max, air, rock, cb) {
         if (solidAt(b, tx, ty)) break;
       }
 
-  /* THE SEAM CARRY, which is what a buried row 0 gets instead. Each column
-     takes the level the band above finished at one world row up, minus the
-     cost of entering this tile -- the same falloff `relax` charges anywhere
-     else, so a shaft through the seam carries daylight and rock carries
-     nothing. Where no band lies above, the world really is open, so it seeds
-     at `max`.
-
-     ONE DIRECTION ONLY: a brazier below a seam does not light the rock above
-     it, because both directions would need a fixed point across bands. */
+  /* The seam carry, which is what a buried row 0 gets instead. Each column
+     takes the level the band above finished at one world row up, minus this
+     tile's entry cost, so a shaft carries daylight and rock does not. With no
+     band above, it seeds at `max`. Downward only. */
   const wyAbove = b.origin.y - 1;
   for (let tx = 0; tx < b.tw; tx++) {
     const wx = worldX(b, tx) + b.tile / 2;
@@ -259,9 +204,8 @@ function forEachSeed(b, emitters, max, air, rock, cb) {
   for (const e of emitters) if (inBounds(b, e.tx, e.ty)) emit(e.tx, e.ty, e.level);
 }
 
-/* `win` is clamped inside the band, so the window test IS the bounds test --
-   there is no second `inBounds` call and an out-of-band neighbour is rejected
-   by the same four comparisons. */
+/* `win` is clamped inside the band, so the window test is also the bounds
+   test and there is no second `inBounds` call. */
 function relax(b, win, nx, ny, lvl, air, rock, best, buckets, max) {
   if (nx < win.tx0 || nx > win.tx1 || ny < win.ty0 || ny > win.ty1) return;
   const cost = solidAt(b, nx, ny) ? rock : air;

@@ -1,17 +1,7 @@
-/* LAYER data — SOUND: the journal-kind to sound mapping, and the waveform
-   rows. Imports nothing.
+/* data layer — the journal-kind to sound mapping, and the waveform rows. A journal kind absent from `KIND_SFX` is silent. */
 
-   The contract between the journal and the audio device. A journal kind that
-   is not a key in `KIND_SFX` is SILENT, deliberately: not every fact is
-   audible.
-
-   There are no audio assets and no loader, which is the point -- the
-   single-file bundle stays a single file. Rows are ZzFX parameter lists. */
-
-/* THE MAPPING. Journal kind -> sound row name.
-   These kind strings are the vocabulary `rules` pushes and `shell` drains.
-   Keep this list and the kinds in `model/journal.js` in step; the resolver
-   checks that every value below names a row in `SOUNDS`. */
+/* Journal kind -> `SOUNDS` row name. The kinds are the vocabulary `rules`
+   pushes and `shell` drains; `model/journal.js` owns them. */
 export const KIND_SFX = Object.freeze({
   pick:      'pick',        // a strike that did not break anything
   breakSoft: 'breakSoft',   // a soft tile broke
@@ -29,18 +19,13 @@ export const KIND_SFX = Object.freeze({
   grant:     'trial',       // a machine tier was granted or drafted
   relic:     'trial',       // a rare relic (trinket) drop landed in the world
 
-  /* The cycle loop was entirely silent until here. The three
-     kinds `rules/cycles.js` pushes (`tribute`, `cycle`,
-     `debt`) had no entry in this table and no `shell/notify.js` row either,
-     so the most important moment in the game -- a god accepting your work --
-     made no sound at all. `win` is the fourth, new with the end state. */
   tribute:   'tithe',       // a receiver's buffer was credited to the live demand
   cycle:     'trial',       // a trial was paid in full
   debt:      'debt',        // a deadline expired
   win:       'triumph'      // every shipped trial is paid
 });
 
-/* the waveform table
+/* ZzFX parameter lists, positional:
    [volume, randomness, frequency, attack, sustain, release, shape, shapeCurve,
     slide, deltaSlide, pitchJump, pitchJumpTime, repeatTime, noise, modulation,
     bitCrush, delay, sustainVolume, decay, tremolo] */
@@ -59,35 +44,18 @@ export const SOUNDS = Object.freeze({
   winch:     [ .5, .06, 170, .04, .12, .30, 2, 1.3,  -5,  0,  40, .06,   0, .2,  0, 0, .03, .5, .05],
   divine:    [ .6, .05, 440, .12, .30, .60, 0, 1.0,   8,  0, 180, .10,   0, 0,   0, 0, .06, .8, .12],
   trial:     [ .6, .05, 330, .10, .24, .50, 0, 1.2,   5,  0, 120, .08,   0, 0,   0, 0, .05, .8, .10],
-  /* Three rows, each derived from a neighbour above rather
-     than authored blind, so the family is audibly one family:
-       tithe   `pickup` shifted DOWN a register and lengthened -- a coin into
-               a stone bowl rather than into a pocket. Gapped in `MIN_GAP`
-               below, because hand-feeding credits one unit per substep.
-       debt    `hurt` with the pitch slide steepened and the shape squared --
-               the same fall, heavier, and deliberately not `death`.
-       triumph `divine` held longer and pitched up, the one sound in the game
-               that plays at most once per run. */
   tithe:     [ .45,.05, 420, .02, .05, .16, 0, 1.3,   8,  0, 180, .03,   0, 0,   0, 0, 0,   .6, .03],
   debt:      [ .7, .06, 150, .03, .08, .38, 3, 2.4, -30, -2,   0,   0,   0, .6,  0, 0, .06, .4, .07],
   triumph:   [ .7, .04, 520, .14, .40, .90, 0, 1.0,  10,  0, 260, .14,   0, 0,   0, 0, .08, .9, .14]
 });
 
-/* Voice limiting, as data. A pickaxe at 60 Hz stacks into mush, and ZzFX builds
-   a fresh buffer per call, so this is a cost problem and not only a loudness
-   one. `shell` enforces it; the numbers are content. */
+/* Minimum seconds between two plays of one sound; `shell` enforces it. ZzFX
+   builds a fresh buffer per call, so this bounds cost as well as loudness. */
 export const MIN_GAP = Object.freeze({
   pick: 0.085, breakSoft: 0.04, breakHard: 0.04, ore: 0.05,
   pickup: 0.035, ladder: 0.06, land: 0.09,
-  /* `tithe` IS GAPPED FOR THE SAME REASON `pick` IS, and it is the widest
-     gap in this table. `rules/machines.js#handFeed` moves ONE unit per
-     selector per substep and `rules/cycles.js#drainReceivers` credits it the
-     same substep, so a player standing at the altar with ten ore emits ten
-     `tribute` rows in ten consecutive 1/120 s steps -- 120 Hz of bell, which
-     is mush and ten fresh ZzFX buffers a frame. 0.12 s lets a ten-unit haul
-     read as a run of about eight distinct chimes at 120 Hz instead of
-     eighty. `cycle`, `debt` and `win` need no entry: each fires at most once
-     per trial. */
+  /* Hand-feeding credits one unit per 1/120 s substep, so a ten-ore haul
+     would emit 120 Hz of bell; 0.12 s thins it to about eight chimes. */
   tithe: 0.12
 });
 

@@ -1,30 +1,22 @@
-/* LAYER shell — the order the rules run in. Imports `model` and every `rules`
-   module.
-
-   `rules` modules may not import each other, so STEPS below IS the simulation:
-   reordering the game is reordering that array.
-
-   aim      -> player    the reticle resolves against where the player IS
-   player   -> mining    reach is measured from this frame's position
-   mining   -> light     a tile broken now opens a light path now
-   light    -> reveal    the fog flood gates on this frame's `lightAt()`
-   reveal   -> items     no constraint; `items` needs only to follow `mining`
-   items    -> belts     a belt drags what just landed
-   belts    -> crafting  unrelated ledgers, kept adjacent to `items`
-   crafting -> trinkets  pocket material spent now reaches the sync now
-   trinkets -> boons     unrelated ledgers, both modifier syncs together
-   boons    -> machines  a rate modifier turned on now applies to this tick
-   machines -> drive     a hub's buffer settles before the drivetrain solves
-   drive    -> cycles    a delivery is credited the frame it arrives
-   cycles   -> grants    the director writes `run.awarded`, `grants` performs it
-   grants   -> tutorial  no constraint; placed so it cannot split the pair below
-   tutorial -> growth    `tutorial` observes settled facts, `fields` stays last
-   growth   -> fields    keeps `fields last` literally true
-   fields last           emissions decay from NEXT frame, so a gate sees this
-                         frame's heat
-
-   `clock` is first and is not a rule: `run.t` is a number, not a decision.
-   NOTHING MAY BE APPENDED AFTER `fields` without re-arguing the tail. */
+/* shell layer — the order the rules run in. `rules` modules may not import each
+   other, so STEPS below is the order, and `clock` is first and not a rule.
+   Every precedence constraint is listed; a pair absent from it may be swapped
+   freely, and nothing may be appended after `fields`.
+     aim      -> player    the reticle resolves against where the player is
+     player   -> mining    reach is measured from this frame's position
+     mining   -> light     a tile broken now opens a light path now
+     light    -> reveal    the fog flood gates on this frame's `lightAt()`
+     mining   -> items     a tile broken now drops before anything falls
+     items    -> belts     a belt drags what just landed
+     crafting -> trinkets  pocket material spent now reaches the sync now
+     boons    -> machines  a rate modifier turned on now applies to this tick
+     trinkets -> machines  the same, for the equipped set
+     items    -> machines  an item landing in a mouth is caught this frame
+     machines -> drive     a hub's buffer settles before the drivetrain solves
+     drive    -> cycles    a delivery is credited the frame it arrives
+     cycles   -> grants    the director writes `run.awarded`, `grants` performs it
+     growth   -> fields    fields last: emissions decay from the next frame, so
+                           a recipe gate sees this frame's heat */
 
 import { write as rw } from '../model/run.js';
 import * as belts from '../rules/belts.js';
@@ -66,8 +58,8 @@ export const STEPS = [
   { id: 'fields',   step: (dt) => fields.step(dt) }
 ];
 
-/* Mouse aim when there is a mouse, keyboard fallback otherwise. Which device it
-   is belongs in `shell`, so `rules/mining` exposes both entry points. */
+/* Mouse aim when there is a mouse, keyboard fallback otherwise; `rules/mining`
+   exposes both entry points. */
 function aim(cmd) {
   if (cmd.hasMouse) mining.aimAtWorld(cmd.mx, cmd.my);
   else mining.aimAtKeys(cmd);
@@ -77,6 +69,6 @@ export function stepAll(dt, cmd) {
   for (const s of STEPS) s.step(dt, cmd);
 }
 
-/* One import for the rules `shell` calls OUTSIDE the per-frame order. Granting,
+/* One import for the rules `shell` calls outside the per-frame order: granting,
    drafting and using a miracle are events, not steps. */
 export { boons, grants, miracles, trinkets };

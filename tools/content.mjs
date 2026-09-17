@@ -1,13 +1,6 @@
-/* CONTENT LINT: `tools/layers.mjs` proves the dependency graph is legal, and
-   this proves the content tables it guards are self-consistent. Every
-   selector expands, every mass is real, every machine's build bill is payable
-   and obtainable, no recipe manufactures mass, and every tunable a data row
-   names exists. Runs inside `npm run check`, and alone via
-   `npm run check:content`.
-
-   Imports `src/data` and `src/model` directly, which is legal: `tools/` is
-   outside the graph `layers.mjs` walks, and this is a build tool reading
-   frozen content. */
+/* Content lint over the frozen `data/` tables: every selector expands, every
+   mass is real, every machine's build bill is payable and obtainable, no
+   recipe manufactures mass, every tunable a data row names exists. */
 
 import { SUB, S } from '../src/data/substances.js';
 import { FORM, F, expand, matches, crossable, packable, PACKABLE_LIMIT } from '../src/data/forms.js';
@@ -30,19 +23,16 @@ import { machineHeldSub, mirrorOf } from '../src/model/run.js';
 
 const EPS = 1e-6;
 
-/* Every recipe in the game: the named table, plus every machine's resolved
-   list (inline rows and named lookups both), deduplicated by reference so a
-   shared named row (e.g. `smelt`, used only by `furnace` today) is checked
-   once. */
+/* Every recipe in the game: the named table plus every machine's resolved
+   list, deduplicated by reference so a shared named row is checked once. */
 function collectRecipes() {
   const out = new Set(Object.values(RECIPES));
   for (const m of MACH) for (const r of recipesOf(m)) out.add(r);
   return [...out];
 }
 
-/* Every {sub, form} pair some substance yields when mined -- the seed of the
-   reachability fixpoint below, and the "mined directly" half of the
-   cost-reachability check. */
+/* Every {sub, form} pair a substance yields when mined: the seed of the
+   reachability fixpoint below. */
 function minedPairs() {
   const out = [];
   for (let s = 0; s < SUB.length; s++) {
@@ -54,39 +44,29 @@ function minedPairs() {
 
 const keyOf = (sub, form) => `${sub}:${form}`;
 
-/* Pure re-derivation of `model/world.js#worldY`, over the RAW `data/world.js`
-   rows rather than an allocated band record — this tool runs before anything
-   is booted, so there is no live band to ask. `origin`/`tile` are both plain
-   numbers on the row already, which is what makes this safe: `worldY` itself
-   has no allocation-time state, only arithmetic over the cfg. */
+/* `model/world.js#worldY` re-derived over the raw `data/world.js` rows, since
+   nothing is booted here. `origin` and `tile` are plain numbers on the row, so
+   the arithmetic is the same. */
 const worldYOf = (bandCfg, ty) => bandCfg.origin.y + ty * bandCfg.tile;
 
-/* Depth (in the SPAWN band's own tile units), same datum `view/hud.js#depth`
+/* Depth in the spawn band's own tile units, from the datum `view/hud.js#depth`
    and `model/run.js#placementCheck`'s `minDepth` gate both use: the spawn
-   band's own floor line. Used below to prove a `minDepth`-gated machine's
-   OWN build bill never requires material gated deeper than the machine
-   itself -- a catch-22 (nothing could ever mine what the machine needs to
-   reach the depth it needs) would otherwise pass every other check here. */
+   band's own floor line. */
 function depthOfTy(bandCfg, ty, spawnCfg, datum) {
   return (worldYOf(bandCfg, ty) - datum) / spawnCfg.tile;
 }
 
-/* The shallowest depth at which a substance is ever minable, over every
-   band's `strata` rows: `layer`/`blobs`/`trees` carry `fromTy`, `vein`
-   carries `dy` off the band's `floorTy`. Infinity for a substance no stratum
-   places.
-
-   `subOrd` IS AN ORDINAL AND A STRATA ROW'S `sub` IS A STRING, so the row is
-   translated through `S[...]` rather than compared directly. Comparing the
-   two silently never matches, and a draft that did meant the depth-gate check
-   below never fired once -- on real content or on deliberately broken
-   content. */
+/* The shallowest depth at which a substance is ever minable, over every band's
+   `strata` rows: `layer`/`blobs`/`trees` carry `fromTy`, `vein` carries `dy`
+   off the band's `floorTy`. Infinity for a substance no stratum places. */
 function minMineDepth(subOrd) {
   const spawnCfg = BANDS.find(b => b.id === SPAWN_BAND);
   const datum = worldYOf(spawnCfg, spawnCfg.floorTy ?? 0);
   let min = Infinity;
   for (const band of BANDS) {
     for (const s of band.strata || []) {
+      /* A strata row's `sub` is a string and `subOrd` an ordinal; compared
+         directly they never match and the depth gate below never fires. */
       if (S[s.sub] !== subOrd) continue;
       const ty = s.kind === 'vein' ? (band.floorTy ?? 0) + (s.dy || 0) : s.fromTy;
       if (ty === undefined) continue;
@@ -103,9 +83,8 @@ export function checkContent({ quiet = false } = {}) {
   const fail = msg => violations.push(msg);
   const recipes = collectRecipes();
 
-  /* 1. every recipe selector expands, and every literal output pair is legal.
-     Through `data/forms.js#expand` and `model/items.js#holdable`, never a
-     hand-rolled string check -- those two exist to answer exactly this. */
+  /* 1. every recipe selector expands and every literal output pair is legal,
+     through `data/forms.js#expand` and `model/items.js#holdable`. */
   for (const r of recipes) {
     if (!r.from) {
       for (const sel of Object.keys(r.in || {})) {
@@ -145,16 +124,9 @@ export function checkContent({ quiet = false } = {}) {
   /* 3. every machine `cost` key parses to a real, holdable sub/form pair. */
   const mined = minedPairs();
 
-  /* THE REACHABILITY FIXPOINT, built once and shared by the two checks that
-     need it: a build bill's exact pair, and an orphan recipe output. Both ask
-     the same transitive question, so both read the same set.
-
-     A `subFrom` clause resolves against WHATEVER IS ALREADY REACHABLE, using
-     `matches()` on the set itself and never `expand()`'s full `crossable()`
-     scan. That is what keeps `adamant/ingot` out with no exemption: nothing
-     mines `adamant/ore` -- adamant drops `gravel` -- so it never enters `R`,
-     so `smelt`'s ore clause never resolves to adamant, so `adamant/ingot` is
-     never reachable and there is nothing to flag. */
+  /* The reachability fixpoint, shared by the build-bill and orphan-output
+     checks. A `subFrom` clause resolves against what is already in `R`, by
+     `matches()` on the set rather than `expand()`'s full `crossable()` scan. */
   const R = new Set(mined.map(p => keyOf(p.sub, p.form)));
   const reachableSubsFor = sel => {
     const subs = new Set();
@@ -198,31 +170,22 @@ export function checkContent({ quiet = false } = {}) {
         continue;
       }
 
-      /* 4. every machine `cost` key is REACHABLE: mined pair -> recipes ->
-         the exact bill, transitively. Membership in `R` is the whole test,
-         and it is strictly stronger than a one-hop "produced by SOME recipe"
-         scan, which counts a recipe whose own inputs are unreachable. */
+      /* 4. every machine `cost` key is reachable: mined pair -> recipes ->
+         the exact bill, transitively. Stronger than a one-hop "produced by
+         some recipe" scan, which counts a recipe with unreachable inputs. */
       checks++;
       if (!R.has(keyOf(sub, form)))
         fail(`machine "${m.id}": cost key "${key}" is neither mined directly nor reachable through any recipe`);
     }
   }
 
-  /* 5. no orphans, SCOPED TO DECLARED PAIRS rather than to the full
-     `crossable()` cartesian space. `crossable()` is an ANY-match on tags, so
-     that space contains harmless holdable pairs nothing declares --
-     `copper/gravel`, `tin/gravel`, and everything adamant's deliberate
-     `metal` tag adds -- and asserting over it fails on the gap rather than on
-     a fault.
-
-     Machine `cost` keys are excluded here on purpose: the check above owns
-     them, and two implementations of one claim can silently disagree. */
+  /* 5. no orphans, over declared pairs rather than the full `crossable()` space:
+     it is an any-match on tags, so that space holds harmless pairs nothing
+     declares. Machine `cost` keys are excluded; the check above owns them. */
   {
-    /* Every LITERAL-sub output must be in the fixpoint's set; if it is not,
-       that recipe's inputs can never be satisfied from any mined pair or any
-       other recipe's output. A `subFrom` output cannot be an orphan by
-       construction -- it enters `R` only when already reachable -- but one
-       that resolves to NOTHING is a dead recipe and is flagged. */
+    /* A literal-sub output must be in `R`, or that recipe's inputs can never
+       be satisfied. A `subFrom` output cannot be an orphan by construction,
+       but one that resolves to nothing is a dead recipe. */
     for (const r of recipes) {
       for (const c of r.out || []) {
         if (c.sub !== undefined) {
@@ -240,9 +203,8 @@ export function checkContent({ quiet = false } = {}) {
   }
 
   /* 6. no recipe produces more total mass than it consumes, unless tagged
-     `transmute`. The hand formula and `model/items.js#massOfPair` are
-     asserted to agree on one known pair first, so a drift in either shows up
-     here rather than as a silent pass. */
+     `transmute`. The hand formula and `model/items.js#massOfPair` are asserted
+     to agree on one known pair first, so a drift in either shows up here. */
   {
     const knownMass = SUB[S.copper].item.mass * FORM[F.ingot].massK;
     checks++;
@@ -255,10 +217,8 @@ export function checkContent({ quiet = false } = {}) {
       for (const c of r.out || []) if (c.subFrom) sels.add(c.subFrom);
       const selList = [...sels];
 
-      /* Cartesian product of each distinct selector's legal pairs. Small by
-         construction: the content table has a handful of substances and
-         forms, so this is at most a few dozen combinations, never a
-         performance concern. */
+      /* Cartesian product of each distinct selector's legal pairs: a few
+         dozen combinations for the shipped tables. */
       let combos = [{}];
       for (const sel of selList) {
         const pairs = expand(sel);
@@ -285,9 +245,9 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* 7. every `hand:true` recipe is object-identical to what a machine names.
-     `recipesOf()` looks a named string up in the same frozen table rather
-     than cloning, so this asserts that guarantee still holds. */
+  /* 7. every `hand:true` recipe is object-identical to what a machine names:
+     `recipesOf()` looks a named string up in the frozen table rather than
+     cloning it. */
   for (const m of MACH) {
     const resolved = recipesOf(m);
     (m.recipes || []).forEach((raw, i) => {
@@ -303,7 +263,7 @@ export function checkContent({ quiet = false } = {}) {
 
   /* 8. every tunable key named by any `data/` modifier row resolves, scope
      included. Written over "any row with a `mods` array" rather than over a
-     list of tables, which is why a new tier of modifier costs it no edit. */
+     list of tables, so a new tier of modifier costs no edit here. */
   for (const row of [...TRINKETS, ...GRANTS, ...BOONS]) {
     for (const mod of row.mods || []) {
       checks++;
@@ -341,13 +301,9 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* 10. every `conflictsWith` entry names a real boon id and a real mode:
-     "two hostile gifts must not silently co-exist" means nothing if the id
-     does not resolve. Two more shapes, both from `rules/boons.js#step`
-     resolving a conflict off whichever boon was granted LATER: a boon named
-     as its own rival could never be the older one of itself, and the shipped
-     rivalries are one-directional on purpose, so symmetry is NOT required --
-     what is a bug is two declared directions disagreeing about the MODE. */
+  /* 10. every `conflictsWith` entry names a real boon id and a real mode, and no
+     boon names itself. Symmetry is not required, since `rules/boons.js#step`
+     resolves off the later grant, but two directions must agree on the mode. */
   for (const b of BOONS) {
     for (const c of b.conflictsWith || []) {
       checks++;
@@ -368,9 +324,8 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* 11. every miracle is a real, HOLDABLE substance x phial pair -- the
-     substance is the one its own `id` names -- and its optional side-effect
-     boon resolves. */
+  /* 11. every miracle is a real holdable substance x phial pair, the substance
+     being the one its own `id` names, and its side-effect boon resolves. */
   for (const m of MIRACLES) {
     checks++;
     const sub = S[m.id];
@@ -398,12 +353,9 @@ export function checkContent({ quiet = false } = {}) {
       fail(`drop "${d.id}": chance ${d.chance} is not in (0, 1]`);
   }
 
-  /* 13. every trinket `id` is a real, HOLDABLE substance x relic pair -- a
-     trinket refines from nothing, it IS the element, the same shape a miracle
-     x phial pair has. `run.invCount(S[t.id], F.relic)` is how
-     `rules/trinkets.js` asks "is this held", so an id that does not resolve
-     to a holdable relic pair is a trinket that can never be obtained,
-     equipped or spent, silently. */
+  /* 13. every trinket `id` is a real holdable substance x relic pair.
+     `rules/trinkets.js` asks `run.invCount(S[t.id], F.relic)`, so an id that
+     does not resolve is a trinket nothing can hold, equip or spend. */
   for (const t of TRINKETS) {
     checks++;
     const sub = S[t.id];
@@ -411,15 +363,9 @@ export function checkContent({ quiet = false } = {}) {
       fail(`trinket "${t.id}": no holdable substance x relic pair -- add a data/substances.js row tagged 'relic'`);
   }
 
-  /* 14. DEPTH GATES ARE MONOTONIC: nothing a machine's build bill requires is
-     gated deeper than the machine's own `minDepth`. The substance a gated
-     machine alone can mine must not also be a prerequisite for building it,
-     or nothing could ever build the first one.
-
-     An Infinity from `minMineDepth` is skipped rather than failed: it means
-     no stratum places the substance at all, which the cost-reachability
-     check above has already reported by name. Failing it twice would bury
-     this assertion's own message. */
+  /* 14. depth gates are monotonic: nothing a machine's build bill requires is
+     minable only deeper than the machine's own `minDepth`, or nothing could
+     ever build the first one. */
   for (const m of MACH) {
     if (!m.minDepth) continue;
     for (const key of Object.keys(m.cost || {})) {
@@ -435,13 +381,9 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* 15. EVERY `look` BLOCK RESOLVES: every colour name is in
-     `data/palette.js`, every treatment `fn` is a key in
-     `view/treatments.js#TREAT`. A typo'd colour throws from `colour()` the
-     first time that tile paints; a typo'd `fn` draws nothing, for ever, in
-     silence, because `treat()` does `if (fn) fn(...)`. Structural rather than
-     a list of today's keys: any string under a `COLOUR_KEYS` key, walked
-     recursively. */
+  /* 15. every `look` block resolves: a colour name against `data/palette.js`, a
+     treatment `fn` against `view/treatments.js#TREAT`. A typo'd colour throws
+     from `colour()` on first paint; a typo'd `fn` draws nothing, in silence. */
   const COLOUR_KEYS = new Set([
     'base', 'hi', 'lo', 'face', 'contact', 'col', 'low', 'dark',
     'leaves', 'item', 'sky', 'tint', 'body', 'trim', 'halo'
@@ -470,17 +412,12 @@ export function checkContent({ quiet = false } = {}) {
   for (const s of SUB) walkLook(`substance "${s.id}"`, s.look);
   for (const m of MACH) walkLook(`machine "${m.id}"`, m.look);
   for (const b of BANDS) walkLook(`band "${b.id}"`, b.look);
-  /* FORMS TOO: a form may carry its own `look` block (`rung`, `stair`), and
-     leaving it unwalked would make the newest `look` in the project the only
-     unchecked one -- the failure this assertion exists to close. */
+  /* A form may carry its own `look` block too (`rung`, `stair`). */
   for (const f of FORM) walkLook(`form "${f.id}"`, f.look);
 
-  /* 16. THE TILE BYTE: a substance crossable with a tile-capable form is
-     placeable as TERRAIN by `rules/placement.js#placeTile`, and with no
-     `tile` block of its own `model/tiles.js#baseHardOf` returns Infinity for
-     the tile it writes -- a wall that can never be mined back out. Then the
-     byte itself: nothing packable above `PACKABLE_LIMIT`. `data/forms.js`
-     throws on that at import; this names WHICH row is over the line. */
+  /* 16. a substance crossable with a tile-capable form can be placed as terrain,
+     and with no `tile` block of its own `model/tiles.js#baseHardOf` gives it
+     Infinity hardness. Then the byte: nothing packable above `PACKABLE_LIMIT`. */
   for (let s = 0; s < SUB.length; s++) {
     for (let f = 0; f < FORM.length; f++) {
       if (!FORM[f].tile || !crossable(s, f)) continue;
@@ -498,11 +435,9 @@ export function checkContent({ quiet = false } = {}) {
            `-- move it earlier in data/substances.js or drop a form`);
   }
 
-  /* 17. THE RELIC GLOW IS A RULE, NOT A PER-ROW REMINDER. "Every divine item
-     draws with a halo" only stays true if something enforces it, or a future
-     trinket reads as ordinary loot forever and silently. Checked off
-     `tags:['relic']` rather than a per-row flag, and `rig`-form machine items
-     must NOT glow: one substance per thing like a relic, but not divine. */
+  /* 17. every relic and miracle substance draws with a halo and no `machine`
+     substance does, off the tags rather than a per-row flag. A held or placed
+     rig has a substance row like a relic does, but is not divine. */
   const hasHalo = s => (s.look?.treatments || []).some(tr => tr.fn === 'halo');
   for (const s of SUB) {
     if (s.tags?.includes('relic') || s.tags?.includes('miracle')) {
@@ -519,13 +454,9 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* 18. THE SILENT-FAILURE MACHINE KEYS ARE WELL FORMED: the transport
-     interpreter blocks, plus the `band` gate that shares their failure mode.
-     `hub:{ carries:['players'] }` makes `model/segments.js#carries` answer
-     false for ever, so every carrier refuses a rider and nothing throws.
-     `tools/check.mjs` asserts the BEHAVIOUR of these numbers; this asserts
-     they are numbers at all, in the range that behaviour assumes. Plus one
-     existence check per key, since each is a whole mechanic. */
+  /* 18. the transport interpreter blocks and the `band` gate are well formed,
+     plus one existence check per key. `hub:{ carries:['players'] }` makes
+     `model/segments.js#carries` answer false for ever, and nothing throws. */
   const CARRIES = ['material', 'player'];
   const finitePos = v => typeof v === 'number' && Number.isFinite(v) && v > 0;
   const seen = { hub: 0, crank: 0, gear: 0 };
@@ -560,11 +491,9 @@ export function checkContent({ quiet = false } = {}) {
         fail(`machine "${m.id}": crank.reach is ${JSON.stringify(m.crank.reach)}, not a finite ` +
              `positive number of px -- it is the slack in the same overlaps() call handFeed uses`);
     }
-    /* THE BAND GATE, one notch worse than `hub.carries` above: a `band`
-       naming no real band makes `model/run.js#placementCheck` refuse the
-       machine in EVERY band for the whole run, with a refusal message built
-       from the id it could not resolve. Nothing throws. Optional, so only a
-       row carrying the key is checked. */
+    /* A `band` naming no real band makes `model/run.js#placementCheck` refuse
+       the machine in every band for the whole run, with a refusal message
+       built from the id it could not resolve, and nothing throws. */
     if (m.band !== undefined) {
       checks++;
       if (typeof m.band !== 'string' || !BANDS.some(b => b.id === m.band))
@@ -589,13 +518,9 @@ export function checkContent({ quiet = false } = {}) {
            `behind it (a hub anchors every cable, a crank supplies all torque, a gear carries it)`);
   }
 
-  /* 19. THE CYCLE TABLE IS PAYABLE: `at` names a machine row carrying
-     `tribute:{}`, the marker `rules/cycles.js` scans for, and `reward.draft`
-     is one of the four `draftable()` exports. Each demand row is checked
-     three ways, because the three catch different mistakes -- `holdable` (the
-     pair can exist as material), `expand(...).length > 0` (the selector is
-     non-empty), and the receiver's own `accepts` (the machine will take it).
-     A cycle with no clock must carry no punishment. */
+  /* 19. the cycle table is payable: `at` names a machine carrying `tribute:{}`
+     and each demand is checked three ways -- the pair can exist as material, the
+     selector is non-empty, and the receiver's own `accepts` will take it. */
   {
     const AT = Object.freeze(Object.fromEntries(
       MACH.filter(m => m.tribute).map(m => [m.id, m])));
@@ -649,13 +574,9 @@ export function checkContent({ quiet = false } = {}) {
                `not be able to give it away`);
       }
 
-      /* THE BATCH CLAUSE IS A CRASH GUARD, NOT A LINT.
-         `rules/cycles.js#creditTribute` keys the window through
-         `model/items.js#keyOf`, which reads `SUB[sub].id`, so a typo'd `sub`
-         or `form` throws a TypeError mid-substep on the first delivery of ANY
-         pair to that receiver. The quiet case is a pair that is valid but
-         unholdable, and `holdable` catches that. `secs` must be positive:
-         a window of no width is one nothing can land inside. */
+      /* `rules/cycles.js#creditTribute` keys the batch window through
+         `model/items.js#keyOf`, which reads `SUB[sub].id`, so a typo'd `sub` or
+         `form` throws a TypeError on the first delivery to that receiver. */
       if (c.batch !== undefined) {
         const b = c.batch;
         const bsub = S[b?.sub], bform = F[b?.form];
@@ -700,7 +621,7 @@ export function checkContent({ quiet = false } = {}) {
       checks++;
       if (!c.reward || !Number.isInteger(c.reward.favour))
         fail(`cycle "${c.id}": reward.favour is ${JSON.stringify(c.reward?.favour)}, not an integer -- ` +
-             `every trial changes how the asking god feels about you (CLAUDE.md D1, decision I)`);
+             `every trial changes how the asking god feels about you`);
 
       for (const id of c.reward?.grants ?? []) {
         checks++;
@@ -717,7 +638,7 @@ export function checkContent({ quiet = false } = {}) {
         checks++;
         if (!TIERS.includes(c.reward.draft))
           fail(`cycle "${c.id}": reward.draft is "${c.reward.draft}"; the four gift tiers are ` +
-               `${TIERS.map(t => `"${t}"`).join(', ')} (CLAUDE.md D1) and an unknown one offers nothing`);
+               `${TIERS.map(t => `"${t}"`).join(', ')}, and an unknown one offers nothing`);
       }
 
       if (c.punishment) {
@@ -733,12 +654,9 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* 20. EVERY MINEABLE TERRAIN ROW IS CLASSIFIED, into exactly one of three
-     buckets. `#bulk/gravel` is a recipe input granite can never satisfy and
-     `data/forms.js#block`'s `subTags:['bulk']` is the whole of "a deposit is
-     never player-placeable" -- both read a TAG, so a row added without one
-     silently gets neither behaviour, and a row tagged twice would be
-     placeable-by-recipe AND a named body at once. */
+  /* 20. every mineable terrain row carries exactly one of three buckets:
+     `data/recipes.js#pack`'s `#bulk` input and `data/forms.js#block`'s `subTags`
+     both read a tag, so an untagged row gets neither behaviour. */
   {
     const BUCKETS = ['bulk', 'deposit', 'organic'];
     for (const s of SUB) {
@@ -754,18 +672,12 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* 21. NO DEPOSIT IS OBTAINABLY PLACEABLE. A deposit has no tile-capable
-     crossing anything can produce, so `rules/placement.js` needs no gate --
-     which is a property of `data/`, and this is what makes it proven rather
-     than true by accident. Asked against OBTAINABILITY, not crossability:
-     `adamant/stair` is a legal pair nothing produces, and flagging it would
-     make the honest fix weakening the rule. `copper/stair` is the one named
-     exemption, per-PAIR, so a `tin/stair` recipe still fails. */
+  /* 21. no deposit has a tile-capable crossing anything can produce, so
+     `rules/placement.js` needs no gate. Asked against obtainability rather than
+     crossability: `adamant/stair` is a legal pair nothing produces. */
   {
     const TILE_FORMS = FORM.reduce((a, f, i) => (f.tile ? (a.push(i), a) : a), []);
 
-    /* Deliberate, reviewed exceptions. Add nothing here without the argument
-       above being true of the new row as well. */
     const OBTAINABLE_DEPOSIT_TILES = new Set(['copper/stair']);
 
     const produced = new Map();                 // pair key -> how it is obtained
@@ -792,7 +704,7 @@ export function checkContent({ quiet = false } = {}) {
       if (!SUB[s].tags?.includes('deposit')) continue;
       for (const f of TILE_FORMS) {
         checks++;
-        if (!crossable(s, f)) continue;               // illegal by subTags, which is the point
+        if (!crossable(s, f)) continue;               // illegal by subTags
         const how = produced.get(keyOf(s, f));
         if (!how) continue;                           // legal but unobtainable, e.g. adamant/stair
         if (OBTAINABLE_DEPOSIT_TILES.has(`${SUB[s].id}/${FORM[f].id}`)) continue;
@@ -806,12 +718,9 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* 22. EVERY `tile.charge` IS A WHOLE NUMBER >= 1, AND ONLY A `deposit` ROW
-     CARRIES ONE. A fractional charge breaks `model/mining.js#unitsCrossed`
-     without throwing -- 0.5 gives a unit cap of -1, so no per-unit drops,
-     while `rules/mining.js` still multiplies `hard * charge`. A charge on a
-     `bulk` or `organic` row multiplies the yield of soil, stone or a felled
-     trunk. Charge describes a NAMED BODY in the ground, nothing else. */
+  /* 22. every `tile.charge` is a whole number >= 1 and only a `deposit` row
+     carries one. At 0.5 `model/mining.js#unitsCrossed` gives a unit cap of -1 and
+     drops nothing, while `rules/mining.js` still charges `hard * charge`. */
   for (const s of SUB) {
     const c = s.tile?.charge;
     if (c === undefined) continue;                   // absent means 1, which every non-deposit row is
@@ -827,18 +736,12 @@ export function checkContent({ quiet = false } = {}) {
            `\`bulk\` or \`organic\` row this silently multiplies its yield`);
   }
 
-  /* 23. NO HAND RECIPE SHADOWS A LATER ONE. `rules/crafting.js#choose` takes
-     the FIRST `HAND_RECIPES` row whose inputs are satisfied, so a row whose
-     bill is implied by a later row's makes that later row permanently
-     uncraftable. A subset test over EXPANDED selectors, not over selector
-     strings: strings would miss that `timber/log` implies a fuel selector,
-     and counts alone would call a 5-gravel bill an implication of a 4-gravel
-     one, backwards. Sound rather than complete -- it can miss a shadowing,
-     never invent one. No allowlist. */
+  /* 23. no hand recipe shadows a later one: `rules/crafting.js#choose` takes the
+     first satisfied `HAND_RECIPES` row, so a bill implied by a later row's makes
+     that row uncraftable. A subset test over expanded selectors. */
   {
-    /* `HAND_RECIPES` itself, not `recipes.filter(r => r.hand)`: the thing
-       under test is DECLARATION ORDER, and that array is the one
-       `rules/crafting.js#choose` walks. */
+    /* `HAND_RECIPES` itself, not `recipes.filter(r => r.hand)`: declaration
+       order is what is under test, and that array is what `choose` walks. */
     const HAND = HAND_RECIPES;
 
     const pairSet = sel => new Set(expand(sel).map(p => keyOf(p.sub, p.form)));
@@ -866,13 +769,9 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* 24. A `tile.roots` FORM IS NEVER SOLID. `roots` lets a solid tile DIRECTLY
-     BELOW satisfy the backing requirement, which deliberately breaks the rule
-     that terrain keys into terrain -- safe for a seedling, which is not
-     collision. A SOLID form with the same key is a free-standing wall: stand
-     on flat ground and stack a tower one tile at a time, no ladder and no
-     scaffold, which is the premise that up is expensive inverted. It places,
-     paints and collides perfectly well; that is the whole failure. */
+  /* 24. a `tile.roots` form is never solid. `roots` lets a solid tile directly
+     below satisfy the backing requirement, so a solid form carrying it is a
+     free-standing wall, stackable from flat ground with no ladder. */
   for (const f of FORM) {
     if (f.tile?.roots === undefined) continue;
     checks++;
@@ -889,26 +788,16 @@ export function checkContent({ quiet = false } = {}) {
            `the "up is expensive" premise inverted. Set \`solid:false\` or drop \`roots\``);
   }
 
-  /* 25. EVERY MACHINE ROW IS REACHABLE IN A REAL RUN: something grants it, AND
-     a player who takes that grant can place it. The second half is the one
-     that matters -- "named by a grants row" alone goes green on a machine
-     with no substance row, which `placementCheck` refuses at every depth for
-     ever. So placeability is asked through the SAME query `placementCheck`
-     asks. A mirror is sponsored by its base. Exemptions are from the first
-     half only: whatever IS granted must be placeable. */
+  /* 25. every machine row is reachable in a real run: something grants it, and a
+     player taking that grant can place it, through the same query
+     `placementCheck` asks. Exemptions cover the sponsorship half only. */
   const EXEMPT_UNSPONSORED = new Map([
-    /* The player must never obtain it: `rules/cycles.js#ensureAltarPlaced`
-       places it, and it deliberately has no substance row, which is
-       "never placeable by the player" expressed as an absence rather than
-       as a check. Both halves below are expected to fail for it. */
+    /* Placed by `rules/cycles.js#ensureAltarPlaced` and deliberately without
+       a substance row, so the player can never obtain it. */
     ['altar', 'placed by rules/cycles.js; deliberately has no substance row'],
-    /* Kept as a worked example, not as content: `rate.kiln_divine` is the
-       scoped-tunable example, and `data/machines.js` names it for `variantOf`
-       and `shell/notify.js` for the per-machine sound override. It has no
-       substance row -- its inherited build bill is bit-identical to
-       `furnace`'s, so a hand recipe for it could never fire -- so it can
-       never be placed, and its grant row was retired rather than left
-       pretending otherwise. */
+    /* A live example of `variantOf` and of scoped tuning (`rate.kiln_divine`),
+       with no substance row: its inherited build bill is identical to
+       `furnace`'s, so a hand recipe for it could never fire. */
     ['kiln_divine', 'a live worked example for variantOf and scoped tuning, with no sponsor and no substance']
   ]);
   const sponsors = [...STARTING_MACHINES,
@@ -924,8 +813,8 @@ export function checkContent({ quiet = false } = {}) {
     if (!isSponsored && !exempt)
       fail(`machine "${m.id}": nothing grants it -- it is in no STARTING_MACHINES, no data/grants.js row, ` +
            `no cycle reward.grants, and is no mirror of one, so it cannot be placed in any run and its ` +
-           `build recipe is permanently unknown (model/run.js#isKnown). Add a grant, or exempt it by name ` +
-           `with its reason in tools/content.mjs assertion 25`);
+           `build recipe is permanently unknown (model/run.js#isKnown). Add a grant, or exempt it by ` +
+           `name in EXEMPT_UNSPONSORED with its reason`);
     if (isSponsored) {
       checks++;
       if (machineHeldSub(m.id) === undefined)
@@ -936,19 +825,14 @@ export function checkContent({ quiet = false } = {}) {
              `row and a recipe, or retire the grant`);
       checks++;
       if (exempt && machineHeldSub(m.id) !== undefined)
-        fail(`machine "${m.id}": exempted from the sponsorship half of assertion 25 as "${exempt}", but it ` +
+        fail(`machine "${m.id}": exempted from the sponsorship check as "${exempt}", but it ` +
              `is now both sponsored and placeable -- delete the exemption rather than leave a stale one`);
     }
   }
 
-  /* 26. EVERY MIRACLE EFFECT IS A KIND `rules/miracles.js` IMPLEMENTS,
-     hardcoded here because it is a closed set defined by that file's
-     branches. A row naming a kind nobody implements fails SILENTLY: the phial
-     is spent, the journal row is pushed, and the world does not change.
-
-     A row with NO kind is legal -- that is the pure-boon phial, since
-     `applyEffect` grants `effect.boon` independently -- so the requirement is
-     that a row do at least one of the two. */
+  /* 26. every miracle effect names a kind `rules/miracles.js` implements, or is
+     the pure-boon phial carrying only an `effect.boon`. An unimplemented kind
+     fails silently: the phial is spent and the world does not change. */
   const MIRACLE_KINDS = new Set(['collapse', 'transmute']);
   for (const m of MIRACLES) {
     const e = m.effect || {};
@@ -960,14 +844,9 @@ export function checkContent({ quiet = false } = {}) {
     checks++;
     if (e.kind === undefined && !e.boon)
       fail(`miracle "${m.id}": has neither an effect.kind nor an effect.boon, so using it does nothing at all`);
-    /* A KIND THAT WRITES A TILE NEEDS A PACKABLE SUBSTANCE, both halves.
-       `transmute` is a third caller of `data/forms.js#packTile`, subject to
-       neither of the other two's constraints. With no `sub`,
-       `packTile(undefined)` is NaN, which a Uint8Array stores as 0, and 0 is
-       AIR -- the miracle CLEARS solid rock instead of converting it. With a
-       non-packable `sub` the ordinal overflows and WRAPS: 26 packs to 365,
-       truncates to 109, and decodes as granite/stair, a climbable tile nobody
-       placed. Both place, paint, collide, and never throw. */
+    /* A tile-writing kind needs a packable substance. With no `sub`,
+       `packTile(undefined)` is NaN, stored as 0, which is AIR. A non-packable
+       `sub` wraps: 26 packs to 365, truncates to 109, and reads granite/stair. */
     if (e.kind === 'transmute') {
       checks++;
       if (e.sub === undefined)
@@ -994,14 +873,9 @@ export function checkContent({ quiet = false } = {}) {
   }
 
 
-  /* 27. EVERY DEBUG SCENARIO IS BUILDABLE. `rules/scenarios.js` places
-     machines through `model/machines.js#write.place`, the only route a `rules`
-     module has, and that route asks nothing about band, depth, grants or held
-     items -- so a scenario naming an astral-only machine on the surface
-     applies without a word and behaves like nothing at all. The gates are
-     re-derived from the raw `data/world.js` rows, since nothing has booted.
-     Reach is checked at BASE `hub.reach`, because two anchors too far apart
-     leave a diorama with visible hubs and no cable. */
+  /* 27. every debug scenario is buildable. `model/machines.js#write.place`, the
+     only route `rules/scenarios.js` has, asks nothing about band, depth, grants
+     or held items, so the gates are re-derived here; nothing has booted. */
   {
     const spawnCfg = BANDS.find(b => b.id === SPAWN_BAND);
     const datum = worldYOf(spawnCfg, spawnCfg.floorTy ?? 0);
@@ -1011,7 +885,7 @@ export function checkContent({ quiet = false } = {}) {
     const ids = new Set();
 
     /* The same two expressions `rules/scenarios.js#txOf`/`#tyOf` use: `dx` is
-       tiles right of the SPAWN band's own column, `dy` tiles below the target
+       tiles right of the spawn band's own column, `dy` tiles below the target
        band's own ground line. */
     const txAt = spec => spawnTx + spec.dx;
     const tyAt = (cfg, spec) => (cfg.floorTy ?? 0) + spec.dy;
@@ -1035,10 +909,9 @@ export function checkContent({ quiet = false } = {}) {
         continue;
       }
 
-      /* Every coordinate is `dx` off ONE column datum, whatever band it lands
-         in, which is only sound while every band shares a tile size. Asserted
-         rather than assumed: a band with a finer grid would silently shear
-         every cross-band diorama sideways. */
+      /* Every coordinate is `dx` off one column datum whatever band it lands
+         in, which is sound only while every band shares a tile size; a finer
+         grid would shear every cross-band diorama sideways. */
       checks++;
       if (home.tile !== spawnCfg.tile)
         fail(`scenario "${sc.id}": band "${sc.band}" has tile ${home.tile} against the spawn band's ` +
@@ -1079,7 +952,7 @@ export function checkContent({ quiet = false } = {}) {
           checks++;
           if (!FORM[form].tile)
             fail(`scenario "${sc.id}": tiles rect writes form "${r.form}", which carries no \`tile\` ` +
-                 `block -- only rung/stair/block/seed may become terrain (CLAUDE.md D12)`);
+                 `block -- only rung/stair/block/seed may become terrain`);
           checks++;
           if (!crossable(sub, form))
             fail(`scenario "${sc.id}": ${r.sub}/${r.form} is not a legal crossing, so the pair cannot ` +
@@ -1088,7 +961,7 @@ export function checkContent({ quiet = false } = {}) {
           if (!packable(sub))
             fail(`scenario "${sc.id}": tiles rect names substance "${r.sub}", which ` +
                  `data/forms.js#packable rejects -- packing it overflows the tile byte and WRAPS to an ` +
-                 `unrelated pair, exactly as a transmute miracle would (assertion 26)`);
+                 `unrelated pair, exactly as a transmute miracle would`);
         }
       }
 
@@ -1113,9 +986,9 @@ export function checkContent({ quiet = false } = {}) {
           fail(`scenario "${sc.id}": machine "${spec.id}" footprint resolves to ` +
                `${tx},${ty}..${tx + def.tw - 1},${ty + def.th - 1} in "${cfg.id}", outside its grid`);
 
-        /* THE TWO PLACEMENT GATES `write.place` DOES NOT ENFORCE. Both refuse
+        /* The two placement gates `write.place` does not enforce: both refuse
            in `model/run.js#placementCheck` for a player and pass silently for
-           a director, so both are the scenario table's own responsibility. */
+           a director. */
         checks++;
         if (def.band && def.band !== cfg.id)
           fail(`scenario "${sc.id}": machine "${spec.id}" declares band "${def.band}" and the row ` +
@@ -1159,7 +1032,7 @@ export function checkContent({ quiet = false } = {}) {
           checks++;
           if (!recipesOf(def).some(r => (r.out || []).length === 0))
             fail(`scenario "${sc.id}": machine "${spec.id}" banks charges and has no honest-fuel ` +
-                 `recipe (one with \`out:[]\`), so nothing on that row ever spends one -- see ` +
+                 `recipe (one with \`out:[]\`), so nothing on that row ever spends one -- ` +
                  `a charge must be spent on work, not on being placed`);
         }
       }
@@ -1249,13 +1122,9 @@ export function checkContent({ quiet = false } = {}) {
     }
   }
 
-  /* 28. EVERY STRATA WINDOW LIES INSIDE ITS OWN BAND.
-     `rules/generate.js#attempts` is `dens x (bot - top) x tw / 1e4` over a
-     window clamped to `0 .. b.th`, so a row declaring `fromTy:400` on a
-     320-row band resolves to an empty window, buys 0 attempts, and scatters
-     nothing -- no throw, no warning, and a band with no ore in it. A
-     `contact` row's `at` has the same shape and the same silence. Checked as
-     DECLARED, not as shifted. */
+  /* 28. every strata window lies inside its own band: `rules/generate.js` clamps
+     it to `0 .. b.th`, so `fromTy:400` on a 320-row band buys 0 attempts and
+     scatters nothing, in silence. Checked as declared. */
   for (const cfg of BANDS) {
     for (const row of cfg.strata) {
       const { fromTy, toTy } = row;

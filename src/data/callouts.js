@@ -1,23 +1,8 @@
-/* LAYER data — TUTORIAL CALLOUT STRINGS. Imports nothing.
+/* data layer — tutorial callout strings.
 
-   Content rather than literals in `view/`, so a locale or a rewrite of the
-   callout widget never touches the renderer. Indexed by
-   `model/tutorial.js#beat`, the count of beats already FIRED, so the string
-   shown is the instruction for whichever beat is NOT YET done.
-
-   Beats 0 and 1 share a line, because beat 1 fires the instant a direction
-   key is pressed -- indistinguishable from "hasn't moved yet".
-
-   Index 4 is `null`, because beat 5 fires the frame after beat 4 with no
-   player action between, so a callout there would flash for one frame.
-
-   INDEX 5 NAMES A VERB, AND HAS TO: naming only the destination is an
-   instruction a player cannot follow, because the proximity drain is opt-in
-   and off by default, so standing beside the altar does nothing. The two
-   clicks it names are the two real ones.
-
-   Index 10 is `null` and is the real end: the ascent is built and understood,
-   and later cycles ask for MORE of the same verbs rather than a new one. */
+   Indexed by `model/tutorial.js#beat`, the count of beats already fired, so
+   the entry shown is the instruction for the beat not yet done. A `null`
+   entry draws no callout. */
 export const CALLOUTS = Object.freeze([
   'TAKE THE PICKAXE',                              // 0: before beat 1 (walk)
   'TAKE THE PICKAXE',                               // 1: walked, not yet armed

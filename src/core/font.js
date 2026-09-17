@@ -1,18 +1,7 @@
-/* LAYER core — the 5x7 bitmap font.
-   Depends on `vendor` only. May be imported by every layer.
-
-   The HUD is drawn in the same pixel space as the world using these glyphs.
-   `fillText` is forbidden project-wide: mixing an antialiased system font into
-   a nearest-neighbour upscale breaks the look immediately. A real text
-   library doesn't fix that — it usually rasterises the same way `fillText`
-   does — so the shape stays "vendor a bitmap font, blit it ourselves"; what
-   changed is the source. `vendor/font5x7.js` carries the byte data and its
-   licence; this file is the one and only place that decodes it, once, at
-   import.
-
-   Glyphs are 5 columns x 7 rows. Row 7 (the descender row `,gpqy` use
-   upstream) is dropped rather than adopted, so every glyph still fits the
-   project's existing 7-row cell and no caller's line-pitch math changes. */
+/* core layer — the 5x7 bitmap font. Depends on `vendor` only, and is the one
+   place `vendor/font5x7.js`'s byte data is decoded, once at import.
+   A glyph is 5 columns x 7 rows; upstream's 8th descender row is dropped, so
+   every glyph fits a 7-row cell and caller line pitch is unaffected. */
 import { FONT5X7_BYTES, FONT5X7_FIRST, FONT5X7_LAST } from '../../vendor/font5x7.js';
 
 const ROWS = 7, COLS = 5;
@@ -29,19 +18,14 @@ for (let code = FONT5X7_FIRST; code <= FONT5X7_LAST; code++) {
   GLYPHS[String.fromCharCode(code)] = rows;
 }
 
-/* A 1 px diagonal shadow does NOT change advance width, so this is untouched
-   by `drawText`'s `shadow` argument and must stay that way -- every anchored
-   layout pass in `view` measures with it, and widening it by the offset would
-   move every panel that shadows any of its text. */
+/* Advance width in px. A shadowed string measures the same, so `drawText`'s
+   1 px shadow offset is deliberately absent here; `view`'s layout passes
+   measure every string, shadowed or not, through this. */
 export function textWidth(s, sc = 1, tr = 1) { return s.length * (5 * sc + tr) - tr; }
 
-/* Break `s` on spaces so no line measures wider than `budget` px. Lives here
-   rather than in a caller because `textWidth` above is the only authority on
-   how wide a string is, and a wrapper that guessed would drift from it.
-
-   A single word wider than `budget` is returned long rather than cut: a cut
-   word reads as a rendering fault, an overhanging one reads as a long word.
-   Callers that cannot afford the overhang must check the result. */
+/* Break `s` on spaces so no line measures wider than `budget` px. A single
+   word wider than `budget` is returned whole and overhangs, so a caller that
+   cannot afford the overhang has to check the result. */
 export function wrap(s, budget, sc = 1, tr = 1) {
   const lines = [];
   let line = '';
@@ -54,16 +38,10 @@ export function wrap(s, budget, sc = 1, tr = 1) {
   return lines;
 }
 
-/* `shadow` is a colour string or `null`. When set, the WHOLE STRING is
-   rasterised once at (x+sc, y+sc) in the shadow tone and then once at (x, y)
-   in `col`.
-
-   TWO COMPLETE TRAVERSALS, NOT ONE INTERLEAVED PASS. `fillStyle` is set once
-   per traversal, outside the glyph loop, so a shadowed string costs exactly
-   TWO `fillStyle` writes -- not two per glyph, and emphatically not two per
-   pixel. Used ONLY where a site draws straight onto rendered world with
-   nothing behind it; a site inside a panel gets no shadow, and one next to an
-   already-backed site gets a backing rect instead. */
+/* `shadow` is a colour string or null: the whole string is rasterised at
+   (x+sc, y+sc) in the shadow tone, then at (x, y) in `col`. Two complete
+   traversals rather than one interleaved pass, so `fillStyle` is written twice
+   per string instead of twice per glyph. */
 export function drawText(g, s, x, y, col, sc = 1, tr = 1, shadow = null) {
   if (shadow) pass(g, s, (x | 0) + sc, (y | 0) + sc, shadow, sc, tr);
   pass(g, s, x | 0, y | 0, col, sc, tr);

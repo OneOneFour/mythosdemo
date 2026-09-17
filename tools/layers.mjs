@@ -1,9 +1,6 @@
-/* Dependency-direction checker: parses every import in `src/`, resolves it to
-   a layer, and fails on any illegal edge. Runs first in `npm run check`, so
-   an illegal edge cannot be committed green.
-
-   It checks direction and names, not sense -- an unreachable recipe, a machine
-   with no way to be fed and a wrong number all pass. */
+/* Dependency-direction checker: resolves every import in `src/` to a layer and
+   fails on any illegal edge. Direction and names only -- an unreachable
+   recipe, an unfeedable machine and a wrong number all pass. */
 
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -12,31 +9,29 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC  = join(ROOT, 'src');
 
-/* The rule table. This IS the architecture: what each layer may import, in
-   the legal downward order. */
+/* What each layer may import, in legal downward order. */
 const MAY_IMPORT = {
-  core:  [],                                    // depends on nothing
+  core:  [],
   data:  ['core'],
   model: ['core', 'data'],
-  rules: ['core', 'data', 'model'],             // NOT view, NOT rules
-  view:  ['core', 'data', 'model'],             // NOT rules, and read-only
+  rules: ['core', 'data', 'model'],             // not view, not rules
+  view:  ['core', 'data', 'model'],             // not rules, and read-only
   shell: ['core', 'data', 'model', 'rules', 'view']
 };
 
-// `rules` modules are siblings: their order lives in shell/schedule.js, not in
-// an import graph. One exception, declared rather than implied: a driver may
-// bind leaf helpers from a sub-directory below itself.
+// `rules` siblings may not import each other; their order lives in
+// shell/schedule.js. A driver may bind leaf helpers from a sub-directory.
 const SIBLING_EXCEPTION = (from, to) =>
   from.startsWith('rules/') && to.startsWith('rules/') &&
   to.split('/').length > from.split('/').length;
 
-// The tunable store is only unbypassable if exactly one file may read the
-// frozen design table, which is what lets a trinket change walk speed at all.
+// One reader per target: any second importer of the frozen design table makes
+// the tunable store bypassable.
 const SOLE_READER = {
   'data/tuning.js': 'model/mods.js'
 };
 
-// Ratchet. Starts at 0 and may only ever go down.
+// Ratchet: may only ever go down.
 const LAYER_BUDGET = 0;
 
 async function jsFiles(dir) {
@@ -98,7 +93,7 @@ export async function checkLayers({ quiet = false } = {}) {
         if (from === to) {
           if (from === 'rules' && !SIBLING_EXCEPTION(rel, target))
             violations.push({ rel, spec, why: 'rules may not import rules — order lives in shell/schedule.js' });
-          continue;                                   // same layer otherwise fine
+          continue;
         }
 
         if (!MAY_IMPORT[from]) {

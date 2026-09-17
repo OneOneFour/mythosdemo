@@ -250,3 +250,15 @@ Rule of thumb: a key that **spawns something from nothing** goes behind
   would mean the architecture chose wrong.** Currently three (`buffer`,
   `pocket`, `vital`). Worth counting before adding a fourth.
 - **`LAYER_BUDGET` is 0 and may only go down.** There is no headroom to spend.
+- **The dropped-item record's shape is a deliberate floor, not an oversight.**
+  `model/items.js` holds a `{sub, form}` pair plus a position, and purity,
+  fragility and temperature are absent on purpose: they are speculative until
+  something consumes them, and a field nothing reads is a field that will be
+  wrong the day something finally does. Plain objects with ten fixed slots keep
+  the shape monomorphic; `mod` stays null until one item deviates from its
+  rows, and mass, size and appearance are read off the substance and form rows
+  rather than copied per item. Deliberately NOT struct-of-arrays: at a few
+  hundred items "add a property" would become "add an array", and the exported
+  accessors (`massOf`, `sizeOf`) mean `model` can switch representation later
+  with no `rules` edit. Salvaged from that file's comments during a
+  comment-only pass.

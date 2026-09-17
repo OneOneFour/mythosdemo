@@ -51,8 +51,9 @@ docs/        SPEC (locked numbers), DESIGN (the game), MIGRATION, rfc/
 
 **Nothing may import upward. `rules` and `view` may never import each other.**
 `rules` modules are siblings and do not import one another — their order is
-stated once, in `src/shell/schedule.js`, one line per adjacent pair. The
-reasoning behind each pair is in `.claude/brain/rules-order.md`.
+stated once, in `src/shell/schedule.js`, one line per precedence constraint. A
+pair absent from that table may be swapped freely. The reasoning behind each
+pair is in `.claude/brain/rules-order.md`.
 `tools/layers.mjs` enforces all of it as section 0 of `npm run check`, with a
 budget of 0 that may only go down.
 
@@ -226,8 +227,10 @@ them good.
 ## Comments
 
 A comment or a docstring is the public description of the code it sits on.
-Concise, present tense, about what the code does now. Anything longer than the
-thing it describes is wrong.
+Concise, present tense, about **what the code does now** — never why it was
+chosen over something else, never what it used to be, never how important it
+is. Write for someone reading this file for the first time who wants to know
+what it does. Anything longer than the thing it describes is wrong.
 
 Write one only where the code cannot carry the information itself:
 
@@ -257,12 +260,13 @@ number, no phase, wave or gate label, no D-number, no assertion number. A
 comment that only makes sense with another document open is not a comment —
 state the constraint itself, in terms of the code.
 
-**Ten lines is the cap for one block**, and most should be one or two. A
-file-top block gets 36, because a `data/` table's field key and
-`shell/schedule.js`'s step order are reference tables a reader needs in the
-file, and `data/machines.js`'s 22 keys at one line each come to 34. Prose does
-not qualify at either length — cut it to the constraint or move it to
-`.claude/brain/`. `npm run lint:comments` enforces both caps.
+**Four lines is the cap for one block**, and most should be one. A file-top
+block gets 20, and only earns them by being a reference table a reader needs
+while in the file — a `data/` table's field key, `shell/boot.js`'s boot order,
+`shell/schedule.js`'s step order. Prose does not qualify at either length: cut
+it to the constraint or move it to `.claude/brain/`. `npm run lint:comments`
+enforces both caps, and an aligned-column table of four rows or more is exempt
+from them because scannability is the point of the shape.
 
 **`docs/STYLE.md` binds comments too, not just prose replies.** Its two banned
 words, "load-bearing" and "crux", are a comment smell in their own right: both
@@ -278,9 +282,25 @@ Delete everything else:
 - Diff and phase commentary: `// Phase 6.6`, `// now uses the registry`,
   `// moved from renderer.js`, `// as per SPEC.md`, `// as requested`.
 - Rationale or history for a previous version of the code, and any comment
-  describing what an earlier version of the same comment claimed.
+  describing what an earlier version of the same comment claimed. No "used
+  to", "originally", "was rejected", "no longer", "the old X".
+- **Design rationale, including every rejected alternative.** "A shadow would
+  have been redundant here", "not a mirror, not a derived list", "serialising
+  the arrays was rejected". The reader wants what the code does; the argument
+  for it is not their problem.
+- **Game-design and flavour reasoning.** What the player feels, what the myth
+  evokes, what makes a trade interesting, what the premise is. That is
+  `docs/DESIGN.md`'s job, and it is especially out of place in `data/` rows.
+- **Shouted emphasis.** ALL CAPS is for real identifiers and acronyms, never
+  for importance: `THE ONLY THING IN THE GAME THAT TURNS INTO SOMETHING ELSE
+  BY ITSELF`, `THE BOOT ORDER BELOW IS A RULE`, `THIS IS THE WHOLE OF`. A line
+  that has to announce that it matters is not saying what it does.
+- **Glossing a data row's own field values.** `massK:2.0` does not need "twice
+  the base mass, because a block is compacted where rubble is loose". Comment
+  a row only for a coupling the reader cannot see from it.
 - Section banners (`// ===== RENDERING =====`).
-- Self-assessment ("this is critical", "clean approach here").
+- Self-assessment ("this is critical", "clean approach here", "the whole point
+  is", "not cosmetic").
 - Restated JSDoc types, or JSDoc that only repeats the signature.
 - **Commented-out code.** Never leave a previous implementation in place
   commented out. Delete it; git has it.

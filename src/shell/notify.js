@@ -1,19 +1,5 @@
-/* LAYER shell — THE JOURNAL DRAIN. Turns facts into sound, chips and text.
-   Imports `core`, `data`, `model` (read + the journal drain), and `view/fx.js`.
-
-   Notification flows DOWNWARD and closes the loop here. This drains the queue
-   once per frame and is the only thing that may touch a device or a text
-   queue.
-
-   A JOURNAL ROW IS A FACT, NOT AN INSTRUCTION. `kind` is a bare string; what to
-   do about it is decided HERE. The kind -> sound mapping is `KIND_SFX` in
-   `data/sfx.js`, so adding an audible event is a row and not a branch, and a
-   kind with no entry there is SILENT ON PURPOSE — not every fact is audible.
-
-   A MACHINE ROW MAY OVERRIDE ITS OWN SOUND. `look.sfx` on a `data/machines.js`
-   row names a sound for the `accept` and `produce` slots, which is how the
-   divine kiln rings differently and the winch groans instead — with no machine
-   name anywhere in this file and no new journal kind. */
+/* shell layer — drains `model/journal.js` once a frame into sound, chips and
+   text. A row's `kind` is a fact; what to do about it is decided here. */
 
 import { MACH } from '../data/machines.js';
 import { colour } from '../data/palette.js';
@@ -25,7 +11,7 @@ import { burst, title as banner, toast } from '../view/fx.js';
 import { play } from './audio.js';
 
 /* Chips per event kind. Cosmetic, so the numbers live here rather than on a
-   content row: a designer tuning copper does not want to think about sparks. */
+   content row. */
 const CHIPS = {
   pick:       { n: 1, spread: 50 },
   breakSoft:  { n: 6, spread: 90 },
@@ -35,24 +21,14 @@ const CHIPS = {
   accept:     { n: 4, spread: 40 },
   produce:    { n: 5, spread: 60 },
   hurt:       { n: 10, spread: 130 },
-  /* The cycle loop. `tribute` is deliberately the smallest burst
-     in this table and `cycle` the largest: one credited unit is a small,
-     repeated fact (see `data/sfx.js#MIN_GAP.tithe` -- there can be one per
-     substep), and a paid trial happens at most four times a run. `win` gets
-     none: it pushes `at: null`, and the burst is skipped for a row with no
-     world position anyway -- the screen is the event. */
   tribute:    { n: 2, spread: 26 },
   cycle:      { n: 14, spread: 150 },
   debt:       { n: 8, spread: 120 },
-  /* A rare trinket drop (`rules/cycles.js#rollTributeDrop`,
-     `rules/mining.js`'s rare-drop loop). Sized between `accept` and
-     `hurt`: bigger than an ordinary machine event, smaller than taking
-     damage. */
   relic:      { n: 7, spread: 45 }
 };
 
-/* Text for the kinds that deserve a line. Everything else is silent text-wise:
-   a toast for every pickaxe strike is noise, not feedback. */
+/* Text for the kinds that get a line; a kind with no entry here prints
+   nothing. */
 const TEXT = {
   hurt:    row => row.data?.cause
     ? `${row.data.cause} COST ${row.data.hearts} HEART${row.data.hearts > 1 ? 'S' : ''}`
@@ -61,44 +37,26 @@ const TEXT = {
   place:   row => row.data?.machine
     ? MACH.find(m => m.id === row.data.machine)?.name + ' PLACED'
     : (row.data && row.data.sub !== undefined ? labelOf(row.data.sub, row.data.form) + ' PLACED' : ''),
-  /* A DRAFTED grant carries its own copy (`data/grants.js`'s `text`/`name`);
-     an AWARDED one -- a cycle reward, `rules/grants.js#award` -- carries only
-     the machine id, because display copy for a machine already exists on the
-     machine's own row and `rules` has no business composing a sentence. Same
-     `MACH.find` lookup `place` above already uses. */
+  /* A drafted grant carries its own `text`/`name` from `data/grants.js`; an
+     awarded one carries only the machine id, so the copy comes off `MACH`. */
   grant:   row => row.data?.text || row.data?.name ||
     (row.data?.machine
       ? (MACH.find(m => m.id === row.data.machine)?.name ?? '') + ' IS GRANTED'
       : ''),
   lost:    () => 'THE GIFT IS WITHDRAWN',
-  /* Names the substance rather than the pair (`SUB[sub].name`, not
-     `labelOf`): every relic drop is `F.relic`, so appending the form's own
-     label would just repeat "RELIC" after a name that already says what
-     it is (e.g. "BELLOWS OF THE FORGE"). */
+  /* `SUB[sub].name` rather than `labelOf`: every relic drop is `F.relic`, so
+     the form's label would only repeat "RELIC" after the substance's name. */
   relic:   row => row.data?.sub !== undefined ? `${SUB[row.data.sub].name} APPEARS` : '',
   winch:   row => row.data?.units
     ? `${row.data.units} DELIVERED TO ${String(row.data.to).toUpperCase()}`
     : '',
   death:   row => row.data?.cause || '',
 
-  /* `tribute` names the PAIR and not a running total, because the total is the
-     TRIBUTE panel's job and a toast repeating it would be a laggier copy.
-     `toast()` keeps ONE line, so a ten-unit hand-feed refreshes one line
-     rather than stacking ten.
-
-     `debt` states the whole reckoning, hearts included, and is USUALLY
-     SUPERSEDED WITHIN ITS OWN FRAME -- `miss` pushes it and then calls
-     `hurtFor`, whose row toasts the cause and wins the slot. Left as it is:
-     the hurt line carries the more urgent number, this row's SOUND and CHIPS
-     still land, and a punishment with no hearts would show this instead. */
+  /* `toast()` keeps one line, so a ten-unit hand-feed refreshes one line
+     rather than stacking ten. */
   tribute: row => row.data
     ? `${row.data.n} ${labelOf(row.data.sub, row.data.form)} TITHED`
     : '',
-  /* NO `cycle` ROW HERE, deliberately: a paid trial takes the BANNER slot
-     instead (see `BANNERS` below), and a toast saying the same words would
-     both duplicate it and spend the one toast slot the accompanying grant
-     needs. This is the "a kind with no entry is silent on purpose"
-     convention `data/sfx.js` states for sound, applied to text. */
   debt:    row => row.data?.god
     ? `${String(row.data.god).toUpperCase()} TURNS AWAY -- ` +
       `${row.data.hearts || 0} HEART${row.data.hearts === 1 ? '' : 'S'}, ` +
@@ -107,12 +65,8 @@ const TEXT = {
   win:     () => 'THE GODS ARE ANSWERED'
 };
 
-/* THE ONE KIND THAT GETS A BANNER INSTEAD OF A TOAST. `toast()` keeps exactly
-   ONE line and the newest fact wins, and a completion is a frame holding
-   several facts -- the last `tribute` credit, the `cycle` row, and two `grant`
-   rows immediately after. As a toast the god's own line was guaranteed to be
-   overwritten inside its own frame. The BANNER slot has no competition, so the
-   two now say different things at once. */
+/* The one kind that gets a banner instead of a toast: a completion frame holds
+   several facts, and `toast()` keeps only the newest. */
 const BANNERS = {
   cycle: row => row.data?.god
     ? { text: String(row.data.god).toUpperCase(), sub: 'IS SATISFIED', secs: 2.6 }
@@ -121,8 +75,6 @@ const BANNERS = {
 
 export function drainJournal(t) {
   for (const row of journalw.drain()) {
-    /* A kind with no sound is silent by design, so an unmapped kind is not a
-       warning: `data/sfx.js` decides what is audible. */
     const sound = soundFor(row);
     if (sound) play(sound, t);
 
@@ -138,8 +90,9 @@ export function drainJournal(t) {
   }
 }
 
-/* The row's own machine may name the sound; otherwise the kind maps to one.
-   Neither path names a machine or a substance here. */
+/* A machine row's `look.sfx` may name the sound for its own kind; otherwise
+   the kind maps through `KIND_SFX` in `data/sfx.js`, and an unmapped kind is
+   silent. */
 function soundFor(row) {
   const def = row.data?.def !== undefined ? MACH[row.data.def] : null;
   const slot = def?.look?.sfx?.[row.kind];
@@ -147,8 +100,7 @@ function soundFor(row) {
 }
 
 /* Chip colour off the substance's `look`: its item tint if it has one, its rock
-   tint otherwise. A form with no substance (a machine event) falls back to the
-   machine's trim. */
+   tint otherwise. A row with no substance falls back to the machine's trim. */
 function inkFor(row) {
   const d = row.data;
   if (d && d.sub !== undefined && d.sub >= 0) {

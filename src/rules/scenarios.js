@@ -1,26 +1,14 @@
-/* LAYER rules — SCENARIOS: apply one named debug diorama. Imports `core`,
-   `data`, `model`, and no other `rules` module.
+/* rules layer — applies one named debug diorama as a set of edits on top of a
+   completed `newRun()`. Not a per-frame step.
 
-   APPLIED AFTER `newRun()`, NEVER INSTEAD OF IT. The world is already
-   generated and the ledger already reset, so a scenario is a set of edits on
-   top of a clean run and there is no second path through boot. Not a
-   per-frame step, so it has no place in `shell/schedule.js`.
+   Every write goes through `model` — `rules/placement.js` is a sibling this
+   file may not import — so `placementCheck` never runs and a diorama may stand
+   a machine where a player could not have built one. `linkCheck`'s clear-path
+   sweep is asked here instead, since it is a question about live tiles, and a
+   refusal becomes a journal row.
 
-   EVERY WRITE HERE IS A `model` WRITE, because `rules/placement.js` is a
-   sibling this file may not import. The legal route is
-   `model/machines.js#write.place`, the same director route the altar takes,
-   which asks nothing about footing, grants or held items.
-
-   WHAT THAT COSTS, STATED: `placementCheck` never runs, so a diorama could
-   stand a machine where a player could not have built it. The content lint
-   re-derives each footprint's depth and band and fails the build on either
-   gate. The one check that cannot move to build time is `linkCheck`'s
-   clear-path sweep, because it is a question about LIVE tiles -- so that one
-   is asked here and a refusal becomes a journal row.
-
-   NO `rand()`: every coordinate derives from the spawn band's `spawnTx` and
-   the named band's `floorTy`, so applying a scenario does not disturb the
-   stream. */
+   Consumes no `rand()`: every coordinate derives from the spawn band's
+   `spawnTx` and the named band's `floorTy`. */
 
 import { F } from '../data/forms.js';
 import { CYCLES } from '../data/cycles.js';
@@ -40,9 +28,8 @@ export { SCENARIO_IDS };
 
 export const has = id => Object.hasOwn(SCENARIO, id);
 
-/* Apply the named scenario. Returns true when one was applied, false when no
-   row carries that id -- `shell` turns the false into a message rather than
-   booting into a world that silently ignored the request. */
+/* Returns false when no row carries `id`, which `shell` turns into a message
+   rather than booting a world that ignored the request. */
 export function apply(id) {
   const row = SCENARIO[id];
   if (!row) return false;
@@ -71,12 +58,9 @@ export function apply(id) {
   for (const [god, n] of Object.entries(row.favour || {})) rw.favour(god, n);
   for (const g of row.give || []) rw.collect(S[g.sub], F[g.form], g.n);
 
-  /* THE DIRECTOR ARMS THE CYCLE, NOT THIS FILE. Writing `run.cycle` and
-     clearing the live tribute is all a scenario is entitled to do: a tribute
-     record carries a demand, a deadline and a batch ledger, and building one
-     here would be `rules/cycles.js#ensureLiveCycle`'s decision made in two
-     places. Cleared rather than left alone because a cycle number with a
-     stale tribute beside it is the one state the director cannot reconcile. */
+  /* A scenario writes the cycle number and clears the live tribute; building
+     the tribute record itself is `rules/cycles.js#ensureLiveCycle`'s. A cycle
+     number beside a stale tribute is what the director cannot reconcile. */
   if (row.cycle !== undefined && row.cycle >= 1 && row.cycle <= CYCLES.length) {
     rw.cycle(row.cycle);
     rw.tribute(null);
@@ -85,13 +69,9 @@ export function apply(id) {
   return true;
 }
 
-/* coordinates
-   `dx` is tiles right of the SPAWN band's own `spawnTx`, and `dy` tiles below
-   the target band's own `floorTy`. One column datum across every band is only
-   sound because all three share a tile size;
-   `tools/content.mjs` asserts that rather than trusting it. The `??` fallbacks
-   are `shell/boot.js`'s own, so a band with no spawn column resolves the same
-   way there and here. */
+/* `dx` is tiles right of the spawn band's own `spawnTx`, `dy` tiles below the
+   target band's own `floorTy`; one column datum works across bands only
+   because they share a tile size. The `??` fallbacks match `shell/boot.js`. */
 const bandFor = (row, spec) => bandOf(spec.band ?? row.band);
 
 function txOf(spec) {
@@ -101,9 +81,8 @@ function txOf(spec) {
 
 const tyOf = (b, spec) => (b.cfg.floorTy ?? 0) + spec.dy;
 
-/* Every tile of one declared rect, plus the fog lifted off it: a diorama below
-   `shell/boot.js`'s own reveal depth would otherwise be applied into the dark,
-   and a developer cannot verify what they cannot see. */
+/* Every tile of one declared rect, revealing each as it goes: a diorama below
+   the boot reveal depth would otherwise be applied into the dark. */
 function rect(row, r, fn) {
   const b = bandFor(row, r);
   const tx0 = txOf(r), ty0 = tyOf(b, r);
@@ -122,10 +101,8 @@ function place(row, spec) {
   const m = mw.place(b, M[spec.id], tx, ty);
 
   for (const e of spec.buf || []) mw.take(m, S[e.sub], F[e.form], e.n);
-  /* Honest fuel, banked: a
-     belt spends one charge per item it delivers off its end, so a scenario
-     that only filled the fuel buffer would sit still for the six seconds the
-     first charge takes to burn. */
+  /* A belt spends one charge per item delivered off its end, so a scenario
+     that filled only the fuel buffer would sit still until the first burned. */
   if (spec.charges) mw.charge(m, spec.charges);
 
   /* The footprint and one row past it, so a machine standing in fresh carve
@@ -136,11 +113,8 @@ function place(row, spec) {
   return m;
 }
 
-/* ONE SEGMENT, CHECKED. `linkCheck` is the one decision and this is its third
-   reader after `rules/placement.js#linkSegment` and the cable ghost;
-   the reach half is proved
-   at build time, so a refusal here is always about the live path between two
-   hubs and is worth saying out loud. */
+/* `linkCheck`'s reach half is proved at build time, so a refusal here is
+   always about the live path between the two hubs. */
 function link(a, b) {
   if (!a || !b) return;
   const check = linkCheck(a, b);

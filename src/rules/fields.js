@@ -1,30 +1,21 @@
-/* LAYER rules — THE FIELD STEP. Decay and deactivation, over the active set
-   only. Imports `data`, `model`. Imports no other `rules` module.
+/* rules layer — decays each field's active cells and drops the cold ones from
+   the active set. There is no transport or diffusion solver.
 
-   DIFFUSION IS DELIBERATELY NOT IMPLEMENTED. This is a seam, not a solver.
-   What is real: the storage, the active set, the emission path from
-   `rules/machines.js`, the recipe gate that reads a value, and the overlay that
-   draws one. What is absent is transport, and a solver would go inside the one
-   loop below.
-
-   It does not touch `b.ver`. Field writes must never invalidate chunk paint:
-   those canvases cache static rock, and a heat front would re-cache them every
-   frame. Fields draw as a viewport-culled overlay in `view/scene.js`. */
+   Never touches `b.ver`: chunk canvases cache static rock, and invalidating
+   them on a field write would re-paint every one every frame. Fields draw as
+   a viewport-culled overlay in `view/scene.js`. */
 
 import { FIELDS } from '../data/world.js';
 import { activeOf, hasField, valuesOf, write as fw } from '../model/fields.js';
 import { eff } from '../model/mods.js';
 import { bands } from '../model/world.js';
 
-/* Below this a cell is indistinguishable from cold and leaves the active set.
-   Without it the set only ever grows and the "empty world costs nothing"
-   property is a lie. */
+/* Below this a cell counts as cold and leaves the active set, which is the
+   only thing that keeps the set from growing monotonically. */
 const EPS = 0.01;
 
-/* Field name -> the tunable that governs its decay. A field with no entry does
-   not decay, which is how a permanent field would be declared. Named rather
-   than derived so that adding a field to `data/world.js` and forgetting to
-   decay it is visible here rather than silent. */
+/* Field name -> its decay tunable. Names come from `data/world.js#FIELDS`; a
+   field with no entry here never decays. */
 const DECAY = { heat: 'heatDecay' };
 
 export function step(dt) {
@@ -36,9 +27,8 @@ export function step(dt) {
       const v = valuesOf(b, name);
       const loss = eff(key) * dt;
 
-      /* Iterating a Set while `deactivate` deletes from it is safe in JS: a
-         deleted entry not yet visited is simply not visited. Collecting the
-         doomed indices into an array first would allocate every frame. */
+      /* Deleting from a Set mid-iteration is safe: an unvisited deleted entry
+         is skipped. Collecting the indices first would allocate every frame. */
       for (const i of activeOf(b, name)) {
         const next = v[i] - loss;
         fw.set(b, name, i, next > 0 ? next : 0);

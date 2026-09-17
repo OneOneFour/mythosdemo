@@ -1,20 +1,14 @@
-/* LAYER core — the drawing surface and the viewport. Depends on nothing.
+/* core layer — the drawing surface and the viewport. Depends on nothing.
+   The canvas is not looked up at import: `stage` is mutated by `attach()`, and
+   a headless caller leaves `stage.cv` and `stage.ctx` null. */
 
-   The world has its own fixed coordinate space and the canvas is only a
-   window onto it, so resizing changes VIEW and never the world.
-
-   The canvas is not looked up at module load. `stage` is an object mutated by
-   `attach()`, which also lets a headless tool run the whole stack with
-   `stage.ctx === null` instead of stubbing `document` globally. */
-
-/* Base resolution in world pixels. `w`/`h` are how much world is visible;
-   `scale` is the nearest-neighbour upscale factor applied by CSS. */
+/* `w`/`h` are the visible world extent in world px; `scale` is the
+   nearest-neighbour upscale CSS applies. */
 export const VIEW = { w: 320, h: 180, scale: 3 };
 
 export const stage = { cv: null, ctx: null };
 
-/* Call once from `shell/boot.js`. With no argument it finds `#stage` if there
-   is a document, and stays null if there is not. */
+/* `#stage` is the canvas id in `index.html`; stays null with no document. */
 export function attach(cv) {
   if (!cv && typeof document !== 'undefined') cv = document.getElementById('stage');
   stage.cv = cv || null;
@@ -23,9 +17,8 @@ export function attach(cv) {
   return stage.ctx;
 }
 
-/* The narrowest base buffer any widget must stay legible at. Every HUD panel
-   clamps to `VIEW.w`, so this is the width that decides whether a layout fits
-   at all, and the harness asserts the content still does. */
+/* Floor for `VIEW.w`: the narrowest base buffer a HUD layout must stay
+   legible at, since every panel clamps to `VIEW.w`. */
 export const BASE_W_MIN = 200;
 
 export function resize(iw, ih) {
@@ -43,9 +36,8 @@ export function resize(iw, ih) {
   return VIEW;
 }
 
-/* Offscreen surfaces: one per painted chunk, plus sprite sheets. Returns
-   `{ canvas: null, g: null }` headless rather than throwing, so the model and
-   rules layers can be exercised with no DOM at all. */
+/* One surface per painted chunk, plus sprite sheets. Returns nulls with no
+   document rather than throwing. */
 export function offscreen(w, h) {
   if (typeof document === 'undefined') return { canvas: null, g: null };
   const c = document.createElement('canvas');

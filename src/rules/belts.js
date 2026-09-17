@@ -1,35 +1,13 @@
-/* LAYER rules — BELTS: fuel-powered horizontal relocation. Imports `core`,
-   `data`, `model`, and no other `rules` module.
-
-   A BELT IS NOT A RECIPE-DRIVEN MACHINE. Those turn inputs into outputs; a
-   belt turns a POSITION into a later position with no substance or form
-   change. The generic interpreter has no `out` clause shaped like "keep
-   whatever this was, moving sideways", and should not grow one for a single
-   mechanic -- so this file exists instead of a new interpreter key.
-
-   THE MECHANISM IS `rules/drive.js#haul()` WITH ONE AXIS TAKEN AWAY.
-   Machines are not solid, so an item resting inside a belt's footprint rests
-   on the actual floor beneath it, at exactly the height `haul()` grabs a
-   resting item off a carrier at.
-
-   POWER IS A BANKED CHARGE, AND THIS IS THE ONLY MOVER THAT USES ONE. It only
-   ever SPENDS one, exactly one per item delivered off the end, and cannot
-   tell a charge bought with timber from any other. Whether a belt should take
-   drivetrain torque instead is named and deliberately not built.
-
-   DELIBERATELY RARE: flat cheap horizontal logistics is the thing this
-   project is not, so a belt is priced in plate and gated on running fuel
-   besides. */
+/* rules layer — belts drag resting items along their declared axis, spending one
+   banked charge per item delivered off the end. Position only — no substance or
+   form change. */
 
 import { defOf, machines, write as mw } from '../model/machines.js';
 import { itemsIn, write as iw } from '../model/items.js';
 import { eff } from '../model/mods.js';
 
-/* Vertical slack, in px, around the floor line a resting item settles at —
-   the belt's box is exactly one tile tall standing on solid ground, so a
-   resting item's centre sits within a couple of pixels of the box's own
-   bottom edge. Mirrors `model/segments.js#CARRIER_GRAB`'s slack idiom, sized to
-   straddle every item's half-size (up to 2 px) plus a little settling slop. */
+/* Vertical slack in px around the floor line a resting item settles at, sized
+   to straddle every item's half-size (up to 2 px) plus settling slop. */
 const GRAB = 4;
 
 const groundBox = m => ({
@@ -43,11 +21,8 @@ export function step(dt) {
   }
 }
 
-/* Drag every RESTING item within the belt's footprint toward its declared
-   direction. An item mid-fall (`it.rest === 0`) is not this file's business —
-   it is still `rules/items.js`'s, exactly as it would be over open air, which
-   is what lets a belt sit directly under a vein without swallowing the drop
-   before it has even landed. */
+/* Drag every resting item in the belt's footprint toward `def.belt.dir`. An
+   item mid-fall (`it.rest === 0`) stays `rules/items.js`'s. */
 function drag(m, def, dt) {
   const dir = def.belt.dir;
   const dx = dir * eff('beltSpeed') * dt;
@@ -63,23 +38,17 @@ function drag(m, def, dt) {
     if (!reached) continue;
 
     it.x = edge;
-    /* Backpressure, not a bug: no charge left THIS frame to pay for delivery, so
-       the item piles at the lip instead of resuming its fall. Whatever fuel
-       arrives next frame moves it again. */
+    /* No charge left to pay for delivery: the item piles at the lip rather
+       than resuming its fall, and moves again once fuel arrives. */
     if (m.charges <= 0) continue;
 
     it.vx = 0;
-    it.rest = 0;                 // resumes falling off the end, same as any
-                                  // other item whose support just went away
+    it.rest = 0;
     mw.spendCharge(m, 1);
   }
 
-  /* Re-index NOW, not only at the end of `rules/items.js#step` (which already
-     ran this frame, before this file moved anything). This is the whole of
-     why `shell/schedule.js` places `belts` before `machines`: an item just
-     dragged into a neighbouring machine's mouth has to be found by THAT
-     machine's catch box this same frame, and a catch box queries the grid
-     `rules/items.js` last rebuilt — stale by exactly the distance this
-     function just moved things, without this call. */
+  /* `rules/items.js#step` already rebuilt the item grid this substep, before
+     anything moved here, and a machine catch box queries that grid. Re-index
+     so an item dragged into a mouth is found on this same substep. */
   if (moved) iw.reindex();
 }

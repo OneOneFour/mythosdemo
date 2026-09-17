@@ -1,17 +1,9 @@
-/* LAYER model — the journal. NOTIFICATION FLOWS DOWNWARD, AS DATA. Imports
-   `model`; `shell/notify.js` is the drain.
+/* model layer — a queue of facts `rules` pushes and `shell/notify.js` drains
+   once a frame.
 
-   `rules` never calls `play()` or `toast()`. It pushes a row here and `shell`
-   drains it once a frame, and `drain()` warns when the queue has grown past a
-   frame's worth of plausible events.
-
-   A JOURNAL ROW IS A FACT, NOT AN INSTRUCTION. `kind` is a bare string, `at`
-   is world px or null, `data` is whatever the consumer needs. Deliberately
-   UNTYPED: the moment a row says "play this sound", the queue has become a
-   call stack with extra steps.
-
-   A kind with no entry in `data/sfx.js` is silent on purpose -- not every
-   fact is audible. */
+   `kind` is a bare string, `at` is world px or null, `data` is whatever the
+   consumer needs. A row is a fact and never an instruction, and a kind with no
+   entry in `data/sfx.js` is silent. */
 
 import { bump } from './epoch.js';
 
@@ -35,6 +27,5 @@ export const write = {
   clear() { journal.length = 0; bump(); }
 };
 
-/* Non-destructive read, for a debug overlay and for the check tool. Draining
-   twice is the bug this exists to avoid. */
+/* Non-destructive read, for a debug overlay and the check tool. */
 export const peek = () => journal.slice();

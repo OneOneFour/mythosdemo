@@ -1,23 +1,15 @@
-/* LAYER view — THE MAP OVERVIEW. Imports `core`, `data` and READ-ONLY `model`
-   queries, plus same-layer `view/ui/` primitives. No `rules`, no `shell`.
+/* view layer — the map overview. It may never draw an unseen tile: an
+   unrevealed tile draws nothing, the void fill shows through, and every layer
+   filters the same way.
 
-   THE INVARIANT: THIS MAY NEVER DRAW AN UNSEEN TILE. It is a map assembled
-   from memory, not an X-ray. An unrevealed tile draws NOTHING and the void
-   fill shows through, and every layer filters the same way. Worldgen spends
-   real effort making hollows discoveries.
-
-   The default scale fits the world's WIDTH and the vertical axis scrolls,
-   because no one scale shows a 1024x3328 world whole and is also legible.
-   Zoom is an INTEGER number of screen pixels per band tile, never a
-   continuous factor, so a tile's map cell is always a whole number of pixels
-   wide. One screen pixel per tile is a FLOOR rather than a fallback: below it
-   a pixel covers several tiles and has to either drop a one-tile shaft the
-   player dug or sample a tile they have never seen.
+   The default scale fits the world's width and the vertical axis scrolls. Zoom
+   is an integer number of screen pixels per band tile, never a continuous
+   factor, with one pixel per tile as a floor: below that a pixel covers several
+   tiles and must either drop a one-tile shaft or sample a tile never seen.
 
    It reads the tile grid rather than downscaling the baked chunk canvases,
-   because `view/paint.js#paintChunk` is FOG-BLIND -- it paints true material
-   regardless of `seenAt` -- and because `chunkCanvas` BAKES on any call, so
-   reaching for the whole world would cold-bake all 216 chunks. */
+   because `view/paint.js#paintChunk` paints true material regardless of
+   `seenAt`, and because `chunkCanvas` bakes on any call. */
 
 import { drawText, textWidth } from '../core/font.js';
 import { mix } from '../core/palette.js';
@@ -44,66 +36,49 @@ import { drawTooltip } from './ui/tooltip.js';
 const INK = {
   void:  colour('abyC'),
   ui:    colour('ui'),
-  /* `ink2` is the SECONDARY BODY tone and `dim` is the STATE tone. Two of the
-     ten greys the HUD distinguishes are in this file and both keep `dim`:
-     FOLLOW's off reading in the header and a layer toggled off in the legend.
-     `dim` is also the geometry tone for the chain bracket's own rules, which
-     are lines and not text. */
+  /* `ink2` is the secondary body tone and `dim` the state tone -- and also the
+     geometry tone for the chain bracket's own rules, which are lines, not text. */
   ink2:  colour('uiInk2'),
   dim:   colour('uiDim'),
   back:  colour('uiBack'),
-  /* The player's own marker. `ichor` is the divine-gold this codebase already
-     uses for anything meant to read as "special, look here", reused rather
-     than invented, and it reads against soil, stone and abyssal rock alike --
-     none of which are gold. */
+  /* The player's own marker, in the divine-gold this codebase uses for anything
+     meant to read as "look here". */
   mark:  colour('ichor'),
-  /* The same three state colours `view/ui/mainPanel.js`'s LOGISTICS tab already
-     uses, by the same palette names, so a machine that reads STALLED in the tab
-     is the same amber on the map. */
+  /* The same three state colours `view/ui/mainPanel.js`'s logistics tab uses, by
+     the same palette names. */
   good:  colour('uiGood'),
   warn:  colour('uiAmber'),
   bad:   colour('uiHeart')
 };
 
-/* SCREEN PIXELS PER SMALLEST BAND TILE. Integers only, and powers of two so
-   that a band whose `tile` is a multiple of the smallest still lands on whole
-   pixels: at level 4 an 8 px tile is a 4 px cell exactly, never 4.33.
-   `data/world.js` allows bands to disagree about `tile` (all three currently
-   agree on 8); a band whose tile is NOT a multiple of the smallest rounds its
-   cell size, which is the same rounding `drawMap` already did and the only
-   case where a cell edge can land a pixel out. */
+/* Screen pixels per smallest band tile: integers, and powers of two so a band
+   whose `tile` is a multiple of the smallest lands on whole pixels -- at level 4
+   an 8 px tile is a 4 px cell. A non-multiple rounds, a pixel out at worst. */
 export const MAP_ZOOM = Object.freeze([1, 2, 4, 8]);
 
 /* The right edge the band ruler owns, and the top strip the header owns. Both
-   are subtracted from the map BODY rather than drawn over it, so an edge
-   indicator pinned to the body's top edge is not hidden underneath the header
-   -- which is exactly what happened the first time this was drawn. */
+   are subtracted from the map body rather than drawn over it, so an indicator
+   pinned to the body's top edge is not hidden underneath the header. */
 const RULER_GAP = 4;
 const HEADER_H = 12;
 
-/* WHAT THE LAST DRAW ACTUALLY USED. The `view/paint.js#stats` /
-   `view/hud.js#hoverInfo` idiom: `view`'s own scratch space for what it drew,
-   read back by `shell`'s pointer dispatcher (which has to invert this exact
-   transform to turn a drag into a scroll) and by the test hook. Never read by
-   another module's LOGIC, and nothing here calls `model/epoch.js#bump`. */
+/* What the last draw actually used: `view`'s own scratch space, read back by
+   `shell`'s pointer dispatcher, which has to invert this exact transform, and by
+   the test hook. Nothing here bumps `model/epoch.js`. */
 export const mapView = {
   active: false,
   zoom: 0, scale: 0,
   /* world px at the map viewport's top-left corner */
   wx: 0, wy: 0,
-  /* the map viewport in SCREEN px, which is the canvas minus the band ruler */
+  /* the map viewport in screen px, which is the canvas minus the band ruler */
   vx: 0, vy: 0, vw: 0, vh: 0,
   /* the band union, the same one `shell/main.js#clampCam` reads */
   left: 0, top: 0, worldW: 0, worldH: 0
 };
 
-/* THE BAND UNION, and it is deliberately the SAME reading
-   `shell/main.js#clampCam` takes: `bands[0]` is the top and the LAST band is
-   the bottom, because `data/world.js` declares them top-to-bottom with each
-   `origin.y` equal to the previous band's bottom edge. Two functions that
-   clamp against "the world" must not disagree about where its edges are.
-   The horizontal extent is a min/max over every band, because bands differ in
-   width and in inset (`astral` starts at x:128 today). */
+/* The band union, the same reading `shell/main.js#clampCam` takes: `bands[0]` is
+   the top and the last band the bottom, since `data/world.js` declares them
+   top-to-bottom. The horizontal extent is a min/max: bands differ in inset. */
 function unionBox() {
   const top = bands[0].origin.y;
   const last = bands[bands.length - 1];
@@ -114,30 +89,25 @@ function unionBox() {
 
 const minTile = () => Math.min(...bands.map(b => b.tile));
 
-/* The largest level whose world fits the viewport WIDTH, as closely as an
-   integer scale permits, and the SMALLEST level when nothing fits. The map is
-   then depth-complete and width-windowed: the clamp below keeps the window
-   inside the world and `extentRibbon` says which part you are looking at. */
+/* The largest level whose world fits the viewport width, as closely as an
+   integer scale permits, and the smallest level when nothing fits. The map is
+   then depth-complete and width-windowed. */
 export function defaultZoom(vw, box = unionBox(), T = minTile()) {
   let best = MAP_ZOOM[0];
   for (const k of MAP_ZOOM) if ((box.w * k) / T <= vw) best = k;
   return best;
 }
 
-/* One axis of the offset, in WORLD px, given the room available. Mirrors
-   `clampCam`'s own two-case shape exactly: clamp to the world edges when the
-   world is bigger than the room, CENTRE when it is smaller -- a band narrower
-   than the viewport centring rather than pinning to a corner is what a
-   96-tile astral platform on a wide monitor needs, and the same is true of a
-   whole world zoomed all the way out. */
+/* One axis of the offset, in world px, given the room available. Mirrors
+   `clampCam`: clamp to the world edges when the world is bigger than the room,
+   centre it when it is smaller. */
 function fit(want, lo, worldSpan, roomSpan) {
   if (worldSpan <= roomSpan) return lo - (roomSpan - worldSpan) / 2;
   return Math.max(lo, Math.min(want, lo + worldSpan - roomSpan));
 }
 
-/* THE TRANSFORM, derived fresh every frame and recorded in `mapView`. `m` is
-   `f.ui.map`, handed over on the frame context because `view` may not import
-   `shell`. */
+/* The transform, derived fresh every frame and recorded in `mapView`. `m` is
+   `f.ui.map`, handed over on the frame context. */
 function transform(f) {
   const box = unionBox();
   const T = minTile();
@@ -148,10 +118,9 @@ function transform(f) {
   const zoom = m.zoom || defaultZoom(vw, box, T);
   const scale = zoom / T;
 
-  /* FOLLOW PLAYER centres on the player and then clamps; a manual scroll turns
-     the toggle off (`shell/ui.js#mapScroll`) and the stored offset is used
-     instead. Both paths go through the same clamp, so neither can leave the
-     world. */
+  /* Follow centres on the player and then clamps; a manual scroll turns the
+     toggle off and the stored offset is used instead. Both paths go through the
+     same clamp, so neither can leave the world. */
   const roomW = vw / scale, roomH = vh / scale;
   let wantX = m.x, wantY = m.y;
   if (m.follow && player.band) {
@@ -176,11 +145,9 @@ function transform(f) {
 const sxOf = (v, wx) => (v.vx + (wx - v.wx) * v.scale) | 0;
 const syOf = (v, wy) => (v.vy + (wy - v.wy) * v.scale) | 0;
 
-/* THE CLAMP, EXPOSED: the same `fit` over the same `unionBox` the transform
-   uses, so `shell` needs no copy. `shell/input.js` needs it because
-   `ui.map.x/y` is stored UNCLAMPED, and a pan therefore seeds from the clamped
-   position and adds its delta to that. Before the first draw there is no
-   transform to clamp against and the offset returns unchanged. */
+/* The clamp, exposed: the same `fit` over the same `unionBox` the transform
+   uses. `ui.map.x/y` is stored unclamped, so a pan seeds from the clamped
+   position; before the first draw the offset returns unchanged. */
 export function mapClamp(x, y) {
   if (!mapView.active || !(mapView.scale > 0)) return { x, y };
   const box = unionBox();
@@ -190,23 +157,20 @@ export function mapClamp(x, y) {
   };
 }
 
-/* And back again, for `shell`'s drag-to-scroll and hover. Exported because
-   the pointer dispatcher lives in `shell` and must invert exactly this. */
+/* And back again, for `shell`'s drag-to-scroll and hover: the pointer
+   dispatcher must invert exactly this. */
 export const mapWorldAt = (sx, sy) => ({
   x: mapView.wx + (sx - mapView.vx) / mapView.scale,
   y: mapView.wy + (sy - mapView.vy) / mapView.scale
 });
 
-/* the frame
-   `flags.showMap` freezes the run (`shell/main.js#step()` no-ops while it is
-   true) and swaps this in for the whole normal draw: no sky, no machines, no
-   items, no walking sprite, no field glow, no HUD. The map is a full
-   SUBSTITUTE frame, not an overlay. */
+/* `flags.showMap` freezes the run and swaps this in for the whole normal draw:
+   no sky, no machines, no items, no walking sprite, no HUD. A full substitute
+   frame rather than an overlay. */
 export function drawOverview(g, f) {
-  /* The widget layer's scratch space is rebuilt once per frame by whatever
-     assembles a frame of panels. `view/hud.js#drawHUD` does it on the normal
-     path and does not run here, so this pass owns it -- without this the
-     recorded rects would accumulate for as long as the map stayed open. */
+  /* This pass owns the widget layer's scratch space: `view/hud.js#drawHUD` does
+     not run here, and the recorded rects would otherwise accumulate for as long
+     as the map stayed open. */
   resetDrawn();
 
   const v = transform(f);
@@ -224,19 +188,13 @@ export function drawOverview(g, f) {
 
   header(g, f, v);
   legend(g, f);
-  /* THE HOVER PASSES DRAW LAST, over the ruler and the legend both, because a
-     tooltip is the one thing in a frame that is allowed to cover anything. */
+  /* The hover passes draw last, over the ruler and the legend both. */
   hoverPass(g, f, v);
 }
 
-/* Fog rules here as it does in play: an unrevealed tile draws NOTHING and the
-   void fill shows through, by omission rather than an opaque rect since there
-   is no terrain underneath to cover. A revealed AIR tile also draws nothing,
-   because `VOID_SUB` has no `look.base`.
-
-   ROW-RUN COALESCED: one wide rect per contiguous run of one colour. `tx <=
-   tx1` walks one sentinel column past the visible edge, so a run still open at
-   the screen edge flushes without a second copy of the flush logic. */
+/* Fog rules here as in play: an unrevealed tile draws nothing and the void shows
+   through, and a revealed AIR tile draws nothing either. Row-run coalesced, with
+   `tx <= tx1` walking a sentinel column past the edge so an open run flushes. */
 function drawTerrain(g, v) {
   for (const b of bands) {
     const T = b.tile;
@@ -261,13 +219,9 @@ function drawTerrain(g, v) {
   }
 }
 
-/* What a tile byte paints, resolved once per byte: terrain colour or null,
-   whether the substance is ore, and the ORE layer's mark colour.
-
-   Keyed on the PACKED BYTE, of which there are 256, so this is a complete memo
-   rather than a cache with a policy -- one array index in place of a `rowOf`
-   plus a `tags.includes` plus a guarded `colour()` per tile. Never
-   invalidated, because every input is a frozen `data/` row. */
+/* What a tile byte paints, resolved once per byte. Keyed on the packed byte, of
+   which there are 256, so this is a complete memo rather than a cache with a
+   policy, and never invalidated: every input is a frozen `data/` row. */
 const byteInk = Array.from({ length: 256 });
 
 function inkOf(byte) {
@@ -286,14 +240,9 @@ function inkOf(byte) {
 const cellColour = (b, tx, ty) =>
   seenAt(b, tx, ty) ? inkOf(tileAt(b, tx, ty)).base : null;
 
-/* THE METADATA LAYERS. The order they DRAW in is fixed here; the order they
-   are LISTED in, for the legend and the digit keys, is `ui.map.layers`' own key
-   order. Shading must go under the markers it shades, but a legend wants a
-   stable list.
-
-   EVERY LAYER FILTERS ON `seenAt`, per DRAWN THING rather than once at the top,
-   because each layer's unit differs: a tile for ore, a footprint for a machine,
-   a resting position for a pile, BOTH anchors for a segment. */
+/* The order these draw in is fixed here; the order they are listed in, for the
+   legend and the digit keys, is `ui.map.layers`' own key order. Every layer
+   filters on `seenAt` per drawn thing, because each layer's unit differs. */
 
 function drawLayers(g, v, f) {
   const L = f.ui.map.layers;
@@ -304,15 +253,9 @@ function drawLayers(g, v, f) {
   if (L.chain) drawChain(g, v);
 }
 
-/* LIGHT. Which shafts are unlit, from `b.light`. Two alpha steps rather than
-   the three `drawDarkness` uses in play, because at four screen pixels per tile
-   the middle two were indistinguishable.
-
-   SHADED, NOT MARKED, which is why it is the one layer that starts OFF: it
-   changes how every other layer reads. ONLY OVER SEEN TILES -- painting
-   darkness over the void would draw the SHAPE of an unexplored hollow, which is
-   the cheat this mode exists to prevent. The ceiling is `eff('lightMax')`, the
-   same reading `drawDarkness` takes. */
+/* Light: which shafts are unlit, from `b.light`. Two alpha steps rather than the
+   three `drawDarkness` uses, because at four screen pixels per tile the middle
+   two are indistinguishable. Only over seen tiles, or the void takes a shape. */
 function drawLight(g, v) {
   const max = Math.max(1, eff('lightMax'));
   for (const b of bands) {
@@ -339,20 +282,16 @@ function drawLight(g, v) {
 }
 
 /* 0 for "leave it alone", otherwise the alpha of the shade over it. Unseen and
-   unlit are DIFFERENT ANSWERS and both are 0 here: unseen because the tile is
-   not ours to talk about, and fully lit because there is nothing to say. */
+   fully lit are different answers and both are 0 here. */
 function darkStep(b, tx, ty, max) {
   if (!seenAt(b, tx, ty)) return 0;
   const l = lightAt(b, tx, ty) / max;
   return l >= 0.6 ? 0 : l >= 0.2 ? 0.3 : 0.62;
 }
 
-/* ORE. Seen ore only, and "ore" is a TAG rather than a substance name: a tile
-   whose substance is tagged `metal`, which today is copper, tin and adamant.
-
-   MARKED AT A FLOOR OF TWO PIXELS even at zoom level 1, where a tile is one
-   pixel. A layer invisible at the zoom you use to see the whole world has no
-   purpose, and the small bleed onto a neighbouring cell is the cost. */
+/* Ore, taken from the `metal` tag rather than any substance name. Marked at a
+   floor of two pixels even at zoom level 1, where a tile is one pixel; the small
+   bleed onto a neighbouring cell is the cost. */
 function drawOre(g, v) {
   for (const b of bands) {
     const T = b.tile;
@@ -371,13 +310,9 @@ function drawOre(g, v) {
   }
 }
 
-/* PILES. Dropped material bucketed BY TILE, drawn only where the count reaches
-   a threshold: the question is "where did I leave a heap", not "where is every
-   ingot", and at four pixels per tile a dozen items is one blob anyway.
-
-   `items` is not indexed by band and the spatial grid answers "near this point"
-   rather than "in this rect", so this walks the array -- a few hundred entries
-   at worst, the same order `drawItems` walks every frame in play. */
+/* Piles: dropped material bucketed by tile, drawn only where the count reaches a
+   threshold. `items` is not indexed by band and the spatial grid answers "near
+   this point" rather than "in this rect", so this walks the array. */
 const PILE_MIN = 3;
 
 function drawPiles(g, v) {
@@ -401,10 +336,8 @@ function drawPiles(g, v) {
     R(g, x, y, cell, cell, INK.back);
     R(g, x, y, cell, 1, INK.ui);
     /* The count, when there is room beside the marker -- a number over a 3 px
-       block is a smudge. On its OWN backing rect, because the count sits
-       beside the marker rather than inside it, so the block above backs the
-       marker and not the digits. A backing rect rather than a text shadow,
-       because the marker is backed the same way. */
+       block is a smudge. On its own backing rect, since the count sits beside
+       the marker rather than inside it. */
     if (cell >= 4) {
       const s = String(p.n), tw = textWidth(s);
       g.globalAlpha = 0.72; R(g, x + cell, y - 2, tw + 2, 9, INK.back); g.globalAlpha = 1;
@@ -413,15 +346,9 @@ function drawPiles(g, v) {
   }
 }
 
-/* MACHINES. One glyph each, coloured by state, and neither half is a copy:
-     the glyph  `def.glyph`, one character on the `data/machines.js` row. No
-                machine name appears here.
-     the state  `view/ui/mainPanel.js#machineState`, the LOGISTICS tab's own
-                query, imported rather than reimplemented, so a machine reading
-                STALLED in the tab is the same amber on the map.
-   Centred on the footprint over a backing block, because a 5x7 character on
-   mottled rock is unreadable. Below about six pixels of footprint the glyph is
-   dropped and the block alone carries the state colour. */
+/* Machines: one glyph each, `def.glyph` off the `data/machines.js` row, coloured
+   by `view/ui/mainPanel.js#machineState` rather than a second query. Below about
+   six pixels of footprint the glyph drops and the block carries the state. */
 function drawMachines(g, v) {
   for (const m of machines) {
     if (!seenAt(m.band, m.tx, m.ty)) continue;
@@ -439,16 +366,9 @@ function drawMachines(g, v) {
   }
 }
 
-/* THE TWO HOVER LAYERS.
-   HOVER  a machine's tooltip: what it is, its state, its buffer, its charges.
-   BANDS  a per-band summary: depth range, seen fraction, machine and stalled
-          counts, ore seen, dark fraction.
-   One pointer, two answers, and the more specific wins -- a machine under the
-   cursor beats the band it sits in. Both go through `view/ui/tooltip.js`.
-
-   The pointer's screen position is `f.mouse.x - f.cam.x`, the same conversion
-   `view/hover.js#resolveHover` makes. The camera is frozen and rounded by the
-   time this runs, so the subtraction is exact. */
+/* Two hover layers -- a machine's tooltip and a per-band summary -- of which the
+   more specific wins. The pointer's screen position is `f.mouse.x - f.cam.x`,
+   exact because the camera is frozen and rounded by the time this runs. */
 
 function hoverPass(g, f, v) {
   if (!f.mouse?.has) return;
@@ -465,13 +385,9 @@ function hoverPass(g, f, v) {
   }
 }
 
-/* HIT-TESTED IN SCREEN SPACE, against the same rect `drawMachines` drew -- floor
-   included -- rather than by converting the pointer to a world tile and asking
-   `machineAt`. What you can SEE is what you can hover: a 2x2 gear is four screen
-   pixels at zoom 1 and a world-space test would demand the player hit one of
-   them exactly, while the marker on screen is deliberately bigger than that. One
-   pixel of pad, for the same reason the world hover gives a falling item half a
-   tile of slack. */
+/* Hit-tested in screen space against the same rect `drawMachines` drew, rather
+   than by converting the pointer to a world tile: a 2x2 gear is four screen
+   pixels at zoom 1 and the marker is deliberately bigger. One pixel of pad. */
 function machineAtScreen(v, sx, sy) {
   for (const m of machines) {
     if (!seenAt(m.band, m.tx, m.ty)) continue;
@@ -484,11 +400,8 @@ function machineAtScreen(v, sx, sy) {
 }
 
 /* Buffer contents and fuel charges, both off the machine record. `m.buf` is
-   keyed by the one pair string `model/items.js#keyOf` builds, so `parseKey` +
-   `shortLabelOf` turns a buffer into rows without this file knowing a single
-   substance name (SPEC 12). CHARGES is only shown when there are some: a row
-   reading `CHARGES 0` on a furnace is noise, while its absence on a machine that
-   never banks any is correct. */
+   keyed by the pair string `model/items.js#keyOf` builds, so `parseKey` plus
+   `shortLabelOf` makes rows without naming a substance. */
 function machineTip(g, f, m, sx, sy) {
   const def = defOf(m);
   const st = machineState(m);
@@ -505,10 +418,9 @@ function machineTip(g, f, m, sx, sy) {
   });
 }
 
-/* Which band the pointer is over. TWO WAYS IN, one answer: over the ruler it is
-   whichever segment rect the ruler itself recorded (read back through its own
-   `wy0`/`wy1`, so the linear scale stays the ruler's business), and over the map
-   body it is the band containing the world point under the cursor. */
+/* Which band the pointer is over, two ways in: over the ruler, whichever segment
+   rect the ruler itself recorded, read back through its own `wy0`/`wy1`; over the
+   map body, the band containing the world point under the cursor. */
 function bandAtScreen(v, sx, sy) {
   for (const p of drawn.panels) {
     if (p.wy0 == null) continue;
@@ -522,13 +434,9 @@ function bandAtScreen(v, sx, sy) {
 const bandContaining = wy =>
   bands.find(b => wy >= b.origin.y && wy < b.origin.y + heightPx(b)) || null;
 
-/* A BAND'S SUMMARY IS A FULL SCAN of its `seen` and `light` arrays -- 40,960
-   tiles for the topsoil band -- so it is CACHED BY MUTATION EPOCH. `epoch.n`
-   moves on every `model` write and nothing here writes, so the cache is exact
-   rather than heuristic; the map freezes the run, which means the scan happens
-   once per band per time the map is opened rather than once per frame. A WeakMap
-   keyed by the band record also means a `newRun()`'s fresh records invalidate it
-   with no reset call, the same trick `view/ui/ruler.js#bandKnown` uses. */
+/* A band's summary is a full scan of its `seen` and `light` arrays -- 40,960
+   tiles for topsoil -- cached by mutation epoch. Nothing here writes, so the
+   cache is exact; a `WeakMap` lets a new run's fresh records invalidate it. */
 const bandStats = new WeakMap();
 
 function statsOf(b) {
@@ -564,12 +472,9 @@ function bandTip(g, f, b, sx, sy) {
   drawTooltip(g, {
     sections: [
       [roman(b.ord) + '  ' + masked(b.name, known)],
-      /* NOTHING HERE IS WITHHELD BEHIND THE MASK BECAUSE NOTHING HERE CAN LEAK:
-         every figure is over tiles the player has already SEEN, so an unentered
-         band reports 0% seen, no ore and no machines -- which is a statement
-         about the player's own knowledge, not about the band. The depth range is
-         the band's position in the world, which the ruler beside this tooltip is
-         already drawing to scale. */
+      /* Nothing here is withheld behind the mask because nothing here can leak:
+         every figure is over tiles the player has already seen, so an unentered
+         band reports 0% seen, no ore and no machines. */
       ['DEPTH ' + depthText(top) + ' - ' + depthText(bot),
        'SEEN  ' + pc(s.seen, s.total),
        'DARK  ' + pc(s.dark, s.seen)],
@@ -580,14 +485,9 @@ function bandTip(g, f, b, sx, sy) {
   });
 }
 
-/* Which slice of the world's WIDTH the body is showing, as a scrollbar along
-   the bottom edge: a dim track the width of the world, a lit thumb the width
-   of the window. Drawn only when there is something to say, since a thumb
-   spanning its whole track has never been wrong.
-
-   Both rects carry their own world range in `wx0`/`wx1`, as the ruler records
-   `wy0`/`wy1`. NEITHER records a `wy0`, precisely so `bandAtScreen` and
-   `shell/input.js#mapRulerJump` cannot mistake a ribbon for a band. */
+/* Which slice of the world's width the body is showing, as a scrollbar along the
+   bottom edge. Both rects carry their world range in `wx0`/`wx1` and neither
+   records a `wy0`, so `bandAtScreen` cannot mistake a ribbon for a band. */
 const RIBBON_H = 2;
 
 function extentRibbon(g, v) {
@@ -607,9 +507,8 @@ function extentRibbon(g, v) {
                      wx0: v.wx, wx1: v.wx + room });
 }
 
-/* The visible tile window of one band, as `[tx0, tx1, ty0, ty1]`. Extracted
-   because four layers now need the identical cull and four copies of it is four
-   chances to get one of the four clamps wrong. */
+/* The visible tile window of one band, as `[tx0, tx1, ty0, ty1]`, shared by the
+   four layers that need the identical cull. */
 function tileWindow(b, v) {
   const T = b.tile;
   return [
@@ -632,31 +531,14 @@ function dashTo(g, x0, y0, x1, y1, col, on = 3, off = 3, thick = 1) {
   }
 }
 
-/* LIFT CHAIN. A chain is DERIVED, never stored: `model/segments.js#chains()`
-   and `#breaks()` are the queries and nothing is kept between frames.
-     the cable      `seg.ax/ay -> seg.bx/by`, so the ANGLE is the line itself
-     the two hubs   `seg.a` / `seg.b`, the machine records
-     the carrier    `carrierPos(seg)`
-     the break      `breaks()`, every hub anchoring exactly ONE segment, UNIONED
-                    with every hub anchoring NONE -- a lone hub is an open end,
-                    and `breaks()` only answers the question it is asked
-     the gap        a PAIR of open ends `linkCheck` says could be joined now.
-                    Which pair is worth drawing is this file's decision, and
-                    the answer is the ones the player could actually bridge, so
-                    the map cannot promise a cable the ghost would refuse.
-
-   A line cannot show a chain with both ends off-screen, so each chain also
-   gets a BRACKET down the left edge spanning its world-y extent.
-
-   UNPOWERED MEANS NOT TURNING NOW: `m.torque` is the drive delivered this
-   frame, and the only power question answerable without the drivetrain solve
-   `rules/drive.js` owns. Brokenness is red at the ENDS and nowhere else. */
+/* Lift chain, derived and never stored: `chains()` and `breaks()` are the
+   queries. An open end is a hub anchoring one segment or none; a gap is a pair
+   of open ends `linkCheck` would join now. `m.torque` is the drive this frame. */
 const HUB = 3;
 
 function drawChain(g, v) {
-  /* Derived ONCE per frame and passed down: three readers (the guard, the hub
-     pass, the gap pass) asking `breaks()` three times would be three walks of
-     the segment list for one answer that cannot change mid-draw. */
+  /* Derived once per frame and passed down: three readers asking `breaks()`
+     separately would walk the segment list three times for one answer. */
   const open = openHubs();
   if (!segments.length && !open.length) return;
 
@@ -675,11 +557,9 @@ function drawChain(g, v) {
     bracket(g, v, chain);
   }
 
-  /* THE HUBS LAST, over their own cables, so a hub is never half a cable wide.
-     A JOINED hub is a small solid pale box; an OPEN END is a red RING around a
-     dark centre -- the loud one is the one that means something is missing, and
-     an outline reads at 5 px where a second solid colour would just look like a
-     differently-coloured dot. */
+  /* The hubs last, over their own cables, so a hub is never half a cable wide. A
+     joined hub is a small solid pale box; an open end is a red ring around a
+     dark centre, which reads at 5 px where a second solid colour would not. */
   const openSet = new Set(open);
   for (const m of hubsPlaced()) {
     if (!hubSeen(m)) continue;
@@ -696,36 +576,29 @@ function drawChain(g, v) {
   gaps(g, v, open);
 }
 
-/* Every placed hub, and every hub that anchors 0 or 1 segments. Two small
-   filters over `model` queries rather than a cached list: `machines` is tens of
-   rows and a stale copy of it is the bug class `ui.linkFrom`'s own header warns
-   about. */
+/* Every placed hub, and every hub that anchors 0 or 1 segments. Filters over the
+   `model` queries rather than a cached list, which would go stale. */
 const hubsPlaced = () => machines.filter(isHub);
 const openHubs = () => [
   ...breaks(),
   ...hubsPlaced().filter(m => segmentsAt(m).length === 0)
 ];
 
-/* A machine sits in a tile the player revealed to place it, and `seen` is
-   permanent, so this is nearly always true. Checked anyway, because a future
-   machine arriving without the player beside it -- a god's gift, a pre-placed
-   ruin -- would otherwise quietly become the exception. */
+/* Nearly always true, since a machine sits in a tile the player revealed to
+   place it and `seen` is permanent. Checked anyway, for a machine that could
+   arrive without the player beside it. */
 const hubSeen = m => seenAt(m.band, m.tx, m.ty);
 
-/* THE GAP: a red dashed cable exactly where the missing one would go, drawn
-   between the two open ends `linkCheck` says could be joined. Both orderings of
-   a pair give the same answer (`linkCheck` is symmetric by construction), so the
-   inner loop starts past the outer one. O(k^2) over open ENDS, which is a
-   handful even in a world full of cable. */
+/* The gap: a red dashed cable exactly where the missing one would go. `linkCheck`
+   is symmetric, so the inner loop starts past the outer one; O(k^2) over open
+   ends, which is a handful even in a world full of cable. */
 function gaps(g, v, open) {
   for (let i = 0; i < open.length; i++) {
     for (let j = i + 1; j < open.length; j++) {
       const a = open[i], b = open[j];
       if (!hubSeen(a) || !hubSeen(b)) continue;
       if (!linkCheck(a, b).ok) continue;
-      /* TWO PIXELS WIDE, against the cable's one. The gap is supposed to be the
-         first thing you see, and colour alone is a weak signal on a map that is
-         already brown and grey -- doubling the stroke makes it the boldest line
+      /* Two pixels wide, against the cable's one, so the gap is the boldest line
          in the frame at every zoom level. */
       dashTo(g, sxOf(v, a.box.x + a.box.w / 2), syOf(v, a.box.y + a.box.h / 2),
              sxOf(v, b.box.x + b.box.w / 2), syOf(v, b.box.y + b.box.h / 2),
@@ -735,8 +608,7 @@ function gaps(g, v, open) {
 }
 
 /* One chain's vertical extent, as a bracket down the left edge of the map body
-   with its segment count beside it -- the answer to "how far does this thing
-   actually reach" for a chain whose ends are both scrolled off screen. */
+   with its segment count beside it, for a chain whose ends are both off screen. */
 function bracket(g, v, chain) {
   let lo = Infinity, hi = -Infinity;
   for (const seg of chain) {
@@ -749,11 +621,9 @@ function bracket(g, v, chain) {
   R(g, x, y0, 1, y1 - y0 + 1, INK.dim);
   R(g, x, y0, 3, 1, INK.dim);
   R(g, x, y1, 3, 1, INK.dim);
-  /* The count on its own backing rect, and on the secondary body tone rather
-     than the state tone: the number of segments in a chain is a quantity, not
-     a status. Same reasoning as the pile count in `drawItemPiles` -- there is
-     a 1 px bracket rule beside it and nothing behind it, and the rules
-     themselves stay on `dim` because they are geometry. */
+  /* The count on its own backing rect and on the secondary body tone: a segment
+     count is a quantity, not a status. The bracket rules themselves stay on
+     `dim`, because they are geometry. */
   const s = String(chain.length);
   if (y1 - y0 >= 10) {
     const ty = ((y0 + y1) >> 1) - 3;
@@ -762,13 +632,9 @@ function bracket(g, v, chain) {
   }
 }
 
-/* the player
-   ALWAYS DRAWN, EVEN OFF-SCREEN. A map whose one "you are here" mark silently
-   vanishes the moment the view scrolls away from it is a map that cannot
-   answer the only question it is ever opened for. Inside the viewport it is a
-   fixed 3x3 (not scaled with the cell, which at zoom level 1 is one pixel and
-   as easy to lose as any other); outside it, a chevron pinned to the edge it
-   left through, at the player's own position along the other axis. */
+/* The player, always drawn, even off-screen: inside the viewport a fixed 3x3
+   rather than scaled with the cell, which is one pixel at zoom level 1; outside
+   it, a chevron pinned to the edge it left through. */
 function drawPlayerMark(g, v) {
   if (!player.band) return;
   const c = playerCentre();
@@ -779,10 +645,9 @@ function drawPlayerMark(g, v) {
     return;
   }
 
-  /* The edge indicator points along the axis the player actually left through.
-     Whichever axis they are further outside decides the direction, so a corner
-     reads as the axis that is more wrong, and the tip sits on the edge with
-     the arrow widening inward. */
+  /* Whichever axis the player is further outside decides the direction, so a
+     corner reads as the axis that is more wrong, and the tip sits on the edge
+     with the arrow widening inward. */
   const x = Math.max(v.vx + 3, Math.min(px, v.vx + v.vw - 4));
   const y = Math.max(v.vy + 3, Math.min(py, v.vy + v.vh - 4));
   const dx = px < v.vx ? -1 : px >= v.vx + v.vw ? 1 : 0;
@@ -796,42 +661,30 @@ function drawPlayerMark(g, v) {
   }
 }
 
-/* the header line
-   What the mode is and what the keys do, because a mode with hidden controls
-   is a mode nobody scrolls. Drawn with `drawText` and never `fillText`. */
+/* The header line: what the mode is and what the keys do. Drawn with `drawText`
+   and never `fillText`. */
 function header(g, f, v) {
   const bar = HEADER_H;
   R(g, 0, 0, f.W, bar, INK.back);
   R(g, 0, bar, f.W, 1, mix(INK.back, INK.dim, 0.6));
 
-  /* Laid out by MEASURING, never by hardcoded origins: each field starts where
-     the last ended, so a two-digit zoom pushes the rest along rather than
-     overlapping it. */
+  /* Laid out by measuring, never by hardcoded origins: each field starts where
+     the last ended, so a two-digit zoom pushes the rest along. */
   let x = 4;
   const put = (s, col) => { drawText(g, s, x, 2, col, 1, 1); x += textWidth(s) + 6; };
   put('OVERVIEW', INK.ui);
   put('X' + v.zoom, INK.ink2);
   /* FOLLOW is a state, so it is drawn as one: lit when on, dim when a manual
-     scroll has turned it off (`shell/ui.js#mapScroll` does that, once, for every
-     input path). */
+     scroll has turned it off. */
   put('FOLLOW', f.ui.map.follow ? INK.good : INK.dim);
-  /* 'F' is not spelled out as "F FOLLOW" here because the word FOLLOW is
-     already on this line as a STATE, two fields to the left, and one line
-     saying it twice reads as two different things. */
-  /* The key hints read as body text rather than a state, so `ink2`. FOLLOW two
-     fields left keeps `dim`, because there it IS the off reading of a toggle.
-     Both sit on the header's solid strip, so neither takes a shadow. */
+  /* The key hints read as body text rather than a state, so `ink2`, and they sit
+     on the header's solid strip, so neither takes a shadow. */
   put('WASD/DRAG SCROLL  -/+ ZOOM  F  1-9 LAYERS  O CLOSE', INK.ink2);
 }
 
-/* WHICH DIGIT TOGGLES WHICH LAYER IS NOT RESTATED HERE. The rows are
-   `ui.map.layers`' own key order, which `shell/input.js#mapDigit` indexes the
-   same way, so the list a player reads and the key they press cannot drift. A
-   layer added to that object appears here, numbered, with no edit.
-
-   Bottom-left, over a backing rect, because the other three corners are taken
-   -- the header owns the top strip, the ruler owns the right edge, and a
-   chain's extent bracket is drawn top-left. */
+/* The rows are `ui.map.layers`' own key order, which `shell/input.js#mapDigit`
+   indexes the same way, so the list and the key cannot drift. Bottom-left: the
+   header owns the top strip and the ruler the right edge. */
 function legend(g, f) {
   const ids = Object.keys(f.ui.map.layers);
   let w = 0;

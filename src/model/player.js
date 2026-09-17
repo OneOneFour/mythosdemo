@@ -1,19 +1,15 @@
-/* LAYER model — the player record, and the fall-damage table. Imports `core`,
-   `model`.
+/* model layer — the player record and the fall-damage table.
 
-   In `model` and not `rules` for one reason: `view` must be able to draw the
-   player and may not import `rules`.
-
-   The record is a plain object with no methods; `rules/player.js` moves it.
-   Every physics NUMBER lives in `data/tuning.js` and is read through `eff()`,
-   so a boon can change walk speed. Only the hitbox is here, because a hitbox
-   is geometry rather than a tunable. */
+   A plain record with no methods; `rules/player.js` moves it. Every physics
+   number lives in `data/tuning.js` and is read through `eff()`; only the
+   hitbox is here. */
 
 import { rect } from '../core/math.js';
 import { bump } from './epoch.js';
 import { eff } from './mods.js';
 
-/* 1 x 2 tiles, with 2px of slack in an 8px corridor. */
+/* 1 x 2 tiles, 2 px narrower than an 8 px tile so a one-tile corridor has
+   slack. */
 export const PW = 6, PH = 16;
 
 export const player = {
@@ -22,8 +18,6 @@ export const player = {
   onGround: false, onLadder: false, coyote: 0,
   fallFrom: 0,                // world y where the current fall began
   face: 1, walkPhase: 0,
-  /* Presentation timers. In `model` because `view` reads them and `rules`
-     writes them, which is exactly the case the sibling rule creates. */
   landFlash: 0, hurtFlash: 0, digging: false
 };
 
@@ -31,10 +25,8 @@ export const playerBox    = () => rect(player.x, player.y, PW, PH);
 export const playerCentre = () => ({ x: player.x + PW / 2, y: player.y + PH / 2 });
 
 export const write = {
-  /* `tx`/`ty` are band-local tiles. Every field is reset, not just position: a
-     spawn that left `coyote` and `walkPhase` set carried jump grace and
-     animation phase across a restart, and made two runs of the same seed render
-     differently. A field that survives a restart is a determinism bug. */
+  /* `tx`/`ty` are band-local tiles. Every field is reset, not just position:
+     one surviving a spawn makes two runs of the same seed diverge. */
   spawn(band, tx, ty) {
     player.band = band;
     player.x = band.origin.x + tx * band.tile + (band.tile - PW) / 2;
@@ -53,12 +45,9 @@ export const write = {
   set(k, v)    { player[k] = v; bump(); }
 };
 
-/* The fall-damage table. With g = 320 px/s^2 and v = sqrt(2gh):
-     drop  40 px =  5 tiles -> 160 px/s -> 0 hearts
-     drop  64 px =  8 tiles -> 202 px/s -> 1 heart
-     drop 160 px = 20 tiles -> 320 px/s -> 5 hearts, lethal
-   A query and not a decision: it returns a number and `rules/player.js`
-   spends it. Read through `eff`, so a trinket can add to `fallSafe`. */
+/* Hearts lost for an impact speed in px/s. With g = 320 px/s^2 and
+   v = sqrt(2gh): 40 px (5 tiles) -> 160 px/s -> 0 hearts, 64 px (8 tiles) ->
+   202 px/s -> 1, 160 px (20 tiles) -> 320 px/s -> 5 and lethal. */
 export const fallHearts = v => {
   const safe = eff('fallSafe'), per = eff('fallHeart'), max = eff('fallMax');
   return Math.max(0, Math.min(max, Math.floor((v - safe) / per)));

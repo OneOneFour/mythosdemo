@@ -1,15 +1,9 @@
-/* LAYER rules — THE MACHINE INTERPRETER. The only code in the project that
-   ticks a machine. Imports `core`, `data`, `model`. Imports no other `rules`
-   module.
+/* rules layer — the machine interpreter, the only code that ticks a machine. It
+   names no machine, no substance and no magic number — a new machine is a row
+   in `data/machines.js`.
 
-   IT CONTAINS NO MACHINE NAME, NO SUBSTANCE NAME AND NO MAGIC NUMBER.
-
-   If you are reading this because you want to ADD a machine, you are in the
-   wrong file. Go to `data/machines.js`, copy the row nearest to what you want,
-   and change the literals.
-
-   Read in this order: `step` (what happens per machine per frame), `choose`
-   (which recipe runs), `produce` (spending and ejecting), `emit`. */
+   Read in this order: `step`, `choose` (which recipe runs), `produce`
+   (spending and ejecting), `emit`. */
 
 import { rand } from '../core/rng.js';
 import { overlaps } from '../core/math.js';
@@ -28,23 +22,16 @@ import { pocketedBest, pocketedPair, run, write as rw } from '../model/run.js';
 import { baseChargeAt, baseHardAt, dropAt, subAt, tileAt, write as tw } from '../model/tiles.js';
 import { tileX, tileY, worldX, worldY } from '../model/world.js';
 
-/* the injected source api
-   This object is the ENTIRE surface a `data/sources.js` row may touch. Adding a
-   line here widens what content can reach, so the list is short on purpose and
-   every entry has a caller today.
-
-   `buffered` and `pocketed` count the LARGEST SINGLE MATCHING PAIR rather than
-   the sum across pairs. Buffer FULLNESS — what the servo and the HUD pips read
-   — is the sum, and that is `model/machines.js#count`. Two different questions,
-   two answers; */
+/* The entire surface a `data/sources.js` row may touch. `buffered` and
+   `pocketed` count the largest single matching pair rather than the sum across
+   pairs; buffer fullness is `model/machines.js#count` instead. */
 const api = {
   buffered: (m, sel) => best(m.buf, sel),
   pocketed: (sel) => pocketedBest(sel),
 
   /* Both spends return the concrete `{sub, form}` pair actually taken, so the
-     interpreter learns which substance satisfied a selector without asking
-     where it came from. That return value is the whole of how one `smelt` row
-     covers every ore. */
+     interpreter learns which substance satisfied a selector — which is how one
+     `smelt` row covers every ore. */
   takeBuffered: (m, sel, n) => {
     const pair = firstMatching(m, sel, n);
     if (!pair) return null;
@@ -56,15 +43,11 @@ const api = {
     if (!pair || !rw.spend(pair.sub, pair.form, n)) return null;
     return pair;
   },
-
-  /* Hearts-spending still lives in `model/run.js#write.spendHearts`, holding
-     the "a machine may not kill you" rule for whatever spends hearts next. */
 };
 
-/* Largest single matching pair in a `{ 'sub/form': units }` ledger -- `m.buf`
-   is the only ledger left in that shape (`run.inv` is a slot
-   array, see `model/run.js#pocketedBest`/`#pocketedPair` for its own
-   equivalents), so this now serves `buffered` alone. */
+/* Largest single matching pair in a `{ 'sub/form': units }` ledger. `m.buf` is
+   the only ledger in that shape; `run.inv` is a slot array with its own
+   equivalents in `model/run.js`. */
 function best(ledger, sel) {
   let n = 0;
   for (const k in ledger) {
@@ -74,9 +57,9 @@ function best(ledger, sel) {
   return n;
 }
 
-/* `recipesOf` allocates, and this runs per machine per frame, so the resolved
-   list is memoised per definition index. Definitions are frozen data, so the
-   cache is bounded by the content. */
+/* `recipesOf` allocates and this runs per machine per substep, so the resolved
+   list is memoised per definition index. Definitions are frozen, so the cache
+   is bounded by the content. */
 const recipeCache = new Map();
 const recipes = (def, i) => {
   let r = recipeCache.get(i);
@@ -84,20 +67,14 @@ const recipes = (def, i) => {
   return r;
 };
 
-/* `cmd` is the narrowed command object, and this step reads exactly ONE field
-   of it: `cmd.autoFeed`, which decides whether the proximity drain below runs
-   at all. The same shape `rules/items.js` takes for `cmd.collect`. */
+/* `cmd` is the narrowed command object; this step reads only `cmd.autoFeed`,
+   which decides whether the proximity drain below runs at all. */
 export function step(dt, cmd) {
   for (const m of machines) {
     const def = defOf(m);
     mw.fire(m, Math.max(0, m.fire - dt * 0.7));
     if (def.catchBox) catchFalling(m, def);
-    /* THE GATE, AND IT IS THE WHOLE OF PHASE 16b. `handFeed`'s body is
-       byte-for-byte what it always was; the only change is that it is now
-       OPT-IN. A catch box is still free and still unconditional above --
-       material that FALLS in is the thesis of the game and
-       was never a surprise. What was a surprise is a machine reaching into
-       your pockets because you walked past it. */
+    /* `handFeed` is opt-in; the catch box above is unconditional. */
     if (def.handFeed && cmd.autoFeed) handFeed(m, def);
     produce(m, def, dt);
     if (def.emit) emit(m, def, dt);
@@ -105,11 +82,8 @@ export function step(dt, cmd) {
   }
 }
 
-/* catch box
-   Anything falling through the mouth is swallowed for free. This one key is the
-   thesis of the game: placing a machine under a vein beats placing it on the
-   surface, and nothing has to say so.
-*/
+/* Anything falling through the mouth, plus `def.catchBox.slack` px of margin on
+   every side, is swallowed up to the selector's cap. */
 function catchFalling(m, def) {
   const mouth = m.mouth[def.catchBox.mouth];
   const s = def.catchBox.slack;
@@ -126,16 +100,9 @@ function catchFalling(m, def) {
   }
 }
 
-/* THE OPT-IN PROXIMITY MAGNET. Stand within reach and the machine draws from
-   your pockets, one unit per accepted selector per substep. OFF BY DEFAULT,
-   gated on `cmd.autoFeed`; the real verb is `handOne` below.
-
-   WHY IT SURVIVES AT ALL: it is the one-click revert to the behaviour every
-   run had before the feed verb, and it is symmetric with AUTO COLLECT.
-
-   The trap the design wants -- hauling ore up to a machine you placed in the
-   wrong place -- is unaffected either way, because it is a fact about
-   DISTANCE and both paths require standing there. */
+/* Draws one unit per accepted selector per substep from the pockets while the
+   player stands within `def.handFeed.reach`. Off unless `cmd.autoFeed`; the
+   deliberate verb is `handOne` below. */
 function handFeed(m, def) {
   if (!overlaps(playerBox(), m.box, def.handFeed.reach)) return;
   for (const sel of def.handFeed.from) {
@@ -148,25 +115,18 @@ function handFeed(m, def) {
   }
 }
 
-/* THE FEED VERB: ONE unit of ONE named pair, handed over deliberately. This
-   is what LMB on a machine does, and it differs from the magnet above in
-   three ways that are each the point -- it takes the pair the PLAYER named
-   rather than whatever `pocketedPair` finds first, it moves one unit per call
-   rather than one per selector per substep, and it SAYS WHY when it refuses.
-
-   REACH IS NOT ASKED HERE. `pointerdown` asks once, at the instant of the
-   press, and dispatches a mine when the answer is no -- so a feed reaching
-   this function has already been decided to be a feed. */
+/* One unit of the pair the player named, per call, with a reason when it
+   refuses. Reach is not tested here: `pointerdown` asks once at the press and
+   dispatches a mine instead when the answer is no. */
 export function handOne(m, sub, form) {
   const chk = feedCheck(m, sub, form);
   if (!chk.ok) {
     push('refused', { x: m.box.x, y: m.box.y }, { def: m.def, sub, form, why: chk.why });
     return false;
   }
-  /* Not a refusal row: the caller re-checks `invCount > 0` immediately before
-     this (`shell/main.js#applyIntents`), so a failed spend here means the
-     pockets changed inside one frame -- a stale arm, not a player mistake, and
-     nothing a toast could usefully tell them. */
+  /* No refusal row: `shell/main.js#applyIntents` re-checks `invCount > 0`
+     immediately before this, so a failed spend means the pockets changed
+     inside one frame. */
   if (!rw.spend(sub, form, 1)) return false;
   mw.take(m, sub, form, 1);
   mw.fire(m, 1);
@@ -174,7 +134,6 @@ export function handOne(m, sub, form) {
   return true;
 }
 
-/* run a recipe */
 function produce(m, def, dt) {
   const r = choose(m, def);
   if (!r) { mw.prog(m, 0); mw.running(m, false); return; }
@@ -184,9 +143,9 @@ function produce(m, def, dt) {
   if (m.prog < r.secs) return;
   mw.prog(m, m.prog - r.secs);
 
-  /* Spend every input through whichever source it declared, keeping the pair
-     each clause actually yielded so a derived output can name the same
-     substance. Availability was already proved by `choose`. */
+  /* Spend every input through its declared source, keeping the pair each
+     clause yielded so a derived output can name the same substance.
+     Availability was already proved by `choose`. */
   const src = SOURCES[r.from || 'buffer'];
   const took = {};
   for (const sel in r.in) took[sel] = src.spend(api, m, sel, r.in[sel]);
@@ -198,9 +157,8 @@ function produce(m, def, dt) {
     const sub = clause.sub !== undefined ? clause.sub : took[clause.subFrom]?.sub;
     if (sub === undefined || sub === null) continue;
     const form = F[clause.form];
-    /* `yield` is a scale tunable, so a doubling boon is one row in
-       `data/tuning.js` and no edit here. Floored, never below one: a machine
-       that consumed its inputs and produced nothing is a sink, not a recipe. */
+    /* Floored at one: a machine that consumed its inputs and produced nothing
+       is a sink rather than a recipe. */
     const units = Math.max(1, Math.floor(clause.n * eff('yield', def.id)));
     for (let k = 0; k < units; k++) {
       iw.spawn(m.band, mouth.x + mouth.w / 2, mouth.y, sub, form, 0, -70);
@@ -208,26 +166,18 @@ function produce(m, def, dt) {
     }
   }
 
-  /* No output at all — `out:[]`. The run banked a CHARGE instead: one unit of
-     work a belt may later spend, one item delivered off its end
-     (`rules/belts.js`). A brazier's own `out:[]` recipe is the same shape and
-     is what keeps it lit while fuelled. NOTHING VERTICAL READS A CHARGE ANY
-     MORE: the staged winch spent one per haul and is gone, and
-     `rules/drive.js` has no charge at all -- its power is a crank the player
-     is holding this very frame.
-*/
+  /* An `out:[]` recipe banks a charge instead — one unit of work
+     `rules/belts.js` may later spend on one item delivered off its end. A
+     brazier's `out:[]` recipe is the same shape and keeps it lit while
+     fuelled. */
   if (!made) mw.charge(m, 1);
 
   push('produce', { x: m.box.x, y: m.box.y }, { def: m.def, made });
 }
 
-/* First recipe whose inputs are all present. ORDER IN THE ROW IS THE DESIGN,
-   and `data/recipes.js`'s declaration-order block makes the argument where it
-   still bites, on the hand recipes.
-
-   THERE IS NO `charges > 0` GATE. A belt is the only charge consumer now, and
-   it deliberately does NOT want one -- it banks several and spends one per
-   item delivered. */
+/* First recipe whose inputs are all present, in `data/recipes.js` declaration
+   order. There is no `charges > 0` gate: a belt banks several charges and
+   spends one per item delivered. */
 function choose(m, def) {
   for (const r of recipes(def, m.def)) {
     if (!gated(m, r)) continue;
@@ -244,9 +194,8 @@ function choose(m, def) {
   return null;
 }
 
-/* Field gate: `needs:{ heat:{ min:30 } }` read at the machine's own tile. Delete
-   the line from the row and the recipe runs cold. A temperature BAND is a `max`
-   beside the `min`, which is the seam two mutually hostile boons need. */
+/* Field gate — `needs:{ heat:{ min:30 } }` — read at the machine's own tile. A
+   row with no `needs` runs cold; a `max` beside a `min` makes a band. */
 function gated(m, r) {
   if (!r.needs) return true;
   for (const field in r.needs) {
@@ -258,9 +207,9 @@ function gated(m, r) {
   return true;
 }
 
-/* Progress multiplier: the `rate` tunable (so a trinket or a variant row can
-   bend it) times the servo. The servo is what keeps buffers bounded — without
-   it a small surplus reaches FULL over about twenty minutes. */
+/* Progress multiplier: the `rate` tunable times the servo. The servo is what
+   keeps buffers bounded — without it a small surplus reaches full over about
+   twenty minutes. */
 function speedOf(m, def, r) {
   let mult = eff('rate', def.id);
   if (def.servo) {
@@ -270,8 +219,8 @@ function speedOf(m, def, r) {
   return mult;
 }
 
-/* Pour into a scalar field at a named mouth. `hasField` is how a machine finds
-   out that a band simply has no heat, rather than writing into nothing. */
+/* Pour into a scalar field at a named mouth. `hasField` is how a machine
+   learns a band has no such field rather than writing into nothing. */
 function emit(m, def, dt) {
   for (const e of def.emit) {
     if (e.whileRunning && !m.running) continue;
@@ -283,31 +232,23 @@ function emit(m, def, dt) {
   }
 }
 
-/* A PLACED miner. GATES on top of `rules/mining.js`'s hardness, never a
-   second hardness.
+/* A placed miner gates on top of `rules/mining.js`'s hardness rather than
+   carrying a second one: every miner chews at
+   `eff('pickPower') x bestHandToolPower()`, the same number a player swinging
+   their best tool gets, and only the gate and the face width vary by tier. */
 
-   "Hands compete with machines on throughput; they lose on headcount" is
-   enforced HERE rather than asserted: every placed miner chews at
-   `eff('pickPower') x bestHandToolPower()`, the same formula and the same
-   NUMBER a player swinging their best tool gets. Only the GATE and the WIDTH
-   vary between tiers; the per-tile rate never does. */
-
-/* The best HAND tool's power, scanned off every substance's `item.tool`
-   block rather than naming one. A future hand tool raises every placed
-   miner's rate the same day it raises a swinging player's, with no edit
-   here. Defaults to 1 --
-   the same "no tool held" fallback `rules/mining.js` uses. */
+/* The best hand tool's power, scanned off every substance's `item.tool` block
+   rather than naming one. Defaults to 1, the same no-tool-held fallback
+   `rules/mining.js` uses. */
 function bestHandToolPower() {
   let p = 1;
   for (const s of SUB) if (s.item?.tool && s.item.tool.power > p) p = s.item.tool.power;
   return p;
 }
 
-/* First non-air tile in the face, top to bottom -- the SAME idiom
-   `rules/mining.js` uses for "what is aimed at", just aimed by data
-   (`facing`/`tiles`) instead of the player's own position. Once the top tile
-   breaks it reads AIR and the loop finds the next one down for free; no
-   separate "advance the target" state to keep in sync. */
+/* First non-air tile in the face, top to bottom, aimed by the row's
+   `facing`/`tiles` rather than a player position. Once the top tile breaks it
+   reads air and the loop finds the next down, so no target state is kept. */
 function mineTarget(m, def) {
   const spec = def.mine;
   const tx = m.tx + (spec.facing > 0 ? def.tw : -1);
@@ -318,10 +259,8 @@ function mineTarget(m, def) {
   return null;
 }
 
-/* Rate limit for the tier refusal, the identical idiom
-   `rules/mining.js`'s own `lastTierRefusal` uses for the hand-mining half of
-   this same gate -- a WeakMap here rather than one scalar because more than
-   one miner can be stalled on a too-hard face at once. */
+/* Seconds between repeats of the tier refusal row. A `WeakMap` rather than one
+   scalar, because more than one miner can stall on a too-hard face at once. */
 const REFUSAL_GAP = 1.0;
 const refusedAt = new WeakMap();
 function tierRefusalDue(m) {
@@ -331,25 +270,22 @@ function tierRefusalDue(m) {
   return true;
 }
 
-/* Seconds of active chewing one buffered fuel unit lasts, per machine. A
-   local WeakMap accumulator, not a machine-record field: only this branch reads
-   the number, and `m.prog` already belongs to `produce()` above (which zeroes
-   it every frame this row has no matching `recipes`, since it has none). Same
-   shape as `recipeCache`, above, in this same file. */
+/* Seconds of active chewing accumulated against one buffered fuel unit, per
+   machine. Local rather than a machine-record field: only this branch reads
+   it, and `m.prog` belongs to `produce()`. */
 const fuelClock = new WeakMap();
 
 function mine(m, def, dt) {
   const spec = def.mine;
 
   const target = mineTarget(m, def);
-  if (!target) { mw.running(m, false); return; }        // face is clear, or empty -- nothing to chew
+  if (!target) { mw.running(m, false); return; }        // face is clear
 
   const sub = subAt(m.band, target.tx, target.ty);
   if (sub < 0) { mw.running(m, false); return; }         // bedrock, or out of bounds
 
-  /* TOOL TIER GATE, identical in shape to `rules/mining.js`'s hand-mining
-     gate: a fact worth a rate-limited journal row, not a silent stall on a
-     wall this machine will otherwise sit chewing at forever. */
+  /* Worth a rate-limited journal row rather than a silent stall on a wall this
+     machine would otherwise sit chewing at forever. */
   const tileTier = SUB[sub].tile?.tier ?? 1;
   if (tileTier > spec.tier * eff('toolTier', SUB[sub].id)) {
     if (tierRefusalDue(m))
@@ -359,23 +295,17 @@ function mine(m, def, dt) {
     return;
   }
 
-  /* NO FUEL: the same silent stall every other fuel-consuming machine already
-     has (a brazier out of fuel just goes dark) -- ordinary, not exceptional,
-     and not worth a toast of its own. */
+  /* No fuel is a silent stall, as it is for every other fuel-burning row. */
   const fuelPair = firstMatching(m, '*/#fuel', 1);
   if (!fuelPair) { mw.running(m, false); return; }
 
   mw.running(m, true);
 
-  /* THE RATE. See the file-header note above: this is the one line the whole
-     tier's throughput equality rests on. */
   const hard = baseHardAt(m.band, target.tx, target.ty) * eff('hard', SUB[sub].id);
 
-  /* DEPLETION, identical arithmetic to the hand-mining half -- same
-     `baseChargeAt`, same `eff('richness')`, same `unitsCrossed`, same order
-     relative to the break test. A measured "0.0000 s difference" rests on it,
-     and the SHARED HELPER is what makes that true by construction rather than
-     by two files happening to agree. */
+  /* Identical arithmetic to the hand-mining half — same `baseChargeAt`,
+     `eff('richness')` and `unitsCrossed`, in the same order relative to the
+     break test — so the two cannot disagree on seconds per unit. */
   const charge = Math.max(1, Math.round(
     baseChargeAt(m.band, target.tx, target.ty) * eff('richness', SUB[sub].id)));
   const total = hard * charge;
@@ -383,21 +313,18 @@ function mine(m, def, dt) {
   const before = workAt(m.band, target.tx, target.ty);
   const work = digw.add(m.band, target.tx, target.ty, dt * eff('pickPower') * bestHandToolPower());
 
-  /* Fuel drains continuously with TIME spent chewing, not per tile broken --
-     `secs` is "how long one unit lasts", so a smaller `secs` on a row is a
-     thirstier machine regardless of what it is biting. */
+  /* Fuel drains with time spent chewing rather than per tile broken:
+     `spec.secs` is how long one unit lasts. */
   const clock = (fuelClock.get(m) || 0) + dt;
   if (clock >= spec.secs) {
     mw.consume(m, fuelPair.sub, fuelPair.form, 1);
     fuelClock.set(m, clock - spec.secs);
   } else fuelClock.set(m, clock);
 
-  /* a unit chipped loose, but the face SURVIVES: the miner retreats
-     through a vein tile by tile instead of deleting it in one bite. A new
-     branch BEFORE the break test, exactly where `rules/mining.js` puts its
-     own, and for the same reason: moving it after the break test would reorder
-     that branch's `rand()` draws. `unitsCrossed` caps itself one short of
-     `charge` so the last unit is the break's own drop. */
+  /* A unit chipped loose while the face survives, so the miner retreats
+     through a vein tile by tile. Before the break test, where
+     `rules/mining.js` puts its own: after it would reorder that branch's
+     `rand()` draws. `unitsCrossed` caps one short of `charge`. */
   const crossed = unitsCrossed(before, work, hard, charge);
   if (crossed > 0) {
     const unit = dropAt(m.band, target.tx, target.ty);
@@ -406,15 +333,12 @@ function mine(m, def, dt) {
 
   if (work < total) return;                              // still chewing
 
-  /* broken. Read the drop BEFORE clearing the tile, same order
-     `rules/mining.js` uses. */
+  /* Read the drop before clearing the tile. */
   const drop = dropAt(m.band, target.tx, target.ty);
   digw.clear(m.band, target.tx, target.ty);
   tw.clear(m.band, target.tx, target.ty);
-  /* `0.5` mirrors `rules/mining.js#HARD_BREAK` verbatim: a journal-kind
-     selector (soft vs. hard break sound), not a mechanic, and that file's own
-     header already argues it is not worth a tunable. Duplicated rather than
-     imported because `rules` siblings may not import one another. */
+  /* `0.5` mirrors `rules/mining.js#HARD_BREAK`, a journal-kind selector rather
+     than a mechanic. Duplicated because siblings may not import one another. */
   push(hard > 0.5 ? 'breakHard' : 'breakSoft',
        { x: worldX(m.band, target.tx), y: worldY(m.band, target.ty) }, { sub });
 
@@ -422,13 +346,10 @@ function mine(m, def, dt) {
   ejectMined(m, def, drop);
 }
 
-/* ONE mined unit, out of the mouth. Shared by the depletion and break
-   branches so the two cannot drift, including the single `rand()` call whose
-   position in the stream matters.
-
-   The output DROPS at the OUT port, never a direct buffer credit, and DOWNWARD
-   rather than tossed up like a recipe's output -- gravity runs before this
-   step every frame and carries it the rest of the way. */
+/* One mined unit out of the out port, never a direct buffer credit. Shared by
+   the depletion and break branches so the two cannot drift, including the
+   single `rand()` call whose position in the stream matters. Ejected downward
+   rather than tossed up; gravity carries it the rest of the way. */
 function ejectMined(m, def, pair) {
   const port = def.ports.find(p => p.mode === 'out');
   const mouth = m.mouth[port.side];

@@ -1,25 +1,15 @@
-/* LAYER view — THE DRAFT MODAL: the cards a god lays out, and what a second
-   look costs. Imports `core`, `data`, READ-ONLY `model` queries and the panel
-   primitive beside it. No `rules`, no `shell`.
+/* view layer — the draft modal: the cards a god lays out, and what a second
+   look costs.
 
-   IT PAUSES NOTHING FROM HERE. The freeze is `shell/ui.js#pausesRun`; this
-   file only draws the thing standing while the run is stopped.
+   The freeze is `shell/ui.js#pausesRun`; this file only draws what stands
+   while the run is stopped. Every card and the reroll row register into
+   `./state.js#drawn.panels` for `shell` to hit-test, and a card's id carries
+   the index into `run.offer.ids`, so the pointer and the keyboard reach the
+   same card.
 
-   A CLICK THAT DOES SOMETHING IS SHELL CALLING RULES. Every card and the
-   reroll row register into `./state.js#drawn.panels`, and `shell` hit-tests
-   those rectangles and sets the SAME `wants` the 1/2/3 and `r` keys set. `<i>`
-   is the index into `run.offer.ids`, which is what makes the pointer and the
-   keyboard reach the identical card.
-
-   THE MOD LINES ARE BUILT FROM THE ROW, NOT FROM `model/mods.js#explain`.
-   `explain` filters the LIVE rows, so it can only describe a modifier already
-   applied -- an offered trinket is not equipped, so it would return nothing
-   for every card on the table. What IS shared is the WORDING: `modLines`
-   produces byte-identical strings to the Character tab's.
-
-   TWO CARDS IS A REAL CASE, not a degenerate one: the grant tier ships at two
-   rows and `rules/draft.js` never pads, so the layout is driven by
-   `ids.length` and never reserves a gap where a third card would be. */
+   Mod lines are built from the offered row, not from `model/mods.js#explain`,
+   which can only describe a modifier already applied. Layout is driven by
+   `ids.length` and reserves no gap for a card that is not there. */
 
 import { drawText, textWidth } from '../../core/font.js';
 import { R } from '../../core/pixels.js';
@@ -35,12 +25,11 @@ import { drawPanel } from './panel.js';
 const INK = colour('ui'), INK2 = colour('uiInk2'), DIM = colour('uiDim');
 const BACK = colour('uiBack');
 const GOOD = colour('uiGood'), AMBER = colour('uiAmber');
-/* The divine accent `view/hud.js` and `view/ui/mainPanel.js` already use for a
-   relic's frame -- a god's name on a card is the same fact, not a second one. */
+/* The divine accent `view/hud.js` and `view/ui/mainPanel.js` use for a relic. */
 const RELIC = colour('ichor');
 
-/* `run.offer.tier` -> the frozen table its ids index. `rules/draft.js` owns
-   WHICH ids; this owns what they look like. */
+/* `run.offer.tier` -> the frozen table its ids index; `rules/draft.js` owns
+   which ids. */
 const TABLE = { boon: BOON, grant: GRANT, trinket: TRINKET, miracle: MIRACLE };
 
 const TITLE = 'CHOOSE ONE';
@@ -50,26 +39,19 @@ const PAD = 3;    // card inner padding, screen px
 const GAP = 3;    // between cards, and between the block's three parts
 const LINE = 8;   // 7px glyph cell + 1px leading
 /* Below this a card is narrower than the longest single word any shipped row
-   uses (10 chars, 59 px) plus its padding, so wrapping would start breaking
-   words rather than lines. Two cards still fit side by side at the 200 px base
-   buffer floor `core/canvas.js#resize` enforces; three do not, and drop to a
-   second row rather than being squeezed. */
+   uses (10 chars, 59 px) plus its padding, so wrapping would break words. Two
+   cards fit at the 200 px base-buffer floor; three drop to a second row. */
 const MIN_CARD_W = 86;
-/* And a ceiling, because the cards are a MODAL and not a banner: at 640 px of
-   base width two cards would otherwise be 313 px each and hold three short
-   lines of text in a shape nothing reads as a card. 128 px is 20 characters,
-   which is the longest shipped row NAME (`BELLOWS OF THE FORGE`) on one line
-   and wraps the flavour text to two or three. */
+/* A ceiling: at 640 px of base width two cards would be 313 px each. 128 px is
+   20 characters, the longest shipped row name on one line. */
 const MAX_CARD_W = 128;
 
 /* Is the modal standing? `f.ui.stack` is `shell/ui.js`'s panel stack, handed
-   over read-only. The `ids` test is the same one `shell/main.js`'s test-hook
-   projection makes: a half-built `run.offer` is a REQUEST for an offer and
-   there is nothing to draw for it. */
+   over read-only; a half-built `run.offer` has no `ids` and nothing to draw. */
 export const draftOpen = f => f.ui.stack.includes('draft') && !!run.offer?.ids?.length;
 
-/* Greedy word wrap to `maxW` screen px at scale 1. A word wider than the
-   whole line is HARD-BROKEN rather than allowed to overrun the card frame. */
+/* Greedy word wrap to `maxW` screen px at scale 1. A word wider than the whole
+   line is hard-broken rather than allowed to overrun the card frame. */
 function wrap(s, maxW) {
   const out = [];
   if (!s) return out;
@@ -92,15 +74,9 @@ function wrap(s, maxW) {
 
 const push = (out, s, col, maxW) => { for (const l of wrap(s, maxW)) out.push({ s: l, col }); };
 
-/* One `{key, mul, add}` row as the player reads it, byte-identical in wording
-   to the Character tab's.
-
-   THE SIGN IS NOT THE POLARITY, and this deliberately does not pretend
-   otherwise: `hard x0.85` is a BENEFIT and `climb x0.8` is a COST, and both
-   print as a negative percentage. Whether up is good is a fact about the
-   TUNABLE, which only `model/mods.js` may import, so colouring by sign would
-   state the wrong thing for one of those two at the exact moment the player
-   is choosing. */
+/* One `{key, mul, add}` row as the player reads it, worded identically to the
+   Character tab's. The sign is not the polarity -- `hard x0.85` is a benefit and
+   `climb x0.8` a cost, both printing negative -- so nothing colours by it. */
 function modLines(m, maxW, out) {
   const dot = m.key.indexOf('.');
   const base = dot < 0 ? m.key : m.key.slice(0, dot);
@@ -114,10 +90,9 @@ function modLines(m, maxW, out) {
     push(out, `${m.add >= 0 ? '+' : ''}${m.add} ${label}`, GOOD, maxW);
 }
 
-/* IN PRIORITY ORDER, LAST DROPPED FIRST. The draw loop stops at the card's
-   bottom edge rather than clipping -- there is no `clip()` in this project's
-   canvas vocabulary -- so LINE ORDER IS THE DEGRADATION RULE: the asking god,
-   the name and the numbers survive a short card, and the flavour goes. */
+/* In priority order, last dropped first: the draw loop stops at the card's
+   bottom edge rather than clipping, so line order is the degradation rule and a
+   short card loses its flavour text. */
 function cardLines(row, index, maxW) {
   const out = [];
   push(out, row.god ? `${index + 1}  ${godName(row.god)}` : String(index + 1), RELIC, maxW);
@@ -127,18 +102,13 @@ function cardLines(row, index, maxW) {
   return out;
 }
 
-/* A row id the tier's table does not hold reads as the id itself rather than
-   as a blank card -- the same fallback `data/gods.js#godName` makes for an
-   unnamed god, and for the same reason: a content gap must be visible. */
+/* A row id the tier's table does not hold reads as the id itself rather than as
+   a blank card, so a content gap stays visible. */
 const rowFor = (tier, id) => TABLE[tier]?.[id] ?? { name: String(id).toUpperCase(), text: '' };
 
-/* The REROLL row's three strings: what it costs, whose purse pays, and -- when
-   it cannot be pressed -- WHICH of the two refusals applies. The words are
-   `rules/draft.js#reroll`'s own two, verbatim, so the dimmed row says exactly
-   what pressing it would journal. `model/run.js#canReroll` is the single
-   predicate both read, and `offerExhausted` is which half of it failed. A
-   debug-key draft (`god` null) needs no branch: nobody is asking, so there is
-   no purse, `have` is 0 and the row reads short-of-favour, which it is. */
+/* The reroll row's three strings: the cost, whose purse pays, and which of the
+   two refusals applies. `model/run.js#canReroll` is the predicate both this and
+   `rules/draft.js` read; `offerExhausted` is which half of it failed. */
 function rerollRow() {
   const asker = offerGod();
   const price = rerollPrice();
@@ -154,16 +124,12 @@ function rerollRow() {
 }
 
 /* Draws nothing and records nothing when no offer stands. Assumes the canvas
-   transform is identity (screen space), which is what `view/hud.js` draws in;
-   leaves `globalAlpha` at 1. */
+   transform is identity (screen space) and leaves `globalAlpha` at 1. */
 export function drawDraft(g, f) {
   if (!draftOpen(f)) return;
   const vw = f.W, vh = f.H;
   const ids = run.offer.ids, tier = run.offer.tier;
 
-  /* The frozen world stays readable underneath, which is the whole point of
-     the freeze: the player is choosing about THIS factory, not about a black
-     screen. */
   g.globalAlpha = 0.85;
   R(g, 0, 0, vw, vh, BACK);
   g.globalAlpha = 1;
@@ -198,7 +164,7 @@ export function drawDraft(g, f) {
 
   for (let i = 0; i < ids.length; i++) {
     const col = i % perRow, rowIdx = (i / perRow) | 0;
-    /* The LAST row of a grid that does not divide evenly is centred on its own
+    /* The last row of a grid that does not divide evenly is centred on its own
        count, so a 2+1 layout does not leave the odd card hanging left. */
     const inThisRow = Math.min(perRow, ids.length - rowIdx * perRow);
     const rowW = inThisRow * cardW + (inThisRow - 1) * GAP;
@@ -217,11 +183,8 @@ export function drawDraft(g, f) {
   }
   y += rowCount * cardH + (rowCount - 1) * GAP + GAP;
 
-  /* RECORDED EVEN WHEN DIMMED, and clickable: `rules/draft.js#reroll` is the
-     one place that decides, and it refuses OUT LOUD through a journal row --
-     never a hidden button. A rect that silently swallowed the press would
-     teach nothing the reason already drawn on it does not, and would put the
-     predicate in a second place. */
+  /* Recorded and clickable even when dimmed: `rules/draft.js#reroll` is the one
+     place that decides, and it refuses out loud through a journal row. */
   const rp = drawPanel(g, {
     id: 'draft-reroll', x: M + ((availW - rrW) >> 1), y, w: rrW, h: rrH, vw, vh, alpha: 0.94
   });

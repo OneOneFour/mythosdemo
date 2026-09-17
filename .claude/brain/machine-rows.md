@@ -161,3 +161,22 @@ read as meshed, while two diagonally adjacent sit 11 px apart with an obvious
 hole between them. `teeth:8` keeps one tooth on each axis at phase 0, so a
 resting train looks engaged rather than accidentally aligned. Diagonals do not
 conduct, and that geometry is what teaches it.
+
+## Placed miners and hands have the same per-tile rate
+
+**Hands compete with machines on throughput and lose on headcount, and that is
+arithmetic rather than assertion.** Every placed miner chews at
+`eff('pickPower') x bestHandToolPower()` — the same formula and the same number
+a player swinging their best tool gets, measured at a 0.0000 s difference per
+tile. Only the tier GATE and the face WIDTH vary between miner rows; the
+per-tile rate never does.
+
+`bestHandToolPower()` scans every substance's `item.tool` block rather than
+naming a tool, so a new hand tool raises every placed miner's rate the same day
+it raises a swinging player's.
+
+Depletion is the shared helper, not two agreeing copies: `rules/machines.js#mine`
+and `rules/mining.js#swing` both call `baseChargeAt`, `eff('richness')` and
+`unitsCrossed` in the same order relative to the break test. That is what makes
+the equality true by construction. The `0.5` hard/soft break threshold is
+duplicated verbatim in both because `rules` siblings may not import one another.

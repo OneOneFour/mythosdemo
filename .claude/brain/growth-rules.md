@@ -103,3 +103,34 @@ focus.
 The sweep splits motion into substeps no longer than half a tile, so no solid
 tile can be skipped regardless of dt. The cost is up to a handful of probes per
 item per frame against hundreds of items — measured in microseconds.
+
+## Why the growth ledger is a sparse `Map` and not a `model/fields.js` field
+
+Salvaged from `model/growth.js`'s comments during a comment-only pass, so the
+near-miss is not re-litigated. A named field is genuinely tempting — it is
+already per-tile, per-band storage with an active set — and two things kill it:
+
+- **A field decays by default and a growth timer accumulates.** Storing a
+  timer in a structure whose only real feature erases it means opting out of
+  that feature and then relying on the opt-out holding.
+- **A field is dense.** `Float32Array(tw * th)` per band is ~28 KB for the
+  surface band, to describe a mechanic with single-digit live instances.
+
+## The asymmetry between the two `write.setByte` hooks
+
+`model/tiles.js#write.setByte` is the one funnel every terrain edit passes
+through, and the two ledgers hanging off it are deliberately not symmetric:
+
+- **`model/mining.js` only ever CLEARS.** Accumulated pick time is never a
+  fact a tile's creation establishes.
+- **`model/growth.js` PLANTS as well as clears**, because a rooting tile is
+  the one kind whose own creation is a fact the ledger needs. Hanging only a
+  clear off it would delete the entry on the seed's own planting write.
+- **`model/digqueue.js` hangs nothing off it at all.** A marked tile becoming
+  air is the normal outcome of digging it, so the funnel would fire on the one
+  case needing no repair; staleness is a local byte-plus-band test instead.
+
+The `growingCount()` guard in front of the growth clear is not cosmetic:
+worldgen drives several hundred thousand writes through `setByte` at boot, and
+with no seed anywhere the clear branch would still cost a key computation and a
+`Map.delete` per generated tile.

@@ -1,12 +1,7 @@
-/* LAYER model — where the pick is pointed.
-   Imports `model` only. May be imported by `model`, `rules`, `view`.
+/* model layer — where the pick is pointed.
 
-   In `model` rather than in `rules/mining.js` for exactly one reason: the HUD
-   draws the aim reticle, and `view` may not import `rules`. That is the sibling
-   rule's cost being paid --
-
-   `band` is here because a reticle at a band seam must know which band's tile it
-   is pointing at; the same tile coordinates mean different things in two bands. */
+   `band` is part of the aim because the same tile coordinates mean different
+   things in two bands, and the reticle may sit on a seam. */
 
 import { bump } from './epoch.js';
 
@@ -18,8 +13,7 @@ export const write = {
     bump();
   },
 
-  /* 'dig' | 'place'. What the mode MEANS is a `rules` decision; that it has one
-     is model state, because the reticle is drawn differently for each. */
+  /* 'dig' | 'place'. The reticle is drawn differently for each. */
   mode(mode) { aim.mode = mode; bump(); },
 
   reset() {

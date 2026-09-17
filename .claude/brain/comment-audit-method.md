@@ -17,9 +17,16 @@ comment-tidy pass.
 | `4b` | EXTRACT — brain. Real observation or revisitable decision, not needed by a reader of the code. | move to `.claude/brain/notes.md` |
 | `4t` | TRIM — redundant. Process commentary, phase/file-ownership narration, restatement of what another doc already says. | delete, no replacement |
 
-A block spanning two buckets is marked `1+3`, `2+4t` and so on. **`LAYER x —
-... Imports ... May be imported by ...` declarations are always `1` and never
-trimmed**, even when the rest of their block is `3`.
+A block spanning two buckets is marked `1+3`, `2+4t` and so on.
+
+**Superseded 2026-09-17.** This method's verdict that `LAYER x — ... Imports
+... May be imported by ...` declarations are always `1` and never trimmed no
+longer holds. The `Imports`/`May be imported by` tail was deleted tree-wide as
+noise the import block already states, and the declaration itself was
+normalised to `/* <layer> layer — <what the file does>` in all 91 `src/` files,
+lowercase, because ALL CAPS is reserved for identifiers. What survives of the
+rule: every `src/` file still opens with its layer declaration, and that one
+line is never trimmed away.
 
 **Distribution, approximate**, from a 794-block pass over `src/`, `tools/`
 and `tests/`: roughly 270 `1`, 220 `2`, 95 `3`, 70 `4b`, 140 `4t`. The shape

@@ -1,30 +1,13 @@
-/* LAYER rules — THE PLAYER STEP. Walk, hop, ladder climb, gravity, terminal
-   velocity, fall damage, and the axis-separated collision resolution.
-   Imports `core`, `data`, `model`. Imports no other `rules` module.
+/* rules layer — the player step — walk, hop, ladder climb, gravity, terminal
+   velocity, fall damage, axis-separated collision. Both axes step one pixel
+   and snap flush against what they hit; a single swept AABB would lose the
+   snap, and flush is what makes a 5-tile drop measure exactly 40 px.
 
-   THE COLLISION RESOLUTION BELOW IS PORTED, NOT REWRITTEN. Its comments record
-   three bugs that cost real debugging time, and every one of them is a case
-   that looks like it cannot happen:
-
-     1  `moveY` must report a landing in EVERY case, including the one where the
-        player comes to rest flush without a collision step ever firing. That is
-        how fall damage first went missing entirely.
-     2  the one-tile auto-step must ALSO apply while on a ladder. A player who
-        climbs to the top of a shaft hangs with their feet in the last rung, a
-        pixel or two below the lip, and without the ladder case they are wedged
-        in their own shaft forever.
-     3  every field must be reset on spawn (`model/player.js` does this), or
-        jump grace and animation phase survive a restart and two runs of the
-        same seed render differently.
-
-   Do not "simplify" this into a single swept AABB. The one-pixel stepping is
-   what makes the snap flush, and flush is what makes a 5-tile drop measure
-   exactly 40 px.
-
-   Every physics number comes from `eff()`, so a god's boon can bend walk speed,
-   hop height, gravity and both fall-damage thresholds. There is no module
-   constant here for anyone to read around; the hitbox is in `model/player.js`
-   because a hitbox is geometry, not a tunable. */
+   `moveY` must report a landing on both its exits, including coming to rest
+   flush with no collision step, or fall damage never fires. The one-tile
+   auto-step must apply on a ladder too, or a player at the top of a shaft
+   wedges with their feet in the last rung. Every physics number comes from
+   `eff()`; the hitbox is geometry and lives in `model/player.js`. */
 
 import { clamp, lerp } from '../core/math.js';
 import { FORM } from '../data/forms.js';
@@ -41,18 +24,14 @@ export function step(dt, cmd) {
   const b0 = player.band;
   if (!b0) return;
 
-  /* Band handoff FIRST, so everything below is about the band the player is
-     actually in. What keeps a shaft dug to the bottom of a band from ending at
-     an unbreakable floor is NOT this line — a band's out-of-bounds rows read
-     BEDROCK, and no ordering of a single-band probe fixes that. It is the seam
-     split in the probes further down. This is bookkeeping, and `reband`'s own
-     header says why that distinction was worth a bug. */
+  /* Band handoff first, so everything below concerns the band the player is
+     actually in. Bookkeeping only: what keeps a shaft from ending at an
+     unbreakable band floor is the seam split in the probes below. */
   const b = reband(b0);
   if (b !== b0) pw.band(b);
 
   /* Presentation timers. In `model` because `view` reads them; decayed here
-     because `view` may not write.
-*/
+     because `view` may not write. */
   pw.set('landFlash', Math.max(0, player.landFlash - dt * 4));
   pw.set('hurtFlash', Math.max(0, player.hurtFlash - dt * 3));
 
@@ -62,48 +41,35 @@ export function step(dt, cmd) {
   let onLadder = boxClimb(b, player.x, player.y);
   pw.set('onLadder', onLadder);
 
-  /* A CARRIER IS NOT TERRAIN AND MUST NOT BECOME TERRAIN: the tile grid is the
-     only source of truth and there is never a second collision model. It holds
-     the player up the way a LADDER does, through
-     `model/segments.js#riddenSegment` -- also what `rules/drive.js` reads to
-     translate the rider, so one predicate serves two siblings that may not
-     import each other.
-
-     A ladder WINS over a carrier. Burden is NOT read here: boarding is never
-     refused at any weight, and an over-cap rider is mass in `drive.js`'s
-     arithmetic, so the carrier runs backwards under them. */
+  /* A carrier is not terrain: it holds the player up the way a ladder does,
+     through `model/segments.js#riddenSegment` — the one predicate
+     `rules/drive.js` reads too. A ladder wins, and burden is not consulted. */
   const riding = onLadder ? null : riddenSegment();
 
-  /* Encumbrance gates ASCENT and nothing else. `frac` is the fraction of the
-     hard cap carried; `overCap` is the lockout at or over it, where ladder-up
-     and hop are refused through a journal row. Walking on level ground and
-     every downward movement never read either: you can always fall. */
+  /* `frac` is the fraction of the hard cap carried; `overCap` refuses
+     ladder-up and hop through a journal row. Level walking and every downward
+     movement read neither. */
   const frac = burdenFrac(), overCap = frac >= 1;
 
-  /* horizontal: no acceleration, on purpose. This is a digging game and a
-          momentum model makes a 1-tile corridor infuriating. */
+  /* No acceleration: `vx` is the command itself, not a target. */
   const want = (cmd.right ? 1 : 0) - (cmd.left ? 1 : 0);
   if (want) pw.set('face', want);
   const vx = want * walk;
 
-  /* vertical */
   let vy = player.vy;
   if (onLadder) {
-    /* `climbK` is the ladder TIER's own speed (data/forms.js#stair, ~1.8x a
-       plain rung or log) -- a property of what you built, not of what you
-       carry, so it multiplies BOTH directions exactly like `climb` already
-       does. Burden only ever touches the ascending half, below. */
+    /* `climbK` is the ladder tier's own speed from `data/forms.js`, a property
+       of the tile rather than the load, so it multiplies both directions.
+       Burden touches only the ascending half below. */
     const climbK = boxClimbK(b, player.x, player.y);
     const laddSpeed = climb * climbK;
     const v = (cmd.down ? 1 : 0) - (cmd.up ? 1 : 0);
     if (v > 0) {
-      /* Descending: down is free everywhere else, and on a ladder it always
-         costs exactly the ladder's own speed, at any weight. Never scaled
-         by burden. */
+      /* Descending is never scaled by burden. */
       vy = v * laddSpeed;
     } else if (v < 0) {
       if (overCap) {
-        vy = 0;                            // ladder-up REFUSED at/over the hard cap
+        vy = 0;                            // ladder-up refused at or over the cap
         if (cmd.up) push('refused', { x: player.x, y: player.y }, { why: 'TOO HEAVY TO CLIMB' });
       } else {
         const soft = eff('burdenSoft'), floor = eff('burdenClimbFloor');
@@ -118,21 +84,16 @@ export function step(dt, cmd) {
       else { vy = -hop; onLadder = false; pw.set('onLadder', false); }
     }
   } else if (riding && !cmd.hop) {
-    /* STANDING ON A CARRIER IS STANDING ON GROUND. Gravity is not integrated
-       and the deck is snapped to flush, exactly the way `moveY` snaps to a
-       tile boundary -- flush is what makes the rider's own translation in
-       `rules/drive.js` land them on the deck and not a pixel above or below
-       it. The snap is refused if the destination is solid, for the reason bug
-       2 in this file's header records: a height change that can wedge a
-       player is a height change that eventually will. */
+    /* Gravity is not integrated and the deck is snapped flush, the way `moveY`
+       snaps to a tile boundary, so `rules/drive.js`'s translation lands the
+       rider on the deck. Refused into solid, which would wedge the player. */
     vy = 0;
     const ny = carrierTop(riding) - PH;
     if (ny !== player.y && !boxSolid(b, player.x, ny)) pw.move(player.x, ny);
   } else {
     if ((player.onGround || player.coyote > 0 || riding) && cmd.hop) {
-      /* HOPPING OFF A CARRIER IS NOT BURDEN-GATED: an over-cap player on a
-         sinking bucket must be able to step onto the ledge beside them. Off
-         the ground it is refused as it always was. */
+      /* Hopping off a carrier is not burden-gated, so an over-cap rider can
+         step onto a ledge; off the ground it is refused. */
       if (overCap && !riding) {
         push('refused', { x: player.x, y: player.y }, { why: 'TOO HEAVY TO CLIMB' });
       } else {
@@ -145,28 +106,22 @@ export function step(dt, cmd) {
   }
   pw.vel(vx, vy);
 
-  /* move and resolve, one axis at a time */
   const wasGround = player.onGround;
   moveX(b, vx * dt);
   const hitFloor = moveY(b, player.vy * dt);
 
-  /* A CARRIER'S DECK IS A FLOOR, resolved AFTER `moveY`, which only consults
-     the tile grid and would otherwise report standing over open air.
-     `onGround` true is what pins `fallFrom`, which is the whole of "no fall
-     damage accrues while riding".
-
-     `land()` still fires for the frame the player ARRIVES on a deck out of a
-     fall, so a carrier is a surface rather than a safety net. RE-QUERIED after
-     the move, not trusted from the top of the frame, because `moveX` may have
-     walked the player off the deck's edge. */
+  /* A carrier deck is a floor, resolved after `moveY`, which reads only the
+     tile grid. `onGround` pins `fallFrom`, so no fall damage accrues aboard,
+     though `land()` still fires on arrival. Re-queried rather than trusted
+     from the top of the substep, since `moveX` may have walked off the edge. */
   const landed = !!riding && !cmd.hop && riddenSegment() === riding;
   if (landed) pw.set('onGround', true);
 
   pw.set('coyote', player.onGround ? eff('coyote') : Math.max(0, player.coyote - dt));
 
-  /* `fallFrom` is the APEX of the current airborne arc, not the launch point.
-     Tracking the apex is what makes the impact speed below equal sqrt(2gh) for
-     the real drop even when the fall started with a hop. */
+  /* `fallFrom` is the apex of the current airborne arc, not the launch point,
+     so the impact speed below equals sqrt(2gh) for the real drop even when the
+     fall began with a hop. */
   if (wasGround && !player.onGround) pw.set('fallFrom', player.y);
   if (!player.onGround && !player.onLadder && player.y < player.fallFrom)
     pw.set('fallFrom', player.y);
@@ -177,31 +132,29 @@ export function step(dt, cmd) {
   if (Math.abs(vx) > 1 && player.onGround) pw.set('walkPhase', player.walkPhase + dt * 7);
   else pw.set('walkPhase', 0);
 
-  /* Keep inside the band horizontally; a band is the world as far as the player
-     is concerned, and its width is a row in `data/world.js`. */
+  /* Keeps the player inside the band horizontally; band width is a row in
+     `data/world.js`. */
   pw.move(clamp(player.x, b.origin.x, b.origin.x + widthPx(b) - PW), player.y);
 
   /* Below the last band there is nothing to land on and no band to hand off
-     to, so falling out of the world is fatal rather than infinite. Reads
-     `eff('fallMax')` rather than a bare `5` -- the two
-     only agreed by coincidence before this, and a boon that ever changed
-     `fallMax` would have silently desynced void-death lethality from
-     ordinary fall lethality. */
+     to. Reads `eff('fallMax')` so void death and ordinary fall lethality
+     cannot disagree under a modifier. */
   const last = bands[bands.length - 1];
   if (last && player.y > last.origin.y + heightPx(last)) hurt(eff('fallMax'), 'THE VOID');
 
   rw.deepest(player.y);
 }
 
-/* Impact speed is derived from the DISTANCE FALLEN rather than a per-frame
-   velocity sample, so the same drop costs the same hearts at any framerate:
+/* Impact speed derives from the distance fallen rather than a per-frame
+   velocity sample, so a drop costs the same hearts at any framerate. At
+   `g = 320 px/s^2`, `v = sqrt(2 g h)`:
 
-      40 px ( 5 tiles) -> sqrt(2*320*40)  = 160 px/s -> 0 hearts
-      64 px ( 8 tiles) -> sqrt(2*320*64)  = 202 px/s -> 1 heart
-     160 px (20 tiles) -> sqrt(2*320*160) = 320 px/s -> 5 hearts, lethal
+      5 tiles  ->   40 px  ->  160 px/s  ->  0 hearts
+      8 tiles  ->   64 px  ->  202 px/s  ->  1 heart
+     20 tiles  ->  160 px  ->  320 px/s  ->  5 hearts, lethal
 
-   Both landings snap flush to a tile boundary, so `fallen` is always an exact
-   multiple of the tile size and the boundary cases land ON the numbers. */
+   Both landings snap flush to a tile boundary, so `fallen` is an exact
+   multiple of the tile size and the boundary cases land on the numbers. */
 function land(b, term, grav) {
   const fallen = Math.max(0, player.y - player.fallFrom);
   const v = Math.min(term, Math.sqrt(2 * grav * fallen));
@@ -209,8 +162,8 @@ function land(b, term, grav) {
 
   const h = fallHearts(v);
   if (h > 0) {
-    /* Report the distance ACTUALLY fallen, not one back-solved from velocity:
-       terminal velocity would under-report a very long drop. */
+    /* The distance actually fallen, not one back-solved from velocity, which
+       terminal velocity would under-report on a long drop. */
     const tiles = Math.max(1, Math.round(fallen / b.tile));
     hurt(h, `A ${tiles}-TILE FALL`);
   } else if (v > 60) {
@@ -218,9 +171,6 @@ function land(b, term, grav) {
   }
 }
 
-/* Damage is a `rules` decision with a `model` consequence, and the notification
-   is a journal row — never a `play()` call.
-*/
 export function hurt(n, cause) {
   if (run.dead) return;
   pw.set('hurtFlash', 1);
@@ -229,39 +179,22 @@ export function hurt(n, cause) {
   if (run.dead) push('death', { x: player.x, y: player.y }, { cause: run.deathCause });
 }
 
-/* ONE QUERY ABOUT ONE POINT, AND IT HAS TO BE. `bandAt` is the only thing
-   that knows bands share one vertical space, and bands do not overlap, so the
-   hitbox CENTRE is in at most one of them.
-
-   Two leading-edge tests -- down at the feet, up at the head -- are both true
-   for the 15 px a 16 px hitbox spends straddling a seam, so a crossing player
-   flipped band EVERY FRAME and each flip snapped them back flush with `vy`
-   zeroed. Measured at 154 flips in 200 frames. Handing off into ROCK is not a
-   case to guard, because the probes read the same tiles from either side. */
+/* `bandAt` on the hitbox centre, one query about one point. Bands do not
+   overlap, so the centre is in at most one; two leading-edge probes are both
+   true for the 15 px a 16 px hitbox spends straddling a seam, which flips the
+   band every substep and re-snaps flush with `vy` zeroed each time. */
 function reband(b) {
   return bandAt(player.x + PW / 2, player.y + PH / 2) || b;
 }
 
-/* The tile grid is the only source of truth for terrain, so there is no
-   second collision model to fall out of sync with.
+/* Every probe below walks world rows rather than band rows: a 16 px hitbox
+   spans two bands for 15 px of a crossing, and `tileAt` reads bedrock past a
+   band's last row and air above its first — a phantom floor and a lost top
+   rung at a seam. Only rows are split, because a seam is horizontal. */
 
-   EVERY PROBE WALKS WORLD ROWS RATHER THAN BAND ROWS. For 15 px of every
-   crossing a 16 px hitbox is in two bands, and `tileAt` reports BEDROCK past
-   a band's last row and AIR above its first -- right at the edge of the WORLD
-   and a lie at a seam, where the bedrock lie is a phantom floor and the air
-   lie takes the last two rungs off a ladder. The band that OWNS THE ROW is
-   the one to ask. Only ROWS are split, because a seam is horizontal. */
-
-/* The band whose grid owns a world row, through the SAME `bandAt` query
-   `reband` uses -- one notion of ownership, so "which band am I in" and "which
-   band answers for the row under my feet" cannot disagree. The in-band range
-   test in front of it is the fast path, and it is every frame that is not a
-   crossing.
-
-   Falling back to `b` is today's out-of-world convention restated, which is
-   why a null `bandAt` is not a special case. It covers the horizontal case for
-   free: a band that does not span this column reads as the edge of the
-   world. */
+/* The band whose grid owns a world row, through the same `bandAt` query
+   `reband` uses. The range test in front of it is the fast path. Falling back
+   to `b` makes a column no band spans read as the edge of the world. */
 function rowBand(b, x, wy) {
   if (wy >= b.origin.y && wy < b.origin.y + heightPx(b)) return b;
   return bandAt(x + PW / 2, wy) || b;
@@ -289,10 +222,10 @@ function boxClimb(b, x, y) {
   return false;
 }
 
-/* The fastest `climbK` among the tiles the player occupies, so one straddling
-   two ladder tiers gets the better rather than the worse. Absent on every form
-   but `stair`, so a rung reads as 1. Native tiles never carry `climb:true`, so
-   `formAt` is always a real placed form here and never NATIVE. */
+/* The fastest `climbK` among the occupied tiles, so a player straddling two
+   ladder tiers gets the better. Absent on every form but `stair`, so a rung
+   reads as 1; native tiles never carry `climb:true`, so `formAt` here is
+   always a placed form. */
 function boxClimbK(b, x, y) {
   const bot = y + PH - 1;
   let k = 1;
@@ -308,8 +241,6 @@ function boxClimbK(b, x, y) {
   return k;
 }
 
-/* axis-separated resolution
-   Both axes step at one pixel and snap flush against whatever they hit. */
 function moveX(b, d) {
   if (!d) return;
   const step = Math.sign(d);
@@ -318,12 +249,10 @@ function moveX(b, d) {
     const amt = Math.min(1, rem) * step;
     const nx = player.x + amt;
     if (boxSolid(b, nx, player.y)) {
-      /* Auto-step a single-tile lip, so walking over rubble is not a chore. THE
-         LADDER CASE IS NOT OPTIONAL. BOTH headroom probes are required -- the
-         destination column and the current one -- or the step teleports
-         through a one-tile ceiling gap. DELIBERATELY NOT GATED ON BURDEN
-         either: gating a height gain on state is what wedged a player in their
-         own shaft permanently. */
+      /* Auto-step a single-tile lip. Both headroom probes are required — the
+         destination column and the current one — or the step teleports through
+         a one-tile ceiling gap. Applies on a ladder, and is never
+         burden-gated: gating a height gain on state wedges a player. */
       if ((player.onGround || player.onLadder) &&
           !boxSolid(b, nx, player.y - b.tile) &&
           !boxSolid(b, player.x, player.y - b.tile)) {
@@ -341,9 +270,9 @@ function moveX(b, d) {
   }
 }
 
-/* Returns true if this step ended with the player standing on a floor they were
-   not standing on before. BOTH exits must be able to say so: the collision exit
-   AND the ran-out-of-travel exit (bug 1 in the header). */
+/* Returns true if this step ended with the player standing on a floor they
+   were not standing on before. Both exits must be able to say so: the
+   collision exit and the ran-out-of-travel exit. */
 function moveY(b, d) {
   pw.set('onGround', false);
   const grounded = () => boxSolid(b, player.x, player.y + 1);
@@ -356,12 +285,10 @@ function moveY(b, d) {
     const amt = Math.min(1, rem) * step;
     const ny = player.y + amt;
     if (boxSolid(b, player.x, ny)) {
-      /* THE SNAP IS COMPUTED IN THE BAND THAT OWNS THE ROW THAT BLOCKED, which
-         on a seam is not the band the player is in. The blocking row is always
-         the LEADING one — the box was clear a pixel ago, so the bottom row is
-         the only new row descending and the top row the only new one rising —
-         so resolving the band for that one pixel is enough, and flush stays
-         flush across a seam. */
+      /* Snapped in the band that owns the row that blocked, which on a seam is
+         not the band the player is in. The blocking row is always the leading
+         one — the box was clear a pixel ago — so resolving the band for that
+         one pixel keeps flush flush across a seam. */
       if (step > 0) {                                     // hit a floor
         const fb = rowBand(b, player.x, ny + PH - 1);
         pw.move(player.x, worldY(fb, tileY(fb, ny + PH - 1)) - PH);

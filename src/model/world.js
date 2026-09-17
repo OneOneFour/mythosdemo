@@ -1,37 +1,25 @@
-/* LAYER model — band allocation and coordinate math. State and queries only.
-   Imports `core` and `data`.
+/* model layer — band allocation and coordinate math. State and queries only.
 
-   NO MODULE-SCOPE DIMENSION CONSTANT EXISTS IN THIS FILE, and that is the
-   point. A band is allocated from a `data/world.js` row at RUN TIME and more
-   than one is resident, so `bands` is an array and every query takes the band
-   record as its first argument.
+   No module-scope dimension constant: a band is allocated from a
+   `data/world.js` row at run time and more than one is resident, so `bands` is
+   an array and every query takes the band record as its first argument.
 
-   Threading `b` through every call is real noise -- about one extra parameter
-   on forty call sites. It buys three coexisting bands, a carrier that travels
-   between two of them, and a world size `newRun()` gets a say in.
-
-   `origin` is in PIXELS, not tiles, because a tile offset is meaningless
-   between two bands whose `tile` sizes differ -- and `tile` is per-band
-   precisely so a band may differ. */
+   `origin` is in pixels, not tiles, because a tile offset is meaningless
+   between two bands whose `tile` sizes differ. */
 
 import { bump } from './epoch.js';
 
 export const bands = [];               // allocated band records, in row order
 
-/* THE CEILING ON A BAND-LOCAL TILE INDEX, and it is not a dimension, so the
-   header above still holds. `idx` is exact for any `tw * th` a browser will
-   allocate, but three ledgers pack it into a per-band slot of THIS size. A
-   band with more tiles than the slot holds would alias band N's deep rows
-   onto band N+1's shallow ones -- a wrong answer rather than a crash, in
-   which mining progress, a growing seed and a dig mark all read off another
-   band's tile. So the widening fails HERE, at allocation, where the number is
-   still a content decision. Raise the three ledgers' slot before raising
-   this. */
+/* The ceiling on a band-local tile index. `idx` itself is exact, but
+   `model/mining.js`, `model/growth.js` and `model/digqueue.js` pack it into a
+   per-band slot of this size, so a larger band would alias one band's deep
+   rows onto the next band's shallow ones. Raise those three first. */
 const IDX_SLOT = 0x1000000;
 
 export const write = {
-  /* Called once per band from `shell/boot.js` with a `data/world.js` row.
-     Allocation is here and not at import, which is the whole fix. */
+  /* Called once per band from `shell/boot.js` with a `data/world.js` row, at
+     run time rather than at import. */
   allocate(cfg) {
     if (cfg.tw * cfg.th > IDX_SLOT)
       throw new Error(`band "${cfg.id}" is ${cfg.tw}x${cfg.th} = ` +
@@ -45,37 +33,21 @@ export const write = {
       cx: Math.ceil(cfg.tw / cfg.chunk),
       cy: Math.ceil(cfg.th / cfg.chunk),
       mat: new Uint8Array(cfg.tw * cfg.th),
-      /* A per-chunk VERSION counter, not a dirty flag: `view` may not write to
-         `model`, so it cannot clear a flag. The epoch assertion is what forced
-         this. */
+      /* A per-chunk version counter, not a dirty flag: `view` may not write to
+         `model`, so it cannot clear a flag. */
       ver: null,
-      /* Fog of war: one bit per tile, permanent for the run. A `Uint8Array` and
-         not a `Set` of indices -- unlike `fields.js#act`, which is deliberately
-         sparse because most tiles never carry heat, MOST tiles in an explored
-         band eventually get seen, so a dense byte array is both the simpler
-         and the smaller structure once play has gone on a while. It does NOT
-         bump `ver`: a chunk canvas caches the STATIC rock texture, and reveal
-         is a live overlay pass in `view/scene.js`, the same split
-         `model/fields.js`'s own header already argues for heat. Never reset by
-         anything short of `newRun()` reallocating the band outright -- there is
-         no un-reveal action, which is the whole feature. */
+      /* Fog of war: one bit per tile, permanent for the run and reset only by
+         `newRun()` reallocating the band. Dense rather than a sparse Set,
+         since most tiles in an explored band eventually get seen. Does not
+         bump `ver`; reveal is a live overlay pass in `view/scene.js`. */
       seen: new Uint8Array(cfg.tw * cfg.th),
-      /* Current lighting, 0..eff('lightMax'), one byte per tile. Storage
-         only -- the DECISION of what lights what is `rules/light.js`. Unlike
-         `seen` above, this is NOT permanent: it goes down as well as up, so a
-         torch that burns out darkens the room again while `seen` keeps the
-         memory of it forever. Same reason it does not bump `ver` either: a
-         chunk canvas caches the STATIC rock texture, and light -- like fog --
-         is a LIVE overlay pass in `view/scene.js`, never baked into the
-         bitmap. */
+      /* Current lighting, 0..eff('lightMax'), one byte per tile. Goes down as
+         well as up, unlike `seen`, so a torch burning out darkens the room
+         again. Does not bump `ver` either; light is a live overlay pass. */
       light: new Uint8Array(cfg.tw * cfg.th),
-      /* Bumped once per recompute, by `rules/light.js#write.touchLight`,
-         never per frame. `write.setLight` cannot double as this signal --
-         it fires per TILE during a recompute and would make every recompute
-         look like hundreds of separate changes -- so this is the one counter
-         `rules/reveal.js#passB` can fold into its own throttle to notice "a
-         brazier just lit up" even though that event alone never touches a
-         tile byte and therefore never bumps a chunk `ver`. */
+      /* Bumped once per recompute by `rules/light.js#write.touchLight`, never
+         per tile. `rules/reveal.js#passB` folds it into its own throttle to
+         notice a brazier lighting up, which touches no tile byte. */
       lightVer: 0,
       fields: {},                      // filled by `model/fields.js`
       cfg                              // the frozen row, for strata and `look`
@@ -88,10 +60,8 @@ export const write = {
 
   clear() { bands.length = 0; bump(); },
 
-  /* Permanent, one-way: a tile once revealed stays revealed for the rest of
-     the run (the product decision this feature exists to implement). Returns
-     false for an out-of-bounds tile or one already revealed, so a caller need
-     not diff -- the same shape `model/tiles.js#write.set` already uses. */
+  /* Permanent and one-way. Returns false for an out-of-bounds or
+     already-revealed tile, so a caller need not diff. */
   reveal(b, tx, ty) {
     if (!inBounds(b, tx, ty)) return false;
     const i = idx(b, tx, ty);
@@ -101,34 +71,22 @@ export const write = {
     return true;
   },
 
-  /* TEST-ONLY escape hatch, exposed through `__mf` in `shell/main.js`. Several
-     screenshot tests park the camera at a band the player never walked to, to
-     prove TERRAIN rendering is correct -- a question fog of war must not be
-     allowed to swallow. Nothing in real play ever calls this; a run that used
-     it would not be reproducible from a walk, only from a cheat. */
+  /* Test-only, exposed through `__mf` in `shell/main.js`: screenshot tests
+     park the camera at a band the player never walked to. Nothing in real
+     play calls this, and a run that used it would not be reproducible. */
   revealAll(b) { b.seen.fill(1); bump(); },
 
-  /* Real gameplay, unlike `revealAll` above: `shell/boot.js` uses this once,
-     at spawn, to show the whole starting skyline -- sky, grass, trees --
-     before the player has taken a single step, rather than making the first
-     frame of a new run a screen of fog `rules/reveal.js`'s Pass A would
-     mostly-but-not-quite clear on its own (a tree trunk is solid, so Pass A's
-     per-column walk stops at its FIRST solid tile and never reaches the
-     ground a tree is standing on). Rows are contiguous in `b.seen` (`idx` is
-     `ty * b.tw + tx`), so revealing every row below `toTy` is one `fill` call
-     over a slice, not a nested loop. */
+  /* Reveals every row above `toTy`. `rules/reveal.js`'s per-column walk stops
+     at the first solid tile, so a tree trunk would hide the ground it stands
+     on. Rows are contiguous in `b.seen`, so this is one `fill` over a slice. */
   revealRows(b, toTy) { b.seen.fill(1, 0, Math.min(toTy, b.th) * b.tw); bump(); },
 
-  /* lighting. `rules/light.js` is the only caller. Storage and the
-     "raise, don't overwrite" rule are here; the BFS that decides WHAT level
-     a tile ends up at is entirely that file's business. */
+  /* Lighting storage. `rules/light.js` is the only caller; the BFS that
+     decides what level a tile ends up at is that file's. */
 
-  /* A recompute seeds many sources into the same tile and the tile should end
-     up at the BRIGHTEST one that reached it, so this only ever raises --
-     mirroring `reveal`'s "only ever sets" shape one level up, with a number
-     instead of a bit. The caller clears the band first (see `clearLight`)
-     when it wants the field to actually go dark somewhere it no longer
-     reaches. */
+  /* Raises only: a recompute seeds many sources into one tile and it should
+     end up at the brightest that reached it. `clearLight` is how the field
+     goes dark again. */
   setLight(b, tx, ty, level) {
     if (!inBounds(b, tx, ty)) return false;
     const i = idx(b, tx, ty);
@@ -138,62 +96,44 @@ export const write = {
     return true;
   },
 
-  /* Whole-band reset before a recompute -- light, unlike fog, must be able to
-     go all the way back to zero somewhere it no longer reaches (a moved
-     brazier, a spent brand), and `setLight`'s raise-only rule cannot do that
-     by itself. */
+  /* Whole-band reset before a recompute: `setLight`'s raise-only rule cannot
+     take a tile back to zero on its own. */
   clearLight(b) { b.light.fill(0); bump(); },
 
-  /* The one signal `rules/reveal.js#passB` needs and cannot derive any other
-     way -- see the field comment on `lightVer` in `allocate`. */
+  /* The recompute signal `rules/reveal.js#passB` reads; see `lightVer` in
+     `allocate`. */
   touchLight(b) { b.lightVer++; bump(); }
 };
 
-/* Has the player ever stood in or beside this tile? False out of bounds, same
-   as a query would report "no rock there" rather than throwing -- there is
-   nothing to reveal past the edge of a band's own grid. */
+/* Has the player ever stood in or beside this tile? False out of bounds. */
 export const seenAt = (b, tx, ty) => inBounds(b, tx, ty) && b.seen[idx(b, tx, ty)] === 1;
 
-/* Current light level, 0..eff('lightMax'). 0 out of bounds -- there is
-   nothing to light past the edge of a band's own grid, the same convention
-   `seenAt` uses for "no", not an exception. */
+/* Current light level, 0..eff('lightMax'). 0 out of bounds. */
 export const lightAt = (b, tx, ty) => inBounds(b, tx, ty) ? b.light[idx(b, tx, ty)] : 0;
-
-/* band lookup */
 
 export const bandOf = id => bands.find(b => b.id === id) || null;
 export const bandByOrd = ord => bands[ord] || null;
 
-/* The band a WORLD PIXEL falls in, or null. This is the only place that knows
-   bands are laid out in a shared space at all. */
+/* The band a world pixel falls in, or null. The only place that knows bands
+   are laid out in one shared space. */
 export const bandAt = (x, y) => bands.find(b =>
   x >= b.origin.x && x < b.origin.x + b.tw * b.tile &&
   y >= b.origin.y && y < b.origin.y + b.th * b.tile) || null;
 
-/* The band immediately below / above another in declaration order. A segment
-   and a dig through a band floor both need this, and neither should compute it. */
+/* The band immediately below / above another in declaration order. */
 export const bandBelow = b => bands[b.ord + 1] || null;
 export const bandAbove = b => bands[b.ord - 1] || null;
 
-/* Does this band carry open sky of its own above its ground line? `floorTy`
-   IS that ground line, and already the number the sky and excavated-rock
-   passes divide by. False for a band whose row 0 is buried under the band
-   above.
-
-   Read it rather than testing the world above row 0: the astral floor slab
-   spans every column, so the surface band has solid rock 19 tiles over its
-   own sky and a pure occlusion test darkens it whole. A band's sky is a
-   CONTENT statement, and this is where content states it. */
+/* Does this band carry open sky above its own ground line? `floorTy` is that
+   ground line; false for a band whose row 0 is buried under the band above.
+   Read from content rather than tested against the world, since the astral
+   floor slab spans every column and would darken the surface band whole. */
 export const hasOwnSky = b => (b.cfg.floorTy ?? 0) > 0;
 
 /* Every band a world-pixel rect overlaps, each with the band-local tile box
-   the rect covers inside it. Bounds are INCLUSIVE and clamped to the band's
-   own grid, in top-down band order. Empty when the rect is outside the world.
-
-   A hitbox straddling a seam yields two entries, which is the point. A caller
-   that resolves one band for a whole box addresses the other band's rows at
-   negative or past-the-end ordinals, and `inBounds` rejects those silently --
-   so half the box is skipped and nothing reports it. */
+   the rect covers inside it. Bounds are inclusive and clamped to the band's
+   own grid, in top-down band order, and empty outside the world. A hitbox
+   straddling a seam yields two entries. */
 export function bandSpans(x, y, w, h) {
   const out = [];
   const x1 = x + w - 1, y1 = y + h - 1;
@@ -209,7 +149,7 @@ export function bandSpans(x, y, w, h) {
   return out;
 }
 
-/* tile addressing. Band-local, always. */
+/* Tile addressing. Band-local, always. */
 
 export const idx = (b, tx, ty) => ty * b.tw + tx;
 
@@ -227,7 +167,7 @@ export const worldY = (b, ty) => b.origin.y + ty * b.tile;
 export const widthPx  = b => b.tw * b.tile;
 export const heightPx = b => b.th * b.tile;
 
-/* chunks. `view` paints one of these per dirty version. */
+/* Chunks. `view` paints one of these per changed version. */
 
 export const chunkOf = (b, tx, ty) => ({ cx: (tx / b.chunk) | 0, cy: (ty / b.chunk) | 0 });
 export const chunkIdx = (b, cx, cy) => cy * b.cx + cx;

@@ -1,16 +1,9 @@
-/* LAYER view — HOVER: what the pointer is over, resolved fresh every frame.
-   Imports `core`, `data`, READ-ONLY `model` queries and one same-layer `view`
-   module. No `rules` and no `shell` -- the pointer arrives as WORLD px on the
-   frame context, the way `cam` does.
+/* view layer — what the pointer is over, resolved fresh every frame and
+   returned rather than stored, so nothing here writes `model`. The pointer
+   arrives as world px on the frame context, the way `cam` does.
 
-   NO STATE. `model/aim.js` exists because `rules/mining.js` WRITES the aim and
-   `view/hud.js` READS it. Hover has exactly one writer AND one reader, both
-   this file's caller, so it is a return value rather than a field. Caching it
-   on a model record would be a `view` write to `model`.
-
-   PRIORITY: a HUD hitbox always wins, because the HUD is drawn on top. Within
-   the world, a falling item beats a machine beats bare rock -- an item and a
-   machine are the rarer, more specific thing the cursor could be over. */
+   Priority: a HUD hitbox wins because the HUD draws on top; within the world,
+   a falling item beats a machine beats bare rock. */
 
 import { AIR, FORM, labelOf, packTile } from '../data/forms.js';
 import { recipesOf } from '../data/recipes.js';
@@ -22,20 +15,12 @@ import { baseHardOf, formRowOf, rowOf, tileAt } from '../model/tiles.js';
 import { bandAt, seenAt, tileX, tileY } from '../model/world.js';
 import { effChargeAt, effHardAt } from './paint.js';
 
-/* Plain words for `model/machines.js#statusOf`'s three states -- the hover
-   tooltip's own second line for a placed machine, so a stall is finally
-   legible instead of a fire glow that simply never lit. */
+/* Plain words for `model/machines.js#statusOf`'s three states. */
 const STATUS_WORDS = { running: 'RUNNING', 'no-fuel': 'NO FUEL', idle: 'IDLE' };
 
-/* The recipe this machine would run right now, judged by the SAME "every
-   input clause satisfied" test `rules/machines.js#choose` applies -- but
-   display-only and deliberately narrower: only a recipe sourced from the
-   ordinary buffer (no `from`, or `from:'buffer'`) is considered, since a bare
-   unit source (`data/sources.js`, `units:'named'` -- no row uses one today) has no
-   buffered pair for a tooltip to name. `view` may not import `rules`, which
-   is why this re-reads the buffer directly through `count` rather than
-   calling `choose` itself.
-*/
+/* The recipe this machine would run right now, display-only: only a
+   buffer-sourced recipe (no `from`, or `from:'buffer'`) counts, and the buffer
+   is re-read through `count` because `view` may not import `rules`. */
 function currentRecipe(m, def) {
   for (const r of recipesOf(def)) {
     if (r.from && r.from !== 'buffer') continue;
@@ -45,11 +30,9 @@ function currentRecipe(m, def) {
   return null;
 }
 
-/* A legible name for what a recipe makes. Most NAMED rows already carry one
-   (`RECIPES.smelt.name`); a machine's own INLINE recipe (a belt's honest-
-   fuel row, the belt's, the brazier's) does not, so this falls back to
-   naming the actual buffered pair satisfying each input clause -- never
-   `undefined`, never a blank line, per this task's own requirement. */
+/* A legible name for what a recipe makes. A machine's inline recipe carries no
+   `name`, so this falls back to naming the buffered pair that satisfies each
+   input clause. */
 function recipeLabel(m, r) {
   const ins = r.in || {};
   if (r.name) return r.name;
@@ -60,18 +43,12 @@ function recipeLabel(m, r) {
   return parts.length ? parts.join(' + ') : 'SOMETHING';
 }
 
-/* One "HARD n.nnS" line, or none. `baseHardOf` returns `Infinity` for both
-   "this substance has no `tile` block at all" (a relic) and literal bedrock --
-   the same case `rules/mining.js` guards with `Number.isFinite` before it will
-   spend a swing on a tile, reused here for the same reason. */
+/* One "HARD n.nnS" line, or none: `baseHardOf` returns `Infinity` both for a
+   substance with no `tile` block and for literal bedrock. */
 const hardLine = hard => Number.isFinite(hard) ? ['HARD ' + hard.toFixed(2) + 'S'] : [];
 
-/* A held or dropped pair -- the pocket strip, the inventory panel and a
-   falling item all describe themselves this way, so hovering the same ore in
-   your pockets and mid-fall reads identically. `packTile` plus `baseHardOf` is
-   the same base-hardness arithmetic `baseHardAt` does for a placed tile; reused
-   rather than re-derived so there is exactly one formula for "seconds at pick
-   power 1" in the whole codebase. */
+/* A held or dropped pair. `packTile` plus `baseHardOf` is the same "seconds at
+   pick power 1" arithmetic a placed tile goes through. */
 function describePair(sub, form) {
   const lines = [labelOf(sub, form), 'MASS ' + massOfPair(sub, form).toFixed(1)];
   lines.push(...hardLine(baseHardOf(packTile(sub, form))));
@@ -79,10 +56,9 @@ function describePair(sub, form) {
   return lines;
 }
 
-/* A tile byte, native or placed. Not `describePair` plus a form lookup: a
-   native tile's form is the `NATIVE` sentinel, which is not a real `FORM`
-   index, so the label has to branch on whether a form row exists at all --
-   exactly the branch `model/tiles.js#formRowOf` exists to answer. */
+/* A tile byte, native or placed. A native tile's form is the `NATIVE` sentinel
+   rather than a real `FORM` index, so the label branches on whether
+   `formRowOf` finds a row at all. */
 function describeTile(byte) {
   const row = rowOf(byte), formRow = formRowOf(byte);
   const lines = [formRow ? `${row.name} ${formRow.label}`.trim() : row.name];
@@ -93,15 +69,9 @@ function describeTile(byte) {
   return lines;
 }
 
-/* UNITS STILL IN A DEPOSIT, or no line at all. The player plans in UNITS, so
-   this prints a count and never a percentage, and a `charge:1` tile prints
-   nothing -- its one unit IS the tile, and "1 / 1" would be noise on every
-   rock in the world.
-
-   THE SAME ARITHMETIC `drawLiveTiles` COUNTS ITS NOTCHES WITH, so the number
-   and the bites out of the tile beside it cannot disagree: floored with no
-   epsilon, capped one short of `charge`. Measured with EFFECTIVE hardness and
-   charge rather than the base pair `hardLine` prints. */
+/* Units still in a deposit, or no line at all: a `charge:1` tile prints
+   nothing. Counted exactly as `drawLiveTiles` counts its notches -- floored
+   with no epsilon, capped one short of `charge`, on effective values. */
 function unitsLine(b, tx, ty) {
   const charge = effChargeAt(b, tx, ty);
   if (charge <= 1) return [];
@@ -110,9 +80,8 @@ function unitsLine(b, tx, ty) {
   return ['UNITS ' + (charge - out) + ' / ' + charge];
 }
 
-/* The nearest falling item within reach of the pointer, or null. A generous
-   half-tile slack: a falling item is a small sprite and a pixel-perfect cursor
-   requirement would make it un-hoverable while it is moving. */
+/* The nearest falling item within half a tile of the pointer, or null. The
+   slack keeps a small moving sprite hoverable. */
 function nearestItem(band, wx, wy) {
   let best = null, bestD = Infinity;
   for (const it of itemsNear(wx, wy, band.tile * 0.6)) {
@@ -123,10 +92,9 @@ function nearestItem(band, wx, wy) {
   return best;
 }
 
-/* `hudHits` is exactly what `view/hud.js` drew THIS frame -- the pocket strip's
-   rectangles, and the inventory panel's when it is open -- never a second copy
-   of that x/y math. Returns `{ x, y, lines }` in SCREEN px (`x`/`y` are where
-   the box should anchor) or `null`. */
+/* `hudHits` is what `view/hud.js` drew this frame, never a second copy of its
+   x/y math. Returns `{ x, y, lines }` with `x`/`y` the anchor in screen px, or
+   `null`. */
 export function resolveHover(f, hudHits) {
   if (!f.mouse?.has || run.dead) return null;
   const sx = f.mouse.x - f.cam.x, sy = f.mouse.y - f.cam.y;
@@ -152,14 +120,9 @@ export function resolveHover(f, hudHits) {
     return { x: sx, y: sy, lines };
   }
 
-  /* FOG OF WAR MUST NOT LEAK TILE IDENTITY (bug fix): an unseen tile shows no
-     tooltip at all, not a generic placeholder -- a placeholder line would
-     still tell the player "there is exactly one kind of thing here", which
-     is a bit less than the substance name but still information fog is
-     supposed to withhold. Checked ONLY here, not above: an item, a machine
-     and an inventory slot are none of them terrain, and `seenAt` has nothing
-     to say about whether a falling item or a placed machine is visible --
-     those already have their own, unrelated, reasons to show or not show. */
+  /* An unseen tile shows no tooltip at all: a placeholder line would still say
+     "there is exactly one kind of thing here". Checked only here -- an item, a
+     machine and an inventory slot are none of them terrain. */
   const byte = tileAt(band, tx, ty);
   if (byte === AIR) return null;
   if (!seenAt(band, tx, ty)) return null;

@@ -1,24 +1,15 @@
-/* LAYER rules — THE CYCLE DIRECTOR: arms a trial, drains what was fed to it,
-   and decides completion or debt. Imports `core`, `data`, `model`, and no
-   other `rules` module.
+/* rules layer — the cycle director. Each substep, in order: ensure a live
+   cycle, place the altar if the armed cycle wants one, drain every matching
+   receiver into the ledger, tick the deadline, then resolve to complete or
+   miss — never both, never twice.
 
-   ONE DECISION PER STEP, IN ORDER: ensure a live cycle, drain every tribute
-   receiver into it, tick its deadline, then resolve -- complete or miss,
-   never both, never twice in one frame. `model/run.js#tributeMet()` is the
-   completion predicate and is a QUERY rather than a decision here, so the
-   TRIBUTE panel can draw the same yes/no without importing this file.
+   `run.tribute` is replaced whole rather than patched, so a demand and its
+   deadline cannot be observed half-applied. `model/run.js#tributeMet()` is the
+   shared completion query, so the tribute panel needs no import of this file.
 
-   `run.tribute` IS REPLACED WHOLE, NEVER PATCHED IN PLACE, so a demand and
-   its own deadline can never be observed half-applied.
-
-   TWO BRIDGES, both because a `rules` sibling may not be imported.
-   `run.offer` carries a tier name for `shell/main.js` to perform, because
-   `draftable()` lives in four siblings. `run.awarded` carries machine ids for
-   `rules/grants.js#step`, the only module that pushes a `'grant'` row,
-   scheduled immediately after this one.
-
-   NO `rand()` outside the drop roll, and the deadline accumulates from `dt`
-   alone -- never `Date.now()`. */
+   `run.offer` carries a tier name for `shell/main.js` and `run.awarded` carries
+   machine ids for `rules/grants.js#step`, since both live in siblings this file
+   may not import. The deadline accumulates from `dt`, never `Date.now()`. */
 
 import { rand } from '../core/rng.js';
 import { F } from '../data/forms.js';
@@ -45,27 +36,17 @@ export function step(dt) {
   resolve();
 }
 
-/* `run.tribute === null` is "nothing armed" -- true on a fresh run and true
-   again the instant a cycle completes or is missed, so THIS is the one place
-   a new cycle ever arms, first or retry.
-
-   PAST THE LAST SHIPPED ROW, THE RUN IS WON. `run.cycle > CYCLES.length` is
-   the FACT; `rw.win()` is the EVENT, set exactly once, with a journal row to
-   sound and a screen to draw. The boundary is the shipped table's own length
-   and moves when the table grows -- there is no literal 4 anywhere. */
+/* `run.tribute === null` means nothing is armed — true on a fresh run and
+   again the instant a cycle completes or is missed — so this is the only place
+   a cycle arms, first or retry. Past the last row of `CYCLES` the run is won,
+   and `rw.win()` fires exactly once. */
 function ensureLiveCycle() {
   if (run.tribute) return;
   if (run.cycle > CYCLES.length) {
-    /* A RUN IS NOT WON WHILE A REWARD IS OUTSTANDING. `complete()` writes
-       `run.offer` and bumps `run.cycle` in one call, so on the last trial the
-       boundary is visible in a later substep of the frame that paid it -- and
-       `applyIntents` returns on `run.won` above both the offer's dispatch and
-       its lay-out, so the final draft would be discarded on whichever substep
-       parity the framerate gave.
-
-       IT CANNOT HANG: a request is laid out or dropped the same frame, a
-       laid-out offer always holds at least one card, and taking one is always
-       available since Escape cannot dismiss it. */
+    /* `complete()` writes `run.offer` and bumps `run.cycle` in one call, and
+       `applyIntents` returns early on `run.won`, so the last trial's draft has
+       to be taken before the win lands. It cannot hang: an offer is laid out or
+       dropped the same frame, always holds a card, and cannot be dismissed. */
     if (run.offer) return;
     if (!run.won) {
       rw.win();
@@ -77,28 +58,19 @@ function ensureLiveCycle() {
   rw.tribute({ id: cyc.id, have: {}, left: cyc.deadlineSecs, credits: [] });
 }
 
-/* THE ONE MACHINE THE PLAYER CANNOT BUILD gets placed the one way that skips
-   every player-facing check, at a position DERIVED from the spawn band's own
-   per-seed fields and never a world-px literal.
-
-   `SPAWN_GAP` TILES CLEAR OF `spawnTx`, NOT FLUSH AGAINST IT. It clears
-   `handFeed.reach` plus the player's own width with room over, while staying
-   the short deliberate walk the beat sheet asks for first. An altar in the
-   player's own footprint is bad staging whatever it takes. */
+/* Tiles clear of the spawn band's `spawnTx`, derived rather than a world-px
+   literal. Clears `handFeed.reach` plus the player's own width with room over,
+   while staying a short walk from spawn. */
 const SPAWN_GAP = 4;
 
-/* Beat 4 of `rules/tutorial.js#BEATS`, the climbed-back-up beat. The two
-   must agree, and neither file may import the other. */
+/* The climbed-back-up beat in `rules/tutorial.js#BEATS`. The two must agree,
+   and neither file may import the other. */
 const ALTAR_BEAT = 4;
 
-/* IT DOES NOT ARRIVE ON FRAME 0: the director waits for beat 4, read through
-   `model/tutorial.js#beat` so this needs no sibling import.
-
-   THE GRACE IS NOT BELT-AND-BRACES. Cycle 1 has exactly one receiver and
-   nothing else can pay it, so a beat predicate that never fires would
-   soft-lock the first trial outright. `eff('altarGraceSecs')` places it anyway
-   once `run.t` passes. RE-ASKED EVERY STEP rather than once when the cycle
-   armed, since neither the beat nor the clock has usually reached the gate. */
+/* Waits for `ALTAR_BEAT`, read through `model/tutorial.js#beat` rather than a
+   sibling import, or for `eff('altarGraceSecs')` of `run.t` — cycle 1 has one
+   receiver, so a beat that never fires would soft-lock it. Asked every step,
+   since usually neither gate has been reached. */
 function ensureAltarPlaced() {
   if (CYCLE[run.tribute?.id]?.at !== 'altar') return;
   if (beat(run) < ALTAR_BEAT && run.t < eff('altarGraceSecs')) return;
@@ -106,27 +78,18 @@ function ensureAltarPlaced() {
   const band = bandOf(SPAWN_BAND);
   const def = MACH[M.altar];
   const m = mw.place(band, M.altar, band.cfg.spawnTx - def.tw - SPAWN_GAP, band.cfg.floorTy - def.th);
-  /* The instant and the place, for `view/scene.js` to draw the rise and the
-     shaft of light against. A position rather than the machine, so the
-     renderer never learns a machine name -- see `RUN_SCHEMA.arrival`. */
+  /* The instant and the place for `view/scene.js` to draw the rise against. A
+     position rather than the machine, so the renderer learns no machine name. */
   rw.arrival(m.box.x, m.box.y);
 }
 
-/* ONLY THE LIVE CYCLE'S OWN RECEIVER PAYS IT. Draining every machine tagged
-   `tribute:{}` is fine about the KEY and wrong about the GAME: with the altar
-   four tiles from spawn all run, that made cycles 2, 3 and 4 payable by
-   hand-feeding it -- no ascent, no dock, no drivetrain, no climb. So `cyc.at`
-   is the gate, and one drain path still serves both receivers.
-
-   MATERIAL FED TO THE WRONG RECEIVER STAYS IN THAT BUFFER, uncredited, rather
-   than refused at its port: refusing would put director policy inside the
-   machine layer, and a catch box swallowing what falls in is physics rather
-   than permission. Draining is real consumption, not a peek. */
+/* Only the receiver the live cycle's own `at` names pays it. Material fed to
+   any other tribute receiver stays in that buffer uncredited rather than being
+   refused at the port, and draining is real consumption, not a peek. */
 function drainReceivers() {
   if (!run.tribute) return;
-  /* Resolved by ID through `CYCLE`, never by `CYCLES[run.cycle - 1]`: the
-     live ledger's own id is the authority on what is armed, the same reason
-     `model/run.js#cycleRow` resolves it that way. */
+  /* Resolved by id through `CYCLE` rather than `CYCLES[run.cycle - 1]`: the
+     live ledger's own id is the authority on what is armed. */
   const at = CYCLE[run.tribute.id]?.at;
   const want = at === undefined ? undefined : M[at];
   if (want === undefined) return;
@@ -144,16 +107,10 @@ function drainReceivers() {
   }
 }
 
-/* A CREDIT IS STAMPED WITH `run.t`, simulated time and never `Date.now()`.
-   Only the batched pair is stamped.
-
-   ON ARRIVAL, WHICH IS WHY THE CLAUSE IS `batch` AND NOT `rate`: this runs
-   when a buffer is drained, so a haul of four plates is one credit of four at
-   one instant however long it took to make or climb.
-
-   THE LEDGER IS REBUILT PER CREDIT rather than pushed into, because
-   `run.tribute` is replaced whole. `prunedCredits` caps the array, so the copy
-   stays short rather than growing with the run. */
+/* Stamped with `run.t`, simulated time, and only for the pair the cycle's
+   `batch` clause names. Runs when a buffer is drained, so one drained buffer
+   is one credit of n at one instant. Rebuilt rather than pushed into, since
+   `run.tribute` is replaced whole; `prunedCredits` caps the array. */
 function creditTribute(k, n) {
   const have = { ...run.tribute.have, [k]: (run.tribute.have[k] || 0) + n };
   const batch = CYCLE[run.tribute.id]?.batch;
@@ -163,16 +120,15 @@ function creditTribute(k, n) {
   rw.tribute({ ...run.tribute, have, credits });
 }
 
-/* `left === null` is cycle 1's "no clock", a real branch and not a large
-   number -- it must never count down towards a miss that can never come. */
+/* `left === null` is a cycle with no clock — a real branch rather than a large
+   number — and must never count down. */
 function tickDeadline(dt) {
   if (!run.tribute || run.tribute.left === null) return;
   rw.tribute({ ...run.tribute, left: Math.max(0, run.tribute.left - dt) });
 }
 
-/* COMPLETION OUTRANKS EXPIRY: a delivery landing the same frame the clock
-   reaches zero pays the trial rather than missing it. `tributeMet()` is the
-   shared query (`model/run.js`) the TRIBUTE panel will read too. */
+/* Completion outranks expiry: a delivery landing the same substep the clock
+   reaches zero pays the trial rather than missing it. */
 function resolve() {
   if (!run.tribute) return;
   const cyc = CYCLE[run.tribute.id];
@@ -189,21 +145,14 @@ function complete(cyc) {
   const pos = m ? { x: m.box.x + m.box.w / 2, y: m.box.y } : null;
   const reward = cyc.reward;
   if (reward.favour) rw.favour(cyc.god, reward.favour);
-  /* THE GRANT BRIDGE, NOT `rw.grant`: the raw model writer appends a machine
-     id and pushes NOTHING, so calling it directly would give cycle 1's reward
-     -- the furnace and the dock -- no toast, no sound and no line anywhere.
-
-     `rules/grants.js` is the only module that pushes a `'grant'` row and is a
-     sibling this file may not import, so the ids go onto `run.awarded` and
-     its `step` performs them the same frame. NOT a second grant path:
-     `write.grant` still has exactly one calling module. */
+  /* `rw.grant` appends an id and pushes nothing, so the ids go onto
+     `run.awarded` for `rules/grants.js#step` to perform the same frame — that
+     is the only module that pushes a `'grant'` row, and a sibling. */
   if (reward.grants?.length) rw.award([...reward.grants]);
   for (const id of reward.charts ?? []) rw.chart(id);
-  /* THE ASKING GOD RIDES WITH THE REQUEST. `shell/main.js` cannot work out
-     who asked -- by the time it reads the field this function has already
-     bumped `run.cycle` past the row -- and a reroll spends a named god's
-     favour, so the id is written where it is still a fact rather than an
-     inference. See `model/run.js#RUN_SCHEMA.offer`. */
+  /* The asking god is written with the request: this function bumps
+     `run.cycle` past the row before `shell/main.js` reads the field, and a
+     reroll spends a named god's favour. */
   if (reward.draft) rw.offer(reward.draft, cyc.god);
   rollTributeDrop(m);
   push('cycle', pos, { cycleId: cyc.id, god: cyc.god, reward });
@@ -211,14 +160,10 @@ function complete(cyc) {
   rw.cycle(run.cycle + 1);
 }
 
-/* A miss forfeits the ledger but NOT the trial: `run.cycle` does not move, so
-   `ensureLiveCycle` re-arms the identical row next frame with a fresh `have`
-   and a fresh clock -- the retry IS the mercy, and the punishment is the cost
-   of it. TWO MISSES END THE RUN, through the existing `hurtFor`/`write.hurt`
-   and no new death path (`RUN_SCHEMA.misses`'s own comment): the ordinary
-   punishment applies first, then a second miss tops hearts off to zero
-   outright regardless of which cycle it was, so "two" always means "two",
-   not "landed on zero by coincidence". */
+/* A miss forfeits the ledger but not the trial: `run.cycle` does not move, so
+   `ensureLiveCycle` re-arms the identical row with a fresh `have` and clock.
+   The row's own punishment applies first, then a second miss zeroes hearts
+   through `hurtFor` rather than a new death path. */
 function miss(cyc) {
   const m = receiverOf(cyc);
   const pos = m ? { x: m.box.x + m.box.w / 2, y: m.box.y } : null;
@@ -231,10 +176,9 @@ function miss(cyc) {
   rw.tribute(null);
 }
 
-/* Duplicates `rules/player.js#hurt`'s three lines -- flash, hurt, and a death
-   row if it proves fatal -- because that function lives in a `rules` sibling
-   this file may not import. Falls back to the player's own position when the
-   receiver that triggered it no longer resolves to a box. */
+/* Duplicates `rules/player.js#hurt` — flash, hurt, and a death row if fatal —
+   because that lives in a sibling this file may not import. Falls back to the
+   player's own position when the receiver resolves to no box. */
 function hurtFor(pos, n, cause) {
   if (run.dead || n <= 0) return;
   const at = pos ?? { x: player.x, y: player.y };
@@ -244,14 +188,9 @@ function hurtFor(pos, n, cause) {
   if (run.dead) push('death', at, { cause: run.deathCause });
 }
 
-/* Duplicates `rules/mining.js`'s rare-trinket-drop shape, filtered to
-   `trigger:'tribute'` -- `tribute-bellows` (`data/drops.js`) is `chance:1`,
-   so the first cycle completion always hands over the bellows trinket. Rolled
-   through `rand()` and nothing else, and skipped entirely if a
-   copy is already held, the same "one is enough" rule the mining roll uses.
-   Spawns in the RECEIVER'S OWN BAND, never the spawn band by assumption --
-   the dock sits in `astral`, and world px is only meaningful within the band
-   that owns it. */
+/* Duplicates `rules/mining.js`'s drop shape, filtered to `trigger:'tribute'`
+   in `data/drops.js` and skipped when a copy is already held. Spawns in the
+   receiver's own band: world px is only meaningful within the owning band. */
 function rollTributeDrop(m) {
   if (!m) return;
   for (const d of DROPS) {

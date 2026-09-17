@@ -1,15 +1,9 @@
-/* LAYER rules — FALLING MATERIAL: gravity, landing, resting, pickup. Imports
-   `core`, `data`, `model`, and no other `rules` module.
+/* rules layer — falling material — gravity, landing, resting, pickup.
 
-   THE COLLISION HERE IS SWEPT. Integrating in one shot and point-sampling the
-   tile under the new position stepped clean over a one-tile floor at terminal
-   velocity -- 12 px in a 30 ms frame is a tile and a half -- so ore mined
-   above a thin ledge fell through it. The sweep splits motion into substeps
-   no longer than half a tile, so no solid tile can be skipped at any dt.
-
-   Mined material is a physical thing that FALLS. Machines are catch boxes and
-   material that falls in is free, which is what makes placing a machine UNDER
-   a vein strictly better than placing it on the surface. */
+   Collision is swept: motion splits into substeps no longer than half a tile,
+   so no solid tile is skipped at any dt. Point-sampling the tile under an
+   integrated position instead would tunnel through a one-tile floor at
+   terminal velocity, which is a tile and a half per 30 ms frame. */
 
 import { rand } from '../core/rng.js';
 import { push } from '../model/journal.js';
@@ -20,30 +14,23 @@ import { burdenOf, run, write as rw } from '../model/run.js';
 import { solidAt } from '../model/tiles.js';
 import { bandBelow, heightPx, tileX, tileY, worldY } from '../model/world.js';
 
-/* Hard cap on live items. A pile that grows without bound is a frame-time leak,
-   and the oldest material is the least interesting. */
+/* Hard cap on live items; an unbounded pile is a frame-time leak. */
 const MAX_ITEMS = 400;
 
-/* Seconds before a fresh drop may be pocketed. Without it, ore mined at your
-   feet jumps into your hands before you ever see it fall — and seeing it fall
-   is the only thing teaching the thesis in the first thirty seconds. */
+/* Seconds a drop must age before it may be pocketed. */
 const MAGNET_DELAY = 0.35;
 
-/* Fraction of horizontal speed kept after a bounce. Material should settle,
-   not skitter. */
+/* Fraction of horizontal speed kept after a bounce. */
 const BOUNCE = 0.3;
 
-/* Floating-point slack for the burden comparison below -- a pickup landing
-   EXACTLY on the hard cap must succeed, not fail on a rounding hair. */
+/* Slack so a pickup landing exactly on the hard cap succeeds rather than
+   failing on a rounding hair. */
 const MASS_EPS = 1e-6;
 
-/* A refused pickup must not re-test -- and re-push the journal -- every
-   single frame it sits in the pickup radius. Rate-limited here rather than
-   through `data/sfx.js`'s MIN_GAP because 'refused' carries no sound to
-   throttle -- only the toast text. Keyed by object identity rather than a
-   field on the item record (`model/items.js`'s own header insists the shape
-   stay monomorphic): a removed item is simply never queried again and needs
-   no explicit cleanup. */
+/* Seconds between repeats of a refusal journal row, which would otherwise
+   push every substep the item sits in the pickup radius. Keyed by object
+   identity to keep the item record monomorphic; a removed item is never
+   queried again, so nothing needs cleaning up. */
 const REFUSAL_GAP = 1.0;
 const refusedAt = new WeakMap();
 function refusalDue(it) {
@@ -53,12 +40,8 @@ function refusalDue(it) {
   return true;
 }
 
-/* THE DROP VERB, without which the encumbrance lockout would soft-lock an
-   over-cap player. Spends exactly one unit of the HEAVIEST held pair -- the
-   one buying the most relief per item dropped, not the first in HUD order --
-   and hands it back to gravity at the player's feet, with a toss read through
-   `eff('tossUp')`/`eff('tossSpread')` rather than a fifth
-   independently-chosen magnitude. */
+/* Spend one unit of the heaviest held pair and respawn it at the player's
+   feet, tossed by `eff('tossUp')` / `eff('tossSpread')`. */
 export function dropHeaviest() {
   if (run.dead || !player.band) return;
 
@@ -76,16 +59,12 @@ export function dropHeaviest() {
   const up = eff('tossUp'), spread = eff('tossSpread');
   iw.spawn(player.band, at.x, at.y, best.sub, best.form,
            (rand() - 0.5) * 2 * spread, -up);
-  /* Reuses the 'place' journal kind: it already renders exactly this shape of
-     row ({sub, form}) as "<PAIR> PLACED", the closest true statement already
-     wired. */
+  /* The 'place' journal kind renders a `{sub, form}` row as "<PAIR> PLACED". */
   push('place', at, { sub: best.sub, form: best.form });
 }
 
-/* Pickup is OPT-IN: the branch below fires only while `cmd.collect` is true.
-   `shell/main.js#step` folds `ui.autoCollect || cmd.collect` into it before
-   calling, so this file reads one HOLD off the narrowed command object, the
-   same as every sibling step that takes one. */
+/* Pickup fires only while `cmd.collect` is true; `shell/main.js#step` folds
+   `ui.autoCollect || cmd.collect` into it before calling. */
 export function step(dt, cmd) {
   const grav = eff('grav'), term = eff('terminal');
   const pickupR = eff('pickupR');
@@ -99,16 +78,14 @@ export function step(dt, cmd) {
     else if (!integrate(it, dt, grav, term)) { iw.remove(it); continue; }
 
     if (cmd.collect && it.age > MAGNET_DELAY && !run.dead && near(it, c, pickupR)) {
-      /* A pickup that would cross the HARD cap is refused and the item stays on
-         the ground, never partially collected. Checked BEFORE the
-         slot-capacity refusal below. */
+      /* Tested before the slot-capacity refusal below. An over-cap pickup
+         leaves the item on the ground rather than partially collecting it. */
       if (burdenOf() + massOfPair(it.sub, it.form) > eff('burden') + MASS_EPS) {
         if (refusalDue(it))
           push('refused', { x: it.x, y: it.y }, { sub: it.sub, form: it.form, why: 'TOO HEAVY TO CARRY' });
       } else if (!rw.collect(it.sub, it.form, 1)) {
-        /* No existing stack of this exact pair AND no free main slot --
-           `model/run.js#write.collect`'s own refusal, D-G. Same 'refused'
-           journal kind the burden case above already uses, a second `why`. */
+        /* `model/run.js#write.collect` refused: no stack of this exact pair
+           and no free main slot. */
         if (refusalDue(it))
           push('refused', { x: it.x, y: it.y }, { sub: it.sub, form: it.form, why: 'INVENTORY FULL' });
       } else {
@@ -121,20 +98,19 @@ export function step(dt, cmd) {
   if (items.length > MAX_ITEMS)
     for (const it of items.slice(0, items.length - MAX_ITEMS)) iw.remove(it);
 
-  /* The spatial index is rebuilt once, AFTER every item has moved, so a catch
-     box querying it this frame cannot see a stale position. */
+  /* Rebuilt once, after every item has moved, so a catch box querying it this
+     substep cannot see a stale position. */
   iw.reindex();
 }
 
-/* the swept step. Returns false if the item left the world. */
+/* Returns false if the item left the world. */
 function integrate(it, dt, grav, term) {
   it.vy = Math.min(term, it.vy + grav * dt);
 
   const dx = it.vx * dt, dy = it.vy * dt;
   const half = sizeOf(it) / 2;
 
-  /* No substep longer than half a tile, in either axis. This is the whole of
-     the sweep and it is why nothing tunnels. */
+  /* No substep longer than half a tile, in either axis. */
   const reach = Math.max(Math.abs(dx), Math.abs(dy));
   const n = Math.max(1, Math.ceil(reach / (it.band.tile * 0.5)));
 
@@ -189,9 +165,8 @@ function cross(it, bottom) {
   return nb;
 }
 
-/* A resting item whose support was dug out from under it falls again. This is
-   the only reason `rest` is a flag rather than a deletion: a pile under a
-   machine that is later moved has to spill. */
+/* A resting item whose support was dug out falls again, which is why `rest` is
+   a flag rather than a deletion. */
 function wake(it) {
   const b = it.band, half = sizeOf(it) / 2;
   if (!solidAt(b, tileX(b, it.x), tileY(b, it.y + half + 1))) it.rest = 0;

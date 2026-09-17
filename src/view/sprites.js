@@ -1,21 +1,12 @@
-/* LAYER view — ITEM SPRITES: a named per-item shape, dispatched by
-   `look.sprite`, the same "data names it, view draws it generically" idiom
-   `view/treatments.js#TREAT` uses for tile decoration. No substance name may
-   appear in this file, only the generic `SPRITE[name]` lookup by string.
-   Imports `core` only.
-
-   Integer pixels only. The bob derives from the clock passed in by the
-   caller, never from a frame counter or `rand()`. */
+/* view layer — per-item sprites, dispatched by `look.sprite` string key.
+   `draw(g, px, py, t)` takes `px, py` as the sprite's centre, not a tile's
+   top-left, and `size` is independent of the pickup's 4 px hitbox. Integer
+   pixels; the bob derives from the caller's clock, never from `rand()`. */
 
 import { R, lineTo } from '../core/pixels.js';
 import { colour } from '../data/palette.js';
 
 export const SPRITE = {
-  /* An angled haft and a flat iron head, planted upright. `px, py` is the
-     sprite's CENTRE, not a tile's top-left. `size` is this sprite's own
-     declared draw size, independent of the pickup's 4 px hitbox -- the whole
-     point of a dedicated sprite is to read at 8-12 px, larger than the
-     generic dropped-item square. */
   pick: {
     size: 10,
     draw(g, px, py, t) {
@@ -27,8 +18,6 @@ export const SPRITE = {
     }
   },
 
-  /* A hand-bellows silhouette: wood-capped handle board, tapered leather
-     body, iron nozzle -- the game's second relic sprite. */
   bellows: {
     size: 10,
     draw(g, px, py, t) {
@@ -41,9 +30,6 @@ export const SPRITE = {
     }
   },
 
-  /* A charred tip, not a live flame or a `glow()` -- honest about which side
-     of "lit" a dropped brand is on: ordinary fuel until something ignites
-     it, never lit on the ground. */
   brand: {
     size: 9,
     draw(g, px, py, t) {

@@ -150,3 +150,19 @@ event and "and its cables went with it" is not news about a different one.
 **The cable is free.** The hubs are priced and the span between them costs
 nothing but reach, so unlike a machine placement there is nothing to spend and
 no ordering question about when to spend it.
+
+## Measurements the source comments no longer carry
+
+**Two leading-edge band probes flip 154 times in 200 frames.** Testing
+`bandAt` at the feet going down and at the head going up is true for the 15 px
+a 16 px hitbox spends straddling a seam, so a crossing player changes band
+almost every frame and each flip re-snaps them flush with `vy` zeroed.
+`rules/player.js#reband` asks about the hitbox CENTRE instead: bands do not
+overlap, so the centre is in at most one of them. Handing off into rock needs
+no guard, because the probes read the same tiles from either side.
+
+**Every player field must be reset on spawn.** `model/player.js#write.spawn`
+does it. If jump grace (`coyote`) or `walkPhase` survived a restart, two runs
+of the same seed would render differently — a determinism bug, not a cosmetic
+one, and the reason `walkPhase > 0` is usable as the tutorial's walk predicate
+at all.

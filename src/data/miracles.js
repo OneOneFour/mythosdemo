@@ -1,26 +1,22 @@
-/* LAYER data — MIRACLES: the ONE-SHOT god-gift tier. Frozen. Imports nothing.
+/* data layer — the one-shot god-gift tier. Frozen.
 
-   A miracle is a HELD PAIR: `id` is a substance id crossed with the one
-   `phial` form, so "holding a miracle" is `invCount(S[id], F.phial) > 0`.
-   `rules/miracles.js#use` spends one unit, applies `effect`, and may grant a
-   boon afterward as a side-effect.
+   `id` is also a `data/substances.js` id, crossed with the one `phial` form,
+   so holding a miracle is `invCount(S[id], F.phial) > 0`.
+   `rules/miracles.js#use` spends one unit, applies `effect`, then grants
+   `effect.boon` if present.
 
-     effect.kind   OPTIONAL -- a row carrying only `effect.boon` edits no
-                   tiles. The content lint holds the closed set:
+     effect.kind   optional; a row carrying only `effect.boon` edits no tiles.
                    'collapse'   clear every tile in a `radius`-tile square to
-                                AIR. Picked over petrifying rock because it
-                                needs no tile-write verb mining does not
-                                already use.
-                   'transmute'  turn every ALREADY-SOLID tile in that square
-                                into native `effect.sub`. It converts rock and
-                                never creates it, so it can neither entomb the
-                                player nor hand them a free step upward.
-     effect.sub    the substance a 'transmute' turns rock into.
-     effect.boon   OPTIONAL, granted the instant the miracle is used.
+                                air.
+                   'transmute'  turn every already-solid tile in that square
+                                into native `effect.sub`; it converts rock and
+                                never creates it.
+     effect.sub    the substance a 'transmute' turns rock into. Must be
+                   packable terrain.
+     effect.boon   optional, a `data/boons.js` id.
 
-   USE IS AIMED, EVEN WHEN THE EFFECT IS NOT: `use` returns before spending
-   anything when the reticle resolves to no band, so a boon-only phial cannot
-   be drunk while aiming at open sky. */
+   `use` returns before spending anything when the reticle resolves to no
+   band, so even a boon-only phial cannot be drunk aiming at open sky. */
 
 export const MIRACLES = [
 
@@ -28,23 +24,11 @@ export const MIRACLES = [
     text:'THE GROUND REMEMBERS ITS OWNER',
     effect:{ kind:'collapse', radius:1, boon:'hades-passage' } },
 
-  /* THE PURE-BOON PHIAL, and it needed no engine change at all: `applyEffect`
-     already grants `effect.boon` independently of `effect.kind`. Poseidon's
-     flood SUPPRESSES `hephaestus-forge`, so drinking this while the forge is
-     lit costs the forge -- the hostile pair `data/boons.js` already ships,
-     reached from a second direction. */
   { id:'tide', name:'VIAL OF THE DEEP', god:'poseidon',
     text:'EVERY STONE REMEMBERS THE SEA',
     effect:{ boon:'poseidon-flood' } },
 
-  /* IT CREATES ORE, and `radius` is the number that prices it: 9 tiles at
-     copper's charge of 4 is 36 raw copper out of worthless rock -- 3.6x cycle
-     1's whole demand -- with 34 s of swings still to pay.
-
-     `effect.sub` must be PACKABLE terrain, which the content lint proves,
-     because this is the one caller of `packTile` that neither worldgen nor
-     placement validates. It can do nothing at all to air, which keeps it out
-     of the "up is expensive" argument entirely. */
+  /* `radius:1` is 9 tiles, which at copper's charge of 4 yields 36 ore. */
   { id:'lodestone', name:'LODESTONE OF THE FORGE', god:'hephaestus',
     text:'BASE ROCK REMEMBERS THE VEIN',
     effect:{ kind:'transmute', radius:1, sub:'copper' } }

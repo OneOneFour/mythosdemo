@@ -1,15 +1,7 @@
 #!/usr/bin/env node
-/* PostToolUse hook: comment-lint the one file an edit just touched.
-
-   Reads the hook payload on stdin, picks `tool_input.file_path` out of it,
-   and runs `tools/check-comments.mjs` on that path alone. Exit 2 is the code
-   Claude Code feeds stderr back on, so a violation arrives as a correction
-   rather than as a silent pass.
-
-   It stays quiet for anything that is not a tracked `.js`/`.mjs` file, and it
-   never fails the edit for its own reasons: an unreadable payload, a missing
-   path or a checker that cannot run all exit 0. A lint that blocks work when
-   it is itself broken gets turned off. */
+/* PostToolUse hook: comment-lints the file named by `tool_input.file_path` on
+   stdin. Exit 2 feeds stderr back to Claude Code as a correction; an untracked
+   path, an unreadable payload or a broken checker all exit 0. */
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';

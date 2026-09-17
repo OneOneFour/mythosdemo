@@ -1,16 +1,12 @@
-/* LAYER data — BOONS: the TIMED god-gift tier. Frozen. Imports nothing.
+/* data layer — the timed god-gift tier. Frozen.
 
-   A boon is a modifier that happens TO the player for N seconds. Nothing here
-   is a resource the player spends; it is weather. It reaches numbers through
-   `mods`, the same row shape `data/trinkets.js` uses.
-
-     secs           how long it lasts. Re-granting the SAME boon REFRESHES
-                    this and does not stack magnitude -- the god does not give
-                    the gift twice as hard, just again.
-     conflictsWith  [{ id, mode }], mode 'suppress' or 'invert'. The OLDER of
+     god            a `data/gods.js` id.
+     secs           duration in seconds. Re-granting the same boon refreshes
+                    it and does not stack magnitude.
+     conflictsWith  [{ id, mode }], mode 'suppress' or 'invert'. The older of
                     two active boons is the one acted on.
-     trap           OPTIONAL, for a future HUD treatment. Read by no code yet;
-                    the field exists so content can already say so. */
+     trap           read by no code yet.
+     mods           `{ key, mul, add }` rows, as `model/mods.js` reads them. */
 
 export const BOONS = [
 
@@ -18,7 +14,6 @@ export const BOONS = [
     text:'THE FORGE BURNS HOT',
     mods:[ { key:'rate.furnace', mul:1.5 } ] },
 
-  /* The canonical SUPPRESS example. */
   { id:'poseidon-flood', name:"POSEIDON'S FLOOD", short:'FLOOD', god:'poseidon', secs:60,
     text:'THE DEEP RISES; THE FORGE GUTTERS',
     mods:[ { key:'hard', mul:0.85 } ],
@@ -28,16 +23,12 @@ export const BOONS = [
     text:'A STEADIER HAND',
     mods:[ { key:'pickPower', mul:1.25 } ] },
 
-  /* The canonical INVERT example, and a trap in the same row. */
   { id:'ares-frenzy', name:"ARES' FRENZY", short:'FRENZY', god:'ares', secs:40, trap:true,
     text:'STRIKE WITHOUT THINKING',
     mods:[ { key:'pickPower', add:0.2 } ],
     conflictsWith:[ { id:'athena-focus', mode:'invert' } ] },
 
-  /* The side-effect boon `data/miracles.js#chasm` grants -- opening a rift
-     eases the climb back out of it. No `conflictsWith`: a miracle's own
-     side-effect is not a god's draft, so there is no rival offer to be
-     hostile against. */
+  /* Granted as a side effect by `data/miracles.js#chasm`. */
   { id:'hades-passage', name:'THE WAY IS EASED', short:'PASSAGE', god:'hades', secs:20,
     text:'THE WAY IS EASED',
     mods:[ { key:'climb', mul:1.3 } ] }

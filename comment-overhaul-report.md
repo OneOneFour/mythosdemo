@@ -1,12 +1,69 @@
 # The comment overhaul: what happened
 
-Branch `chore/comment-overhaul`, 39 commits over `9e783d7`. Companion to
-`comment-audit.md`, which is the plan; this is the account.
+Branch `chore/comment-overhaul`. Companion to `comment-audit.md`, which is the
+plan; this is the account.
 
-## 1. The numbers
+## 0. The second pass, and why there was one
+
+The first pass, sections 1 to 9 below, was judged too timid and it was. It cut
+37.2% and left 0 violations, but the violation count was measured against a
+10-line block cap that permitted exactly the blocks the review objected to:
+design rationale, rejected alternatives, game-design flavour, glosses on a
+`data/` row's own field values, and ALL-CAPS emphasis of the
+`THE ONLY THING IN THE GAME THAT TURNS INTO SOMETHING ELSE BY ITSELF` kind.
+Passing a lint is not the same as meeting the standard the lint was written to
+approximate.
+
+So the standard was tightened first and the tree brought to it second. The
+block cap went 10 → 4 lines and the file-top cap 36 → 20, earned only by a
+genuine reference table. Four rules were added: shouted emphasis (four or more
+consecutive caps words, counted outside backticks and quotes so identifiers and
+asserted UI strings do not trip it), self-assessment, a widened history ban, and
+game-design rationale. CLAUDE.md and `docs/STYLE.md` were amended to match.
+
+Against that standard the tree held **1,543 violations**, in files the first
+pass had signed off as clean. Eight agents then took one directory each, judging
+every surviving comment from scratch rather than against the fact that it had
+survived.
+
+**Second-pass result: 12,783 comment lines to 6,686 — 47.7% removed again**,
+on top of the first pass, across 103 files. Total lines 38,720 to 32,621.
+
+| area | comment lines | cut | total lines |
+|---|---|---|---|
+| `src/core` | 138 → 67 | 51.4% | 367 → 295 |
+| `src/data` | 1,540 → 685 | 55.5% | 2,772 → 1,913 |
+| `src/model` | 1,193 → 638 | 46.5% | 2,669 → 2,111 |
+| `src/rules` | 1,970 → 1,033 | 47.6% | 4,546 → 3,601 |
+| `src/view` | 2,380 → 1,153 | 51.6% | 6,632 → 5,433 |
+| `src/shell` | 1,214 → 544 | 55.2% | 3,301 → 2,610 |
+| `tools` | 2,297 → 1,344 | 41.5% | 10,634 → 9,699 |
+| `tests` | 2,030 → 1,209 | 40.4% | 7,749 → 6,917 |
+| `playwright.config.js` | 21 → 13 | 38.1% | 50 → 42 |
+| **tree** | **12,783 → 6,686** | **47.7%** | **38,720 → 32,621** |
+
+**Compounded over both passes: 19,516 → 6,686, a 65.7% cut.** That lands inside
+the original audit's 65–78% estimate, which section 5 records the first pass as
+having missed. The estimate was right about the destination and wrong only about
+how much appetite one pass would have.
+
+Nine string literals changed, all in `tools/`, all to remove a document
+citation from a printed failure message; every one verified by a comment-stripped
+diff showing no other code line moved. Two consistency defects the parallel
+agents left were swept afterwards: the layer header existed in three forms
+(`/* LAYER view — `, `/* rules layer: `, `/* Shell layer: `) and is now
+`/* <layer> layer — ` in all 91 `src/` files, and 33 files still narrated their
+own imports in prose directly above the import block that states it.
+
+Verified green after the pass: `lint`, `lint:comments` (103 files, 0
+violations), `check`, `check:content` (1,083 checks), `check:worldgen` (200
+seeds), `build` (self-contained, 208.5 KB), 161/161 visual and 2/2 save tests.
+
+## 1. The numbers as the first pass left them
 
 19,516 comment lines to 12,255 — **37.2% removed**, tree-wide, across 102
-tracked `.js`/`.mjs` files. Total lines 45,621 to 38,351.
+tracked `.js`/`.mjs` files. Total lines 45,621 to 38,351. Superseded by section
+0; kept because sections 2 to 9 are written against it.
 
 | area | comment lines | cut | total lines |
 |---|---|---|---|

@@ -1,23 +1,15 @@
-/* LAYER view — THE FRAME. Composes the passes and owns nothing but the order
-   they happen in. Imports `core`, `data` and READ-ONLY `model` queries.
+/* view layer — the frame: composes the passes and owns nothing but the order
+   they happen in. `render()` performs no model writes -- nothing here imports a
+   `write` namespace, and `model/epoch.js`'s counter is asserted not to move
+   across a call to it.
 
-   `render()` PERFORMS NO MODEL WRITES, AND THAT IS PROVABLE.
-   The static half: `tools/layers.mjs` forbids `view -> rules`, and nothing here
-   imports a `write` namespace. The dynamic half: `model/epoch.js` counts every
-   mutation, and the check tool asserts the counter does not move across a call
-   to this function. Two partial nets where a type system would give one
-   guarantee — stated honestly rather than claimed as proof.
+   Bands lie in one shared world-pixel space, so more than one can be on screen
+   and this loop draws every band the viewport touches; the camera is a window
+   onto world pixels and there is no current band.
 
-   BANDS ARE LAID OUT IN ONE SHARED WORLD-PIXEL SPACE, so more than one can be
-   on screen at once and this loop draws every band the viewport touches. There
-   is no "current band" in the renderer; the camera is a window onto world
-   pixels and the band a thing belongs to is a property of the thing.
-
-   PASS ORDER: void, then per band (sky, then chunks), then the LIVE-TILE
-   overlay (depletion and growth, one pass — see `drawLiveTiles`), machines,
-   items, player, chips, field overlay, darkness, fog of war, atmosphere, debug,
-   HUD. Anything that reads as lighting comes after everything it lights.
-*/
+   Pass order: void, then per band (sky, then chunks), then the live-tile
+   overlay, machines, items, player, chips, field overlay, darkness, fog of war,
+   atmosphere, debug, HUD. Lighting comes after everything it lights. */
 
 import { drawText } from '../core/font.js';
 import { blend, mix } from '../core/palette.js';
@@ -44,14 +36,12 @@ const INK = {
   void:   colour('abyC'),
   cloud:  colour('cloudA'),
   cloudLo: colour('cloudC'),
-  /* The far cumulus layer sits IN the haze, so its body is the cloud tone
-     already pulled toward the sky's pale end -- distance desaturates, and the
-     alternative (the same white at a lower alpha) reads as a hole. */
+  /* The far cumulus sits in the haze, so its body is the cloud tone already
+     pulled toward the sky's pale end. */
   cloudFar: mix(colour('cloudB'), colour('skyHi'), 0.35),
   cloudUnder: colour('cloudB'),
   /* The two ends the sky ramp reaches for beyond a band's own `look.sky`: a
-     deeper blue overhead, a pale dust at the horizon. Both named palette
-     entries, mixed rather than inlined, per the palette convention. */
+     deeper blue overhead, a pale dust at the horizon. */
   zenith: colour('aquA'),
   haze:   colour('cloudB'),
   skin:   '#d8a878',
@@ -66,31 +56,26 @@ const INK = {
   grid:   colour('watB'),
   chunk:  '#ff7fd0',
   fog:    colour('abyA'),
-  /* A worked-out deposit: pale rock dust over the ore's own colour, and a
-     dark notch where each unit came out. See `drawDepletion`. */
+  /* A worked-out deposit: pale rock dust over the ore's own colour, and a dark
+     notch where each unit came out. */
   dust:   colour('limeC'),
   pit:    colour('abyA'),
   pitLip: colour('limeD'),
-  /* A seedling: the CANOPY's own three greens (`view/treatments.js#canopy`'s
-     `vdC`/`vdB`/`vdA` defaults) so a growing seed reads as the same plant as
-     the crown it becomes, plus the darkest wood tone for the seed itself --
-     a seed is not a leaf. See `seedling`. */
+  /* A seedling: the canopy's own three greens, so a growing seed reads as the
+     plant it becomes, plus the darkest wood tone for the seed itself. */
   seed:   colour('woodD'),
   stem:   colour('vdC'),
   leaf:   colour('vdB'),
   leafHi: colour('vdA'),
-  /* The arrival's shaft of light. `ichor` is the divine tone the altar's own
-     `look.halo` already names, read from the palette rather than off the row
-     so no machine reaches this file. The white is the hot centre of the
-     shaft and the dust falling down it. See `drawArrival`. */
+  /* The arrival's shaft of light. `ichor` is read from the palette rather than
+     off the altar's row, so no machine name reaches this file. */
   shaft:  colour('ichor'),
   shaftHi: colour('cloudA')
 };
 
-/* What the last `render()` drew. `tint` is the depth-tint alpha per SCREEN row,
-   written by the same loop that issues the rects, so the record cannot disagree
-   with the pixels. Pair an index with `cam.y` for the world row it covers. A
-   REUSED buffer, replaced only when the viewport height changes. */
+/* What the last `render()` drew. `tint` is the depth-tint alpha per screen row,
+   written by the same loop that issues the rects; pair an index with `cam.y` for
+   the world row it covers. A reused buffer, replaced only on a resize. */
 export const stats = { chunksDrawn: 0, bandsDrawn: 0, tint: new Float64Array(0) };
 
 let tintBuf = new Float64Array(0);
@@ -98,9 +83,7 @@ const tintRows = h => (tintBuf.length === h ? tintBuf : (tintBuf = new Float64Ar
 
 /* `f` is the frame context assembled by `shell/main.js`:
      { cam:{x,y}, t, dt, frame, W, H, flags }
-   Passed in rather than imported, because the clock and the camera are devices'
-   business and `view` may not import `shell`.
-*/
+   Passed in rather than imported, because `view` may not import `shell`. */
 export function render(g, f) {
   const { cam, W, H } = f;
   cam.x = Math.round(cam.x); cam.y = Math.round(cam.y);
@@ -110,15 +93,13 @@ export function render(g, f) {
   stats.chunksDrawn = 0; stats.bandsDrawn = 0;
   stats.tint = tintRows(H); stats.tint.fill(0);
 
-  /* THE MENU OUTRANKS THE MAP. The game boots into the menu, and a `showMap`
-     left set by a previous run would otherwise take the whole frame and the
-     menu would never be seen. */
+  /* The menu outranks the map: the game boots into the menu, and a `showMap`
+     left set by a previous run would otherwise take the whole frame. */
   const menu = menuOpen(f);
 
-  /* THE MAP OVERVIEW IS A DIFFERENT RENDER PATH, NOT A CAMERA TRICK, and a
-     different FILE, which owns its own scale, scroll, zoom, ruler and layers.
-     Nothing past this point executes while the map is open -- it is a full
-     substitute frame, not an overlay on the ordinary one. */
+  /* The map overview is a full substitute frame rather than an overlay, in its
+     own file with its own scale, scroll, zoom, ruler and layers: nothing past
+     this point executes while it is open. */
   if (f.flags.showMap && !menu) { drawOverview(g, f); return; }
 
   for (const b of bands) {
@@ -128,10 +109,8 @@ export function render(g, f) {
     drawChunks(g, b, cam, W, H);
   }
 
-  /* Terrain paint, so it runs with the terrain: a machine, an item or the
-     player standing in front of a worked-out vein (or a seedling) must cover
-     the cue, and darkness and fog (both later) must dim and hide it exactly
-     as they do the rock it sits on. */
+  /* With the terrain, so anything standing in front of a worked-out vein covers
+     the cue, and darkness and fog dim it exactly as they do the rock. */
   drawLiveTiles(g, f);
 
   /* Read once and used twice, in two passes that must agree about which
@@ -151,18 +130,15 @@ export function render(g, f) {
   drawDarkness(g, f);
   drawFog(g, f);
   atmosphere(g, f);
-  /* AFTER `atmosphere`, for the reason the machine halo inside it is: a shaft
-     of light dimmed by the depth tint and the vignette it is supposed to cut
-     through reads as a grey smear. */
+  /* After `atmosphere`, or a shaft of light is dimmed by the tint and the
+     vignette it is meant to cut through. */
   if (arriving) drawArrival(g, f, arriving);
 
   if (f.flags.showGrid)   overlay(g, cam, W, H, player.band?.tile ?? 8, INK.grid, 0.16);
   if (f.flags.showChunks) overlay(g, cam, W, H, player.band ? chunkPx(player.band) : 128, INK.chunk, 0.5);
 
-  /* THE MENU STANDS INSTEAD OF THE HUD, not over it: hearts, the depth gauge
-     and the journal read as clutter through a dimmed backdrop, and the menu
-     owns `view/ui/state.js#drawn` for the frame -- it calls `resetDrawn()`
-     itself, exactly as `drawHUD` does. */
+  /* The menu stands instead of the HUD, not over it, and owns
+     `view/ui/state.js#drawn` for the frame: it calls `resetDrawn()` itself. */
   if (menu) drawMenu(g, f); else drawHUD(g, f);
 }
 
@@ -170,15 +146,9 @@ const visible = (b, cam, W, H) =>
   b.origin.x < cam.x + W && b.origin.x + widthPx(b) > cam.x &&
   b.origin.y < cam.y + H && b.origin.y + heightPx(b) > cam.y;
 
-/* THE VISIBLE TILE RANGE OF ONE BAND, half-open, clamped to its own grid.
-   Four passes below walk it -- depletion, fields, darkness, fog -- because
-   none of them can go through the chunk cache (each renders a LIVE condition
-   over a canvas that caches only the static rock). Each used to carry its own
-   copy of this arithmetic, three of them commented as being "the identical
-   tile-range math" one of the others uses; a clamp that is wrong is now wrong
-   in one place. `visible()` above stays the cheaper FIRST test at every call
-   site: an off-screen band should cost one rectangle compare, not four
-   divisions and a loop that immediately does not run. */
+/* The visible tile range of one band, half-open and clamped to its own grid.
+   Four passes walk it -- depletion, fields, darkness, fog -- none of which can go
+   through the chunk cache, since each renders a live condition. */
 function tileWindow(b, cam, W, H) {
   const t = b.tile;
   return {
@@ -189,15 +159,9 @@ function tileWindow(b, cam, W, H) {
   };
 }
 
-/* A band's `look.sky` is the colour above its ground line and `look.tint` is
-   the rock below. A band whose `floorTy` is 0 has no sky region and every
-   function below costs it nothing.
-
-   QUANTISED, NOT INTERPOLATED: discrete bands rather than a 24-bit ramp, so
-   the sky is a stack of tones you could name, and it gains a DEEPER ZENITH
-   and a PALE HAZE that a two-stop ramp cannot express. The haze is anchored
-   in PIXELS above the horizon, because it sits behind a terrain silhouette
-   whose hilltops stand well above `floorTy`. Built once per BAND. */
+/* A band's `look.sky` is the colour above its ground line and `look.tint` the
+   rock below. Quantised into discrete steps, with the haze anchored in pixels
+   above the horizon, since it sits behind hilltops well above `floorTy`. */
 const SKY_STEPS = 14;
 const HAZE_PX = 56;
 const skyRamps = new Map();
@@ -240,25 +204,18 @@ function drawSky(g, b, f) {
     if (yb > ya) R(g, 0, ya, W, yb - ya, ramp[i]);
   }
 
-  /* THE SKY REACHES THE SKYLINE, NOT THE HORIZON. Relief may put a valley
-     floor below the ground line and the air over it is sky-exposed, so the
-     backdrop there is sky rather than void. ONE RECT, NOT ONE PER COLUMN --
-     the rows below the horizon are a single tone, so a per-column skyline
-     would save only fill area opaque rock covers anyway. */
+    /* The sky reaches the skyline, not the horizon: relief may put a valley
+       floor below the ground line and the air over it is sky-exposed. One rect,
+       since the rows below the horizon are a single tone. */
   const hz = Math.max(y0, y1);
   if (y2 > hz) R(g, 0, hz, W, y2 - hz, ramp[SKY_STEPS - 1]);
 
   drawClouds(g, b, f, top, horizon, y0, y1);
 }
 
-/* THREE LAYERS, AND WHAT MAKES THEM READ AS THREE IS THAT EVERYTHING VARIES
-   TOGETHER -- size, speed, parallax and opacity must agree, or one layer of
-   same-sized puffs is a texture rather than depth.
-
-   `par` is how much of the CAMERA's HORIZONTAL motion the layer does not
-   take, and it is HORIZONTAL ONLY: the camera's vertical motion is falling
-   and climbing, and a cloud lagging downward out of its sky region would draw
-   over the band above's rock. The drift is `f.t`, never `rand()`. */
+/* `par` is how much of the camera's horizontal motion a layer does not take,
+   and it is horizontal only: a cloud lagging downward out of its sky region
+   would draw over the band above's rock. The drift is `f.t`, never `rand()`. */
 const CLOUDS = [
   { n: 7,  par: 0.74, w: [40, 80], speed: 1.4, alpha: 0.42, y: [0.04, 0.40] },
   { n: 10, par: 0.52, w: [22, 44], speed: 3.2, alpha: 0.62, y: [0.18, 0.66] },
@@ -279,10 +236,8 @@ function drawClouds(g, b, f, top, horizon, y0, y1) {
       const w = (L.w[0] + hash2(s, 31) * (L.w[1] - L.w[0])) | 0;
       const x = (((hash2(s, 11) * span + f.t * L.speed) % span) - 200
                  + (b.origin.x - cam.x) * drift) | 0;
-      /* The base line is placed in the room LEFT OVER after the cloud's own
-         height, so a tall cumulus cannot poke out of the top of its band's sky
-         and over the rock of the band above. `y` then selects within that room
-         rather than within the whole region. */
+        /* The base line sits in the room left over after the cloud's own height,
+           so a tall cumulus cannot poke out of the top of its band's sky. */
       const tall = cloudHeight(w);
       const room = Math.max(1, skyH - tall);
       const yb = top + tall
@@ -294,16 +249,9 @@ function drawClouds(g, b, f, top, horizon, y0, y1) {
   }
 }
 
-/* A FLAT BASE AND A LUMPY TOP, in two tones, which is the whole silhouette of a
-   fair-weather cumulus and the reason the old three-rect puff read as a stack of
-   bricks: it had neither. `y` is the cloud's BASE line and the shape grows
-   upward from it, so a layer's vertical band means "how high the bases sit".
-   The underside takes the darker tone because `LIGHT` comes from above; there is
-   no second decision about that here.
-
-   The lumps are DOMES rather than rectangles. A rectangle on a slab is what the
-   first attempt drew and it read as a step, not a cloud -- and a cumulus is
-   mostly defined by the roundness of its top against the flatness of its base. */
+/* A flat base and a lumpy top in two tones. `y` is the cloud's base line and the
+   shape grows upward, so a layer's vertical band means how high the bases sit;
+   the underside is the darker tone, since `LIGHT` comes from above. */
 const cloudHeight = w => Math.max(4, (w * 0.26) | 0) * 2;
 
 function cloud(g, x, y, w, s, layer) {
@@ -334,7 +282,6 @@ function dome(g, x, yb, w, h, col) {
   }
 }
 
-/* terrain */
 function drawChunks(g, b, cam, W, H) {
   const px = chunkPx(b);
   const ox = b.origin.x - cam.x, oy = b.origin.y - cam.y;
@@ -352,33 +299,20 @@ function drawChunks(g, b, cam, W, H) {
     }
 }
 
-/* TWO CUES, ONE PASS, AND THAT IS A REQUIREMENT: both walk the visible tile
-   window of every visible band for one answer each, so two functions would
-   walk it twice per frame. The cases are MUTUALLY EXCLUSIVE by construction,
-   so their order is arbitrary.
-
-   BOTH ARE OVERLAYS AND NOT CHUNK BAKES: a chunk canvas caches STATIC ROCK
-   and these are LIVE conditions whose writers bump the epoch, never a chunk
-   version. DEPLETION NEEDS TWO CUES, because a wash is invisible on granite
-   and a notch on adamant, and the wash also mutes every `glint` pip at once.
-   QUANTISED PER UNIT. No `rand()` and no model write. */
+/* Two cues, one pass: both walk the visible tile window of every visible band,
+   and the cases are mutually exclusive. Both are overlays rather than chunk
+   bakes, since a chunk canvas caches static rock. No `rand()`, no model write. */
 
 /* Alpha of the dust wash when a tile is one unit short of gone. Scaled by
-   `spent / charge` below, so a charge-4 copper tile washes at 0.11 / 0.22 /
-   0.33 over its three visible steps and never reaches this value -- the tile
-   at full wash is the tile that has already broken. */
+   `spent / charge` below, so a charge-4 copper tile washes at 0.11 / 0.22 / 0.33
+   and never reaches this value -- full wash is the tile that already broke. */
 const DUST_MAX = 0.44;
 
 function drawLiveTiles(g, f) {
   const { cam, W, H } = f;
-  /* HOISTED OUT OF EVERY LOOP, and both halves matter. `anyGrowing` is a
-     `Map.size` read, so with nothing planted -- which is the state of every
-     run until the player fells a whole tree and chooses to plant the seed --
-     the growth case below costs exactly one comparison for the entire frame
-     rather than a `Map.has` per visible tile. `growTotal` is the one `eff()`
-     call the case needs, and it is read once per frame rather than once per
-     seedling so that two seedlings on screen can never be measured against
-     different totals within one frame. */
+  /* Hoisted: `anyGrowing` is a `Map.size` read, so with nothing planted the
+     growth case costs one comparison for the whole frame, and `growTotal` is
+     read once so two seedlings cannot be measured against different totals. */
   const anyGrowing = growingCount() > 0;
   const growTotal = anyGrowing ? eff('treeGrowSecs') : 0;
 
@@ -389,35 +323,25 @@ function drawLiveTiles(g, f) {
 
     for (let ty = y0; ty < y1; ty++)
       for (let tx = x0; tx < x1; tx++) {
-        /* case 2: a planted seed. Guarded on the hoisted size read
-           above, then on a `Map.has` -- the same "ask the sparse map first,
-           pay for the substance lookups afterwards" cull the depletion case
-           below uses, for the same reason. `growingAt` and not
-           `grownAt() > 0`: a seed planted this substep has zero seconds on it
-           and must still draw at stage 0, which is exactly the read
-           `model/growth.js` exports both queries to distinguish. */
+          /* `growingAt` rather than `grownAt() > 0`: a seed planted this substep
+             has zero seconds on it and must still draw at stage 0. */
         if (anyGrowing && growingAt(b, tx, ty)) {
           seedling(g, b.origin.x + tx * t - cam.x, b.origin.y + ty * t - cam.y,
                    t, stageAt(b, tx, ty, growTotal));
           continue;
         }
 
-        /* THE CULL IS A MAP LOOKUP, and it is the cheapest one available: a
-           tile with no accumulated work cannot be spent, whatever it is made
-           of, and `dig.work` holds an entry only for tiles something has
-           actually hit. So the substance lookups and the `eff()` call below
-           are paid for a handful of tiles per frame rather than for the four
-           thousand a viewport holds. */
+          /* The cull is a map lookup: `dig.work` holds an entry only for a tile
+             something has hit, so the substance lookups and the `eff()` call
+             below are paid for a handful of tiles rather than thousands. */
         if (workAt(b, tx, ty) <= 0) continue;
 
         const charge = effChargeAt(b, tx, ty);
         if (charge <= 1) continue;                  // not a deposit: nothing to spend
         const d = progressAt(b, tx, ty, effHardAt(b, tx, ty), charge);
-        /* UNITS ALREADY OUT OF THE GROUND, FLOORED WITH NO EPSILON so it can
-           never claim a unit the rule has not dropped. Capped ONE SHORT of
-           `charge`, because the last unit IS the break -- without the cap the
-           frame between "work reached total" and "the rule cleared the tile"
-           flashes a fully spent tile. */
+          /* Units already out of the ground, floored with no epsilon and capped
+             one short of `charge`: the last unit is the break, and without the
+             cap one frame flashes a fully spent tile. */
         const spent = Math.min(charge - 1, Math.floor(d * charge));
         if (spent < 1) continue;
 
@@ -427,12 +351,9 @@ function drawLiveTiles(g, f) {
         R(g, sx, sy, t, t, INK.dust);
         g.globalAlpha = 1;
 
-        /* ONE NOTCH PER UNIT TAKEN OUT. 2x2 with a lit lower lip, because
-           `core/pixels.js#LIGHT` comes from above and the floor of a hollow is
-           the part of it that catches light -- the same one declaration
-           `view/paint.js`'s top faces and cliff faces read. Inset by a pixel
-           so a notch never touches the tile edge and reads as a bite out of
-           the seam instead. */
+          /* One notch per unit taken out: 2x2 with a lit lower lip, since
+             `core/pixels.js#LIGHT` comes from above, and inset by a pixel so a
+             notch never touches the tile edge. */
         for (let k = 0; k < spent; k++) {
           const nx = 1 + ((hash2(tx * 17 + k * 31, ty * 13 + 5) * (t - 3)) | 0);
           const ny = 1 + ((hash2(ty * 17 + k * 31, tx * 13 + 9) * (t - 3)) | 0);
@@ -443,36 +364,28 @@ function drawLiveTiles(g, f) {
   }
 }
 
-/* THREE DISCRETE SILHOUETTES, NOT A CONTINUOUS INTERPOLATION. At 8 px a tile
-   there are about six usable rows, so a continuous height spends most of 180
-   seconds not visibly changing and then changes by one pixel.
+/* Three discrete silhouettes rather than a continuous interpolation: at 8 px a
+   tile there are about six usable rows, so a continuous height spends most of
+   180 seconds not visibly changing. Strictly inside its own tile. */
 
-   IT DRAWS OVER WHAT THE BAKE PUT THERE: a `timber/seed` tile has no form
-   `look`, so it is painted as a timber cube, which at this scale reads as
-   turned earth. STRICTLY INSIDE ITS OWN TILE, because the pixel-scope
-   assertion in the visual suite is what proves this pass does anything. */
-
-/* Fractions of `treeGrowSecs` at which the silhouette steps up. Two numbers
-   for three stages, in thirds, so "roughly a third grown" in a test or an
-   acceptance walkthrough means exactly stage 1. */
+/* Fractions of `treeGrowSecs` at which the silhouette steps up: two numbers for
+   three stages, in thirds. */
 const SEED_STAGES = [1 / 3, 2 / 3];
 
 function seedling(g, sx, sy, t, stage) {
   const cx = sx + (t >> 1) - 1;              // 2 px wide, centred, integer
   const base = sy + t - 1;                   // the tile's own bottom row
 
-  /* STAGE 0 -- A SEED IN THE GROUND. Two pixels, sitting on the bottom row,
-     with a single lit pixel above them: it has to be visible at a glance
-     across a cavern and it must not look like a plant yet. */
+  /* Stage 0 -- a seed in the ground: two pixels on the bottom row with a single
+     lit pixel above them. */
   if (stage < SEED_STAGES[0]) {
     R(g, cx, base - 1, 2, 2, INK.seed);
     R(g, cx, base - 2, 1, 1, INK.leafHi);
     return;
   }
 
-  /* STAGE 1 -- A SHOOT. A 1 px stem three rows tall with one leaf either
-     side of its top, which is the smallest arrangement that reads as
-     deliberately a plant rather than as a smudge. */
+  /* Stage 1 -- a shoot: a 1 px stem three rows tall with one leaf either side of
+     its top. */
   if (stage < SEED_STAGES[1]) {
     R(g, cx, base - 3, 1, 4, INK.stem);
     R(g, cx - 1, base - 3, 1, 1, INK.leaf);
@@ -480,11 +393,9 @@ function seedling(g, sx, sy, t, stage) {
     return;
   }
 
-  /* STAGE 2 -- A SAPLING. The stem reaches most of the tile and carries two
-     tiers of leaves, the upper pair wider than the lower, so the silhouette
-     broadens toward the top the way the canopy it is about to become does.
-     `t - 2` rows rather than `t`, so the sprite never touches the tile's top
-     edge and cannot read as joined to whatever is in the tile above. */
+  /* Stage 2 -- a sapling: the stem reaches most of the tile and carries two
+     tiers of leaves, the upper pair wider. `t - 2` rows, so the sprite never
+     touches the tile's top edge and cannot read as joined to the tile above. */
   const h = Math.max(4, t - 2);
   R(g, cx, base - h + 1, 1, h, INK.stem);
   R(g, cx - 2, base - h + 2, 2, 1, INK.leaf);
@@ -493,7 +404,6 @@ function seedling(g, sx, sy, t, stage) {
   R(g, cx + 1, base - h + 4, 1, 1, INK.leaf);
 }
 
-/* entities */
 function drawItems(g, f) {
   const { cam, W, H } = f;
   for (const it of items) {
@@ -533,15 +443,9 @@ function drawPlayer(g, f) {
   }
 }
 
-/* fields
-   Fields do NOT go through the chunk cache. Those canvases exist to avoid
-   repainting static rock; a heat plume changes every frame and would thrash
-   them. So this is a viewport-culled pass that reads `fieldAt` and nothing else,
-   and fog of war (below) is the same shape of pass for the same reason: a
-   permanent bit per tile is still a LIVE read every frame, because the chunk
-   canvas it would otherwise sit on caches the static rock underneath, not
-   whether the player has earned the right to see it.
-*/
+/* Fields do not go through the chunk cache: those canvases avoid repainting
+   static rock and a heat plume changes every frame. Fog below is the same shape
+   of pass -- the canvas caches the rock, not the right to see it. */
 function drawFields(g, f) {
   const { cam, W, H } = f;
   for (const b of bands) {
@@ -562,16 +466,9 @@ function drawFields(g, f) {
   }
 }
 
-/* TWO SEPARATE FACTS, ONE PASS EACH. `drawFog` hides a tile NEVER seen; this
-   renders how lit one is RIGHT NOW, so a torch burning out darkens a
-   remembered room without erasing the memory. Runs BEFORE fog, the one pass
-   allowed to win outright. QUANTISED to three fixed alpha steps, and
-   `DARK_ALPHA[0]` is close to opaque so a seen tile reads as
-   remembered-but-dark rather than as fog.
-
-   NOT ADDITIVE: the machine-fire glow paints with `'lighter'` and is gated on
-   `seenAt`, because additive light shines through an opaque fog rect under
-   it. This SUBTRACTS with ordinary alpha. */
+/* `drawFog` hides a tile never seen; this renders how lit one is right now, so a
+   torch burning out darkens a remembered room. Runs before fog and subtracts
+   with ordinary alpha: additive light shines through the fog rect under it. */
 const DARK = colour('abyC');
 const DARK_ALPHA = [0.94, 0.55, 0.22];   // level 0-4 / 5-9 / 10-14 (>= lightMax: none)
 
@@ -607,14 +504,9 @@ function drawDarkness(g, f) {
   }
 }
 
-/* THE ONE HARD RULE: an unrevealed tile is opaque REGARDLESS OF WHAT IS
-   THERE, so it draws AFTER everything that could leak a hint and BEFORE the
-   machine-fire glow, which is gated on `seenAt` itself. `seenAt` is the ONLY
-   model call here.
-
-   VIEWPORT-CULLED and RUN-MERGED. `tx <= x1` walks one sentinel column past
-   the visible edge, never drawn, so a run still open at the edge flushes
-   without a second copy of the flush logic. */
+/* An unrevealed tile is opaque regardless of what is there, so this draws after
+   everything that could leak a hint and before the fire glow, which is gated on
+   `seenAt`. `tx <= x1` walks a sentinel column past the edge so a run flushes. */
 function drawFog(g, f) {
   const { cam, W, H } = f;
   for (const b of bands) {
@@ -636,25 +528,17 @@ function drawFog(g, f) {
   }
 }
 
-/* THE DEPTH TINT IS WORLD-ANCHORED: a row's alpha is a function of its place
-   in the band stack and nothing else, so the same rock reads the same whatever
-   the camera does. A frame-wide alpha off the camera centre stepped the whole
-   screen 0.055 -> 0.440 the frame it crossed world-Y 768.
-
-   Adjacent bands ramp over `TINT_SPAN` world px centred on the seam, half
-   painted by each side. 32 px is 3 units of 255 per row across the widest
-   ambient gap, under the ~5 where a row reads as an edge. */
+/* The depth tint is world-anchored: a row's alpha is a function of its place in
+   the band stack alone. Adjacent bands ramp over `TINT_SPAN` world px centred on
+   the seam; 32 px is 3 units of 255 per row, under the ~5 that reads as an edge. */
 const TINT_SPAN = 32;
 const TINT_HALF = TINT_SPAN / 2;
 
 const ambOf = b => b.cfg.look?.ambient ?? 1;
 
-/* One rect per run of equal alpha, so a band interior costs one and a ramp row
-   costs one each. Writes `stats.tint` from the same loop.
-   ASSUMES `cam` is already integer (`render` rounds it) and leaves
-   `globalAlpha` at 1. A band shorter than TINT_SPAN would have its two ramps
-   meet; the `else` resolves that toward the upper seam, and no shipped band is
-   under 320 px. */
+/* One rect per run of equal alpha, writing `stats.tint` from the same loop.
+   Assumes `cam` is already integer (`render` rounds it) and leaves
+   `globalAlpha` at 1; the `else` resolves a band shorter than `TINT_SPAN`. */
 function depthTint(g, f) {
   const { cam, W, H } = f;
   const rows = stats.tint;
@@ -692,8 +576,7 @@ function depthTint(g, f) {
   g.globalAlpha = 1;
 }
 
-/* atmosphere
-   The world-anchored depth tint, then a vignette on top, because the frame edge
+/* The world-anchored depth tint, then a vignette on top, because the frame edge
    is where the eye leaks out. */
 function atmosphere(g, f) {
   const { cam, W, H } = f;
@@ -705,13 +588,9 @@ function atmosphere(g, f) {
   g.fillStyle = grd;
   g.fillRect(0, 0, W, H);
 
-  /* A machine's halo is light and therefore belongs after the tint, or it would
-     be dimmed by the dark it is supposed to push back -- which is also why it
-     runs after `drawFog`, not before, and why it is gated on `seenAt` even
-     though `drawFog` already ran: `glow` paints with `globalCompositeOperation
-     'lighter'`, so it would ADD light straight through an opaque fog rect
-     instead of being hidden by it. An active furnace's fire behind fog must
-     not out itself by lighting the fog from within. */
+  /* A halo is light, so it comes after the tint and after `drawFog`, and is
+     still gated on `seenAt`: `glow` paints with `'lighter'` and would add
+     straight through an opaque fog rect instead of being hidden by it. */
   for (const m of machines) {
     if (!(m.fire > 0.02) || !seenAt(m.band, m.tx, m.ty)) continue;
     glow(g, m.box.x + m.box.w / 2 - cam.x, m.box.y + m.box.h - 2 - cam.y,
@@ -719,14 +598,9 @@ function atmosphere(g, f) {
   }
 }
 
-/* `rules/cycles.js` stamps `run.arrival` with the world position and instant
-   the director put a machine down. Both passes read that stamp, so neither
-   knows WHICH machine arrived and no machine name reaches this file.
-
-   TIME COMES FROM `run.t`, the same fixed accumulator the stamp was taken
-   from, so the presentation runs the same length at 30 and 144 fps and it
-   ENDS. Variety comes from `hash2` of the arrival's own position. Gated on
-   the arrival being on screen. */
+/* `rules/cycles.js` stamps `run.arrival` with the position and instant a machine
+   was put down, and both passes read that stamp, so no machine name reaches this
+   file. Time comes from `run.t`, so it runs the same length at any framerate. */
 
 const MOTES = 36;
 
@@ -747,11 +621,9 @@ function arrivalOf() {
   return m ? { m, p } : null;
 }
 
-/* The machine climbing out of its own footprint, drawn in the machines pass
-   in place of the ordinary `paintMachine` call. Clipped to its own base --
-   which stands on the band floor -- so the part still underground is hidden
-   by the ground instead of drawn in front of it. `save`/`restore` balance
-   across the one painted call. */
+/* The machine climbing out of its own footprint, drawn in the machines pass in
+   place of the ordinary `paintMachine` call. Clipped to its own base, so the
+   part still underground is hidden by the ground. `save`/`restore` balance. */
 function rising(g, m, sx, sy, f, p) {
   const drop = Math.round((1 - easeOut(Math.min(1, p / RISE_FRAC))) * m.box.h);
   if (drop <= 0) { paintMachine(g, m, sx, sy, f.t); return; }
@@ -764,8 +636,8 @@ function rising(g, m, sx, sy, f, p) {
 }
 
 /* The sky darkening a notch, a shaft of light down onto the machine, dust
-   falling through it, and a flare where it lands.
-   Screen px throughout; entered with `globalAlpha` at 1 and left at 1. */
+   falling through it, and a flare where it lands. Screen px throughout; entered
+   with `globalAlpha` at 1 and left at 1. */
 function drawArrival(g, f, { m, p }) {
   const { cam, W, H } = f;
   const base = (m.box.y + m.box.h - cam.y) | 0;
@@ -791,9 +663,8 @@ function drawArrival(g, f, { m, p }) {
   g.globalAlpha = env * 0.45;
   R(g, cx - 1, 0, 3, bot, INK.shaftHi);
 
-  /* Dust falling with the light. `seed` is the arrival's own world position,
-     so two arrivals in different places scatter differently and the same
-     arrival scatters the same way on every repaint. */
+    /* Dust falling with the light. `seed` is the arrival's own world position,
+       so the same arrival scatters identically on every repaint. */
   const seed = m.box.x * 7 + m.box.y;
   for (let k = 0; k < MOTES; k++) {
     const y = (((hash2(seed, k) + p * 1.7) % 1) * base) | 0;
@@ -816,13 +687,9 @@ function overlay(g, cam, W, H, pitch, col, alpha) {
   g.globalAlpha = 1;
 }
 
-/* A one-line band label. THE WORST CONTRAST CASE IN THE GAME: drawn straight
-   onto rendered terrain with no panel and nothing to back against, so it takes
-   both the secondary body tone and `drawText`'s shadow argument.
-
-   IT CURRENTLY HAS NO CALLER -- exported, and nothing in `src/`, `tools/` or
-   `tests/` invokes it, so the band name is not on screen today. Wiring it back
-   is a HUD-layout decision about which anchor it hangs from. */
+/* A one-line band label, drawn straight onto rendered terrain with nothing to
+   back against, so it takes the secondary body tone and `drawText`'s shadow.
+   TODO(rob): nothing calls this -- hang it off a HUD anchor or delete it. */
 export function bandLabel(g, f) {
   const b = player.band;
   if (!b) return;
@@ -830,5 +697,5 @@ export function bandLabel(g, f) {
 }
 
 /* Chips are drawn from `view/fx.js`; re-exported so `shell` has one import for
-   the whole draw surface and does not have to know how the passes are split. */
+   the whole draw surface. */
 export { chips };

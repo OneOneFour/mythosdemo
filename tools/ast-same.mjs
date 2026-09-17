@@ -1,15 +1,7 @@
 #!/usr/bin/env node
-/* Comments-only diff check: proves an edit changed nothing but comments.
-
-   NOT an AST parser -- adding `acorn` to check a comment pass would cost more
-   than the pass. Instead it strips comments from both files with a state
-   machine that tracks strings, template literals and regex literals, so a
-   comment marker inside one is not mistaken for a comment, then diffs the
-   remainder byte for byte.
-
-   Byte-identical stripped output is a strong but not airtight guarantee: it
-   would miss an edit that also restriped token spacing identically, which a
-   comment-only edit does not do. */
+/* Proves an edit changed nothing but comments. Despite the name there is no
+   parser: both files are stripped by a state machine tracking strings,
+   templates and regex literals, then compared byte for byte. */
 import { readFileSync } from 'node:fs';
 
 function stripComments(src) {
@@ -45,8 +37,8 @@ function stripComments(src) {
       continue;
     }
     if (c === '/' && inRegexCtx) {
-      // best-effort regex-literal skip, so a '//' or '/*' inside one is not
-      // mistaken for a comment marker.
+      // Best-effort regex-literal skip, so a '//' inside one is not read as a
+      // comment marker.
       let j = i + 1;
       let inClass = false;
       while (j < n && (inClass || src[j] !== '/')) {
@@ -64,21 +56,16 @@ function stripComments(src) {
       }
     }
     out += c;
-    // a '/' can start a regex after most punctuation/keywords but not after
-    // an identifier, number or closing bracket -- approximate with "was the
-    // last non-space char alnum, ), ] or _/$".
+    // A '/' starts a regex after punctuation or a keyword but not after an
+    // identifier, number or closing bracket.
     if (!/\s/.test(c)) inRegexCtx = !/[\w)\]]/.test(c);
     i++;
   }
   return out;
 }
 
-/* A line that was ENTIRELY a comment strips to pure whitespace, so deleting
-   or adding a whole such line shifts every later line number without
-   changing any code -- normalize by dropping blank/whitespace-only lines and
-   trailing whitespace before the byte compare, or a comment-only edit that
-   happens to remove or insert a whole comment line would falsely report
-   CODE CHANGED. */
+/* A whole-line comment strips to an empty line, so blank lines and trailing
+   whitespace are dropped before the byte compare. */
 const normalize = s => s.split('\n').map(l => l.trimEnd()).filter(l => l !== '').join('\n');
 
 const [a, b] = process.argv.slice(2);

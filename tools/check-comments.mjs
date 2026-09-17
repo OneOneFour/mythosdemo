@@ -25,36 +25,27 @@ const IGNORE = [
 
 const ESCAPE = 'comment-lint-ignore-next-line';
 
-/* A block may run to ten lines. Most should be one or two. This is the only
-   length rule: a comment-longer-than-the-code ratio was tried and removed,
-   because the comments most worth keeping here sit above a single subtle
-   line and it flagged every one of them. */
-const MAX_BLOCK_LINES = 10;
+/* A block may run to four lines; most should be one. */
+const MAX_BLOCK_LINES = 4;
 
-/* A file-top block gets more room, because a `data/` table's field key and
-   `shell/schedule.js`'s one-row-per-pair order are reference tables a reader
-   of the file needs in the file. 36 is `data/machines.js`'s 22-key table at
-   one line per key plus its layer declaration, which is the largest honest
-   one in the tree. Prose does not qualify at any length. */
-const MAX_HEADER_LINES = 36;
+/* A file-top block gets more room for a reference table a reader needs while
+   in the file: a `data/` field key, `shell/boot.js`'s boot order,
+   `shell/schedule.js`'s step order. Prose does not qualify at any length. */
+const MAX_HEADER_LINES = 20;
 
-/* A block whose body is mostly ALIGNED ROWS -- a short key, two or more
-   spaces, then a description -- is a reference table rather than prose, and
-   the length cap does not apply to it. Scannability is the whole point of the
-   shape, so squeezing one costs the reader and saves nothing. Four rows is
-   the floor -- one prose sentence cannot reach it, and `data/forms.js`'s
-   selector grammar has one row whose column is too tight to detect. */
-const TABLE_MIN_ROWS = 4;
+/* A block of aligned rows is a reference table, not prose, so the length cap
+   does not apply to it. Three rows is the floor: `data/forms.js`'s tile-byte
+   cases and `data/scenarios.js`'s lift stages are both three. */
+const TABLE_MIN_ROWS = 3;
 
-/* A row is `<key>  <description>` with two or more spaces between, and a TABLE
-   is four or more rows whose description starts at the SAME column. Column
-   agreement is what tells a table from prose that happens to contain a double
-   space, and it allows a multi-word key (`the two hubs`) that a single-token
-   pattern would miss. */
+/* A row is `<key>  <description>`, two or more spaces between, and a table is
+   TABLE_MIN_ROWS rows whose description starts at the same column. Column
+   agreement tells a table from prose holding one double space; the 40-char
+   key window admits a multi-word key and an arithmetic one. */
 const isTable = text => {
   const cols = new Map();
   for (const l of text.split('\n')) {
-    const m = l.match(/^(\s*(?:\*\s*)?)(\S.{0,30}?)\s{2,}(\S)/);
+    const m = l.match(/^(\s*(?:\*\s*)?)(\S.{0,40}?)\s{2,}(\S)/);
     if (!m) continue;
     const col = m[0].length - 1;
     if (col < 6) continue;
@@ -66,6 +57,10 @@ const isTable = text => {
 
 /* More than this many consecutive `//` lines is a block wearing a disguise. */
 const MAX_RUN = 4;
+
+/* An identifier or a UI string in backticks or quotes is not shouting, so the
+   emphasis rule reads the prose around them rather than the whole comment. */
+const unquoted = t => t.replace(/`[^`]*`|'[^']*'|"[^"]*"/g, ' ');
 
 const RULES = [
   [/\b[A-Za-z][A-Za-z0-9_-]*\.md\b/, 'references a document; state the constraint instead'],
@@ -92,6 +87,12 @@ const RULES = [
   /* comment-lint-ignore-next-line -- naming the style rule that bans them.
      Both words call a line important instead of saying what breaks. */
   [/\bload-bearing\b|\bcrux\b/i, 'banned word; say what breaks instead'],
+  /* Four or more caps words in a row, counted outside backticks and quotes so
+     an identifier or an asserted UI string never trips it. */
+  [/(?:\b[A-Z][A-Z]+\b[ ,]+){3}\b[A-Z][A-Z]+\b/, 'shouted emphasis; say what the code does', unquoted],
+  [/\bthis is (critical|important|essential)\b|\bthe whole point\b|\bis the whole of\b|\bnot cosmetic\b|\bworth having in one place\b/i, 'self-assessment'],
+  [/\bwas rejected\b|\brejected (alternative|because)\b|\bthe old [a-z]+\b|\bcarries? forward\b/i, 'describes a previous version'],
+  [/\bthe player (feels|wonders|would have to)\b|\bthe myth\b|\bevokes\b|\bthe premise\b/i, 'game-design rationale'],
 ];
 
 async function walk(dir, out = []) {
@@ -192,7 +193,7 @@ function checkFile(abs) {
   for (const c of cs) {
     if (exempt.has(c.start)) continue;
     const len = c.end - c.start + 1;
-    for (const [re, why] of RULES) if (re.test(c.text)) say(c.start, why);
+    for (const [re, why, prep] of RULES) if (re.test(prep ? prep(c.text) : c.text)) say(c.start, why);
     const cap = c.start === header && c.start <= 8 ? MAX_HEADER_LINES : MAX_BLOCK_LINES;
     if (len > cap && !isTable(c.text)) say(c.start, `block is ${len} lines, cap ${cap}`);
   }

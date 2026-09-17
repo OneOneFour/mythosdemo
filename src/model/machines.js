@@ -1,16 +1,9 @@
-/* LAYER model — placed machines: storage and queries.
-   Imports `core`, `data`, `model`. May be imported by `model`, `rules`, `view`.
+/* model layer — placed machines: storage and queries.
 
-   A machine instance is a plain record. `def` is an index into
-   `data/machines.js`, so the ROW is the definition and the RECORD is only what
-   changes: buffer, progress, charges, fire, torque, turn. Printing one in a
-   debugger
-   tells you everything about that machine's state, and `JSON.stringify(machines)`
-   is most of a save.
-
-   Buffers are keyed by the `sub/form` string from `model/items.js`, not by tile
-   byte. See the note there: a buffer is read by a human debugging a stuck
-   factory, and the byte form answers the wrong question. */
+   `def` is an index into `data/machines.js`, so the row is the definition and
+   the record holds only what changes: buffer, progress, charges, fire, torque,
+   turn. Buffers are keyed by the `sub/form` string from `model/items.js`, not
+   by tile byte. */
 
 import { overlaps, rect } from '../core/math.js';
 import { MACH } from '../data/machines.js';
@@ -26,7 +19,7 @@ export const machines = [];
 
 export const write = {
   /* `tx`/`ty` are the band-local tile of the top-left corner. Boxes are cached
-     in world px because every frame reads them and none of them ever moves. */
+     in world px because every frame reads them and none ever moves. */
   place(band, defIdx, tx, ty) {
     const def = MACH[defIdx];
     const t = band.tile;
@@ -41,12 +34,9 @@ export const write = {
         right:  rect(x + def.tw * t - 2, y, 4, def.th * t)
       },
       buf: {}, prog: 0, made: 0, charges: 0, fire: 0, running: false,
-      /* DRIVETRAIN STATE LIVES ON THE MACHINE RECORD, for the reason `running` and
-         `fire` already set: `view` must draw a turning gear and may not
-         import `rules`. `torque` is the 0..1 drive delivered this frame,
-         `turn` is accumulated rotation for the sprite. Present on EVERY
-         machine rather than only a crank, gear or hub, so `view` needs no key
-         test -- the same reason `charges` is not conditional. */
+      /* `torque` is the 0..1 drive delivered this frame, `turn` the accumulated
+         rotation for the sprite. On every machine rather than only a crank,
+         gear or hub, so `view` needs no key test. */
       torque: 0, turn: 0
     };
     machines.push(m);
@@ -73,10 +63,8 @@ export const write = {
   fire(m, v)        { m.fire = v; bump(); },
   running(m, v)     { m.running = v; bump(); },
 
-  /* Drivetrain writers, declared together so the two
-     numbers `view` reads live in one place from the start. `turn` ACCUMULATES
-     from `dt` alone and never from `rand()`, so a gear sprite is
-     reproducible from the seed and the frame count. */
+  /* `turn` accumulates from `dt` alone and never from `rand()`, so a gear
+     sprite is reproducible from the seed and the frame count. */
   torque(m, v)      { m.torque = v; bump(); },
   turn(m, phase)    { m.turn = phase; bump(); },
 
@@ -89,7 +77,7 @@ export const write = {
   clear() { machines.length = 0; bump(); }
 };
 
-/* queries. `sel` is a selector over substance x form. */
+/* `sel`, throughout, is a selector over substance x form. */
 
 export const defOf = m => MACH[m.def];
 
@@ -103,12 +91,9 @@ export function count(m, sel) {
   return n;
 }
 
-/* The first buffered pair that satisfies `sel` with at least `n` units. The
-   interpreter needs this to know WHICH ore it just ate, so a derived output can
-   name the same substance. Returns `{sub, form}` or null.
-
-   Buffer insertion order is the tiebreak, which is stable and therefore
-   deterministic; it is not a design statement about which ore is preferred. */
+/* The first buffered pair satisfying `sel` with at least `n` units, as
+   `{sub, form}` or null, so a derived output can name the substance it ate.
+   Buffer insertion order is the tiebreak, which is stable. */
 export function firstMatching(m, sel, n) {
   for (const k in m.buf) {
     if (m.buf[k] < n) continue;
@@ -118,8 +103,8 @@ export function firstMatching(m, sel, n) {
   return null;
 }
 
-/* Capacity of the buffer clause covering `sel`. An exact clause wins; otherwise
-   the first declared clause whose selector overlaps does. */
+/* Capacity of the buffer clause covering `sel`. An exact clause wins;
+   otherwise the first declared clause whose selector overlaps does. */
 export function capOf(def, sel) {
   const caps = def.buffer?.cap;
   if (!caps) return 0;
@@ -130,9 +115,9 @@ export function capOf(def, sel) {
   return 0;
 }
 
-/* `expand` allocates a fresh array, and `capOf` is called per machine per frame
-   by the servo, so the result is memoised per selector. Selectors come from
-   frozen data, so the cache is bounded by the content. */
+/* `expand` allocates, and `capOf` runs per machine per frame, so results are
+   memoised per selector. Selectors come from frozen data, so the cache is
+   bounded by the content. */
 const expandCache = new Map();
 function expandCached(sel) {
   let v = expandCache.get(sel);
@@ -140,8 +125,7 @@ function expandCached(sel) {
   return v;
 }
 
-/* 0..1 fullness of the buffer clause matching `sel`. The servo reads this, and
-   so does the pip row in the HUD. */
+/* 0..1 fullness of the buffer clause matching `sel`. */
 export function fill(m, sel) {
   const cap = capOf(MACH[m.def], sel);
   return cap > 0 ? Math.min(1, count(m, sel) / cap) : 0;
@@ -149,22 +133,16 @@ export function fill(m, sel) {
 
 export const full = (m, sel) => count(m, sel) >= capOf(MACH[m.def], sel);
 
-/* TWO CALLERS, TWO SELECTOR LISTS, ONE MATCH RULE. A machine says what it
-   takes twice, for two mouths: `ports[].accepts` is what may fall or be
-   belted IN, `handFeed.from` is what a hand may give. The LISTS differ per
-   row and stay separate; the QUESTION asked of each is the same one.
-
-   Returned as the matching SELECTOR rather than a boolean, because the CAP is
-   per selector -- the furnace's 8-ore/2-fuel asymmetry is expressed that way,
-   and a caller that only learned "yes" would have to find the clause again. */
+/* The first of `sels` matching this pair, over either mouth's list
+   (`ports[].accepts` or `handFeed.from`). Returned as the selector rather than
+   a boolean, because the cap is per selector -- the furnace's 8-ore/2-fuel
+   asymmetry is expressed that way. */
 const firstSel = (sels, sub, form) => {
   for (const sel of sels || []) if (matches(sel, sub, form)) return sel;
   return null;
 };
 
-/* Which `in` port selector, if any, accepts this pair. In `model` rather than
-   beside its caller so it and `feedCheck` cannot drift into two different
-   answers to "does this machine take this". */
+/* Which `in` port selector, if any, accepts this pair. */
 export function acceptedBy(def, sub, form) {
   for (const p of def.ports || []) {
     if (p.mode !== 'in') continue;
@@ -174,14 +152,10 @@ export function acceptedBy(def, sub, form) {
   return null;
 }
 
-/* WOULD THIS MACHINE TAKE THIS PAIR FROM A HAND, and how full is the clause
-   that would hold it? ONE DECISION, TWO READERS: `handOne` ENFORCES it and
-   the build ghost PREVIEWS it. `have`/`cap` are both 0 on 'IT DOES NOT WANT
-   THAT', since no clause was found to measure.
-
-   REACH IS DELIBERATELY NOT CHECKED HERE: folding it in would make this
-   unusable for a ghost answering about a machine nobody has walked to. The
-   ORDER of the two refusals is locked -- wrong material beats no room. */
+/* Would this machine take this pair from a hand, and how full is the clause
+   that would hold it? `have`/`cap` are 0 when no clause matched. Reach is not
+   checked, so the build ghost can ask about a machine nobody has walked to.
+   Wrong material is reported before no room. */
 export function feedCheck(m, sub, form) {
   const def = MACH[m.def];
   const sel = def.handFeed ? firstSel(def.handFeed.from, sub, form) : null;
@@ -191,16 +165,10 @@ export function feedCheck(m, sub, form) {
   return { ok: true, why: '', have, cap };
 }
 
-/* THE FEED TARGET: the machine LMB rule 2 would hand `armed` to, or null.
-   Reach IS asked here, unlike in `feedCheck`, whose other reader is a ghost.
-
-   DELIBERATELY NOT "would it take this pair?" Folding `feedCheck(...).ok` in
-   would make both its refusal strings unreachable from LMB -- a wrong or
-   unwanted pair would return null and the press would fall through to PLACE,
-   which is how a rung once ended up inside a furnace's footprint. A
-   reachable, hand-feedable machine under the reticle is ALWAYS the target.
-
-   Exported so the LMB dispatch and the HUD's feed prompt share one answer. */
+/* The reachable hand-feedable machine under the reticle, or null, shared by
+   the LMB dispatch and the HUD's feed prompt. Deliberately not "would it take
+   this pair": folding `feedCheck(...).ok` in makes its refusal strings
+   unreachable and drops a wrong pair through to PLACE. */
 export function feedTarget(armed) {
   if (!armed || !aim.valid || !aim.band) return null;
   const m = machineAt(aim.band, aim.tx, aim.ty);
@@ -211,11 +179,9 @@ export function feedTarget(armed) {
   return m;
 }
 
-/* Which selector, if any, is this definition's fuel requirement -- FOUND
-   rather than re-declared, so `statusOf` can never disagree with what the
-   machine actually accepts. Checked ports first, because every fuel-burning
-   row today declares it there; the recipe scan catches a machine whose fuel
-   requirement is only inline. `null` for a machine that needs no fuel. */
+/* This definition's fuel selector, found rather than re-declared: ports
+   first, then `handFeed.from`, then the recipes' own `in` clauses. `null` for
+   a machine that needs no fuel. */
 const fuelSelCache = new Map();
 export function fuelSelectorOf(def) {
   if (fuelSelCache.has(def)) return fuelSelCache.get(def);
@@ -233,16 +199,10 @@ export function fuelSelectorOf(def) {
   return sel;
 }
 
-/* `'running' | 'no-fuel' | 'idle'` -- the pure read behind the stalled-machine
-   warning badge (`view/paint.js#paintMachine`) and the hover tooltip's status
-   line (`view/hover.js`). `'running'` mirrors `m.running` exactly. `'no-fuel'`
-   is reserved for a machine that actually NEEDS fuel (`fuelSelectorOf` found
-   a selector) and whose buffer holds none of it right now -- the "silent
-   stall" `rules/machines.js`'s own comments describe but, before this, never
-   surfaced anywhere a player could see. Everything else -- has what it needs
-   but is not mid-recipe, or needs nothing at all -- is `'idle'`; this
-   function never has to know WHY a recipe did not fire, only whether fuel is
-   the reason. */
+/* `'running' | 'no-fuel' | 'idle'`, behind the stalled-machine badge in
+   `view/paint.js#paintMachine` and the `view/hover.js` status line.
+   `'no-fuel'` needs `fuelSelectorOf` to have found a selector and the buffer
+   to hold none of it; everything else is `'idle'`. */
 export function statusOf(m) {
   if (m.running) return 'running';
   const sel = fuelSelectorOf(MACH[m.def]);

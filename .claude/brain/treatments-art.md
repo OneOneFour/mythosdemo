@@ -138,3 +138,26 @@ or machine-part context does, a bare terrain cell does not, and the base alpha
 is exactly what a still relic in a screenshot-diffed baseline should be.
 Derived from the clock plus a hash of the cell's own position, so two relics on
 screen do not breathe in lockstep.
+
+## Palette: the ink split, the two mix functions, and granite/adamant hues
+
+The ink tones are three, not two: a two-tone split made "secondary" and
+"illegible" the same colour. `ui` is primary, `uiInk2` is de-emphasised text
+that must still read, `uiDim` is a state tone (unknown, unfuelled, idle, off).
+The answer to "the dim tone is illegible" is not to delete it, it is to stop
+using a state tone for body text. `uiShade` is opaque rather than an alpha
+because several sites draw under a live `globalAlpha < 1`, where an alpha
+shadow lets the ink bleed through.
+
+`mix()` returns an `rgb(...)` string and `blend()` returns hex. Both exist
+because depth shading needs two stages (darken the row's own tone, then derive
+an edge from the darkened tone) and only a hex result can be fed back in.
+`mix` was not simply changed to return hex: every existing call site takes a
+single mix, a canvas `fillStyle` accepts either form, and the edit would have
+been wider for no gain.
+
+Granite is a cool light grey, kept distinct from the warmer, darker `ir*`
+iron-greys so the two rocks read apart at a glance. Adamant is a dark
+teal-black with a pale cyan glint highlight, matching the `glint` treatment
+already used on copper (`veinA`) and tin (`snA`), so it reads as worked or
+magical metal-rock rather than plain stone.

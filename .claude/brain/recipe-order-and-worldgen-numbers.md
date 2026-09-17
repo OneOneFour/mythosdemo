@@ -53,6 +53,37 @@ after even `hearth` — which loses nothing, since the two share no material.
 **The residual wart is known:** the craft queue cannot choose a recipe, and a
 real menu is the fix for this the way it is the fix for `daedalan`/`auger`.
 
+## The four transport rows' containments, and the two certainties
+
+Salvaged from `src/data/recipes.js` and `src/data/drops.js` in the `data/`
+comment pass. The live constraint is stated on each row; this is the pairwise
+work behind it.
+
+- **`crank` {3 log, 3 gravel} is deliberately not a subset of `brazier`
+  {4 log, 2 gravel}.** An earlier draft priced it at {3 log, 2 gravel}, which
+  IS a subset, and would have made the crank permanently unreachable by hand
+  for any player holding four logs. Raising the gravel to 3 breaks the
+  containment in both directions. It is still declared after `brazier`, so the
+  brazier's behaviour is unchanged where the two merely overlap.
+- **`gear` {2 log, 1 gravel} is a strict subset of both `brazier` and
+  `crank`,** so it is declared after both and before `peg_rungs` {2 log} /
+  `kindle` {1 log}, which are in turn subsets of it.
+- **`hub` and `axle` have no containment with anything.** `hearth`'s {2 plate}
+  is a subset of the hub's {3 plate, 1 ingot, 2 log}, which `hearth` being
+  last of the plate rows already covers. The axle's {2 ingot, 2 log} needs two
+  ingots to the hub's one and no plate at all.
+- Both were originally placed after the retired winch-stage row, whose
+  {6 plate, 4 log, 2 ingot} contained them both. Removing a superset can only
+  relax an ordering constraint, so the positions did not have to move.
+
+**`data/drops.js#tribute-bellows` stays `chance:1` by decision, not
+inheritance.** It was a certainty when the trinket table had one row; with
+three the draft has two left to offer, so the dice-roll argument is gone. The
+reason to keep the certainty is that the first trial to pay is where a player
+learns the trinket tier exists at all, and a tier introduced by a coin flip is
+one half the runs never meet. `deep-bellows`'s `chance:0.03` is the rare
+source; this is the taught one.
+
 ## `#bulk/gravel` and not `#rock/gravel` is the point
 
 `bulk` tags `soil` and `stone` only; `granite` and `adamant` are `deposit`. So

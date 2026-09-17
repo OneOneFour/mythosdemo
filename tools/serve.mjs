@@ -1,5 +1,5 @@
-// Zero-dependency static server. ES modules need a real HTTP origin
-// (file:// blocks them), but they do not need a bundler.
+// Zero-dependency static server: native ES modules need an HTTP origin,
+// because `file://` blocks them.
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, normalize, join } from 'node:path';
@@ -19,7 +19,7 @@ http.createServer(async (req, res) => {
   try {
     let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     if (path === '/') path = '/index.html';
-    // refuse to serve outside the project directory
+    // Normalize before the prefix test, or `..` escapes ROOT.
     const safe = normalize(join(ROOT, path));
     if (!safe.startsWith(ROOT)) { res.writeHead(403).end('forbidden'); return; }
     const body = await readFile(safe);

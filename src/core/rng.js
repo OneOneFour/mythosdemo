@@ -1,13 +1,10 @@
-/* LAYER core — seeded randomness and a positional hash. Depends on nothing.
+/* core layer — seeded randomness and a positional hash. Depends on nothing.
+     rand()   the run's stream. Stateful, so consuming it out of order changes
+              the world; a render may not draw from it at all.
+     hash2()  stateless, same input to same value, and so the only randomness
+              `view` may use. */
 
-   Two different things live here and confusing them is a determinism bug:
-     rand()   the RUN's stream. STATEFUL, so consuming it out of order
-              changes the world and nothing may draw from it while rendering.
-     hash2()  STATELESS. Same input, same value, forever. The only randomness
-              `view` may use, because a repaint must not be a mutation of
-              anything -- not even of an RNG cursor. */
-
-/* mulberry32. Small, fast, and good enough that a run is worth sharing. */
+/* mulberry32. */
 export function mulberry(seed) {
   const draw = function () {
     seed |= 0; seed = seed + 0x6D2B79F5 | 0;
@@ -15,34 +12,31 @@ export function mulberry(seed) {
     t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
     return ((t ^ t >>> 14) >>> 0) / 4294967296;
   };
-  /* The whole state of mulberry32 is its own seed word, so `mulberry(state())`
-     continues the stream exactly rather than restarting it. That is what makes
-     the cursor one int32 in `shell/save.js`'s payload. */
+  /* The whole generator state is this one seed word, so `mulberry(state())`
+     resumes the stream rather than restarting it. */
   draw.state = () => seed;
   return draw;
 }
 
-/* Stateless 2D hash in [0,1). Used by chunk painting and edge jitter. */
+/* Stateless 2D hash in [0,1). */
 export const hash2 = (x, y) => {
   let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263);
   h = Math.imul(h ^ h >>> 13, 1274126177);
   return ((h ^ h >>> 16) >>> 0) / 4294967296;
 };
 
-/* The generator lives on an object, because ES module bindings are read-only
-   for importers. */
+/* The generator lives on an object: an ES module binding is read-only for
+   importers, so `seedRng` could not swap a bare `let`. */
 export const rng = { next: Math.random };
 
 export function seedRng(seed) { rng.next = mulberry(seed | 0); }
 
 export const rand = () => rng.next();
 
-/* Where the run's stream stands, as an int32 `seedRng()` will resume from, or
-   null while `rng.next` is still `Math.random`. `shell/save.js` is the only
-   caller: without it a loaded run keeps the saved world and gets a different
-   future. */
+/* Where the run's stream stands, as an int32 `seedRng()` resumes from, or
+   null while `rng.next` is still `Math.random`. */
 export const cursor = () => (rng.next.state ? rng.next.state() : null);
 
-/* Convenience draws, so call sites stop rewriting the same arithmetic. */
+/* Both draw from `rand()`; `randInt` bounds are inclusive at each end. */
 export const randRange = (lo, hi) => lo + rand() * (hi - lo);
 export const randInt   = (lo, hi) => lo + ((rand() * (hi - lo + 1)) | 0);

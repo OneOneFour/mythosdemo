@@ -1,21 +1,17 @@
-/* LAYER model — BOONS: the TIMED tier's run-scoped state. Imports `model`.
+/* model layer — the timed boon tier's run-scoped state.
 
-   `active` is a plain array of `{ id, left }` in GRANT ORDER -- appended on a
-   fresh grant, never reordered -- and `rules/boons.js#step` reads that order
-   to decide which of two conflicting boons is "the older one".
-
-   Storage only: the DECISION about what a conflict does to a number lives in
-   `rules/boons.js`. Re-granting a boon already in `active` REFRESHES `left`
-   in place rather than pushing a second row. */
+   `active` is `{ id, left }` rows in grant order: appended on a fresh grant,
+   never reordered, and `rules/boons.js#step` reads that order to tell which
+   of two conflicting boons is the older. Re-granting an active boon refreshes
+   `left` in place rather than pushing a second row. */
 
 import { bump } from './epoch.js';
 
 export const boons = { active: [] };
 
 export const write = {
-  /* `secs` is the boon's own `data/boons.js#BOON[id].secs`, passed in rather
-     than looked up here so this file stays free of a `data` import it does
-     not otherwise need -- `rules/boons.js` already has the row in hand. */
+  /* `secs` is `data/boons.js#BOON[id].secs`, passed in so this file needs no
+     `data` import. */
   grant(id, secs) {
     const row = boons.active.find(a => a.id === id);
     if (row) row.left = secs;
@@ -23,8 +19,7 @@ export const write = {
     bump();
   },
 
-  /* Decrement every active boon by the SAME fixed step, never a variable dt.
-     Expiry itself is a `rules` decision; this only ticks the clock. */
+  /* `dt` is the fixed simulation step, never a variable frame delta. */
   tick(dt) {
     for (const a of boons.active) a.left -= dt;
     bump();
@@ -36,7 +31,5 @@ export const write = {
     bump();
   },
 
-  /* Called from `shell/boot.js` alongside every other model clear: a field
-     surviving a restart is a determinism bug. */
   clear() { boons.active.length = 0; bump(); }
 };

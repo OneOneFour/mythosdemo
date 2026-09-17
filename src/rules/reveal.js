@@ -1,25 +1,15 @@
-/* LAYER rules — REVEAL: line of sight, once a frame. Imports `model` only,
-   plus `model/mods.js` as the one legal door to a tunable. Imports no other
-   `rules` module.
+/* rules layer — line of sight. A revealed tile is never re-hidden —
+   `write.reveal` has no opposite — so the only decision here is which bits to
+   set.
 
-   A TILE, ONCE REVEALED, IS NEVER RE-HIDDEN. The storage enforces that --
-   `write.reveal` has no opposite -- so this file's only job is deciding WHICH
-   bits to set. Two independent passes:
+   `passA`, open sky: unbounded and reads no tunable, so a clear shot out of the
+   world reveals every column of the band sharing it. `passB`, underground: a
+   4-directional flood through open tiles, blocked by rock and capped at a graph
+   distance, seeded at distance 0 by the player's own tiles. Past distance 1 the
+   flood enqueues a tile only if it is lit, though it reveals it either way.
 
-     PASS A  open sky. UNBOUNDED and reads no tunable: nothing obstructs a
-             view across open air, so a clear shot out of the WORLD reveals
-             every column of the band sharing that shot, not a radius.
-     PASS B  underground. A flood through open tiles, blocked by rock, capped
-             at a GRAPH distance. The player's own tiles seed it at distance
-             0, so a fully solid dead end still reveals its neighbours.
-
-   The flood must not walk through UNLIT air, or a player could map a
-   pitch-black cavern by standing in it. Past distance 1 a tile is enqueued
-   only if it is lit; it is still REVEALED regardless.
-
-   OCCUPIED TILES, NOT ONE POINT. The hitbox is 6x16 px in an 8 px tile and
-   need not be aligned, so both passes walk every tile its bounding rectangle
-   overlaps. A single point would leave a foot or a head one tile short. */
+   Both passes walk every tile the 6x16 px hitbox overlaps; one point would
+   leave a foot or a head a tile short. */
 
 import { eff } from '../model/mods.js';
 import { player, playerBox } from '../model/player.js';
@@ -27,30 +17,22 @@ import { solidAt, worldSkyAt } from '../model/tiles.js';
 import { bandAbove, bandSpans, chunkOf, chunkVer, inBounds, lightAt,
          write as ww } from '../model/world.js';
 
-/* Perf-only cache for Pass B, MODULE-LOCAL AND DELIBERATELY NOT IN `model/`:
-   keyed by the band
-   OBJECT, and `model/world.js#write.allocate` always hands out a fresh one, so
-   `b === lastBand` is already false the instant a run restarts, with no reset
-   call to wire up or forget. Reset to `null` on the early-return-no-band path
-   below too, so a band going away mid-frame (there is no such path today, but
-   nothing here should rely on that) can't leave a stale reference pointing at
-   a dead one. */
+/* Throttle cache for `passB`, keyed by the band object:
+   `model/world.js#write.allocate` hands out a fresh record per run, so a
+   restart is already a miss and there is no reset call to wire up. Nulled on
+   the no-band path below so a dead record is never held. */
 let lastBand = null, lastKey = NaN, lastVer = NaN;
 
-/* Pass A's own cache, same shape and same reason: the band OBJECT keys it, so
-   a restart is already a miss. It holds the chunk-version sum the last full
-   sky scan ran against -- see `passA`. */
+/* `passA`'s cache, same shape: the chunk-version sum the last full sky scan
+   ran against. */
 const skylineVer = new WeakMap();
 
-/* EVERY BAND THE HITBOX OVERLAPS, never `player.band` alone. A player whose
-   feet are in `topsoil` and whose head is in `surface` has a `player.band` of
-   `topsoil` and a `tileY(topsoil, ...)` of -1 for the head rows, which
-   `model/world.js#inBounds` rejects without saying so -- so the tiles the
-   player is standing in went unrevealed and `view/scene.js#drawFog` painted
-   over half the sprite. */
+/* Walks every band the hitbox overlaps rather than `player.band` alone: a
+   player whose head is in the band above has a negative band-local `ty` there,
+   which `model/world.js#inBounds` rejects silently. */
 export function step() {
   const b = player.band;
-  if (!b) { lastBand = null; return; }           // no world yet; never in play
+  if (!b) { lastBand = null; return; }           // no world yet
 
   const box = playerBox();
   const spans = bandSpans(box.x, box.y, box.w, box.h);
@@ -60,13 +42,9 @@ export function step() {
   passB(b, spans);
 }
 
-/* Gated on a CHEAP check first: `worldSkyAt` on the player's own occupied
-   tiles only, so a player underground never pays for the band-wide pass.
-
-   THE GATE ASKS ABOUT THE WORLD, not this band's own grid. `skyExposedAt`
-   stops at row 0 of whatever band it was handed, and `topsoil`'s row 0 is
-   buried under 28 rows of surface rock -- so a player 38 tiles down their own
-   shaft satisfied it and un-fogged a whole band width of unseen rock. */
+/* Gated on `worldSkyAt` over the player's own tiles first, so a player
+   underground never pays for the band-wide pass. The gate asks about the whole
+   world, not this band's grid, whose row 0 may itself be buried. */
 function passA(b, tx0, ty0, tx1, ty1) {
   let exposed = false;
   for (let ty = ty0; ty <= ty1 && !exposed; ty++)
@@ -74,31 +52,19 @@ function passA(b, tx0, ty0, tx1, ty1) {
       if (worldSkyAt(b, tx, ty)) { exposed = true; break; }
   if (!exposed) return;
 
-  /* THEN RUN THE SCAN AT MOST ONCE PER TERRAIN CHANGE, not once per frame.
-     It is O(band width) and MONOTONE, so re-running against an unchanged grid
-     reveals nothing new. `b.ver` summed over every chunk of the WHOLE band,
-     because a shaft dug anywhere lengthens that column's scan, and the player
-     walking into sunlight is NOT a reason to rerun.
-
-     EVERY BAND ABOVE THIS ONE IS IN THE SUM TOO, because a tile broken in
-     `surface` can open a `topsoil` column to daylight without touching one
-     `topsoil` chunk version. A throttle and NOT a radius cull: Pass A's
-     contract is that open air obstructs nothing. */
+  /* At most once per terrain change: the scan is O(band width) and monotone,
+     so re-running it against an unchanged grid reveals nothing. The sum covers
+     every chunk of this band and of every band above — a tile broken above can
+     open a column to daylight without touching a chunk version here. */
   let verSum = 0;
   for (let up = b; up; up = bandAbove(up))
     for (let i = 0; i < up.ver.length; i++) verSum += up.ver[i];
   if (skylineVer.get(b) === verSum) return;
   skylineVer.set(b, verSum);
 
-  /* THE WHOLE POINT: reveal the band's entire sky-exposed silhouette, not just
-     where the player stands. ONE `worldSkyAt` PER COLUMN, at row 0, the
-     cheapest row to ask about -- never per TILE, which walks the column every
-     call and is close to quadratic over a band as deep as `topsoil`.
-
-     Then walk DOWN from row 0 and stop AFTER the first solid tile. REVEAL,
-     THEN CHECK SOLID, in that order: the ground you stand on has nothing
-     solid above it and must be revealed too, or the walkable surface stays
-     fogged under fully lit air. Only what is BENEATH it is obstructed. */
+  /* One `worldSkyAt` per column at row 0 rather than per tile, which walks the
+     column on every call. Reveal, then test solid, in that order: the ground
+     you stand on has nothing solid above it and must be revealed too. */
   for (let tx = 0; tx < b.tw; tx++) {
     if (!worldSkyAt(b, tx, 0)) continue;
     for (let ty = 0; ty < b.th; ty++) {
@@ -108,15 +74,9 @@ function passA(b, tx0, ty0, tx1, ty1) {
   }
 }
 
-/* A 4-directional flood through non-solid neighbours up to a maximum GRAPH
-   distance -- not a straight-line radius, and deliberately not shadowcasting.
-   Past distance 0 a SOLID tile is revealed but the flood stops there.
-
-   THROTTLED, BUT NOT ON PLAYER POSITION ALONE: standing still and digging
-   SIDEWAYS is ordinary, and the newly opened tile is a WORLD change. So the
-   key folds in a CHUNK VERSION over the player's chunk plus its neighbours,
-   and `b.lightVer` too. `home` is in the key BY OBJECT IDENTITY, so a
-   restart's fresh records make it stale. */
+/* Throttled on a key folding in the chunk versions around the player plus
+   `b.lightVer`, not position alone: digging sideways while standing still is a
+   world change. `home` keys by object identity, so a restart is a miss. */
 function passB(home, spans) {
   let ver = 0, key = 0;
   for (const s of spans) {
@@ -160,10 +120,9 @@ function flood(b, tx0, ty0, tx1, ty1) {
       seen.add(k);
       ww.reveal(b, nx, ny);                     // the wall you're facing, too
       if (solidAt(b, nx, ny)) continue;          // but sight stops at rock
-      /* Past the always-revealed first ring (d === 0 -> d + 1 === 1), the
-         flood may not continue into a tile with no light reaching it AT ALL
-         this frame -- otherwise standing in a pitch-black cavern would still
-         map the whole thing, one graph-hop at a time. */
+      /* Past the always-revealed first ring the flood may not continue into a
+         tile with no light this substep, or standing in an unlit cavern would
+         map it one graph hop at a time. */
       if (d >= 1 && lightAt(b, nx, ny) < 1) continue;
       queue.push({ tx: nx, ty: ny, d: d + 1 });
     }

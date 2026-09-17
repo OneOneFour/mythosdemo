@@ -1,19 +1,12 @@
-/* LAYER view — the GRID primitive: fixed-size square slots, a configurable
+/* view layer — the grid primitive: fixed-size square slots in a clamped
    column count, scrollable.
 
-   SCROLLING IS SNAPPED TO WHOLE ROWS rather than done with a canvas clip. This
-   project draws with `R()`/`lineTo()` only, and the headless 2d stub does not
-   implement `clip()`/`rect()` at all -- so a real clip would pass in a browser
-   and throw in `npm run check`. Snapping means every drawn slot is already
-   fully inside the grid's bounds.
-
-   COLUMN COUNT IS CLAMPED TOO, and this is the part that is easy to get
-   wrong: the content width is DERIVED from `cols x cell`, never from a
-   caller-supplied `w`. Reporting a clamped `w` while looping over the full
-   `cols` would draw slots past it while the returned rect claims they are not
-   there -- exactly the layout/hit-test disagreement recording a drawn rect
-   exists to prevent. So a grid that cannot fit `cols` REDUCES its effective
-   column count. */
+   Scrolling snaps to whole rows rather than clipping: the headless 2d stub
+   implements no `clip()`/`rect()`, so every drawn slot must already fall
+   inside the grid's bounds. Content width derives from `cols x cell`, never
+   from a caller-supplied `w`, and a grid too narrow for `cols` reduces its
+   column count -- a clamped `w` over a full `cols` loop would draw slots the
+   returned rect denies are there. */
 import { R } from '../../core/pixels.js';
 import { mix } from '../../core/palette.js';
 import { colour } from '../../data/palette.js';
@@ -35,16 +28,9 @@ export function rowCount(itemCount, cols) {
   return Math.max(1, Math.ceil(itemCount / Math.max(1, cols)));
 }
 
-/* `opts`: { id, x, y, h, vw, vh, cols, items, scroll?, cell?, gap?, focus? }.
-   `items[i]` is `null` (empty slot) or `{ sub, form, n, mass, colour, glyph }`,
-   the exact shape `slot.js#drawSlot` expects — `grid.js` never inspects it.
-   `cols` is a REQUEST, reduced to whatever fits between `x` and `vw`.
-   `scroll` is a ROW offset, clamped here; the caller (`shell/ui.js#scrollOf`)
-   owns persisting whatever value this returns.
-   Returns `{ id, x, y, w, h, cols, rows, scroll, cell, slots }` — `w`/`h` are
-   the ACTUAL drawn bounding box, `cols` the actual (possibly reduced) count,
-   and `slots` one `{x,y,w,h,index,sub,form,n,mass}` per drawn cell, which is
-   what a click handler hit-tests against and what `__mf.ui` projects. */
+/* `cols` is a request, reduced to what fits between `x` and `vw`; `scroll` is
+   a row offset clamped here, which `shell/ui.js#scrollOf` persists. Returned
+   `w`/`h` are the actual drawn bounds, one `slots` entry per drawn cell. */
 export function drawGrid(g, opts) {
   const {
     id, vw, vh, items, scroll = 0, cell = SLOT_SIZE, gap = 1, focus = -1

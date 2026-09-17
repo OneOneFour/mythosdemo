@@ -1,17 +1,12 @@
 import { expect, test } from '@playwright/test';
 
-/* THE SAVE SLOT IN A REAL BROWSER.
-
-   `tools/check.mjs` covers the payload's shape, the version hashes, the
-   refusal matrix and the round trip against a Map-backed `localStorage` stub.
-   That stub is faithful to the three methods `shell/save.js` calls and blind
-   to what matters here: a real origin, a real quota, and a real page RELOAD,
-   which throws the module graph away and rebuilds it from nothing. So this
-   file plays a scripted run, saves, reloads, loads, and compares a
-   fingerprint of the model across the two processes. No screenshots:
-   photographing a loaded run would couple a save regression to a palette
-   change. `import('/src/shell/save.js')` inside `page.evaluate` reaches the
-   live module because `tools/serve.mjs` serves untransformed ES modules. */
+/* The save slot in a real browser: plays a scripted run, saves, reloads the
+   page, loads, and compares a fingerprint of the model across the two
+   processes. The reload is what a Map-backed `localStorage` stub cannot do --
+   it throws the module graph away and rebuilds it under a real origin. No
+   screenshots, so a palette change cannot fail a save test.
+   `import('/src/shell/save.js')` inside `page.evaluate` reaches the live
+   module because the dev server serves untransformed ES modules. */
 
 const SAVE_KEYS = ['mythos-factory/save-head', 'mythos-factory/save'];
 
@@ -24,16 +19,10 @@ async function boot(page) {
   return errors;
 }
 
-/* A fingerprint of everything the payload claims to carry, computed in the
-   page and returned as a string. Typed arrays roll into one order-sensitive
-   number each -- three bands of `mat` and `seen` is 200 kB of JSON otherwise
-   -- so a transposition inside a band still shows.
-
-   `b.light` IS DELIBERATELY ABSENT. `rules/light.js` relaxes the field over
-   frames from the tile grid and the sky, so a loaded run converges to the
-   same values rather than starting at them; fingerprinting it would assert a
-   claim `shell/save.js` never makes. Floats are fixed to four places because
-   `run.t` accumulates. */
+/* Fingerprint of everything the payload claims to carry, computed in the page.
+   Typed arrays roll into one order-sensitive number each, so a transposition
+   inside a band still shows; floats round because `run.t` accumulates.
+   `b.light` is absent because a loaded run relaxes to it rather than loads it. */
 const fingerprint = page => page.evaluate(async () => {
   const [w, items, machs, segs, mining, growth, runm, playerm, boons, rng] =
     await Promise.all(['model/world.js', 'model/items.js', 'model/machines.js',
@@ -65,16 +54,10 @@ const fingerprint = page => page.evaluate(async () => {
   }, null, 1);
 });
 
-/* Scripted play, driven through `__mf.hold`, which writes the same `cmd`
-   object a keystroke writes to -- never a click coordinate, which would
-   resolve against a camera this test deliberately leaves mid-ease.
-
-   EVERY KEY IS NAMED IN EVERY PHASE, and that is not tidiness. `__mf.hold`
-   sets the keys it is given and leaves the rest of `cmd` exactly as it found
-   it, so a phase that says `{ dig: 1 }` after a phase that said `{ left: 1 }`
-   walks left while it digs -- and the continuation after a reload, which
-   starts from a fresh `cmd`, then does something else. A partial key set here
-   makes the input itself a hidden part of the saved state. */
+/* Scripted play through `__mf.hold`, which writes the same `cmd` object a
+   keystroke writes to, never a click coordinate resolved against a mid-ease
+   camera. `hold` leaves keys it is not given exactly as it found them, so
+   every phase names every key or the input becomes hidden saved state. */
 const KEYS = ['left', 'right', 'up', 'down', 'hop', 'dig', 'place', 'feed',
               'craft', 'drop', 'action', 'collect', 'hasMouse'];
 
@@ -112,14 +95,13 @@ test('a save survives a real page reload, exactly', async ({ page }) => {
   }, SAVE_KEYS);
   expect(saved.wrote).toBe(true);
   expect(saved.has).toBe(true);
-  /* Both keys hold something, which is the half a stub cannot claim: these
-     bytes went through a real store under a real origin. */
+  /* Both keys hold bytes, written through a real store under a real origin. */
   expect(saved.bytes.every(n => n > 0)).toBe(true);
 
   const before = await fingerprint(page);
 
-  /* THE RELOAD. Every module is re-evaluated, every typed array is
-     reallocated, and the only thing that crosses is the slot. */
+  /* Re-evaluates every module and reallocates every typed array; the slot is
+     the only thing that crosses. */
   await page.reload();
   await page.waitForFunction(() => globalThis.__mf && globalThis.__mf.ready);
 
@@ -151,9 +133,9 @@ test('a reloaded run draws the same future as the one that was saved', async ({ 
   expect(wrote).toBe(true);
   const clockAtSave = await page.evaluate(() => __mf.clock.t);
 
-  /* The saved run plays on for another 5 simulated seconds. Its state here is
-     the prediction the reloaded run has to reproduce: same seed, same cursor,
-     same input, same future. */
+  /* The saved run plays on for another 5 simulated seconds; that state is the
+     prediction the reloaded run must reproduce from the same seed, cursor and
+     input. */
   await phase(page, { dig: true, collect: true }, 600);
   const future = await fingerprint(page);
 
@@ -162,12 +144,9 @@ test('a reloaded run draws the same future as the one that was saved', async ({ 
   const okLoad = await page.evaluate(async () => (await import('/src/shell/save.js')).load(__mf.newRun));
   expect(okLoad).toBe(true);
 
-  /* THE CLOCK IS PUT BACK BY THIS TEST, because the payload does not carry it
-     and should not -- `clock.t` is `shell`-owned and no `rules` module reads
-     it. One thing does read it into model state: `shell/main.js:163` gates
-     `player.digging`, the pickaxe-swing blink, on `((clock.t * 9) | 0) % 2`.
-     Leave the clock at 0 and the two runs disagree about that one flag while
-     agreeing about the world, which says nothing about the save. */
+  /* The payload does not carry `clock.t`, but `shell/main.js` gates the
+     pickaxe-swing blink `player.digging` on it, so the two runs have to start
+     it at the same value to agree about that one flag. */
   await page.evaluate(t => { __mf.clock.t = t; }, clockAtSave);
 
   await phase(page, { dig: true, collect: true }, 600);

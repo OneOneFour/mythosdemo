@@ -1,10 +1,8 @@
 import { expect, test } from '@playwright/test';
 
-/* VISUAL REGRESSION. `tools/check.mjs` verifies behaviour and explicitly
-   cannot verify appearance. This covers that gap — and only that gap. A
-   passing screenshot means the pixels have not CHANGED. It does not mean they
-   are right; that still needs a human. These baselines were taken immediately
-   after the architecture refactor and are UNREVIEWED. */
+/* Visual regression, plus the behaviour checks that need a real browser. A
+   passing screenshot means the pixels have not changed, not that they are
+   right; these baselines are unreviewed. */
 
 async function boot(page) {
   const errors = [];
@@ -21,24 +19,15 @@ const shot = (page, name) => expect(page.locator('#stage')).toHaveScreenshot(nam
 const settle = async (page, seed = 1337) =>
   page.evaluate(s => { __mf.newRun(s); __mf.clock.t = 10; __mf.frames(2); }, seed);
 
-/* PAST THE ALTAR'S ARRIVAL. Tutorial beat 4 releases cycle 1's altar
-   and `view/scene.js` then gives it a rise and a shaft of light for
-   `altarRiseSecs`, 1.6 s, which is 192 substeps at the fixed 1/120 s step.
-   241 is that plus the placing frame plus room over.
-
-   A scene that jumps the beat to get past the tutorial callout and then
-   photographs a drivetrain, a growing seed or a panel would otherwise be shot
-   under that light. Waiting it out is the same move these scenes already make
-   for the title card and the callout -- the subject of the picture wins. */
+/* Past the altar's arrival. Releasing cycle 1's altar gives it a rise and a
+   shaft of light for `altarRiseSecs`, 1.6 s = 192 substeps at the fixed
+   1/120 s step; 241 is that plus the placing frame and room over. */
 const ARRIVAL_SUBSTEPS = 241;
 const pastArrival = page => page.evaluate(n => __mf.frames(n), ARRIVAL_SUBSTEPS);
 
-/* TEST-ONLY QUICKBAR SETUP. The quickbar is `run.inv`'s own tail, so putting
-   a pair into a SPECIFIC cell means collecting it and then moving it from
-   wherever `write.collect` put it to the cell this test wants, through
-   the same `write.moveSlot` a real drag drives. The source index is read
-   back rather than assumed, because the landing slot depends on what the
-   scene already holds. */
+/* Puts a pair in a specific quickbar cell. The quickbar is `run.inv`'s tail,
+   so this collects and then moves through the same `write.moveSlot` a drag
+   drives; the source index is read back because the landing slot varies. */
 async function putInQuickbar(page, slot, subKey, formKey, n = 1) {
   await page.evaluate(async ({ slot, subKey, formKey, n }) => {
     const { run, write } = await import('/src/model/run.js');
@@ -51,11 +40,8 @@ async function putInQuickbar(page, slot, subKey, formKey, n = 1) {
   }, { slot, subKey, formKey, n });
 }
 
-/* THE SAME TWO HELPERS AIMED AT THE BAG. A pickup fills the quickbar's cells
-   before the main grid, so a test whose subject is the Character tab's own
-   grid -- a drag out of it, a hover over it, a click on one of its slots --
-   has to put the pair there deliberately rather than trust where a collect
-   landed. */
+/* Same, aimed at the main grid: a pickup fills the quickbar's cells first, so
+   a test whose subject is the Character tab's grid has to move the pair in. */
 async function putInMain(page, subKey, formKey, n = 1) {
   await page.evaluate(async ({ subKey, formKey, n }) => {
     const { write } = await import('/src/model/run.js');
@@ -78,9 +64,8 @@ async function moveHeldToMain(page, subKey, formKey) {
   }, { subKey, formKey });
 }
 
-/* The other half of the same idiom: a pair ALREADY held (e.g. just crafted,
-   not freshly given) wherever `write.collect` happened to put it, moved into
-   a quickbar slot without collecting a second one on top of it. */
+/* Moves a pair already held -- just crafted, say -- into a quickbar slot,
+   without collecting a second one on top of it. */
 async function moveHeldToQuickbar(page, slot, subKey, formKey) {
   await page.evaluate(async ({ slot, subKey, formKey }) => {
     const { run, write } = await import('/src/model/run.js');
@@ -93,11 +78,9 @@ async function moveHeldToQuickbar(page, slot, subKey, formKey) {
 }
 
 
-/* THE CANVAS OP STREAM A pixel diff says where a difference landed. This says
-   which draw call made it. `recordOps` patches the 2D context prototype in the
-   page, tags every surface (the stage and each offscreen chunk canvas, in
-   creation order), and logs every mutating call and style write as a plain
-   string. */
+/* Records the canvas op stream: patches the 2D context prototype in the page,
+   tags every surface (the stage and each offscreen chunk canvas, in creation
+   order), and logs every mutating call and style write as a string. */
 async function installOpRecorder(page) {
   await page.evaluate(() => {
     if (globalThis.__ops) return;
@@ -152,16 +135,15 @@ async function installOpRecorder(page) {
 /* Run `body` with the recorder on and return what it drew, one string per op. */
 async function recordOps(page, body) {
   await installOpRecorder(page);
-  /* The gradient counter restarts with the log. It names a gradient by the
-     order the recording created it in, so a tag must not depend on how many
-     frames the page drew before the recorder was switched on. */
+  /* A gradient's tag is its creation order within the recording, so the
+     counter restarts with the log. */
   await page.evaluate(() => { __ops.log.length = 0; __ops.grads = 0; __ops.on = true; });
   await body();
   return page.evaluate(() => { __ops.on = false; return __ops.log.slice(); });
 }
 
-/* The first differing op, plus a little context each side. Empty when the two
-   streams are identical. */
+/* The first differing op with a little context each side, or null when the
+   two streams are identical. */
 function firstOpDiff(a, b) {
   const n = Math.max(a.length, b.length);
   for (let i = 0; i < n; i++) {
@@ -187,10 +169,8 @@ test('surface band at spawn', async ({ page }) => {
 test('walking right', async ({ page }) => {
   await boot(page);
   await settle(page);
-  /* Pickup is opt-in now -- `collect`
-     held alongside `right` sweeps up the boot-placed stock pickaxe the
-     walk passes over, the same always-collecting scene this baseline has
-     always shown. */
+  /* `collect` held alongside `right` sweeps up the boot-placed stock pickaxe
+     the walk passes over. */
   await page.evaluate(() => __mf.hold({ right: 1, collect: 1 }, 240));
   await shot(page, 'surface-walk.png');
 });
@@ -199,13 +179,9 @@ test('digging down into topsoil', async ({ page }) => {
   await boot(page);
   await settle(page);
   await page.evaluate(() => {
-    /* `shell/boot.js` plants the stock pickaxe a few tiles off spawn now --
-       walk over it first, or `hasPick` is false and digging is a no-op.
-       `right` is a held key, not edge-triggered, so it must be released
-       explicitly or the player keeps drifting through the whole dig and no
-       single tile ever accumulates enough work to break. Pickup is opt-in, so
-       `collect` is held alongside to cover both the walk-over and the dig
-       itself. */
+    /* Walk over the boot-placed stock pickaxe first, or `hasPick` is false and
+       digging is a no-op. `right` is held rather than edge-triggered, so it
+       must be released or the player drifts and no tile ever breaks. */
     __mf.hold({ right: 1, collect: 1 }, 90);
     __mf.cmd.right = false;
     __mf.hold({ dig: 1, down: 1, collect: 1 }, 900);
@@ -214,12 +190,8 @@ test('digging down into topsoil', async ({ page }) => {
   await shot(page, 'digging.png');
 });
 
-/* FUNCTIONAL, not visual: a screenshot only proves the RESULT looks like a
-   shaft; this walks the sim one substep at a time with the stock pickaxe alone
-   (no crafted tool) and checks every tile that actually broke -- no horizontal
-   drift, depth increasing by a sensible amount per tile, and the falling drop
-   matching the actual strata mined, the same three things a real player would
-   notice going wrong. */
+/* Steps one substep at a time so every tile that breaks is observed, with the
+   stock pickaxe and no crafted tool. */
 test('digging straight down: no drift, monotonic depth, correct drops', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -230,19 +202,12 @@ test('digging straight down: no drift, monotonic depth, correct drops', async ({
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { bandOf, worldX, worldY } = await import('/src/model/world.js');
-    /* Pickup is opt-in rather than automatic, so
-       this test's whole point is what falls, not the collect gate, so turn
-       the magnet ON for it rather than holding 'c' through a loop keyed on
-       `__mf.aim`. `setAutoCollect(true)` and not `toggleAutoCollect`: a toggle
-       asserts the caller
-       already knows the current value, which is only true here by accident of
-       a fresh `page.goto`, and is now false by construction anyway since
-       `newRun` resets the flag. */
+    /* Auto-collect set rather than toggled, so the collect gate is not part of
+       what this measures -- the subject is what falls. */
     const { setAutoCollect } = await import('/src/shell/ui.js');
     setAutoCollect(true);
-    /* This test's whole point is drift/depth/drop-identity through a KNOWN
-       shaft, not the D-Q yield-quality roll -- force soil's `dropChance`
-       back to 1 so every break yields, the same way it did before D-Q. */
+    /* Soil's `dropChance` forced to 1 so every break yields, keeping the
+       yield-quality roll out of a drift/depth/drop-identity measurement. */
     const { write: modsw } = await import('/src/model/mods.js');
     modsw.add('test-full-yield', [{ key: 'dropChance.soil', mul: 20 }]);   // 0.05 x 20 = 1.0
 
@@ -250,17 +215,17 @@ test('digging straight down: no drift, monotonic depth, correct drops', async ({
     const tx = 40, ty = 100, DEPTH = 8;
     for (let dy = -2; dy <= DEPTH + 1; dy++)
       for (let dx = -1; dx <= 1; dx++) tw.clear(band, tx + dx, ty + dy);
-    for (let i = 0; i < DEPTH; i++) tw.set(band, tx, ty + i, S.soil);   // the known shaft
-    tw.set(band, tx, ty + DEPTH, S.stone);                             // a hard floor, well past TARGET_BREAKS
+    for (let i = 0; i < DEPTH; i++) tw.set(band, tx, ty + i, S.soil);
+    tw.set(band, tx, ty + DEPTH, S.stone);                             // hard floor, past TARGET_BREAKS
 
-    rw.collect(S.pick, F.relic, 1);      // the stock pickaxe, granted directly -- same precedent as above
+    rw.collect(S.pick, F.relic, 1);      // the stock pickaxe, granted directly
     pw.band(band);
-    pw.move(worldX(band, tx), worldY(band, ty) - PH);   // tile-aligned x by construction; feet flush on the shaft's own top tile
+    pw.move(worldX(band, tx), worldY(band, ty) - PH);   // tile-aligned x; feet flush on the shaft's top tile
 
     __mf.cmd.hasMouse = false;
     __mf.cmd.down = true;
     __mf.cmd.dig = true;
-    __mf.frames(1);                        // let `aim` resolve to the tile directly below
+    __mf.frames(1);                        // resolves `aim` to the tile directly below
 
     const startTx = __mf.aim.tx;
     const startDeepest = run.deepest;
@@ -281,9 +246,8 @@ test('digging straight down: no drift, monotonic depth, correct drops', async ({
     __mf.cmd.down = false;
     __mf.cmd.dig = false;
 
-    /* The falling drops need a moment to land and clear the pickup-magnet
-       delay before the pockets reflect them -- the same wait every other
-       drop-then-collect test in this file already gives. */
+    /* Lets the drops land and clear the pickup-magnet delay before the
+       pockets can reflect them. */
     __mf.frames(200);
 
     const { invCount } = await import('/src/model/run.js');
@@ -311,32 +275,26 @@ test('digging straight down: no drift, monotonic depth, correct drops', async ({
   for (let i = 1; i < result.broken.length; i++)
     expect(result.broken[i].ty).toBe(result.broken[i - 1].ty + 1);
 
-  // depth (`run.deepest`, the HUD's own datum) never goes backwards between breaks
+  // `run.deepest`, the HUD's own datum, never goes backwards between breaks
   let prevDeepest = result.startDeepest;
   for (const b of result.broken) {
     expect(b.deepest).toBeGreaterThanOrEqual(prevDeepest);
     prevDeepest = b.deepest;
   }
 
-  // total depth gained is a sensible multiple of the tile size -- roughly one
-  // tile per break, not some wildly disproportionate jump a real fall-through
-  // or drift bug would produce
+  // depth gained stays near one tile per break, not a fall-through jump
   const totalDepth = result.broken[result.broken.length - 1].deepest - result.startDeepest;
   expect(totalDepth).toBeGreaterThan(0);
   expect(totalDepth).toBeLessThan(result.tile * (result.broken.length + 2));
 
-  // the drops actually collected match what mining, tile by tile, promised
+  // the drops collected match what each broken tile promised
   for (const key in result.expectedByPair)
     expect(result.actualByPair[key]).toBeGreaterThanOrEqual(result.expectedByPair[key]);
 });
 
-/* THE OFF-GRID DIG, which is the condition the straight-down aim used to get
-   wrong. The player is placed 3 px off the tile grid on purpose: `PW` is 6 px
-   against an 8 px tile, and walk physics never snaps, so a real player
-   essentially never stands on a multiple of 8. Both columns the hitbox
-   straddles are carved as a real shaft, so a fixed centre-x aim clears one
-   and wedges forever on the other -- measured against the pre-fix build,
-   where `run.deepest` never moved past one broken tile. */
+/* The player stands 3 px off the tile grid deliberately: `PW` is 6 px against
+   an 8 px tile and walk physics never snaps. Both straddled columns are real
+   shaft, so a fixed centre-x aim clears one and wedges on the other. */
 test('digging straight down from a non-tile-aligned x still breaks through', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -350,14 +308,12 @@ test('digging straight down from a non-tile-aligned x still breaks through', asy
 
     const band = bandOf('topsoil');
     const tx = 60, ty = 100, DEPTH = 5;
-    const OFFSET = 3;                     // deliberately NOT a multiple of band.tile (8)
+    const OFFSET = 3;                     // deliberately not a multiple of band.tile (8)
 
-    // clear a wide enough box that neither straddled column nor its neighbours
-    // carry stray solid material from worldgen.
+    // a box wide enough that no straddled column keeps stray worldgen material
     for (let dy = -2; dy <= DEPTH + 1; dy++)
       for (let dx = -1; dx <= 2; dx++) tw.clear(band, tx + dx, ty + dy);
-    // both columns the hitbox can straddle (tx and tx+1) are real shaft, the
-    // whole point: neither column may be a free ride down.
+    // both straddled columns (tx, tx+1) are real shaft: neither is a free ride down
     for (let i = 0; i < DEPTH; i++) {
       tw.set(band, tx,     ty + i, S.soil);
       tw.set(band, tx + 1, ty + i, S.soil);
@@ -367,7 +323,7 @@ test('digging straight down from a non-tile-aligned x still breaks through', asy
 
     rw.collect(S.pick, F.relic, 1);
     pw.band(band);
-    // feet flush on the shaft's top tile, x offset ON PURPOSE.
+    // feet flush on the shaft's top tile, x offset on purpose
     pw.move(worldX(band, tx) + OFFSET, worldY(band, ty) - PH);
 
     __mf.cmd.hasMouse = false;
@@ -377,9 +333,8 @@ test('digging straight down from a non-tile-aligned x still breaks through', asy
     const startY = __mf.player.y;
     const startDeepest = run.deepest;
 
-    // generous budget: each tile costs ~0.5s of dig at 120Hz (60 substeps),
-    // and up to 2*DEPTH tiles may need breaking (both straddled columns,
-    // sequentially, per row) before the player is clear to fall through.
+    // each tile costs ~0.5 s of dig at 120 Hz (60 substeps), and up to 2*DEPTH
+    // tiles may break (both straddled columns per row) before the fall clears
     __mf.frames(2 * DEPTH * 60 + 600);
 
     __mf.cmd.down = false;
@@ -399,23 +354,17 @@ test('digging straight down from a non-tile-aligned x still breaks through', asy
     };
   });
 
-  // both straddled columns broke through for every row attempted -- neither
-  // one was left standing as a permanent wedge.
+  // every attempted row broke in both columns: no column left as a wedge
   expect(result.brokenBoth).toBe(result.TARGET_ROWS);
 
-  // the player actually descended -- not the sawtooth "accelerate then snap
-  // back to the same value" the pre-fix bug produced.
+  // the player descended
   expect(result.endY).toBeGreaterThan(result.startY + result.tile * (result.TARGET_ROWS - 1));
   expect(result.endDeepest).toBeGreaterThan(result.startDeepest);
 });
 
-/* Fog of war (below) hides anything the player has not stood next to, and this
-   test's whole point is the OPPOSITE question: does astral terrain render
-   correctly at all. The player never sets foot there in this suite, so
-   without the test-only `revealAll` escape hatch this would screenshot a
-   uniform hidden-colour rectangle -- correct fog behaviour, and a test
-   measuring the wrong thing, because a real terrain regression would pass
-   unnoticed too. */
+/* The player never sets foot in the astral band, so without the test-only
+   `revealAll` this would photograph a uniform hidden-colour rectangle instead
+   of the band's terrain. */
 test('the astral band', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -430,9 +379,8 @@ test('the astral band', async ({ page }) => {
   await shot(page, 'astral.png');
 });
 
-/* Same reasoning as the astral band test above: the player never digs this
-   deep during `settle`, so this proves topsoil terrain renders correctly,
-   not that fog of war paints black -- a different, already-covered claim. */
+/* Revealed for the same reason as the astral band: the player never digs this
+   deep during `settle`, so the subject is terrain rather than fog. */
 test('the topsoil band', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -450,49 +398,29 @@ test('the topsoil band', async ({ page }) => {
 test('a placed furnace', async ({ page }) => {
   await boot(page);
   await settle(page);
-  /* Keyboard aim, not mouse: a hardcoded click position is fragile against the
-     resizable desktop viewport. No direction held: `aimAtKeys`
-     with neither up nor down aims to the SIDE, at the player's own row — which
-     on solid ground is open air with the floor directly beneath it, exactly
-     where a 2-tall machine fits. Aiming DOWN (as this test used to) lands on
-     the floor tile itself, which is solid on the spawn shelf by construction
-     (`onShelf` in `rules/generate.js` never carves that row) — a furnace can
-     never fit there, and this test had been screenshotting a "NEEDS CLEAR
-     SPACE" refusal since it was written; the baseline just never said so
-     because nothing asserted the placement had actually succeeded. */
+  /* Keyboard aim, not a hardcoded click. No direction held, because `aimAtKeys`
+     then aims to the side at the player's own row -- open air over the floor,
+     where a 2-tall machine fits; down is the solid spawn-shelf floor. */
   await page.evaluate(() => { __mf.cmd.hasMouse = false; });
-  /* `reach` (3.2 tiles) reaches well past the 1-tile fog radius the player's
-     own presence earns each frame, so a furnace built at reach's edge would
-     screenshot as a rectangle of fog with a machine somewhere unrenderable
-     underneath it -- this test's point is the furnace's OWN look (body, trim,
-     mouth, fire, pips), not fog, so the surface band is fully revealed here. */
+  /* `reach` is 3.2 tiles against the 1-tile fog radius the player's presence
+     earns, so a furnace at reach's edge would sit under fog. */
   await page.evaluate(async () => {
     const { bandOf } = await import('/src/model/world.js');
     __mf.revealAll(bandOf('surface'));
   });
-  /* The held `furnace/rig` is given directly, and moved into quickbar slot 0 rather
-     than by a real
-     drag, because this test's own point is the furnace's LOOK -- not the
-     crafting grind or the drag-to-rearrange gesture, both of which other
-     tests cover. Then '1' (`view/ui/quickbar.js#slotForDigit`: '1' is slot 0)
-     arms it and 'e' places it. */
+  /* '1' arms quickbar slot 0, per `view/ui/quickbar.js#slotForDigit`. */
   await page.evaluate(async () => {
     const { write } = await import('/src/model/run.js');
-    /* The furnace is cycle 1's reward and no longer a
-       starting grant -- this test's own point is the furnace's LOOK, not
-       whether a trial has been paid, so grant it directly. */
+    /* The furnace is cycle 1's reward, granted here rather than earned. */
     write.grant('furnace');
   });
   await putInQuickbar(page, 0, 'furnace', 'rig');
   await page.keyboard.press('1');
-  /* 'e' no longer places: placement is LMB only, and the LMB dispatch has its
-     own tests, so this pokes the same edge flag a real click ultimately
-     sets. */
+  /* Placement is LMB only; this pokes the same edge flag a real click sets. */
   await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(240));
-  /* The director places an altar of its own (`rules/cycles.js#ensureAltarPlaced`)
-     -- exclude it so this still asserts "exactly the one machine THIS test
-     placed, nothing stray", not a total that silently includes boot content. */
+  /* Excludes the director's own altar, so the count is only what this test
+     placed. */
   expect(await page.evaluate(async () => {
     const { M } = await import('/src/data/machines.js');
     return __mf.machines.filter(m => m.def !== M.altar).length;
@@ -500,20 +428,6 @@ test('a placed furnace', async ({ page }) => {
   await shot(page, 'furnace.png');
 });
 
-/* A digit key must arm EXACTLY the quickbar slot it names
-   (`view/ui/quickbar.js#slotForDigit`), not merely "whatever placeable
-   happens to be held" -- proved here by putting two DIFFERENT machines in two
-   different slots and checking that the digit for ONE of them arms exactly
-   that one's pair and places exactly that one machine -- the failure a looser
-   `machines.length === 1` would hide. The empty slot and the never-opened
-   panel are covered along the way, since placement has no panel gate. */
-/* Every other quickbar test fills a slot through `putInQuickbar` (this file's
-   own `write.collect` + `write.moveSlot` helper) directly, "because the drag
-   gesture itself is exercised elsewhere" -- there was no "elsewhere". This is
-   that test: a REAL drag (`realDrag`, actual `page.mouse` events) from the
-   Character tab's inventory grid onto an EMPTY quickbar slot, then closing the
-   panel for real (`Escape`) and using the result exactly the way a player does
-   -- digit key arms, `E` places. */
 test('REAL DRAG: dragging a held item from the inventory grid onto an empty quickbar slot moves it there, and the move survives closing the panel', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -527,7 +441,7 @@ test('REAL DRAG: dragging a held item from the inventory grid onto an empty quic
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { open, setTab } = await import('/src/shell/ui.js');
-    write.grant('furnace');   // no longer a starting grant
+    write.grant('furnace');
     open('main');
     setTab('main', 'char');
     __mf.cmd.hasMouse = false;
@@ -549,9 +463,8 @@ test('REAL DRAG: dragging a held item from the inventory grid onto an empty quic
   await realDrag(page, invSlot.x + invSlot.w / 2, invSlot.y + invSlot.h / 2, qSlot.x + qSlot.w / 2, qSlot.y + qSlot.h / 2);
   expect(await page.evaluate(() => __mf.ui.quickbar[0])).toEqual({ sub: S.furnace, form: F.rig, n: 1 });
 
-  /* Close the panel for real -- Escape, not `closeTop` called from the
-     test -- so this also proves the move is real storage (`run.inv`) that
-     outlives the window, not something the panel itself was quietly holding. */
+  /* Escape rather than `closeTop`, so the move is proved to live in `run.inv`
+     and outlive the window. */
   await page.keyboard.press('Escape');
   await page.evaluate(() => __mf.frames(1));
   expect(await page.evaluate(() => __mf.ui.open)).toEqual([]);
@@ -562,20 +475,17 @@ test('REAL DRAG: dragging a held item from the inventory grid onto an empty quic
   expect(await page.evaluate(() => __mf.ui.armedPlace)).toEqual({ sub: S.furnace, form: F.rig });
 
   await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(1); });
-  /* 'e' no longer places: placement is LMB only, and the LMB dispatch has its
-     own tests, so this pokes the same edge flag a real click ultimately
-     sets. */
+  /* Placement is LMB only; this pokes the same edge flag a real click sets. */
   await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(240));
-  /* Exclude the director's own altar (`rules/cycles.js#ensureAltarPlaced`) so
-     this still asserts exactly the one machine this drag-and-place put down. */
+  /* Excludes the director's own altar, so the count is only what this
+     drag-and-place put down. */
   expect(await page.evaluate(async () => {
     const { M } = await import('/src/data/machines.js');
     return __mf.machines.filter(m => m.def !== M.altar).length;
   })).toBe(1);
-  /* The move never duplicated storage -- placing spent the one furnace that
-     was IN the quickbar slot, so it is empty again, not still showing a
-     stale `n`. */
+  /* Placing spent the one furnace in the slot, so it reads empty rather than
+     showing a stale `n`. */
   expect(await page.evaluate(() => __mf.ui.quickbar[0])).toBeNull();
 });
 
@@ -588,8 +498,7 @@ test('a digit key arms the matching quickbar slot, not just any held item', asyn
     __mf.cmd.hasMouse = false;
   });
 
-  /* Nothing assigned yet at all -- pressing a digit for an empty slot (or any
-     slot) must do nothing: no arm, no journal row, no crash. */
+  /* A digit for an empty slot must do nothing: no arm, no journal row. */
   const beforeAnything = await page.evaluate(async () => {
     const { peek } = await import('/src/model/journal.js');
     return { armedPlace: __mf.ui.armedPlace, journalLen: peek().length };
@@ -602,15 +511,8 @@ test('a digit key arms the matching quickbar slot, not just any held item', asyn
   expect(afterEmptyDigit.armedPlace).toBeNull();
   expect(afterEmptyDigit.journalLen).toBe(beforeAnything.journalLen);
 
-  /* Two held machine items, in DIFFERENT quickbar slots -- furnace in slot 0
-     (digit '1'), press in slot 2 (digit '3'), per
-     `view/ui/quickbar.js#slotForDigit`'s own digit-to-slot mapping. Both are
-     held `<id>/rig` items (`data/recipes.js#furnace`/`press_machine`), given
-     directly here -- this test's own point is WHICH machine a digit arms and
-     places, not the crafting grind to earn either. Put there through
-     `putInQuickbar` (this file's own `write.collect` + `write.moveSlot`
-     helper) rather than a real drag -- the drag gesture itself is exercised
-     elsewhere; this test's point is the digit key. */
+  /* Furnace in slot 0 (digit '1'), press in slot 2 (digit '3'), per
+     `view/ui/quickbar.js#slotForDigit`'s digit-to-slot mapping. */
   await putInQuickbar(page, 0, 'furnace', 'rig');
   await putInQuickbar(page, 2, 'press', 'rig');
 
@@ -623,9 +525,7 @@ test('a digit key arms the matching quickbar slot, not just any held item', asyn
   expect(armed.armedPlace).toEqual({ sub: armed.press, form: armed.rig });
   expect(armed.armedPlace.sub).not.toBe(armed.furnace);
 
-  /* 'e' no longer places: placement is LMB only, and the LMB dispatch has its
-     own tests, so this pokes the same edge flag a real click ultimately
-     sets. */
+  /* Placement is LMB only; this pokes the same edge flag a real click sets. */
   await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(240));
   const info = await page.evaluate(async () => {
@@ -633,9 +533,8 @@ test('a digit key arms the matching quickbar slot, not just any held item', asyn
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { invCount } = await import('/src/model/run.js');
-    /* Exclude the director's own altar (`rules/cycles.js#ensureAltarPlaced`) --
-       without it, `machines[0]` is no longer reliably the one this test just
-       placed, and the whole point here is proving it's THAT one, not any. */
+    /* Excludes the director's own altar, so `placed[0]` is the machine this
+       test placed. */
     const placed = __mf.machines.filter(m => m.def !== M.altar);
     return {
       count: placed.length, def: placed[0]?.def, press: M.press, furnace: M.furnace,
@@ -647,18 +546,13 @@ test('a digit key arms the matching quickbar slot, not just any held item', asyn
   expect(info.def).not.toBe(info.furnace);
   expect(info.armedAfter).toBeNull();       // cleared on a successful placement
   expect(info.pressRig).toBe(0);            // the held item was spent...
-  expect(info.furnaceRig).toBe(1);          // ...and the OTHER one was untouched
+  expect(info.furnaceRig).toBe(1);          // ...and the other one was untouched
 });
 
-/* Hand-crafting has no persisted screenshot-visible state worth asserting on
-   (the bar is a scalar on `run`, not drawn as a HUD element yet) -- what
-   matters is whether holding the key for long enough actually spends the
-   inputs and produces the output, which only a state read-back can prove.
-   `smelt`'s `secs` is 4.0 (`data/recipes.js`), so 500 substeps at the fixed
-   1/120s step is comfortably past completion; the output is a FALLING item, so the
-   extra 120 frames give it time to clear the 0.35s pickup-magnet delay in
-   `rules/items.js` and land in the pockets of a player standing right where
-   it was tossed. */
+/* A state read-back, not a screenshot: the craft bar is a scalar on `run` and
+   is not drawn. `smelt`'s `secs` is 4.0, so 500 substeps at the fixed 1/120 s
+   step is past completion, and the extra 120 frames let the falling output
+   clear the 0.35 s pickup-magnet delay in `rules/items.js`. */
 test('holding the hand-craft key smelts ore into an ingot, spending exactly its inputs', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -675,10 +569,8 @@ test('holding the hand-craft key smelts ore into an ingot, spending exactly its 
       ingot: invCount(S.copper, F.ingot)
     };
 
-    /* Pickup is opt-in rather than automatic, so
-       `collect` held alongside `craft` here is `cmd.collect`, the same
-       HOLD key covers, so the output still lands in the pockets over the
-       following wait exactly as it always has. */
+    /* `collect` held alongside `craft`, so the falling output still reaches
+       the pockets over the wait that follows. */
     __mf.hold({ craft: 1, collect: 1 }, 500);
     __mf.frames(120);
 
@@ -694,17 +586,13 @@ test('holding the hand-craft key smelts ore into an ingot, spending exactly its 
   expect(info.after).toEqual({ ore: 0, fuel: 0, ingot: 1 });
 });
 
-/* BELTS. `rules/belts.js`'s own header explains why a belt is not a recipe-
-   driven transform: it drags a RESTING item along its footprint for as long as
-   its machine record holds a fuel-bought CHARGE, and does nothing the instant
-   it does not. A screenshot cannot tell "moved" from "always looked like
-   this", so all three tests below read item and machine state back directly. */
+/* A belt drags a resting item along its footprint for as long as its machine
+   record holds a fuel-bought charge. A screenshot cannot tell "moved" from
+   "always looked like this", so these three read item and machine state. */
 
-/* `tx0..tx0+3` at `ty0` becomes the belt's own footprint, cleared to air (or
-   `placeMachine` refuses it as occupied); `ty0+1` under the WHOLE span is
-   forced solid, exactly the floor `footing:4` demands; everything else in the
-   rectangle -- above the belt and PAST its right edge alike -- stays air, so
-   a delivered item has open space to fall into rather than more floor. */
+/* `tx0..tx0+3` at `ty0` is the belt's footprint, cleared to air or
+   `placeMachine` refuses it as occupied; `ty0+1` under the whole span is solid,
+   the floor `footing:4` demands; the rest stays air to fall into. */
 async function carveBeltFloor(page, tx0, ty0) {
   await page.evaluate(async ({ tx0, ty0 }) => {
     const { write: tw } = await import('/src/model/tiles.js');
@@ -734,30 +622,21 @@ test('a fuelled belt drags a resting item across its footprint and releases it o
     const band = bandOf('surface');
     const tx0 = 10, ty0 = 15;
 
-    /* `belt_r` is a held `belt_r/rig` item spent by `placeMachine` at
-       placement -- given directly, so this also proves the placement really
-       does spend the held item and not merely declare one. */
+    /* `placeMachine` spends the held `belt_r/rig`, given directly here. */
     rw.collect(S.belt_r, F.rig, 1);
     const belt = placeMachine(band, 'belt_r', tx0, ty0);
 
-    /* Land the item FIRST, on an unfuelled belt, and confirm it is inert
-       before a single charge exists. Feeding the burner before the item has
-       even landed would race the two: `beltSpeed` (50 px/s) crossing this
-       belt's 4 tiles takes about the same half-second the item's own fall
-       takes to settle, so a belt already charged when the item lands can
-       land AND fully cross AND release within one "let it settle" window,
-       and the intermediate "resting, not yet dragged" state this asserts
-       would never be observed. Landing it on a cold belt removes the race. */
+    /* The item lands on an unfuelled belt first, so the resting state is
+       observable: `beltSpeed` (50 px/s) crosses these 4 tiles in about the
+       half-second the fall takes, so a charged belt would race it. */
     const it = iw.spawn(band, worldX(band, tx0) + 4, worldY(band, ty0 - 3), S.copper, F.ore, 0, 0);
     __mf.frames(120);                    // time to fall 4 tiles and settle
     const landed = { x: it.x, y: it.y, rest: it.rest };
 
-    /* Straight into the buffer -- the same effect standing in reach and
-       hand-feeding would have, without needing the player's own position in
-       this test. One fuel unit is one 6-second run of the honest-fuel recipe
-       this row shares with the brazier, which banks exactly one charge. */
+    /* Straight into the buffer, as hand-feeding in reach would. One fuel unit
+       is one 6-second run of the fuel recipe, which banks exactly one charge. */
     mw.take(belt, S.timber, F.log, 1);
-    __mf.frames(760);                    // > 6s at the fixed 1/120s step
+    __mf.frames(760);                    // past 6 s at the fixed 1/120 s step
     const charged = belt.charges;
 
     __mf.frames(420);                    // cross the belt, release, refall
@@ -771,11 +650,9 @@ test('a fuelled belt drags a resting item across its footprint and releases it o
   });
 
   expect(info.charged).toBe(1);
-  expect(info.landed.rest).toBe(1);                    // it actually landed and rested
-  /* Delivered off the end: past the belt's own right edge, and -- because the
-     far side was carved to open air -- resting again lower than where it
-     landed on the belt, meaning it fell further after release rather than
-     stopping dead at the lip. */
+  expect(info.landed.rest).toBe(1);                    // it landed and came to rest
+  /* Delivered off the end: past the belt's right edge and, the far side being
+     open air, resting lower than it landed rather than stopping at the lip. */
   expect(info.settled.x).toBeGreaterThanOrEqual(info.boxRight);
   expect(info.settled.y).toBeGreaterThan(info.landed.y + 8);
   expect(info.settled.rest).toBe(1);                   // and came to rest again
@@ -814,19 +691,15 @@ test('a belt with no fuel charge does not drag a resting item', async ({ page })
 
   expect(info.charges).toBe(0);
   expect(info.landed.rest).toBe(1);
-  /* The gate actually gates something: same footprint, same window, no fuel
-     -- the item neither moves nor leaves the surface it rested on. */
+  /* Same footprint and same window as the fuelled belt, minus the fuel. */
   expect(info.after.x).toBe(info.landed.x);
   expect(info.after.y).toBe(info.landed.y);
   expect(info.after.rest).toBe(1);
 });
 
-/* The 400-item cap (`rules/items.js#MAX_ITEMS`) is a hard cap on the GLOBAL
-   item list, not a per-machine buffer, so a belt cannot make it leak or go
-   non-finite merely by being mid-drag when the cap trims the oldest items out
-   from under it. `belt.charges` is set directly here (bypassing the fuel
-   economy the two tests above already cover) so the frame budget goes to
-   proving the physics holds under load, not to re-proving the burner works. */
+/* `rules/items.js#MAX_ITEMS` caps the global item list at 400, so a belt
+   mid-drag has to survive the cap trimming items out from under it. Charges
+   are set directly, skipping the fuel economy the two tests above cover. */
 test('a belt dragging far more items than the cap allows stays finite and within it', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -881,11 +754,9 @@ test('debug overlays on, for seam inspection', async ({ page }) => {
   await shot(page, 'overlays.png');
 });
 
-/* FOG OF WAR. The confirmed rule is still permanence -- a tile, once revealed,
-   never un-reveals -- but WHICH tiles get revealed each step is now real
-   sight, split into two independent passes in `rules/reveal.js`: PASS A
-   standing anywhere with an unobstructed view of the sky reveals the band's
-   ENTIRE sky-exposed silhouette. */
+/* Fog of war: a revealed tile never un-reveals, and `rules/reveal.js` splits
+   what gets revealed into Pass A, the band's whole sky-exposed silhouette, and
+   Pass B, a bounded spread through enclosed air. */
 
 test('an unexplored area renders as the hidden colour, whatever terrain is actually there', async ({ page }) => {
   await boot(page);
@@ -894,12 +765,9 @@ test('an unexplored area renders as the hidden colour, whatever terrain is actua
     const { bandOf } = await import('/src/model/world.js');
     const { P } = await import('/src/core/palette.js');
 
-    /* The astral band, unvisited exactly as in `the astral band` test above,
-       and picked FOR this test over the (also unvisited) topsoil band for one
-       reason: astral's `look.ambient` is 1.0, so `view/scene.js#atmosphere`'s
-       depth tint never fires there (topsoil's 0.6 would darken the sampled
-       pixel with a second, unrelated blend on top of the fog colour, which is
-       a real compositing detail worth its own test, not noise in this one). */
+    /* The astral band, unvisited and picked because its `look.ambient` is 1.0:
+       `view/scene.js#atmosphere`'s depth tint never fires there, so nothing
+       blends a second colour over the sampled fog pixel. */
     __mf.resize(400, 400);
     const astral = bandOf('astral');
     __mf.cam.x = astral.origin.x;
@@ -929,16 +797,12 @@ test('a tile the player stood beside stays revealed after they walk far away (pe
     const tx = 40, ty = 40;
 
     pw.band(band);
-    pw.move(worldX(band, tx), worldY(band, ty));       // hitbox top-left AT this tile
+    pw.move(worldX(band, tx), worldY(band, ty));       // hitbox top-left at this tile
     revealStep();
     const whileThere = seenAt(band, tx, ty);
 
-    /* 60 tiles clear of the tile itself and every one of its neighbours, and
-       `revealStep` run again there -- a radius-based implementation (the
-       bug this test exists to catch, per the brief: "easy to accidentally
-       re-hide, or to only reveal while currently adjacent") would have
-       nothing left revealing `tx,ty` at this point; a memory-based one, which
-       is what was built, has no mechanism that could ever turn a bit back off. */
+    /* 60 tiles clear of the tile and every neighbour of it, so only stored
+       memory can still have `tx,ty` revealed -- nothing adjacent does. */
     pw.move(worldX(band, tx + 60), worldY(band, ty));
     revealStep();
     const afterLeaving = seenAt(band, tx, ty);
@@ -974,7 +838,7 @@ test('fog resets to fully unrevealed on newRun()', async ({ page }) => {
 
   expect(info.seenBefore).toBe(true);
   expect(info.freshBand).toBe(true);        // newRun() reallocates, never reuses
-  expect(info.seenAfter).toBe(false);       // a reveal is permanent, one-way
+  expect(info.seenAfter).toBe(false);       // the fresh band starts unrevealed
 });
 
 test('standing anywhere with open sky reveals the whole exposed surface, not a radius (Pass A)', async ({ page }) => {
@@ -989,24 +853,17 @@ test('standing anywhere with open sky reveals the whole exposed surface, not a r
     __mf.newRun(1337);
     const band = bandOf('surface');
     const floorTy = band.cfg.floorTy;
-    /* `shell/boot.js` now reveals rows 0..floorTy+8 of the surface band
-       unconditionally at spawn (the "starting skyline" — see its comment),
-       so a ground row has to sit BELOW that to still start out unrevealed and
-       isolate what PASS A ITSELF does from what boot already did. groundTy is
-       therefore floorTy+10, not floorTy: a shaft carved from the sky down to
-       it is still entirely sky-exposed, just deeper than the boot freebie. */
+    /* `shell/boot.js` reveals rows 0..floorTy+8 of the surface band at spawn,
+       so groundTy is floorTy+10: below that freebie, and still sky-exposed
+       through a shaft carved down to it. */
     const groundTy = floorTy + 10;
-    const standTx = 20, farTx = 100;          // 80 tiles apart: far past both the
-                                               // the old radius-1 rule and Pass B's
+    const standTx = 20, farTx = 100;          // 80 tiles apart, past Pass B's
                                                // graph-distance cap, so a reveal
-                                               // reaching `farTx` can only be Pass A
+                                               // reaching `farTx` is Pass A's
 
-    /* Carve both columns explicitly rather than trust worldgen to leave them
-       open (a tree trunk or a ragged soil lip would silently fail this): clear
-       straight down to the ground row, force a solid ground tile there, and
-       force the tile beneath IT solid too -- buried, never sky-exposed, the
-       control that proves this is "the sky-exposed silhouette", not "the
-       whole band". */
+    /* Carved rather than trusted to worldgen, where a trunk or a ragged soil
+       lip would fail this silently. The tile beneath each ground tile is solid
+       and buried: the control separating the silhouette from the whole band. */
     for (const tx of [standTx, farTx]) {
       for (let ty = 0; ty < groundTy; ty++) tw.clear(band, tx, ty);
       tw.set(band, tx, groundTy, S.stone);
@@ -1016,9 +873,7 @@ test('standing anywhere with open sky reveals the whole exposed surface, not a r
     const beforeFar = seenAt(band, farTx, groundTy);
 
     pw.band(band);
-    /* Standing in the open air just above the carved ground -- PH (16 px) is
-       two tile rows, and both are cleared above, so the box does not clip a
-       column we did not mean to touch. */
+    /* PH is 16 px, two tile rows, both cleared above the carved ground. */
     pw.move(worldX(band, standTx), worldY(band, groundTy - 2));
     revealStep();
 
@@ -1032,7 +887,7 @@ test('standing anywhere with open sky reveals the whole exposed surface, not a r
 
   expect(info.beforeFar).toBe(false);
   expect(info.farGround).toBe(true);      // Pass A: unbounded across the open expanse
-  expect(info.farBuried).toBe(false);     // still bounded to what is actually sky-exposed
+  expect(info.farBuried).toBe(false);     // still bounded to what is sky-exposed
   expect(info.standGround).toBe(true);
 });
 
@@ -1048,9 +903,8 @@ test('a large enclosed air pocket is revealed only partway in from the edge (Pas
 
     __mf.newRun(1337);
     const band = bandOf('topsoil');
-    const radius = eff('sightRadius');        // the tunable itself, not a hardcoded
-                                               // copy of it, so this stays correct if
-                                               // `data/tuning.js` is ever retuned
+    const radius = eff('sightRadius');        // the tunable itself, so a retune
+                                               // cannot stale this
     const ty0 = 100, ty1 = 101;                // 2 rows tall, matching the player's
                                                // own height, deep in topsoil and
                                                // nowhere near open sky
@@ -1058,11 +912,8 @@ test('a large enclosed air pocket is revealed only partway in from the edge (Pas
                                                // in both directions from the seed
     const openEnd = tx0 + length - 1;
 
-    /* Hand-carve a sealed room rather than trust worldgen to leave a cavity
-       this shape anywhere: clear the interior, wall every side (ceiling,
-       floor, both end caps), so the ONLY way in or out is where the player is
-       about to be placed -- no route to open sky, which is what isolates
-       Pass B from Pass A here. */
+    /* A hand-carved sealed room, walled on every side with no route to open
+       sky, which is what isolates Pass B from Pass A. */
     for (let tx = tx0; tx <= openEnd; tx++) { tw.clear(band, tx, ty0); tw.clear(band, tx, ty1); }
     for (let tx = tx0 - 1; tx <= openEnd + 1; tx++) {
       tw.set(band, tx, ty0 - 1, S.stone);      // ceiling
@@ -1078,9 +929,8 @@ test('a large enclosed air pocket is revealed only partway in from the edge (Pas
     revealStep();
 
     return {
-      wallNearby: seenAt(band, tx0, ty0 - 1),           // the ceiling right over the
-                                                         // player: revealed even though
-                                                         // solid, same as the old rule
+      wallNearby: seenAt(band, tx0, ty0 - 1),           // the ceiling over the player:
+                                                         // revealed though solid
       edge: seenAt(band, tx0 + 2, ty0),                 // a couple of tiles in
       deep: seenAt(band, tx0 + radius + 8, ty0),        // 8 tiles past the cap
       farEnd: seenAt(band, openEnd, ty0)                // the true far wall of the pocket
@@ -1089,26 +939,17 @@ test('a large enclosed air pocket is revealed only partway in from the edge (Pas
 
   expect(info.wallNearby).toBe(true);
   expect(info.edge).toBe(true);
-  expect(info.deep).toBe(false);      // proves the flood is BOUNDED, not "the whole pocket"
+  expect(info.deep).toBe(false);      // the spread is bounded, not the whole pocket
   expect(info.farEnd).toBe(false);
 });
 
-/* MAP OVERVIEW. `view/scene.js#drawMap` is a genuinely different render path
-   (the whole world at ~1 screen px/tile, read straight off the tile grid, not
-   the per-chunk canvas cache normal play uses) gated on `flags.showMap`, and
-   `shell/main.js#step`/`applyIntents` freeze the run while it is true. Three
-   separate claims, three separate tests, same reasoning as the fog tests
-   above: a screenshot alone cannot distinguish "hidden" from "never drawn", or
-   "paused" from "nothing happened to move it". */
+/* `view/scene.js#drawMap` is a separate render path: the whole world at ~1
+   screen px per tile, read off the tile grid rather than the per-chunk canvas
+   cache, gated on `flags.showMap`, which also freezes the run. */
 
-/* Same caution as the fog-of-war tests: don't trust natural worldgen to place
-   a known substance where this test expects one, and don't trust the player's
-   own spawn-adjacent reveal to land exactly on the probed tile. A stone tile
-   is written explicitly, revealed by teleporting the player onto it and
-   calling `rules/reveal.js#step` directly (isolating the mechanism from
-   physics, exactly like the permanence test above), and then the player is
-   moved AWAY before drawing -- otherwise the map's own player marker would
-   paint over the very pixel this test samples. */
+/* The stone tile is written and revealed explicitly rather than looked for in
+   worldgen, then the player is moved away before the draw so the map's own
+   marker cannot paint over the pixel this test samples. */
 test('the map overview shows explored terrain and leaves unexplored terrain undrawn', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -1123,12 +964,9 @@ test('the map overview shows explored terrain and leaves unexplored terrain undr
     const surface = bandOf('surface');
     const topsoil = bandOf('topsoil');
     const sx = 100, sy = 30;           // an arbitrary surface tile, forced to stone
-    /* A topsoil tile nobody has ever stood near, and SHALLOW ENOUGH TO BE ON
-       SCREEN. The overview is depth-complete only above about 387 rows at the
-       desktop buffer, so row 300 sits below the
-       body once the map is parked at the top -- and the sample then landed on
-       the frame and read as drawn rather than void. The `inBody` guard below is
-       what says so instead of passing on a clamp. */
+    /* A topsoil tile nobody has stood near, shallow enough to be on screen:
+       the overview is depth-complete only above about row 387 at the desktop
+       buffer, and the `inBody` guard below asserts the sample landed in it. */
     const hx = 100, hy = 250;
 
     tw.set(surface, sx, sy, S.stone);
@@ -1138,22 +976,17 @@ test('the map overview shows explored terrain and leaves unexplored terrain undr
     pw.move(worldX(surface, 0), worldY(surface, 0));   // clear of the probed tile
     revealStep();
 
-    /* PARKED, NOT FOLLOWING. The overview follows the player by default,
-       and the player has just been moved to the top-left corner --
-       so without this the probed surface tile would be scrolled off screen and
-       the "revealed stone paints its own colour" sample would read void, which
-       is a test failing for the wrong reason. `mapMoveTo` also turns FOLLOW
-       off, which is the whole point. */
+    /* The overview follows the player by default, who is now in the top-left
+       corner, so the probed tile would be off screen; `mapMoveTo` parks the
+       view and turns follow off. */
     const { mapMoveTo } = await import('/src/shell/ui.js');
     mapMoveTo(0, 0);
     __mf.flags.showMap = true;
     __mf.draw();
 
-    /* THE TRANSFORM IS READ BACK, NOT RE-DERIVED. `view/overview.js#mapView`
-       is that file's own record of what the last draw actually used -- the
-       `view/paint.js#stats` idiom -- so this test cannot drift from the
-       renderer's scale, zoom, scroll offset or reserved-edge arithmetic that
-       a hand-copied formula would. */
+    /* `view/overview.js#mapView` records the transform the last draw used, so
+       this cannot drift from the renderer's scale, zoom, scroll offset or
+       reserved-edge arithmetic. */
     const { mapView } = await import('/src/view/overview.js');
     const c = document.getElementById('stage');
     const mapPx = (wx, wy) => {
@@ -1187,15 +1020,9 @@ test('the map overview shows explored terrain and leaves unexplored terrain undr
   expect(info.hiddenRGB).toEqual(hex(info.voidBase));     // unexplored tile draws nothing at all
 });
 
-/* A pixel-sampling test proves the fog rule; it says nothing about whether the
-   whole-world layout actually reads as a sensible overview -- three bands
-   stacked top to bottom, correctly scaled, not overlapping, not clipped off
-   the desktop viewport this suite covers. That needs a
-   screenshot, same as `overlays.png` exists alongside the fog pixel tests
-   above rather than instead of them. Fully revealed, same reasoning
-   `astral.png`/`topsoil.png` already use: the point here is the OVERVIEW
-   layout, not fog, so fog is taken out of the picture rather than left to
-   seed 1337's incidental exploration. */
+/* The layout rather than the fog rule: three bands stacked, scaled, neither
+   overlapping nor clipped. Fully revealed, so seed 1337's incidental
+   exploration is not part of the picture. */
 test('the map overview, fully explored', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -1227,11 +1054,9 @@ test('opening the map overview freezes the run, and closing it resumes and resto
     const beforeHash = hashOf();
     const xBefore = __mf.player.x, tBefore = __mf.clock.t;
 
-    /* Held right + dig, exactly the intents that move the player and would
-       chip at a tile if the physics ran at all. `hold` calls `step` and
-       `applyIntents` directly, the same entry points the real RAF loop
-       uses -- this is not testing a mock of the pause, it is testing the
-       pause. */
+    /* Held right + dig would move the player and chip a tile if physics ran.
+       `hold` drives `step` and `applyIntents`, the entry points the RAF loop
+       uses. */
     __mf.flags.showMap = true;
     __mf.hold({ right: 1, dig: 1 }, 120);
     const xDuringMap = __mf.player.x, tDuringMap = __mf.clock.t;
@@ -1240,7 +1065,7 @@ test('opening the map overview freezes the run, and closing it resumes and resto
     __mf.draw();                              // back on the normal path
     const afterCloseHash = hashOf();
 
-    __mf.hold({ right: 1 }, 60);              // the run actually resumes
+    __mf.hold({ right: 1 }, 60);              // the run resumes
     const xAfterResume = __mf.player.x;
 
     return { beforeHash, afterCloseHash, xBefore, xDuringMap, tBefore, tDuringMap, xAfterResume };
@@ -1270,10 +1095,8 @@ test('the same seed renders identically twice', async ({ page }) => {
   expect(await hashOf()).toBe(await hashOf());
 });
 
-/* A screenshot cannot prove hover actually works: two identical pixels could
-   come from the tooltip resolving nothing at all. This asserts the resolved
-   CONTENT, the way `tools/check.mjs`'s trinket check proves an item was
-   actually produced rather than that a recipe merely didn't throw. */
+/* Asserts the resolved tooltip content: identical pixels could equally come
+   from the tooltip resolving nothing at all. */
 test('hovering an inventory pair resolves a tooltip naming it', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -1287,23 +1110,16 @@ test('hovering an inventory pair resolves a tooltip naming it', async ({ page })
     open('main');
     setTab('main', 'char');
     /* `drawHUD` shows the title card instead of a tooltip while `banner.fade`
-       is still counting down from `newRun`'s 2.6 s opening title -- real
-       play never notices because nobody hovers anything in the first three
-       seconds, but `settle` only advances the clock, not `stepFx` (which is
-       what actually decays it), so it would still read as active here. */
+       counts down from the 2.6 s opening title, and `settle` advances the clock
+       without running `stepFx`, which is what decays it. */
     banner.fade = 0;
-    /* `draw`, not `frames`: a substep also runs `updateCamera`, and
-       `mouseAt` converts a SCREEN position to world px by adding the CURRENT
-       camera -- a step between setting the mouse and rendering would move the
-       camera out from under it. The HUD itself never moves with the camera at
-       all (it is screen space already), so nothing here needs the physics to
-       run, only a render. */
+    /* `draw`, not `frames`: a substep runs `updateCamera`, and `mouseAt`
+       converts a screen position to world px against the current camera, so a
+       step in between would move the camera out from under the mouse. */
     __mf.draw();
 
-    /* `__mf.ui.grids` is the SAME rectangle list `view/ui/mainPanel.js`
-       just drew for the open Character tab. Finding the slot this way,
-       rather than a hardcoded screen coordinate, is what keeps the assertion
-       honest against a resizable desktop viewport. */
+    /* `__mf.ui.grids` is the rectangle list the panel just drew, so the slot
+       is found where it was rendered rather than at a hardcoded coordinate. */
     const grid = __mf.ui.grids.find(g => g.id === 'inv');
     const slot = grid.slots.find(s => s.sub === S.copper && s.form === F.ore);
     __mf.mouseAt(slot.x + slot.w / 2, slot.y + slot.h / 2);
@@ -1318,25 +1134,16 @@ test('hovering an inventory pair resolves a tooltip naming it', async ({ page })
   expect(info.tooltip.lines.some(l => l.startsWith('MASS'))).toBe(true);
 });
 
-/* State-asserted flows over the real GUI and debug surface.
+/* `__mf.intent(name, args)` locates its target rect from `__mf.ui`'s live
+   projection of what was drawn this frame, never a hardcoded screen
+   coordinate. `__mf.give(sub, form, n)` is test-only, gated behind `?test=1`. */
 
-   `__mf.intent(name, args)` locates its target rect from `__mf.ui`'s own live
-   projection of what was actually drawn this frame, never a hardcoded screen
-   coordinate, which breaks the moment the viewport changes size.
-   `__mf.give(sub, form, n)` is TEST ONLY, gated behind `?test=1` like every
-   other `__mf` method, so a flow's own point does not have to spend its frame
-   budget re-proving mining or pickup. */
+/* Fixed seed, fixed substep count, `maxDiffPixels` 0. The unlit and lit shaft
+   are baselined separately, so a regression making lighting a no-op has to
+   move one of them against its own baseline. */
 
-/* New visual framings. Fixed seed, fixed substep count, `maxDiffPixels` left
-   at 0. Every pair below is taken as a PAIR on purpose: the unlit and lit
-   shaft are separately baselined, so a regression making lighting a no-op has
-   to change at least one of them against its OWN accepted baseline rather
-   than merely look plausible beside the other. */
-
-/* Both shaft screenshots share this setup: a hand-carved shaft in topsoil
-   with a copper vein wall to hide, fully REVEALED (the test-only
-   `write.revealAll` escape hatch — this is about the darkness pass, not fog,
-   the same reasoning `astral.png`/`topsoil.png` already use above). */
+/* A hand-carved topsoil shaft with a copper vein in one wall, fully revealed
+   through the test-only `write.revealAll`: the subject is darkness, not fog. */
 async function carveShaft(page, tx0, ty0, w, h) {
   await page.evaluate(async ({ tx0, ty0, w, h }) => {
     const { S } = await import('/src/data/substances.js');
@@ -1353,7 +1160,7 @@ async function carveShaft(page, tx0, ty0, w, h) {
     pw.band(band);
     pw.move(worldX(band, tx0 + 2), worldY(band, ty0 + 2));
     ww.revealAll(band);
-    banner.fade = 0;   // past the opening title, same reasoning `settle()`'s own header gives
+    banner.fade = 0;   // past the opening title
 
     __mf.cam.x = worldX(band, tx0) - 16;
     __mf.cam.y = worldY(band, ty0) - 16;
@@ -1382,7 +1189,7 @@ test('the same shaft lit by a brazier', async ({ page }) => {
     const brazier = mw.place(bandOf('topsoil'), M.brazier, 42, 111);
     mw.take(brazier, S.timber, F.log, 4);
     __mf.cmd.hasMouse = false;
-    __mf.frames(700);          // > 6s honest-fuel recipe, then settle
+    __mf.frames(700);          // past the 6 s fuel recipe, then settle
   });
   await shot(page, 'shaft-lit.png');
 });
@@ -1390,10 +1197,8 @@ test('the same shaft lit by a brazier', async ({ page }) => {
 test('the Character tab', async ({ page }) => {
   await boot(page);
   await settle(page);
-  /* INTO THE BAG, not the strip. The tab's own grid is this shot's subject,
-     and a pickup fills the quickbar first, so two
-     pairs left where a collect puts them would baseline an empty grid --
-     which `ui-character-fresh.png` already covers. */
+  /* Into the main grid, not the quickbar: a pickup fills the quickbar first,
+     so a plain collect would baseline an empty grid. */
   await putInMain(page, 'copper', 'ore', 5);
   await putInMain(page, 'timber', 'log', 3);
   await page.evaluate(async () => {
@@ -1404,15 +1209,10 @@ test('the Character tab', async ({ page }) => {
     const { banner } = await import('/src/view/fx.js');
 
     grant('bellows');
-    /* Pickup is opt-in rather than automatic, so
-       turn the magnet ON for the wait below, the same way `digging
-       straight down...` above does. A SETTER, not a toggle. */
+    /* Auto-collect on for the wait below, so the drafted relic is picked up. */
     setAutoCollect(true);
     __mf.frames(200);          // let the drafted relic fall and land in the pockets
-    /* Equip into the first slot directly -- `rules/trinkets.js#equipFirst`
-       is retired (the 'p' key's own primitive,
-       superseded by drag-to-equip); `model/run.js#write.equip` is the same
-       model write that real path already calls. */
+    /* `write.equip` is the same model write drag-to-equip calls. */
     rw.equip(0, S.bellows);
     trinketStep();             // sync model/mods.js so the resolved deltas actually show
 
@@ -1424,15 +1224,6 @@ test('the Character tab', async ({ page }) => {
   });
   await shot(page, 'ui-character.png');
 });
-
-/* Three new baselines: the grid on a totally fresh run (nothing collected at
-   all), so `eff('invSlots')` reads as a real capacity fact rather than a
-   display-order preference over a packed list; a real drag-driven SWAP between
-   two occupied main-grid slots -- an empty-slot MOVE is already proven
-   without a screenshot by the REAL DRAG test below; and the quickbar fully
-   populated with `eff('quickbarSlots')`
-   distinct pairs, proving there is no ordinal past the last real cell and
-   nothing scrolls or truncates. */
 
 test('the Character tab on a fresh run: eff(invSlots) mostly-empty cells, not a packed list', async ({ page }) => {
   await boot(page);
@@ -1495,9 +1286,8 @@ test('the quickbar draws exactly eff(quickbarSlots) cells, fully populated, with
     return Math.round(eff('quickbarSlots'));
   });
   expect(qslots).toBe(8);
-  /* Eight DISTINCT pairs -- `write.collect`'s merge-first search means giving
-     the SAME pair twice tops up one slot rather than filling a second, so
-     "fully populated" needs eight different substances, not one repeated. */
+  /* Eight distinct pairs: `write.collect` merges first, so the same pair twice
+     tops up one slot rather than filling a second. */
   const pairs = [
     ['copper', 'ore'], ['tin', 'ore'], ['timber', 'log'], ['stone', 'gravel'],
     ['soil', 'gravel'], ['granite', 'gravel'], ['adamant', 'gravel'],
@@ -1511,11 +1301,9 @@ test('the quickbar draws exactly eff(quickbarSlots) cells, fully populated, with
     __mf.frames(1);        // draw once so __mf.ui reflects the fill
   });
 
-  /* ONE DRAWN CELL PER SLOT, and the count is asserted on both sides:
-     `__mf.ui.quickbar` is `run.inv`'s tail and `grid.slots` is what was
-     painted. `view/ui/grid.js` paints every column of every row, so a
-     `COLS` that did not divide the slot count would show up here as more
-     drawn cells than addressable ones. */
+  /* Counted on both sides: `__mf.ui.quickbar` is `run.inv`'s tail and
+     `grid.slots` is what was painted, so a `COLS` that did not divide the slot
+     count would draw more cells than there are addressable ones. */
   const grid = await page.evaluate(() => __mf.ui.grids.find(g => g.id === 'quickbar'));
   const cells = await page.evaluate(() => __mf.ui.quickbar.length);
   expect(cells).toBe(8);
@@ -1527,11 +1315,7 @@ test('the quickbar draws exactly eff(quickbarSlots) cells, fully populated, with
 });
 
 /* `DIGITS` is ten glyphs long and the strip is eight cells, so '9' and '0'
-   name nothing. The old mapping returned 8 and 9 for them and the arm
-   branch's `if (slot && slot.sub != null)` swallowed the out-of-range read
-   -- a silent no-op that no assertion could see. This drives the real
-   keyboard and reads the arm back, and it fails if a digit past the last
-   cell ever resolves again. */
+   name nothing. Driven through the real keyboard, with the arm read back. */
 test('digit keys past the last quickbar cell arm nothing and throw nothing', async ({ page }) => {
   const errors = await boot(page);
   await settle(page);
@@ -1540,7 +1324,7 @@ test('digit keys past the last quickbar cell arm nothing and throw nothing', asy
 
   await page.keyboard.press('8');
   const armedAt8 = await page.evaluate(() => __mf.ui.armedPlace);
-  expect(armedAt8).toBeTruthy();          // the LAST real cell does arm
+  expect(armedAt8).toBeTruthy();          // the last real cell does arm
 
   await page.evaluate(async () => (await import('/src/shell/ui.js')).clearArmedPlace());
   await page.keyboard.press('9');
@@ -1549,10 +1333,9 @@ test('digit keys past the last quickbar cell arm nothing and throw nothing', asy
   expect(await page.evaluate(() => __mf.ui.armedPlace)).toBeNull();
   expect(errors).toEqual([]);
 
-  /* AND THE MAPPING ITSELF, because the arm half alone cannot fail: an
-     unbounded `slotForDigit` returns 8 for '9', `run.inv[38]` is undefined,
-     and the arm branch's own null check swallows it. -1 is the only
-     observable difference between the two mappings. */
+  /* The mapping itself, because the arm half alone cannot fail: an unbounded
+     `slotForDigit` returns 8 for '9', `run.inv[38]` is undefined, and the arm
+     branch's null check swallows it. -1 is the observable difference. */
   const digits = await page.evaluate(async () => {
     const { slotForDigit } = await import('/src/view/ui/quickbar.js');
     return { one: slotForDigit('1'), eight: slotForDigit('8'), nine: slotForDigit('9'), zero: slotForDigit('0') };
@@ -1560,12 +1343,9 @@ test('digit keys past the last quickbar cell arm nothing and throw nothing', asy
   expect(digits).toEqual({ one: 0, eight: 7, nine: -1, zero: -1 });
 });
 
-/* No HAND recipe is genuinely lockable in this build -- `model/run.js
-   #RUN_SCHEMA.known` is seeded with EVERY `HAND_RECIPES` id in `write.reset`.
-   The silhouette-rendering CODE PATH is real and wired
-   (`view/ui/mainPanel.js`'s `!known` branch), but there is nothing to feed it
-   a locked id with, so this screenshots the tab AS IT ACTUALLY RENDERS today
-   rather than fabricating a locked recipe that cannot currently occur. */
+/* `write.reset` seeds `known` with every `HAND_RECIPES` id, so nothing is
+   locked and `view/ui/mainPanel.js`'s `!known` silhouette branch is not part
+   of this shot. */
 test('the Crafting tab', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -1587,14 +1367,9 @@ test('the Crafting tab', async ({ page }) => {
   await shot(page, 'ui-crafting.png');
 });
 
-/* THE ALL CATEGORY, AND THE ROW THAT NO LONGER FITS. Both assertions are
-   MEASUREMENTS, not screenshots: a baseline of this row proves the pixels
-   have not changed, and cannot prove a sixth category is reachable, which is
-   what `view/ui/tabs.js`'s drop behaviour used to take away silently. */
-
-/* Six labels cost 204 px (`textWidth(label) + 6` each) and the crafting body
-   is 188 px wide at the 200 px floor, so DIVINE only survives because
-   `drawTabs` wraps. Without the wrap this reads five ids and 9 px. */
+/* Six labels cost 204 px (`textWidth(label) + 6` each) against a 188 px
+   crafting body at the 200 px buffer floor, so DIVINE stays reachable only
+   because `drawTabs` wraps. */
 test('the crafting category row wraps at the 200 px floor, so all six categories stay reachable', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -1613,8 +1388,8 @@ test('the crafting category row wraps at the 200 px floor, so all six categories
   expect(row.hits.map(h => h.id)).toEqual(['all', 'raw', 'refined', 'tools', 'placeables', 'divine']);
   expect(row.h).toBe(18);                        // two lines of TAB_H, not one
 
-  /* And every tab is inside the 200 px buffer, so wrapping did not simply
-     move the overflow from the right edge to somewhere else. */
+  /* Every tab inside the 200 px buffer, so the wrap did not move the overflow
+     somewhere else. */
   for (const h of row.hits) {
     expect(h.x).toBeGreaterThanOrEqual(0);
     expect(h.x + h.w).toBeLessThanOrEqual(200);
@@ -1622,12 +1397,9 @@ test('the crafting category row wraps at the 200 px floor, so all six categories
   }
 });
 
-/* ALL is the absence of a filter, and the only way to prove that is to
-   compare what the tab actually drew against what the five real categories
-   drew between them. `drawn.recipeIndex.recipes` is the list
-   `view/ui/mainPanel.js` recorded for the dispatcher, so this reads the real
-   grid contents rather than re-deriving them. A category that stops covering
-   a recipe fails here. */
+/* `drawn.recipeIndex.recipes` is the list `view/ui/mainPanel.js` recorded for
+   the dispatcher, so this compares what ALL drew against what the five real
+   categories drew, rather than re-deriving either. */
 test('the ALL category lists every hand recipe exactly once, and exactly what the five categories list between them', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -1658,12 +1430,9 @@ test('the ALL category lists every hand recipe exactly once, and exactly what th
   expect(new Set(union).size).toBe(union.length);              // the five do not overlap either
   expect(sorted(union)).toEqual(sorted(all));
 
-  /* Not vacuous: `every` comes from `data/recipes.js` rather than from the
-     draw, so the equality above cannot be two empty lists agreeing. The
-     per-category counts are stated outright because DIVINE draws nothing
-     today -- no hand recipe outputs a relic or a miracle -- and a test that let a
-     category empty itself silently would hide
-     the next one that does. */
+  /* `every` comes from `data/recipes.js`, not from the draw, so the equality
+     above cannot be two empty lists agreeing. The counts are stated because
+     DIVINE draws nothing today: no hand recipe outputs a relic or a miracle. */
   expect(all.length).toBe(19);
   const counts = Object.fromEntries(Object.entries(cats).map(([c, ids]) => [c, ids.length]));
   expect(counts).toEqual({ raw: 13, refined: 2, tools: 1, placeables: 3, divine: 0 });
@@ -1676,9 +1445,8 @@ test('the boon stack with active boons', async ({ page }) => {
     const { grant } = await import('/src/rules/boons.js');
     const { BOONS } = await import('/src/data/boons.js');
     const { banner } = await import('/src/view/fx.js');
-    /* Three MUTUALLY NON-HOSTILE boons (indices 0, 2, 4 -- `data/boons.js`'s
-       own two conflicting pairs are 0/1 and 2/3), so all three stay active
-       and visible at once rather than one suppressing or inverting another. */
+    /* Indices 0, 2 and 4: `data/boons.js`'s conflicting pairs are 0/1 and 2/3,
+       so all three stay active and visible at once. */
     grant(BOONS[0].id);
     grant(BOONS[2].id);
     grant(BOONS[4].id);
@@ -1699,31 +1467,20 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
     const { bandOf } = await import('/src/model/world.js');
     const { setAutoCollect, setAutoFeed } = await import('/src/shell/ui.js');
     __mf.revealAll(bandOf('surface'));
-    /* Pickup is opt-in rather than automatic, so
-       this flow's own point is craft -> place -> feed -> smelt, not the
-       collect gate, so turn the magnet ON for the whole scene rather than
-       holding 'c' through two separate waits below. A SETTER, not a toggle.
-       */
+    /* Auto-collect on for the whole scene, so the collect gate is not part of
+       the craft -> place -> feed -> smelt chain. */
     setAutoCollect(true);
-    /* AND THE MACHINE-SIDE MAGNET, for the same shape of reason. The `feed` link in
-       this test's own chain is now a
-       deliberate click-arm-aim-LMB verb, and driving it here would mean
-       twelve real pointer presses at a machine this test teleports the
-       player under -- while what the four assertions below actually check is
-       that a CRAFTED rig places, is spent, and that the placed furnace
-       SMELTS. THE FLAG, not the verb; the verb's own end-to-end coverage is
-       the "REAL CLICK: clicking an ore slot arms it..." test. */
+    /* Auto-feed too: feeding by hand is a click-arm-aim-LMB verb and would be
+       twelve pointer presses here, and what follows is about a crafted rig
+       placing, being spent, and smelting. */
     setAutoFeed(true);
-    /* "mine 12 copper ore" is stood in for by `give` -- the flow's own point
-       is the chain (craft -> place -> feed -> smelt), not the mining grind.
-       A furnace is CRAFTED (`data/recipes.js#furnace`: 12 copper/ore + 6
-       timber/log, 8.0s) into a held `furnace/rig` item, THEN placed, so a bit
-       more of each material is given on top of the bill or there is nothing
-       left to actually smelt once the furnace itself has been built. */
+    /* `give` stands in for the mining. `data/recipes.js#furnace` bills 12
+       copper/ore + 6 timber/log over 8.0 s into a held `furnace/rig`, so the
+       surplus on top is what is left to smelt once it is built. */
     __mf.give(S.copper, F.ore, 12 + 8);
     __mf.give(S.timber, F.log, 6 + 2);
     __mf.cmd.hasMouse = false;
-    __mf.hold({ craft: 1 }, 1000);      // > 8.0s, the furnace recipe's own secs
+    __mf.hold({ craft: 1 }, 1000);      // past the furnace recipe's own 8.0 s
     __mf.cmd.craft = false;             // release the key -- `hold` only auto-releases hop/place
     __mf.frames(150);                   // let the crafted item fall and clear the pickup-magnet delay
     return { rig: invCount(S.furnace, F.rig), oreLeft: invCount(S.copper, F.ore), logLeft: invCount(S.timber, F.log) };
@@ -1732,22 +1489,15 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
   expect(crafted.oreLeft).toBe(8);
   expect(crafted.logLeft).toBe(2);
 
-  /* Place through the quickbar's own digit keys: the digit-driven BUILD menu
-     is retired, and click-to-arm against the quickbar is the one placement
-     path. Moved into slot 0 through `moveHeldToQuickbar` rather than by a
-     real drag, because this flow's point is the smelt chain. */
+  /* Placed through the quickbar's own digit keys, the one placement path. */
   await page.evaluate(async () => {
     const { write } = await import('/src/model/run.js');
-    /* The furnace is cycle 1's reward, not a starting
-       grant -- this flow's point is the smelt chain, so grant it directly
-       rather than routing through the cycle director. */
+    /* The furnace is cycle 1's reward, granted here rather than earned. */
     write.grant('furnace');
   });
   await moveHeldToQuickbar(page, 0, 'furnace', 'rig');
   await page.keyboard.press('1');        // arms slot 0's furnace (`view/ui/quickbar.js#slotForDigit`)
-  /* 'e' no longer places: placement is LMB only, and the LMB dispatch has its
-     own tests, so this pokes the same edge flag a real click ultimately
-     sets. */
+  /* Placement is LMB only; this pokes the same edge flag a real click sets. */
   await page.evaluate(() => { __mf.cmd.place = true; });
   const result = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
@@ -1756,25 +1506,17 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
     const { write: pw, PW } = await import('/src/model/player.js');
     const { M } = await import('/src/data/machines.js');
 
-    /* The finished ingot ejects from the furnace's TOP mouth and falls back
-       to rest roughly under the machine's own centre -- past
-       `eff('pickupR')` (10 px) from where the player was STANDING to place
-       it (the aim reticle sits at the player's own row, to the side, per
-       `rules/mining.js#aimAtKeys`, not at the footprint's centre). A real
-       player would walk over to hand-feed or collect from a machine they
-       just placed; teleported here directly under its centre rather than
-       walked there, since how far a walk covers is `rules/player.js`'s own
-       concern and already thoroughly covered elsewhere -- this flow's point
-       is the smelt chain, not a second proof of walk speed. */
-    __mf.frames(1);                      // let the keypress above actually place it
-    /* Exclude the director's own altar (`rules/cycles.js#ensureAltarPlaced`) --
-       `machines[0]` must be the furnace this test placed, not whichever the
-       altar's own earlier placement put first in the array. */
+    /* The ingot ejects from the furnace's top mouth and rests near the
+       machine's centre, past `eff('pickupR')` (10 px) from where the player
+       stood to place it, so the player is moved under that centre below. */
+    __mf.frames(1);                      // let the keypress above place it
+    /* Excludes the director's own altar, so `placed[0]` is the furnace this
+       test placed. */
     const placed = __mf.machines.filter(m => m.def !== M.altar);
     const m = placed[0];
     pw.move(m.box.x + m.box.w / 2 - PW / 2, __mf.player.y);
 
-    __mf.frames(1500);                   // several 4.0s smelt cycles, plus fall + pickup
+    __mf.frames(1500);                   // several 4.0 s smelt cycles, plus fall and pickup
     return {
       machines: placed.length,
       ingot: invCount(S.copper, F.ingot),
@@ -1784,7 +1526,7 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
 
   expect(result.machines).toBe(1);
   expect(result.ingot).toBeGreaterThan(0);
-  expect(result.rigLeft).toBe(0);        // the held item was spent, not merely declared
+  expect(result.rigLeft).toBe(0);        // the held item was spent
 });
 
 test('craft peg rungs by hand, place a brazier in a dark room, and the strata become visible where they were not', async ({ page }) => {
@@ -1799,18 +1541,17 @@ test('craft peg rungs by hand, place a brazier in a dark room, and the strata be
     const { write: tw } = await import('/src/model/tiles.js');
     const { placeMachine } = await import('/src/rules/placement.js');
 
-    /* Peg rungs BY HAND -- the real hand-craft key, not a grant. Pickup is opt-in now --
-       `collect` held
-       alongside `craft` covers the wait below too. */
+    /* Peg rungs through the real hand-craft key, not a grant; `collect` held
+       alongside covers the wait below. */
     __mf.give(S.timber, F.log, 2);
     __mf.hold({ craft: 1, collect: 1 }, 300);
     __mf.cmd.craft = false;             // release the key -- `hold` only auto-releases hop/place
     __mf.frames(60);
     const rungsHeld = invCount(S.timber, F.rung);
 
-    /* A sealed, dark room deep in topsoil, far from anywhere `settle`'s
-       spawn-adjacent reveal already touched. Floor at ty0+h so a `footing:1`
-       machine (the brazier) can stand on the room's own bottommost row. */
+    /* A sealed dark room deep in topsoil, clear of anything `settle`'s
+       spawn-adjacent reveal touched. Floor at ty0+h so the brazier's
+       `footing:1` has the room's bottom row to stand on. */
     const band = bandOf('topsoil');
     const tx0 = 50, ty0 = 150, w = 8, h = 6;
     for (let ty = ty0; ty < ty0 + h; ty++) for (let tx = tx0; tx < tx0 + w; tx++) tw.clear(band, tx, ty);
@@ -1831,21 +1572,15 @@ test('craft peg rungs by hand, place a brazier in a dark room, and the strata be
     const litBefore = lightAt(band, darkTile.tx, darkTile.ty);
     const seenBefore = seenAt(band, darkTile.tx, darkTile.ty);
 
-    /* `brazier` is a held `brazier/rig` item (given directly -- this test's
-       own point is the light, not the crafting grind), spent by `placeMachine`
-       at placement. The timber given here is pure FUEL for the machine's own
-       buffer, and AUTO FEED is what pulls it out of the pockets: the
-       proximity drain is opt-in and off by default. THE FLAG, NOT THE REAL FEED VERB,
-       deliberately
-       -- this test asserts LIGHT and REVEAL at a tile in the far corner of a
-       sealed room, and fuel reaching the brazier is setup for that and
-       nothing else. */
+    /* The timber is fuel, and auto-feed is what pulls it out of the pockets:
+       the proximity drain is opt-in and off by default. The flag rather than
+       the feed verb, since the subject here is light and reveal. */
     const { setAutoFeed } = await import('/src/shell/ui.js');
     setAutoFeed(true);
     __mf.give(S.brazier, F.rig, 1);
     __mf.give(S.timber, F.log, 4);
     const brazier = placeMachine(band, 'brazier', tx0 + 2, ty0 + h - 1);   // adjacent, in hand-feed reach
-    __mf.frames(900);                                              // > 6s honest-fuel, several times over
+    __mf.frames(900);                                              // past 6 s of fuel, several times over
 
     const litAfter = lightAt(band, darkTile.tx, darkTile.ty);
     const seenAfter = seenAt(band, darkTile.tx, darkTile.ty);
@@ -1874,20 +1609,15 @@ test('overloaded past 40 T, a climb intent is refused; dropping the heaviest pai
     const band = bandOf('topsoil');
     const tx = 10, ty = 40;
     for (let dy = -1; dy <= 4; dy++) tw.clear(band, tx, ty + dy);
-    /* `F.rung`, not `F.log`: `log`'s `tile` block is stripped, so a placed log is no
-       longer a climbable tile at all.
-       `timber/rung` is what `peg_rungs` makes and what a ladder has been
-       built from. Scene setup only -- the behaviour under
-       test here is the burden climb lockout, not the tile. */
+    /* `F.rung`, not `F.log`: `log` carries no `tile` block, so `timber/rung`,
+       what `peg_rungs` makes, is the only climbable timber tile. */
     tw.set(band, tx, ty + 4, S.timber, F.rung);       // a ladder tile
     pw.band(band);
     pw.move(worldX(band, tx), worldY(band, ty + 3));  // straddling the ladder tile
 
-    /* Over the hard cap: heavy enough that ONE drop cannot bring it back
-       under, so "climb succeeds" below has to hold across more than a single
-       drop -- `dropHeaviest` (the 'q' key) always sheds the single heaviest
-       pair, one unit at a time, per its own header. copper/ore's massOfPair
-       is exactly 1.0 T/unit, so this many units is this many talents. */
+    /* Over the hard cap by more than one drop can clear: `dropHeaviest` ('q')
+       sheds the heaviest pair one unit at a time, and copper/ore's
+       `massOfPair` is exactly 1.0 T per unit, so units are talents here. */
     const need = eff('burden') * 1.3;
     __mf.give(S.copper, F.ore, Math.ceil(need));
     __mf.cmd.hasMouse = false;
@@ -1898,24 +1628,15 @@ test('overloaded past 40 T, a climb intent is refused; dropping the heaviest pai
   const afterRefused = await page.evaluate(() => __mf.player.y);
   expect(afterRefused).toBeGreaterThanOrEqual(y0);      // no upward movement while over the cap
 
-  /* Drop the heaviest pair (copper/ore, the only thing held) repeatedly
-     until back under the cap -- `q` is edge-triggered, one unit per press,
-     not held. Each press is exactly ONE substep (`hold(keys, 1)`) and the
-     whole burst stays well under `rules/items.js#MAGNET_DELAY` (0.35s = 42
-     substeps at the fixed 1/120s step): the player never moves away from
-     where they are dropping, so anything given time to clear the pickup
-     delay while still sitting at their feet would simply be picked back up,
-     undoing the very shedding this is testing. */
+  /* `q` is edge-triggered, one unit per press. Each press is one substep so
+     the burst stays under `rules/items.js#MAGNET_DELAY` (0.35 s = 42 substeps
+     at 1/120 s), or the shed units would be picked straight back up. */
   const underCap = await page.evaluate(async () => {
     const { eff } = await import('/src/model/mods.js');
     const { burdenOf } = await import('/src/model/run.js');
-    /* Target well under the cap, not just barely under it: the climb check
-       right after this runs long enough (60 substeps, 0.5s) to cross
-       MAGNET_DELAY, and the player never moves away from the drop pile
-       before starting to climb, so some of what was just shed WILL be
-       picked back up mid-climb. Margin is what keeps that from tipping the
-       player back over the cap before the climb assertion below gets to
-       run. */
+    /* Well under the cap, not barely under: the climb below runs 60 substeps,
+       past MAGNET_DELAY, without the player moving off the drop pile, so some
+       of what was shed is picked back up mid-climb. */
     for (let i = 0; i < 39 && burdenOf() >= eff('burden') * 0.6; i++) __mf.hold({ drop: 1 }, 1);
     return burdenOf() < eff('burden');
   });
@@ -1924,7 +1645,7 @@ test('overloaded past 40 T, a climb intent is refused; dropping the heaviest pai
   const yBeforeClimb = await page.evaluate(() => __mf.player.y);
   await page.evaluate(() => __mf.hold({ up: 1 }, 60));
   const yAfterClimb = await page.evaluate(() => __mf.player.y);
-  expect(yAfterClimb).toBeLessThan(yBeforeClimb);       // now climbs, i.e. moves UP (world y decreases)
+  expect(yAfterClimb).toBeLessThan(yBeforeClimb);       // climbs: world y decreases
 });
 
 test('opening the GUI, shift-clicking a recipe queues 5, and ticking drains them into the pockets', async ({ page }) => {
@@ -1936,10 +1657,8 @@ test('opening the GUI, shift-clicking a recipe queues 5, and ticking drains them
     const { invCount } = await import('/src/model/run.js');
     const { open, setTab, setAutoCollect } = await import('/src/shell/ui.js');
 
-    /* Pickup is opt-in rather than automatic, so
-       this flow's own point is the craft queue draining, not the collect
-       gate, so turn the magnet ON for the wait below. A SETTER, not a toggle.
-       */
+    /* Auto-collect on for the wait below, so the collect gate is not part of
+       the queue draining. */
     setAutoCollect(true);
     __mf.give(S.timber, F.log, 20);      // 5 runs of peg_rungs (2 logs each)
     open('main');
@@ -1953,20 +1672,12 @@ test('opening the GUI, shift-clicking a recipe queues 5, and ticking drains them
     __mf.intent('slot', { grid: 'recipes', index, shift: true });
     const queueAfterClick = __mf.ui.craftQueue.length;
 
-    /* `tickCraftQueue` only drains completions it can see in the journal
-       SINCE THE LAST `frames` call -- it runs once at the end of whichever
-       batch of substeps it is given, exactly once per real animation frame
-       in actual play. Calling `frames(1400)` as ONE batch would hold
-       `cmd.craft` continuously for the WHOLE window regardless of how many
-       times the queue should have already emptied and stopped re-asserting
-       it, over-crafting past what was queued. Ticking in small batches is
-       what makes this a faithful stand-in for "one call per real frame". */
+    /* `tickCraftQueue` drains the journal completions it can see since the
+       last `frames` call, once per batch as it runs once per animation frame in
+       play. One big batch would hold `cmd.craft` down and over-craft. */
     for (let i = 0; i < 40 && __mf.ui.craftQueue.length; i++) __mf.frames(40);
-    /* The queue empties the instant the LAST completion's 'produce' journal
-       row is seen, which is before that completion's own physical output has
-       necessarily finished falling and clearing the pickup delay -- a few
-       more frames lets the last item land in the pockets like every other
-       one already has. */
+    /* The queue empties when the last completion's 'produce' row is seen,
+       before that output has finished falling and cleared the pickup delay. */
     __mf.frames(120);
 
     return { index, queueAfterClick, rungs: invCount(S.timber, F.rung) };
@@ -1982,11 +1693,9 @@ test('granting a boon in debug activates it, and it expires back to the base eff
   await settle(page);
   await page.evaluate(() => { __mf.flags.showDebug = true; __mf.cmd.hasMouse = false; });
 
-  /* THE DEBUG KEY NOW RAISES AN OFFER RATHER THAN GRANTING OUTRIGHT: 'b' lays out a
-     1-of-3 draft of the timed tier and freezes
-     the run behind it, and '1' takes the first card. So the baseline is read
-     from the card that WILL be taken -- which row that is comes out of the
-     seeded draw, not out of `BOONS[0]`. */
+  /* 'b' lays out a 1-of-3 draft of the timed tier and freezes the run behind
+     it; '1' takes the first card. The baseline is read from that card, because
+     which row it is comes out of the seeded draw rather than `BOONS[0]`. */
   await page.keyboard.press('b');         // the debug timed-boon draft (flags.showDebug required)
   const before = await page.evaluate(async () => {
     __mf.frames(1);
@@ -2021,9 +1730,8 @@ test('granting a boon in debug activates it, and it expires back to the base eff
   expect(afterExpiry.value).toBe(before.value);
 });
 
-/* NO-SPAWN GUARD: with `flags.showDebug` off, F/L/T/B must produce no entity
-   and no item, exactly the debug-gated machine/draft spawns
-   `src/shell/input.js` guards behind that flag. */
+/* F, L, T and B are the machine and draft spawns `src/shell/input.js` gates
+   behind `flags.showDebug`. */
 test('NO-SPAWN GUARD: with flags.showDebug off, F, L, T and B produce no entity and no item', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -2043,10 +1751,8 @@ test('NO-SPAWN GUARD: with flags.showDebug off, F, L, T and B produce no entity 
   expect(after.items).toBe(before.items);
 });
 
-/* REAL CLICKS — GUI interaction bug fixes. Every test below drives the mouse
-   for REAL (`page.mouse.move/down/up`), not `__mf.intent`'s internal shortcut,
-   because these are UI-interaction bug fixes and only a real click proves a
-   real click works. */
+/* The tests below drive the mouse through `page.mouse.move/down/up` rather
+   than `__mf.intent`'s internal shortcut. */
 
 async function toClient(page, sx, sy) {
   return page.evaluate(async ({ sx, sy }) => {
@@ -2056,10 +1762,9 @@ async function toClient(page, sx, sy) {
   }, { sx, sy });
 }
 
-/* A real down-frame-up click at a SCREEN-space point (the same space
-   `__mf.ui`'s panel/tab/grid/button rects are given in). `shift`/`ctrl`
-   arm the identical modifier keys `shell/input.js#pointerdown` reads into
-   `cmd.uiShift`/`cmd.uiCtrl`. */
+/* A real down-frame-up click at a screen-space point, the space `__mf.ui`'s
+   panel/tab/grid/button rects are given in. `shift`/`ctrl` arm the keys
+   `shell/input.js#pointerdown` reads into `cmd.uiShift`/`cmd.uiCtrl`. */
 async function realClick(page, sx, sy, { shift = false, ctrl = false } = {}) {
   const { x, y } = await toClient(page, sx, sy);
   await page.mouse.move(x, y);
@@ -2074,8 +1779,8 @@ async function realClick(page, sx, sy, { shift = false, ctrl = false } = {}) {
 }
 
 /* A real drag: down at (sx0,sy0), a frame, move to (sx1,sy1), a frame, up --
-   the same down/move/up shape `shell/main.js#applyUiIntents`'s rising/falling
-   `cmd.uiDown` edges are written to expect. */
+   the shape `shell/main.js#applyUiIntents` expects of `cmd.uiDown`'s rising
+   and falling edges. */
 async function realDrag(page, sx0, sy0, sx1, sy1) {
   const a = await toClient(page, sx0, sy0);
   const b = await toClient(page, sx1, sy1);
@@ -2100,10 +1805,9 @@ test('REAL CLICK: switching tabs and the panel close box both work (Bug 1 + Bug 
     __mf.frames(1);
   });
 
-  /* `ui.tab.main` is only WRITTEN by an explicit `setTab` -- the default
-     ("char", the first tab) is resolved transiently at render time
-     (`view/ui/mainPanel.js#activeOf`) and never persisted until a tab is
-     actually picked, so it reads `undefined` here rather than 'char'. */
+  /* `ui.tab.main` is only written by an explicit `setTab`: the default 'char'
+     is resolved at render time by `view/ui/mainPanel.js#activeOf` and never
+     persisted, so it reads undefined here. */
   let ui = await page.evaluate(() => __mf.ui);
   expect(ui.tab.main).toBeFalsy();
 
@@ -2115,8 +1819,8 @@ test('REAL CLICK: switching tabs and the panel close box both work (Bug 1 + Bug 
   expect(ui.tab.main).toBe('craft');
   expect(ui.open).toContain('main');
 
-  /* Bug 2's other half: a real, clickable close box exists regardless of
-     keyboard focus state -- there is always a mouse-only way out. */
+  /* A clickable close box exists whatever the keyboard focus state is, so
+     there is always a mouse-only way out. */
   const closeHit = ui.panels.find(p => p.id === 'main').closeHit;
   expect(closeHit).toBeTruthy();
   await realClick(page, closeHit.x + closeHit.w / 2, closeHit.y + closeHit.h / 2);
@@ -2141,9 +1845,8 @@ test('Escape while the search field has focus blurs it AND closes the panel in o
   expect(ui.searchFocus).toBe(true);
   expect(ui.open).toContain('main');
 
-  /* 'i' must NOT close the panel while search has focus -- it is a legitimate
-     search character (filtering for "ingot"), not a special case to carve
-     out. It should be typed into the search string instead. */
+  /* 'i' is a legitimate search character while search has focus, so it types
+     into the search string rather than closing the panel. */
   await page.keyboard.press('i');
   await page.evaluate(() => __mf.frames(1));
   ui = await page.evaluate(() => __mf.ui);
@@ -2151,7 +1854,7 @@ test('Escape while the search field has focus blurs it AND closes the panel in o
   expect(ui.searchFocus).toBe(true);
   expect(ui.open).toContain('main');
 
-  /* One Escape does both: blur AND close, not two separate presses. */
+  /* One Escape both blurs and closes. */
   await page.keyboard.press('Escape');
   await page.evaluate(() => __mf.frames(1));
   ui = await page.evaluate(() => __mf.ui);
@@ -2273,18 +1976,12 @@ test('REAL CLICK: clicking an unaffordable recipe refuses instead of queuing for
     };
   });
 
-  /* No bypass: nothing was spent and nothing was produced. And no silent
-     forever-stuck queue entry either -- the click was refused outright, with
-     the same journal-row refusal convention `rules/placement.js` uses. */
+  /* Nothing spent, nothing produced, and no queue entry left stuck: the click
+     was refused outright. */
   expect(after.rungs).toBe(before.rungs);
   expect(after.queue).toBe(0);
   expect(after.toast).toContain('CANNOT AFFORD');
 });
-
-/* A LOGISTICS BUILD row test was removed rather than rewritten here: the row
-   list it clicked is retired along with the digit-driven BUILD menu it fed,
-   and the click-to-arm tests above cover a real click arming and placing a
-   machine through the one mechanism that remains. */
 
 test('REAL DRAG: dragging a trinket onto an equip slot equips it, dragging it out unequips it (Bug 1)', async ({ page }) => {
   await boot(page);
@@ -2318,8 +2015,7 @@ test('REAL DRAG: dragging a trinket onto an equip slot equips it, dragging it ou
   });
   expect(equipped).toBe(true);
 
-  /* Drag it back OUT onto empty canvas (no grid there at all) -- the
-     previously-unwired unequip path. */
+  /* Dragged back out onto empty canvas, where there is no grid at all. */
   ({ invSlot, eqSlot } = await slots());
   await realDrag(page, eqSlot.x + eqSlot.w / 2, eqSlot.y + eqSlot.h / 2, 4, 4);
 
@@ -2373,12 +2069,9 @@ test('opening the panel then placing closes it, and the placement still succeeds
     const { write: pw } = await import('/src/model/player.js');
     const { open } = await import('/src/shell/ui.js');
 
-    /* A small room (5 rows tall -- PH is 16px = 2 tile rows, so this is
-       generous headroom, the same margin the pre-existing "overloaded past 40
-       T" test's own ladder shaft uses) carved into solid rock, plus TWO open
-       cells beside it -- backed on their far side by the untouched wall,
-       `rules/placement.js#placeTile`'s own "needs something to hang from"
-       rule. */
+    /* A 5-row room (PH is 16 px, two tile rows) carved into solid rock, plus
+       two open cells beside it, backed by the untouched wall that
+       `rules/placement.js#placeTile` needs something to hang from. */
     const band = bandOf('topsoil');
     const tx = 10, ty = 40;
     for (let dy = -2; dy <= 2; dy++) tw.clear(band, tx, ty + dy);
@@ -2399,8 +2092,8 @@ test('opening the panel then placing closes it, and the placement still succeeds
     };
   });
 
-  /* The precondition, stated rather than trusted: both cells of the faced
-     column are open and the reticle names the one the placement fills. */
+  /* Both cells of the faced column are open, and the reticle names the one the
+     placement fills. */
   expect(scene).toEqual({ belly: true, head: true, aimed: true });
 
   let isOpen = await page.evaluate(() => __mf.ui.open.includes('main'));
@@ -2413,9 +2106,7 @@ test('opening the panel then placing closes it, and the placement still succeeds
     return invCount(S.timber, F.rung);
   });
 
-  /* 'e' no longer places: placement is LMB only, and the LMB dispatch has its
-     own tests, so this pokes the same edge flag a real click ultimately
-     sets. */
+  /* Placement is LMB only; this pokes the same edge flag a real click sets. */
   await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(5));
 
@@ -2431,56 +2122,46 @@ test('opening the panel then placing closes it, and the placement still succeeds
   expect(after).toBe(before - 1);        // ...and the placement itself still went through
 });
 
-/* CLICK-TO-ARM PLACEMENT, part 1 -- real clicks and real keys throughout.
-   `realClick` above is why: a real click always has a frame between down and
-   up, and the dispatch resolves its aim inside that frame. */
+/* A real click has a frame between down and up and the dispatch resolves its
+   aim inside that frame, which is what `realClick` reproduces. */
 
 test('click-to-arm: placing a furnace fails with nothing armed, then succeeds once one is armed and built', async ({ page }) => {
   await boot(page);
   await settle(page);
 
-  /* UNSUCCESSFUL: a fresh run holds nothing placeable at all -- nothing
-     armed, nothing to fall back to in HUD order either -- so pressing 'E'
+  /* A fresh run holds nothing placeable and nothing armed, so the press below
      places nothing. */
   await page.evaluate(async () => {
     const { bandOf } = await import('/src/model/world.js');
     __mf.revealAll(bandOf('surface'));
     __mf.cmd.hasMouse = false;
   });
-  /* Exclude the director's own altar (`rules/cycles.js#ensureAltarPlaced`) --
-     this test's point is that nothing armed means 'E' places nothing, not
-     that the world is devoid of machines at boot. */
+  /* Excludes the director's own altar, so the count is only what a placement
+     adds. */
   const countExAltar = () => page.evaluate(async () => {
     const { M } = await import('/src/data/machines.js');
     return __mf.machines.filter(m => m.def !== M.altar).length;
   });
   const before = await countExAltar();
   expect(before).toBe(0);
-  /* 'e' no longer places: placement is LMB only, and the LMB dispatch has its
-     own tests, so this pokes the same edge flag a real click ultimately
-     sets. */
+  /* Placement is LMB only; this pokes the same edge flag a real click sets. */
   await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(5));
   const afterRefusal = await countExAltar();
   expect(afterRefusal).toBe(0);
 
-  /* SUCCESSFUL: grant the furnace recipe's exact bill, hand-craft the
-     `furnace/rig` item, then arm it by clicking its Character-tab slot --
-     the mouse-driven half of click-to-arm; the quickbar's own digit-key
-     half is `a digit key arms the matching quickbar slot...`'s own test --
-     and place it with 'E'. */
+  /* The recipe's exact bill, hand-crafted into a `furnace/rig`, then armed by
+     clicking its Character-tab slot: the mouse-driven half of click-to-arm. */
   const crafted = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { invCount, write } = await import('/src/model/run.js');
-    /* The furnace is cycle 1's reward, not a starting
-       grant -- crafting the rig doesn't need it, but placing it below does. */
+    /* Crafting the rig does not need the grant; placing it below does. */
     write.grant('furnace');
     __mf.give(S.copper, F.ore, 12);
     __mf.give(S.timber, F.log, 6);
-    /* Pickup is opt-in now -- `collect`
-       held alongside `craft` covers the wait below too. */
-    __mf.hold({ craft: 1, collect: 1 }, 1000);      // > 8.0s, `data/recipes.js#furnace`'s own secs
+    /* `collect` held alongside `craft` covers the wait below. */
+    __mf.hold({ craft: 1, collect: 1 }, 1000);      // past `data/recipes.js#furnace`'s own 8.0 s
     __mf.cmd.craft = false;             // release the key -- `hold` only auto-releases hop/place
     __mf.frames(150);                   // let the crafted item fall and clear the pickup-magnet delay
     return { rig: invCount(S.furnace, F.rig) };
@@ -2511,14 +2192,11 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
   });
   expect(armed.armedPlace).toEqual({ sub: armed.expectSub, form: armed.expectForm });
 
-  /* Back to keyboard aim, exactly `the "a placed furnace" test`'s own move:
-     no direction held aims to the SIDE, at the player's own row, which on
-     the spawn shelf is open air with the floor directly beneath it. */
+  /* Keyboard aim with no direction held aims to the side, at the player's own
+     row, which on the spawn shelf is open air over the floor. */
   await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(1); });
 
-  /* 'e' no longer places: placement is LMB only, and the LMB dispatch has its
-     own tests, so this pokes the same edge flag a real click ultimately
-     sets. */
+  /* Placement is LMB only; this pokes the same edge flag a real click sets. */
   await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(5));
 
@@ -2527,28 +2205,21 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
     const { F } = await import('/src/data/forms.js');
     const { M } = await import('/src/data/machines.js');
     const { invCount } = await import('/src/model/run.js');
-    /* Exclude the director's own altar (`rules/cycles.js#ensureAltarPlaced`) --
-       this test's point is that exactly the furnace just placed exists. */
+    /* Excludes the director's own altar, so this counts the furnace just
+       placed. */
     return {
       machines: __mf.machines.filter(m => m.def !== M.altar).length,
       rig: invCount(S.furnace, F.rig), armedAfter: __mf.ui.armedPlace
     };
   });
   expect(result.machines).toBe(1);
-  expect(result.rig).toBe(0);              // the held item was spent, not merely declared
+  expect(result.rig).toBe(0);              // the held item was spent
   expect(result.armedAfter).toBeNull();    // cleared on a successful placement
 });
 
-/* WHAT THIS TEST PROVES CHANGED WHEN MINED RUBBLE DID.
-   `gravel` lost its `tile` block, so
-   the 1:1 "shovel it straight back" this test used to exercise is exactly the
-   behaviour that was removed -- the test would now fail at the arm step, and
-   that failure would be the phase working. So the scenario is the same dig and
-   the same hole, driven through the new correct path: rubble is a
-   PREREQUISITE, `recipes.js#pack` turns 5 of it into one `soil/block`, and the
-   BLOCK is what arms and places. The two halves the old test proved (mining
-   pockets real rubble; a click-armed pair places at the aimed tile) are both
-   still asserted, plus one new one: an unarmable form cannot be armed. */
+/* `gravel` carries no `tile` block, so rubble is a prerequisite:
+   `recipes.js#pack` turns 5 of it into one `soil/block`, and the block is what
+   arms and places. An unarmable form cannot be armed at all. */
 test('click-to-arm: dig down, pack the rubble, then place the block back into the exact hole', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -2563,25 +2234,20 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
     const { write: pw } = await import('/src/model/player.js');
     const { bandOf, worldX, worldY } = await import('/src/model/world.js');
 
-    /* Hand-carved and deterministic rather than found, because natural
-       worldgen decides what is here: a floor under the player's column so digging
-       sideways for several seconds does not also start them falling, and a
-       KNOWN substance (soil, not whatever seed 1337 happens to generate) at
-       the one tile that will be mined and then rebuilt. */
+    /* Hand-carved rather than found: a floor under the player's column so a
+       sideways dig does not start them falling, and a known substance at the
+       one tile that is mined and then rebuilt. */
     const band = bandOf('topsoil');
     for (let dx = 0; dx <= 1; dx++) for (let dy = -2; dy <= 0; dy++) tw.clear(band, tx + dx, ty + dy);
     tw.set(band, tx, ty + 1, S.stone);        // floor under the player's own feet
     tw.set(band, holeTx, ty, S.soil);         // the tile to mine, then restore
-    /* A deterministic backing wall directly above the hole, so
-       `rules/placement.js#placeTile`'s "needs something to hang from" check
-       passes regardless of what natural terrain the seed happens to put
-       beyond this hand-carved pocket. */
+    /* A backing wall above the hole, so `rules/placement.js#placeTile`'s
+       "needs something to hang from" check passes whatever the seed put
+       beyond this pocket. */
     tw.set(band, holeTx, ty - 1, S.stone);
 
-    /* This test's whole point is the pack recipe and place-it-back-in-the-
-       hole flow, not the D-Q yield-quality roll -- force soil's
-       `dropChance` back to 1 so the one tile mined below is guaranteed to
-       drop, the same way it did before D-Q. */
+    /* Soil's `dropChance` forced to 1, so the one tile mined below is
+       guaranteed to drop. */
     const { write: modsw } = await import('/src/model/mods.js');
     modsw.add('test-full-yield', [{ key: 'dropChance.soil', mul: 20 }]);   // 0.05 x 20 = 1.0
 
@@ -2593,16 +2259,12 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
 
   await page.evaluate(() => { __mf.cmd.hasMouse = false; });
   await page.evaluate(() => { __mf.hold({ right: 1 }, 6); __mf.cmd.right = false; });   // face right, toward the hole
-  /* Pickup is opt-in now -- `collect`
-     held alongside `dig` covers the wait below too. */
-  await page.evaluate(() => __mf.hold({ dig: 1, collect: 1 }, 400));   // soil hard=0.50s, comfortably past it
+  /* `collect` held alongside `dig` covers the wait below. */
+  await page.evaluate(() => __mf.hold({ dig: 1, collect: 1 }, 400));   // soil hardness is 0.50 s, comfortably past
   await page.evaluate(() => { __mf.cmd.dig = false; });    // `dig` is held, not edge-triggered -- release it
-  /* D-Q's dropChance roll draws one extra `rand` before the toss, which
-     shifts this seed's toss velocity enough that the dropped gravel can
-     settle just past `pickupR` of a player standing still at `tx` -- so
-     stand ON the hole for the wait, then return to `tx` before the refusal
-     check below, which relies on keyboard aim (facing right, from `tx`)
-     resolving back to `holeTx`. */
+  /* The dropped gravel can settle just past `pickupR` of a player standing at
+     `tx`, so the wait happens standing on the hole; the return to `tx` is what
+     makes keyboard aim, facing right, resolve back to `holeTx`. */
   await page.evaluate(async ({ tx, ty, holeTx }) => {
     const { write: pw } = await import('/src/model/player.js');
     const { bandOf, worldX, worldY } = await import('/src/model/world.js');
@@ -2623,7 +2285,7 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
     return { tile: tileAt(bandOf('topsoil'), holeTx, ty), gravel: invCount(S.soil, F.gravel) };
   }, { holeTx, ty });
   expect(afterDig.tile).toBe(0);                    // AIR: `data/forms.js#AIR`
-  expect(afterDig.gravel).toBeGreaterThan(0);        // and it is actually pocketed, not merely dropped
+  expect(afterDig.gravel).toBeGreaterThan(0);        // and pocketed, not merely dropped
 
   await moveHeldToMain(page, 'soil', 'gravel');
   await page.evaluate(async () => {
@@ -2633,30 +2295,19 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
     __mf.frames(1);
   });
 
-  /* RUBBLE IS STILL NOT PLACEABLE -- but the ARM GATE is no
-     longer where that is felt, and this is the one assertion in this file the
-     change deliberately touched. Any occupied slot now arms, because an arm has two
-     possible consequences rather than
-     one: gravel is a cycle-4 tribute demand and the feed verb is what hands
-     it over. So clicking the gravel slot ARMS it, and the refusal moved one
-     press later, to `rules/placement.js#placeTile`'s own
-     'THAT DOES NOT BUILD' -- which is asserted here rather than assumed,
-     because "rubble does not build" is what this test has always been for
-     and the layer it lives in is the only thing that moved. */
+  /* Any occupied slot arms, because an arm can end in a feed as well as a
+     placement, so rubble's refusal comes one press later, from
+     `rules/placement.js#placeTile`'s 'THAT DOES NOT BUILD'. */
   const gravelSlot = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const grid = __mf.ui.grids.find(g => g.id === 'inv');
     return grid.slots.find(s => s.sub === S.soil && s.form === F.gravel);
   });
-  expect(gravelSlot).toBeTruthy();                   // it IS held, and shown
-  /* LET THE CAMERA CONVERGE BEFORE CLICKING. `realClick` writes `cmd.mx/my`
-     against the LIVE `cam`, and `shell/main.js#applyUiIntents` recovers the
-     screen point against `drawCam`, the camera as of the last draw -- so a
-     camera still easing shifts the hit point by one substep of its own
-     travel. This scene's teleports leave `cam.y` a few hundred pixels from
-     its target, moving 7 to 14 px per substep, and the 16 px slot below was
-     being hit with a 1 px margin. Any worldgen change moved it out. */
+  expect(gravelSlot).toBeTruthy();                   // it is held, and shown
+  /* The camera has to converge before a click: `realClick` writes `cmd.mx/my`
+     against the live `cam` while `applyUiIntents` recovers the point against
+     `drawCam`, and this scene's teleports leave `cam.y` hundreds of px out. */
   await page.evaluate(() => __mf.frames(240));
   await realClick(page, gravelSlot.x + gravelSlot.w / 2, gravelSlot.y + gravelSlot.h / 2);
   const gravelArmed = await page.evaluate(async () => {
@@ -2666,10 +2317,8 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
   });
   expect(gravelArmed.armed).toEqual({ sub: gravelArmed.sub, form: gravelArmed.form });
 
-  /*...and placing it is refused, with a reason, instead of silently doing
-     nothing. Keyboard aim (no direction held, facing right) at the hole this
-     test just mined, so the ONLY thing standing between the press and a
-     placed tile is the form gate. */
+  /* Keyboard aim, facing right, at the hole just mined, so the form gate is
+     the only thing between the press and a placed tile. */
   const refusal = await page.evaluate(async ({ holeTx, ty }) => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
@@ -2684,11 +2333,9 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
     const held = invCount(S.soil, F.gravel);
     __mf.cmd.place = true;
     __mf.frames(2);
-    /* Read the TOAST, not the journal: `__mf.frames` ends with the real
-       `shell/notify.js#drainJournal`, so by the time a test could look the
-       rows are already gone -- exactly as they are in a real session. The
-       refusal's own text surviving into `view/fx.js#toasts` is the same
-       read-back the unaffordable-recipe test above uses. */
+    /* The toast, not the journal: `__mf.frames` ends with
+       `shell/notify.js#drainJournal`, so the rows are already gone and the
+       refusal text survives only in `view/fx.js#toasts`. */
     const why = toasts.map(t => t.text);
     return { why, held, tile: tileAt(bandOf('topsoil'), holeTx, ty), gravel: invCount(S.soil, F.gravel) };
   }, { holeTx, ty });
@@ -2703,13 +2350,9 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
     __mf.frames(1);
   });
 
-  /* PACK IT. `data/recipes.js#pack` wants 5 of one bulk element's gravel and
-     is declared last, so with nothing else affordable it is the row
-     `rules/crafting.js#choose` picks. The dig above yielded one unit; the rest
-     is granted directly rather than mined five times over, which would test
-     the dig loop again instead of the recipe. `collect` is held alongside
-     `craft` because a hand-craft's output is a FALLING ITEM, not
-     a pocket credit. */
+  /* `data/recipes.js#pack` wants 5 gravel of one bulk element and is declared
+     last, so with nothing else affordable it is the row
+     `rules/crafting.js#choose` picks. Its output is a falling item. */
   await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
@@ -2729,8 +2372,8 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
   expect(packed.block).toBe(1);      // 5 -> 1, and exactly one
   expect(packed.gravel).toBe(0);     // all five spent
 
-  /* Click-to-arm the BLOCK, then place it back, aimed exactly the same way
-     (no direction held, facing right) at the exact tile just mined. */
+  /* The block armed by a click, then placed back at the tile just mined,
+     aimed the same way. */
   await moveHeldToMain(page, 'soil', 'block');
   await page.evaluate(() => __mf.frames(1));
   const invSlot = await page.evaluate(async () => {
@@ -2754,9 +2397,7 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
     return invCount(S.soil, F.block);
   });
 
-  /* 'e' no longer places: placement is LMB only, and the LMB dispatch has its
-     own tests, so this pokes the same edge flag a real click ultimately
-     sets. */
+  /* Placement is LMB only; this pokes the same edge flag a real click sets. */
   await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(5));
 
@@ -2778,11 +2419,9 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
   expect(result.armedAfter).toBeNull();                // cleared on a successful placement
 });
 
-/* THE FEED VERB, end to end in a real browser -- which is the only place the
-   two halves this phase actually added can BOTH be exercised:
-   `tools/check.mjs` can fire `cmd.feed` but has no pointer, so it cannot prove
-   that a real `pointerdown` on a real machine is what sets the flag (LMB rule
-   2), and it cannot see the slot border light up at all. */
+/* The feed verb end to end: a real `pointerdown` on a real machine is what
+   sets the flag, and the armed slot's lit border is a pixel claim -- neither
+   of which a harness with no pointer and no canvas can make. */
 
 const FEED = { tx: 22, ty: 117, farTx: 18 };   // the furnace, and a spot well out of its reach
 
@@ -2790,12 +2429,9 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
   await boot(page);
   await settle(page);
 
-  /* A carved pocket in solid rock with a floor, the same hand-built scene
-     idiom every other machine test in this file uses rather than trusting
-     worldgen. The player starts at `farTx` -- 26 px clear of the footprint,
-     well outside `handFeed.reach` (10 px) -- so that opening the panel and
-     clicking a slot costs no ore to the magnet before the real measurement
-     even begins. */
+  /* A carved pocket in solid rock with a floor. The player starts at `farTx`,
+     26 px clear of the footprint and well outside `handFeed.reach` (10 px), so
+     the panel clicks below cost no ore to the magnet. */
   await page.evaluate(async ({ tx, ty, farTx }) => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
@@ -2818,20 +2454,14 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
     pw.set('onGround', true);
     __mf.give(S.copper, F.ore, 8);
     __mf.cmd.hasMouse = false;
-    /* LET THE CAMERA CONVERGE BEFORE ANY UI CLICK. `shell/main.js#draw`
-       snapshots `drawCam` and `applyUiIntents` hit-tests a click against
-       THAT, but `updateCamera` keeps easing `cam` toward the player at 5% a
-       substep -- so while the camera is still travelling a screen-space slot
-       rect and the pointer disagree by tens of pixels and a real click lands
-       nowhere. Teleporting the player is a test-only move a real session
-       never makes, so this is the test's own mess to clean up. Costs nothing
-       in ore: the player is `farTx`, well outside `handFeed.reach`. */
+    /* The camera has to converge before any UI click: `draw` snapshots
+       `drawCam` and `applyUiIntents` hit-tests against that, while
+       `updateCamera` eases `cam` toward the teleported player at 5% a substep. */
     __mf.frames(300);
   }, FEED);
 
-  /* Half one: a click on an ORE slot arms it. The click-to-arm gate used to
-     require a tile-capable form, a `rig` or a `phial` -- `ore` is none of the
-     three, so the click was a silent, complete no-op. */
+  /* A click on an ore slot arms it, though `ore` is neither tile-capable, a
+     `rig` nor a `phial`. */
   await moveHeldToMain(page, 'copper', 'ore');
   await page.evaluate(async () => {
     const { open, setTab } = await import('/src/shell/ui.js');
@@ -2856,10 +2486,8 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
   });
   expect(armed.armedPlace).toEqual({ sub: armed.sub, form: armed.form });
 
-  /* AND THE BORDER REALLY LIGHTS UP, because a test that asserts a feature is
-     visible has to prove the pixels differ with it off. Two draws with no
-     step between them, so nothing else can move, and the arm suppressed for
-     the first. Slot rects are recorded in SCREEN space, which is the
+  /* Two draws with no step between them and the arm suppressed for the first,
+     so only the arm can move a pixel. Slot rects are in screen space, the
      canvas's own space, so no camera term appears. */
   const border = await page.evaluate(async (slot) => {
     const { S } = await import('/src/data/substances.js');
@@ -2888,13 +2516,8 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
       for (let x = slot.x; x < slot.x + slot.w; x++)
         if (moved((y * c.width + x) * 4)) inside++;
 
-    /* THE SECOND REGION ARMING NOW OWNS: the IN HAND row above the
-       quickbar. This probe used to assert `total === inside` -- "the arm moved
-       pixels on that slot and NOWHERE else" -- which was true right up until
-       arming also had to say what it armed. The claim is unchanged in spirit
-       and stronger in letter: the arm moves the slot, moves the readout, and
-       moves NOTHING BEYOND THOSE TWO. Read off the quickbar's own drawn rect,
-       never a hardcoded row. */
+    /* The other region an arm paints: the IN HAND row above the quickbar,
+       read off the quickbar's own drawn rect rather than a hardcoded row. */
     const qb = __mf.ui.grids.find(gr => gr.id === 'quickbar');
     let readout = 0;
     for (let y = qb.y - 10; y < qb.y - 1; y++)
@@ -2902,21 +2525,19 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
         if (y >= 0 && moved((y * c.width + x) * 4)) readout++;
     return { total, inside, readout };
   }, oreSlot);
-  expect(border.inside).toBeGreaterThan(0);        // the border is actually painted...
+  expect(border.inside).toBeGreaterThan(0);        // the border is painted...
   expect(border.readout).toBeGreaterThan(0);       // ...so is the IN HAND readout...
   expect(border.total).toBe(border.inside + border.readout);   // ...and nothing else moved
 
-  /* half two: LMB on the furnace feeds it. Close the panel first, or
-     `shell/input.js` routes the click to the widget layer instead of the
-     world, which is exactly what it is supposed to do. */
+  /* LMB on the furnace feeds it. The panel closes first, or `shell/input.js`
+     routes the click to the widget layer instead of the world. */
   await page.evaluate(async ({ tx, ty }) => {
     const { closeTop } = await import('/src/shell/ui.js');
     const { bandOf, worldX, worldY } = await import('/src/model/world.js');
     const { write: pw } = await import('/src/model/player.js');
     closeTop();
-    /* 6 px of clear air between the player's right edge and the footprint:
-       PW is 6, so one tile-width minus 12. Inside `handFeed.reach`, which is
-       the whole point -- the shell's reach gate must call this "beside it". */
+    /* 6 px of clear air between the player's right edge and the footprint: PW
+       is 6, so one tile width minus 12, inside `handFeed.reach`. */
     const band = bandOf('topsoil');
     pw.move(worldX(band, tx) - 12, worldY(band, ty));
     pw.vel(0, 0);
@@ -2924,8 +2545,8 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
     __mf.frames(1);
   }, FEED);
 
-  /* THE CONTROL FRAME: in reach, nothing pressed. Whatever this costs is the
-     magnet's, and the press frame below is asserted against it. */
+  /* The control frame: in reach, nothing pressed, so whatever it costs is the
+     magnet's and the press frame below is measured against it. */
   const control = await page.evaluate(async ({ tx }) => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
@@ -2937,16 +2558,14 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
     return { pockets: p0 - invCount(S.copper, F.ore), buffer: count(m, '*/#ore') - b0 };
   }, FEED);
 
-  /* A REAL pointer over the furnace, and a real frame after the move so
-     `model/aim.js` catches up before `pointerdown` reads it -- the identical
-     gap `realRightClick` below documents for the deconstruct branch. */
+  /* A real pointer over the furnace, with a frame after the move so
+     `model/aim.js` catches up before `pointerdown` reads it. */
   const seen = await page.evaluate(async ({ tx, ty }) => {
     const { bandOf, worldX, worldY } = await import('/src/model/world.js');
     const band = bandOf('topsoil');
-    /* The centre of the furnace's LEFT column, in SCREEN px: nearest to the
-       player, so `eff('reach')`'s clamp in `rules/mining.js#aimAtWorld`
-       never comes into it, and derived from the band's own geometry rather
-       than typed as a pixel. */
+    /* The centre of the furnace's left column in screen px, nearest the
+       player so `eff('reach')`'s clamp in `rules/mining.js#aimAtWorld` stays
+       out of it, derived from the band's geometry rather than typed. */
     return { sx: worldX(band, tx) + 4 - __mf.cam.x, sy: worldY(band, ty) + 8 - __mf.cam.y };
   }, FEED);
   const at = await toClient(page, seen.sx, seen.sy);
@@ -2961,14 +2580,12 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
     };
   }, FEED);
   expect(aimed.valid).toBe(true);
-  expect(aimed.onMachine).toBe(true);         // the reticle really is over the furnace
+  expect(aimed.onMachine).toBe(true);         // the reticle is over the furnace
 
   await page.mouse.down();
 
-  /* THE DISPATCH ITSELF, read before a single frame runs: `pointerdown`
-     decided "feed" once, at the instant of the press (D-A), and recorded it
-     on `aim.mode` for the reticle. This is the assertion no headless harness
-     can make. */
+  /* Read before a frame runs: `pointerdown` decided "feed" at the instant of
+     the press and recorded it on `aim.mode` for the reticle. */
   const dispatched = await page.evaluate(() => ({ feed: __mf.cmd.feed, mode: __mf.aim.mode }));
   expect(dispatched.feed).toBe(true);
   expect(dispatched.mode).toBe('place');
@@ -2988,29 +2605,21 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
   }, FEED);
   await page.mouse.up();
 
-  /* THE MAGNET IS OFF, asserted rather than assumed. These two lines used to
-     read `1`, when the drain was live and unconditional and cost one unit a
-     substep; behind AUTO FEED, default off, the control frame is free -- so
-     the two assertions BELOW, the ones about the verb, did not have to change
-     at all. That is what measuring a DIFFERENCE bought. */
+  /* Auto-feed defaults off, so the control frame costs nothing. */
   expect(control.pockets).toBe(0);
   expect(control.buffer).toBe(0);
-  /* And the press is worth exactly ONE unit MORE than that frame was: one
-     press, one unit. */
+  /* The press is worth exactly one unit more than that frame: one press, one
+     unit. */
   expect(press.pockets).toBe(control.pockets + 1);
   expect(press.buffer).toBe(control.buffer + 1);
-  /* The edge was consumed, and the hand was NOT emptied -- ten ore in a row
-     is one continuous action. */
+  /* The edge was consumed and the hand is not emptied, so ten ore in a row is
+     one continuous action. */
   expect(press.feedFlag).toBe(false);
   expect(press.armedAfter).toEqual({ sub: armed.sub, form: armed.form });
 
-  /* half three: a WRONG pair, aimed at the same reachable furnace, through the
-     SAME real pointerdown path. `shell/input.js#feedTargetAt`'s first draft
-     required `feedCheck(.).ok` before rule 2 would even fire, which made both
-     of `feedCheck`'s refusal strings unreachable from a real click: the press
-     fell through to rule 3 (place) instead, and a rung armed here would land
-     INSIDE the furnace's own footprint rather than refuse to feed it -- found
-     by hand-verification and fixed by dropping that clause. */
+  /* A wrong pair at the same reachable furnace, through the same real
+     `pointerdown` path: the press still resolves as a feed and refuses, rather
+     than falling through to a placement inside the footprint. */
   await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
@@ -3045,20 +2654,14 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
 
   expect(wrongResult.why).toContain('IT DOES NOT WANT THAT');   // ...and says so
   expect(wrongResult.rungsLeft).toBe(2);                        // nothing spent
-  expect(wrongResult.placedThere).toBe(false);                  // and NOT placed inside the machine
+  expect(wrongResult.placedThere).toBe(false);                  // and not placed inside the machine
 });
-
-/* AUTO FEED -- THE SINGLE MOST. PLAYER-VISIBLE BEHAVIOUR CHANGE IN THIS WAVE,
-   end to end in a real browser, in three acts: 1. OFF (the default): walk a
-   full lap past a machine that accepts exactly what you are carrying, in and
-   back out of its reach, and lose NOTHING. 2. */
 
 const LAP = { tx: 22, ty: 117, startTx: 17, endTx: 27, ore: 8 };
 
-/* One lap: right until well past the footprint, then back left to where it
-   started, sampling the closest the player's box ever came to the machine's.
-   Returns the lap's cost in ore, its effect on the buffer, and that minimum
-   gap in px (negative = overlapping the footprint outright). */
+/* One lap: right until well past the footprint, then back left to the start,
+   sampling the closest the player's box came to the machine's. Returns ore
+   spent, the buffer's change, and that gap in px (negative = overlap). */
 const feedLap = page => page.evaluate(async ({ tx, endTx, startTx }) => {
   const { S } = await import('/src/data/substances.js');
   const { F } = await import('/src/data/forms.js');
@@ -3111,9 +2714,8 @@ test('AUTO FEED off (the default): a real lap past a hungry furnace costs nothin
     const { write: pw } = await import('/src/model/player.js');
     const { write: mw } = await import('/src/model/machines.js');
 
-    /* A carved corridor with a floor and a furnace standing on it -- the same
-       hand-built scene idiom every other machine test in this file uses
-       rather than trusting worldgen to put a walkable flat somewhere. */
+    /* A carved corridor with a floor and a furnace standing on it, rather than
+       a walkable flat trusted to worldgen. */
     const band = bandOf('topsoil');
     for (let y = ty - 6; y <= ty + 2; y++)
       for (let x = tx - 8; x <= tx + 8; x++) tw.clear(band, x, y);
@@ -3127,25 +2729,22 @@ test('AUTO FEED off (the default): a real lap past a hungry furnace costs nothin
     pw.set('onGround', true);
     __mf.give(S.copper, F.ore, ore);
     __mf.cmd.hasMouse = false;
-    /* LET THE CAMERA CONVERGE BEFORE ANY UI CLICK, for the reason the feed
-       test above documents at length: `applyUiIntents` hit-tests against the
-       camera `draw` snapshotted, and `updateCamera` is still easing toward a
-       teleported player for hundreds of substeps. Costs nothing in ore --
-       AUTO FEED is off, which is this test's whole first act. */
+    /* The camera converges before any UI click: `applyUiIntents` hit-tests
+       against the camera `draw` snapshotted, and `updateCamera` eases toward a
+       teleported player for hundreds of substeps. */
     __mf.frames(300);
   }, LAP);
 
-  /* THE DEFAULT IS OFF, read off the real projection rather than assumed --
-     `newRun` resets it, and `settle` above called `newRun`. */
+  /* The default is off, read off the real projection: `newRun` resets it. */
   expect(await page.evaluate(() => __mf.ui.autoFeed)).toBe(false);
 
   /* act 1: the lap costs nothing. */
   const off = await feedLap(page);
-  expect(off.minGap).toBeLessThan(0);      // really walked THROUGH the footprint...
+  expect(off.minGap).toBeLessThan(0);      // really walked through the footprint...
   expect(off.spent).toBe(0);               // ...and the pockets are untouched
   expect(off.buffered).toBe(0);            // ...and the buffer never saw a unit
 
-  /* act 2: turn it on with a REAL CLICK on the row `view` drew. */
+  /* act 2: turned on with a real click on the row `view` drew. */
   await page.evaluate(async () => {
     const { open, setTab } = await import('/src/shell/ui.js');
     open('main');
@@ -3154,16 +2753,14 @@ test('AUTO FEED off (the default): a real lap past a hungry furnace costs nothin
   });
 
   const row = await page.evaluate(() => __mf.ui.panels.find(p => p.id === 'main-auto-feed'));
-  expect(row).toBeTruthy();                // `view` really registered a rect for it
+  expect(row).toBeTruthy();                // `view` registered a rect for it
   await realClick(page, row.x + row.w / 2, row.y + row.h / 2);
 
   const toggled = await page.evaluate(() => ({
     autoFeed: __mf.ui.autoFeed, autoCollect: __mf.ui.autoCollect
   }));
   expect(toggled.autoFeed).toBe(true);
-  /* AND ONLY THAT ROW. The two toggles share a line, so a click that landed
-     on the wrong rect (or on the panel behind both) is exactly the mistake
-     worth catching here. */
+  /* The two toggles share a line, so only the clicked one may change. */
   expect(toggled.autoCollect).toBe(false);
 
   /* act 2b: the identical lap, and the magnet is back exactly. */
@@ -3175,32 +2772,25 @@ test('AUTO FEED off (the default): a real lap past a hungry furnace costs nothin
 
   const on = await feedLap(page);
   expect(on.minGap).toBeLessThan(0);
-  /* A furnace's ore cap is 8 (`data/machines.js#furnace`) and the pockets
-     hold exactly 8, so "the magnet took the lot" is a precise number rather
-     than "some". Nothing runs it -- no fuel was ever given -- so what went
-     in stays in and is countable. */
+  /* The furnace's ore cap is 8 and the pockets hold exactly 8, and with no
+     fuel given nothing consumes what went in, so the lot is countable. */
   expect(on.spent).toBe(LAP.ore);
   expect(on.buffered).toBe(LAP.ore);
 
-  /* act 3: a restart puts it back off (matching). */
+  /* act 3: a restart puts it back off. */
   await page.evaluate(() => { __mf.newRun(1337); __mf.frames(2); });
   expect(await page.evaluate(() => __mf.ui.autoFeed)).toBe(false);
 });
-
-/* Four baselines and four pixel probes. 16a built the feed verb and 16b made
-   the proximity magnet opt-in; NEITHER SAID ANYTHING ON SCREEN. */
 
 /* The furnace, the player beside it, and the tile the reticle sits on. `aimTx`
    is the furnace's own left column, so the ghost is over the machine and not
    over the air beside it. */
 const HAND = { tx: 22, ty: 117, playerTx: 20, aimed: true, aimTx: 22, aimTy: 117 };
 
-/* One scene, four states. `arm` names which pair goes into the hand:
-   'ore' | 'rung' | 'phial' | null. `buffer` pre-loads the furnace's ore
-   clause so `feedCheck`'s `have`/`cap` has something to print other than
-   0/8. `aimed:false` leaves the reticle invalid, which is the state the IN
-   HAND shot wants -- nothing open AND no ghost, so the readout is the only
-   thing on screen that says what is in the hand. */
+/* One scene, four states. `arm` names the pair that goes into the hand
+   ('ore' | 'rung' | 'phial' | null), `buffer` pre-loads the furnace's ore
+   clause so `feedCheck` has a `have`/`cap` other than 0/8, and `aimed:false`
+   leaves the reticle invalid so nothing draws a ghost. */
 async function handScene(page, spec) {
   return page.evaluate(async (spec) => {
     const { S } = await import('/src/data/substances.js');
@@ -3225,11 +2815,9 @@ async function handScene(page, spec) {
 
     const m = mw.place(band, M.furnace, tx, ty);
 
-    /* A FUELLED BRAZIER, BECAUSE A BASELINE NOBODY CAN SEE IS NOT A BASELINE.
-       This room is 117 rows down in `topsoil` and sealed on every side, so
-       `rules/light.js` leaves it at the floor value and the first take of `in-
-       hand-rung.png` was a black rectangle with a HUD on it -- true, and
-       useless for the human judgement a screenshot exists to support. */
+    /* Two fuelled braziers: the room is 117 rows down and sealed, so
+       `rules/light.js` leaves it at the floor value and the shot would
+       otherwise be a black rectangle with a HUD on it. */
     for (const bx of [tx - 5, tx + 4]) {
       const brazier = mw.place(band, M.brazier, bx, ty);
       mw.take(brazier, S.timber, F.log, 4);
@@ -3240,15 +2828,11 @@ async function handScene(page, spec) {
     pw.vel(0, 0);
     pw.set('onGround', true);
     __mf.cmd.hasMouse = false;
-    banner.fade = 0;                 // past the title card, as `winchScene` does
+    banner.fade = 0;                 // past the title card
 
-    /* THE HAND IS STOCKED FROM THE QUICKBAR END ON PURPOSE. `frameSlot`'s
-       double frame has two callers and the quickbar's 14 px cell is the
-       one that is on screen with every panel shut, so an armed pair must
-       actually live in a quickbar slot for `in-hand-rung.png` to show it.
-       `write.collect` only ever allocates in the MAIN range, so this is the
-       collect-then-`moveSlot` idiom `putInQuickbar` above already uses,
-       inlined here because this scene stocks three pairs at once. */
+    /* An armed pair has to live in a quickbar cell to be on screen with every
+       panel shut, and `write.collect` only allocates in the main range, so this
+       is `putInQuickbar`'s collect-then-`moveSlot`, inlined for three pairs. */
     const PAIRS = {
       ore:   [S.copper, F.ore, 3],
       rung:  [S.timber, F.rung, 4],
@@ -3262,19 +2846,12 @@ async function handScene(page, spec) {
       runw.moveSlot(idx, run.mainSlots + qslot++);
     }
 
-    /* 700 SUBSTEPS: past the brazier's own 6 s honest-fuel recipe, then a
-       settle, exactly as `shaft-lit.png` runs it. Nothing is held, so the
-       player only stands there. */
+    /* Past the brazier's own 6 s fuel recipe, then a settle. */
     __mf.frames(700);
 
-    /* THE FURNACE'S ORE CLAUSE, PRE-LOADED, AND *AFTER* THE SUBSTEPS -- the
-       same "set the state the spec DECLARES last" rule `winchScene`'s own
-       carrier block learned. `feedCheck` reports the matched
-       SELECTOR's fill, not the machine's, so this is fed through the real
-       `write.take` and read back through the real `count`/`capOf` -- the same
-       two the ghost prints -- rather than asserted from a remembered number.
-       NO SUBSTEPS AFTER THIS POINT: `rules/machines.js#step` owns this buffer
-       and `updateCamera` owns the camera the shot parks below. */
+    /* The ore clause is loaded after the substeps, and no substep runs after
+       this point: `rules/machines.js#step` owns the buffer and `updateCamera`
+       owns the camera the shot parks below. */
     const def = MACH[m.def];
     if (spec.buffer) mw.take(m, S.copper, F.ore, spec.buffer);
 
@@ -3286,9 +2863,8 @@ async function handScene(page, spec) {
     if (spec.aimed) aimw.set(band, spec.aimTx, spec.aimTy, true);
     else aimw.set(band, 0, 0, false);
 
-    /* CENTRED, and read off `VIEW` rather than a hardcoded 640x400 -- the
-       base buffer is a function of the window (`core/canvas.js#resize`) and a
-       hardcoded size here is the same defect as a hardcoded click. */
+    /* Centred off `VIEW`, not a hardcoded size: the base buffer is a function
+       of the window in `core/canvas.js#resize`. */
     __mf.cam.x = Math.round(worldX(band, tx) - VIEW.w / 2);
     __mf.cam.y = Math.round(worldY(band, ty) - VIEW.h / 2);
     __mf.draw();
@@ -3304,10 +2880,9 @@ async function handScene(page, spec) {
   }, { ...HAND, ...spec });
 }
 
-/* TWO DRAWS, ZERO STEPS, ONE DIFFERENCE. `action` is one of the four names
-   below and is the ONLY thing that runs between the two draws, so anything the
-   returned counts show moving is attributable to it and to nothing else no
-   substep, no camera ease, no clock advance. */
+/* Two draws with `action` the only thing running between them -- no substep,
+   no camera ease, no clock advance -- so every moved pixel is attributable to
+   it. */
 async function pixelDelta(page, action, box = null) {
   return page.evaluate(async ({ action, box }) => {
     const { S } = await import('/src/data/substances.js');
@@ -3350,8 +2925,7 @@ test('16c: IN HAND names the armed pair with every panel closed, and the armed s
   await settle(page);
   const r = await handScene(page, { arm: 'rung', aimed: false });
 
-  /* THE ACCEPTANCE CONDITION, ASSERTED AND NOT JUST PHOTOGRAPHED: nothing is
-     open, and the pair the readout names is really in the hand. */
+  /* Nothing is open, and the pair the readout names is really in the hand. */
   expect(r.panels).toBe(0);
   expect(r.armed).not.toBe(null);
   expect(r.quickbar).not.toBe(null);
@@ -3363,21 +2937,17 @@ test('16c: the IN HAND line is not vacuous -- it exists only while something is 
   await settle(page);
   const r = await handScene(page, { arm: 'rung', aimed: false });
 
-  /* THE BAND THE READOUT OWNS: the full width of the screen, from just above
-     the quickbar's top edge to that edge. Deliberately not the text's own
-     measured rect -- that would be this test re-deriving `inHand`'s layout
-     and then proving its own arithmetic. A row of the HUD that was blank
-     before the arm and is not blank after it is the claim. */
+  /* The band the readout owns: full screen width, from just above the
+     quickbar's top edge to that edge. Not the text's own measured rect, which
+     would re-derive `inHand`'s layout and prove only this test's arithmetic. */
   const band = { x: 0, y: r.quickbar.y - 10, w: 4096, h: 9 };
 
   const off = await pixelDelta(page, 'clear', band);
-  expect(off.inside).toBeGreaterThan(0);          // the line really is painted there...
+  expect(off.inside).toBeGreaterThan(0);          // the line is painted there...
   expect(off.total).toBeGreaterThan(off.inside);  // ...and the slot frame moved too
 
-  /* AND THE ROW IS EMPTY WITH NOTHING ARMED, which is the other half of "drawn
-     ONLY when armed". Re-arming from the cleared state must move exactly the
-     same pixels back -- an equality, not an inequality, because the two
-     transitions are each other's inverse. */
+  /* Re-arming from the cleared state moves exactly the same pixels back, an
+     equality because the two transitions are each other's inverse. */
   const on = await pixelDelta(page, 'arm-rung', band);
   expect(on.inside).toBe(off.inside);
   expect(on.total).toBe(off.total);
@@ -3388,8 +2958,8 @@ test('16c: the feed preview says a furnace WILL take the armed ore, and how full
   await settle(page);
   const r = await handScene(page, { arm: 'ore', buffer: 3 });
 
-  /* The numbers the ghost prints, read back through the SAME model queries it
-     reads them through -- so this asserts "3 of 8", not a remembered string. */
+  /* The numbers the ghost prints, read back through the same model queries, so
+     this asserts 3 of 8 rather than a remembered string. */
   expect(r.buffered).toBe(3);
   expect(r.cap).toBe(8);
   expect(await page.evaluate(async ({ tx }) => {
@@ -3422,9 +2992,8 @@ test('16c: the feed preview is not vacuous -- accepting, refusing and unarmed ar
   await settle(page);
   await handScene(page, { arm: 'ore', buffer: 3 });
 
-  /* THE FOOTPRINT, IN SCREEN SPACE, derived from the machine's own world box
-     and the parked camera -- the region the outline and its label own,
-     padded upwards by the label's one line. */
+  /* The footprint in screen space, from the machine's world box and the parked
+     camera, padded up by the label's own line. */
   const box = await page.evaluate(async ({ tx }) => {
     const m = __mf.machines.find(mm => mm.tx === tx);
     return {
@@ -3437,9 +3006,8 @@ test('16c: the feed preview is not vacuous -- accepting, refusing and unarmed ar
   const gone = await pixelDelta(page, 'clear', box);
   expect(gone.inside).toBeGreaterThan(0);
 
-  /* nothing -> a rung: it comes back in the refusal's colour with the
-     refusal's words, which is a DIFFERENT picture from the accepting one --
-     not merely "something is drawn". */
+  /* nothing -> a rung: the preview comes back in the refusal's colour and
+     words, a different picture from the accepting one. */
   const refused = await pixelDelta(page, 'arm-rung', box);
   expect(refused.inside).toBeGreaterThan(0);
   expect(refused.inside).not.toBe(gone.inside);
@@ -3473,22 +3041,10 @@ test('16c: the miracle ghost is not vacuous -- armed and unarmed differ at the r
   expect(gone.inside).toBeGreaterThan(0);
 });
 
-/* FEATURE 1 (the stalled-machine warning + hover status/producing line) and
-   FEATURE 2 (right-click deconstruct), end to end: the full furnace build
-   lifecycle, screenshotted at five stages -- opening the crafting UI, the
-   armed ghost preview, placed-but-starved (the new no-fuel badge), fuelled but
-   unresourced (idle), and finally producing (running) -- with the hover
-   tooltip's status/producing line checked at the last three, and a right-click
-   deconstruct at the very end. */
-
-/* The identical down-frame-up-frame shape `realClick` above already uses,
-   but for the RIGHT button. Feature 2's own dispatch (`shell/input.js`'s
-   pointerdown handler) branches on `model/aim.js#aim`, which is only
-   resolved fresh inside `step` -- a frame after the move and before the
-   down is what lets `aim` catch up to the new pointer position before the
-   handler reads it, exactly the gap a real user's mouse motion (which spans
-   several rendered frames before a click ever lands) closes for free and a
-   scripted, zero-time move does not. */
+/* The down-frame-up shape `realClick` uses, for the right button.
+   `shell/input.js`'s pointerdown handler branches on `model/aim.js#aim`, which
+   resolves only inside `step`, so a frame after the move lets `aim` catch up
+   to the pointer before the handler reads it. */
 async function realRightClick(page, sx, sy) {
   const { x, y } = await toClient(page, sx, sy);
   await page.mouse.move(x, y);
@@ -3503,27 +3059,13 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
   await boot(page);
   await settle(page);
 
-  /* Walk over the stock pickaxe first and collect it -- not because this test
-     digs anything, but because it otherwise sits on the ground near spawn as
-     a loose world item, and `view/hover.js`'s own priority (a falling item
-     beats a machine) would have it win every hover check below the moment it
-     falls within the furnace's own generous hover radius. */
+  /* The stock pickaxe is collected first because it otherwise lies near spawn
+     as a loose item, and `view/hover.js` ranks a falling item above a machine,
+     so it would win every hover check below. */
   await page.evaluate(async () => {
-    /* Pickup is opt-in rather than automatic, so
-       turn the magnet ON for the whole scene, both for the walk-over just
-       below and for the deconstruct refund at the very end of this test,
-       rather than holding 'c' through two separate windows. A SETTER, not a
-       toggle. */
-    /* AND AUTO FEED, for stages 4 and 5:
-       the proximity drain is opt-in and off by default now, and those two
-       stages give the furnace its fuel and its ore by putting them in the
-       pockets and waiting. THE FLAG, NOT THE REAL FEED VERB, deliberately:
-       this test's subject is the machine's LOOK and its hover status lines
-       across a lifecycle -- NO FUEL, IDLE, RUNNING, MAKING SMELT -- and how
-       the material got into the buffer is not what any of its six
-       screenshots or ten assertions are about. The real verb has its own
-       end-to-end test ("REAL CLICK: clicking an ore slot arms it...").
-       A SETTER, not a toggle. */
+    /* Auto-collect for the walk-over below and for the deconstruct refund at
+       the end; auto-feed because stages 4 and 5 give the furnace its fuel and
+       ore by putting them in the pockets and waiting. */
     const { setAutoCollect, setAutoFeed } = await import('/src/shell/ui.js');
     setAutoCollect(true);
     setAutoFeed(true);
@@ -3539,15 +3081,12 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
     const { banner } = await import('/src/view/fx.js');
     __mf.revealAll(bandOf('surface'));
     __mf.cmd.hasMouse = false;
-    /* `settle` only advances `clock.t`, not `stepFx` (what actually decays
-       the opening title) -- and `view/hud.js#drawHUD` draws the title card
-       INSTEAD OF the tooltip for as long as `banner.fade > 0`, so hover
-       would silently never resolve anything for the rest of this test
-       without this. Same fix `hovering an inventory pair...` above already
-       needs and gives the identical reason for. */
+    /* `drawHUD` draws the title card instead of the tooltip while
+       `banner.fade > 0`, and `settle` advances `clock.t` without running
+       `stepFx`, so hover would never resolve anything below. */
     banner.fade = 0;
   });
-  await page.keyboard.press('e');       // opens the main panel -- 'i' retired
+  await page.keyboard.press('e');       // opens the main panel
   await page.evaluate(() => __mf.frames(1));
 
   let ui = await page.evaluate(() => __mf.ui);
@@ -3559,15 +3098,12 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
   expect(ui.tab.main).toBe('craft');
   await shot(page, 'furnace-lifecycle-1-crafting-ui.png');
 
-  /* stage 2: grant a furnace/rig, arm it by clicking its Character-tab
-     slot (click-to-arm), aim it, and screenshot the ghost BEFORE confirming
-     the placement */
+  /* stage 2: arm a furnace/rig by clicking its Character-tab slot, aim it, and
+     shoot the ghost before the placement is confirmed. */
   await page.evaluate(async () => {
     const { write } = await import('/src/model/run.js');
     const { setTab } = await import('/src/shell/ui.js');
-    /* The furnace is cycle 1's reward, not a starting
-       grant -- this stage's own comment already said "grant a furnace/rig",
-       it just didn't have to say it in code until now. */
+    /* The furnace is cycle 1's reward, granted here rather than earned. */
     write.grant('furnace');
     setTab('main', 'char');
   });
@@ -3590,13 +3126,9 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
   });
   expect(armed.armedPlace).toEqual({ sub: armed.sub, form: armed.form });
 
-  /* Keyboard aim, no direction held -- the same "aims to the side, at the
-     player's own row" recipe `a placed furnace` proves lands on open air
-     with a floor beneath it. Closed with 'e' (NOT Escape, which also clears
-     the arm) so the ghost is not drawn underneath the panel -- 'e' toggles
-     the panel open/closed and touches nothing else (`shell/input.js`'s own
-     handler is a bare `toggle('main')`), the same reason 'i' was originally
-     chosen over Escape here, before 'i' was retired. */
+  /* Keyboard aim with no direction held lands to the side, at the player's own
+     row, on open air with a floor beneath it. Closed with 'e' rather than
+     Escape, which would also clear the arm, so the ghost is not under the panel. */
   await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(1); });
   await page.keyboard.press('e');
   await page.evaluate(() => __mf.frames(1));
@@ -3609,9 +3141,7 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
   await shot(page, 'furnace-lifecycle-2-ghost.png');
 
   /* stage 3: confirm the placement -- placed, no fuel. */
-  /* 'e' no longer places: placement is LMB only, and the LMB dispatch has its
-     own tests, so this pokes the same edge flag a real click ultimately
-     sets. */
+  /* Placement is LMB only; this pokes the same edge flag a real click sets. */
   await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(5));
 
@@ -3620,8 +3150,8 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
     const { F } = await import('/src/data/forms.js');
     const { M } = await import('/src/data/machines.js');
     const { invCount } = await import('/src/model/run.js');
-    /* Exclude the director's own altar (`rules/cycles.js#ensureAltarPlaced`) --
-       this test's point is that exactly the furnace just placed exists. */
+    /* Excludes the director's own altar, so this counts the furnace just
+       placed. */
     return {
       machines: __mf.machines.filter(m => m.def !== M.altar).length,
       rig: invCount(S.furnace, F.rig), armedAfter: __mf.ui.armedPlace
@@ -3633,13 +3163,9 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
 
   await shot(page, 'furnace-lifecycle-3-no-fuel.png');
 
-  /* Hover the placed machine's own centre -- world px converted to screen by
-     subtracting the CURRENT camera, the same conversion `resolveHover`
-     itself undoes. One round trip, so the camera read and the hover read
-     can never disagree about which frame they describe. */
-  /* `machines[0]` is no longer reliably the furnace this test placed --
-     the director's own altar (`rules/cycles.js#ensureAltarPlaced`) can be in
-     the array too, so this looks the furnace up by def instead. */
+  /* Hovers the machine's centre, world px converted to screen by subtracting
+     the current camera, in one round trip so the camera read and the hover read
+     describe the same frame. Looked up by def: the altar is in the array too. */
   const hoverMachine = () => page.evaluate(async () => {
     const { M } = await import('/src/data/machines.js');
     const m = __mf.machines.find(mm => mm.def === M.furnace);
@@ -3653,11 +3179,9 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
   expect(hover.lines[0]).toBe('CRUDE FURNACE');
   expect(hover.lines[1]).toBe('NO FUEL');
 
-  /* stage 4: fuelled, no resources -- idle. Exactly the smelt recipe's
-     own fuel bill (`data/recipes.js#smelt`: 1 fuel), pulled into the
-     furnace's buffer by hand-feed the moment the player is in reach --
-     placement anchored the footprint immediately beside where the player is
-     already standing, so no repositioning is needed. */
+  /* stage 4: fuelled, no resources -- idle. Exactly `data/recipes.js#smelt`'s
+     fuel bill of 1, pulled in as soon as the player is in reach, the footprint
+     having been anchored beside where they already stand. */
   await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
@@ -3671,10 +3195,9 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
   expect(hover.lines[1]).toBe('IDLE');
   expect(hover.lines.some(l => l.startsWith('MAKING'))).toBe(false);
 
-  /* stage 5: fuelled AND resourced -- producing. Exactly the smelt
-     recipe's own ore bill (4 ore), so exactly one cycle fires and the
-     buffer empties itself afterward with nothing left in the pockets to
-     refill it -- the state the deconstruct at the end of this test needs. */
+  /* stage 5: fuelled and resourced -- producing. Exactly the smelt recipe's
+     4 ore, so one cycle fires and the buffer empties with nothing left to
+     refill it, which is the state the deconstruct below needs. */
   await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
@@ -3694,10 +3217,9 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
   expect(hover.lines[1]).toBe('RUNNING');
   expect(hover.lines[2]).toBe('MAKING SMELT');
 
-  /* right-click deconstruct: let the one smelt cycle actually finish
-     and drain the buffer empty first -- `rules/placement.js#deconstruct`
-     refuses ("EMPTY IT FIRST") while anything is still buffered. */
-  await page.evaluate(() => __mf.frames(600));   // several 4.0s smelt-cycles' worth of margin
+  /* The smelt cycle finishes and the buffer drains first:
+     `rules/placement.js#deconstruct` refuses while anything is buffered. */
+  await page.evaluate(() => __mf.frames(600));   // several 4.0 s smelt cycles' worth of margin
 
   const drained = await page.evaluate(async () => {
     const { M } = await import('/src/data/machines.js');
@@ -3722,22 +3244,16 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
     const { write: pw, PW } = await import('/src/model/player.js');
     const { M } = await import('/src/data/machines.js');
 
-    /* The refund is a FALLING item, never a direct pocket credit -- it needs to
-       land and then sit within `eff('pickupR')` (10 px) of the player before
-       the pockets reflect it. The toss is randomised sideways
-       (`eff('tossSpread')`) and the player was not necessarily still
-       standing exactly where they will land, so this steps in to close that
-       last few pixels directly rather than guessing a walk direction --
-       the same "arrange the scenario, not re-prove movement" reasoning
-       `__mf.give` itself already documents. */
+    /* The refund is a falling item, never a pocket credit: it has to land
+       within `eff('pickupR')` (10 px) of the player, and the toss is
+       randomised sideways, so the player is moved onto where it landed. */
     __mf.frames(30);                     // let it fall and come to rest
     const dropped = items.find(it => it.sub === S.furnace && it.form === F.rig);
     if (dropped) pw.move(dropped.x - PW / 2, __mf.player.y);
     __mf.frames(200);
 
-    /* Exclude the director's own altar (`rules/cycles.js#ensureAltarPlaced`) --
-       this test deconstructed the furnace, not the altar, so the furnace's
-       own count is what should read 0, not the world's total. */
+    /* Excludes the director's own altar: the furnace's own count is what
+       reads 0. */
     return {
       machines: __mf.machines.filter(m => m.def !== M.altar).length,
       rigBack: invCount(S.furnace, F.rig), droppedFound: !!dropped
@@ -3749,8 +3265,7 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
 });
 
 /* Dev serves src/ untransformed; dist is bundled and minified by esbuild.
-   That is a real divergence risk, so it is asserted rather than assumed.
-   Requires `npm run build` first — `npm run parity` does both. */
+   Requires `npm run build` first -- `npm run parity` does both. */
 test('parity: the built artifact renders identically to dev', async ({ page }) => {
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
@@ -3785,11 +3300,6 @@ test('parity: the built artifact renders identically to dev', async ({ page }) =
   expect(built.hash).toBe(dev.hash);
 });
 
-/* Twenty-one baselines, because the machinery is a family of shapes that only
-   read correctly in relation to each other: a gear train that MESHES is only
-   legible next to one that does not, a loaded carrier only next to an empty
-   one, and a lit segment only next to the same segment in the dark. */
-
 async function winchScene(page, spec) {
   return page.evaluate(async (spec) => {
     const { S } = await import('/src/data/substances.js');
@@ -3807,9 +3317,8 @@ async function winchScene(page, spec) {
     const band = bandOf(spec.band || 'surface');
     const { tx0, ty0, w, h } = spec.room;
 
-    /* Carved from ROW 0 unless `sealed`, so the shaft is sky-exposed and
-       `rules/light.js` floods it at `lightMax`. A sealed room is the unlit
-       half of the lit/unlit pair, and is the reason that flag exists. */
+    /* Carved from row 0 unless `sealed`, so the shaft is sky-exposed and
+       `rules/light.js` floods it at `lightMax`. */
     for (let ty = spec.sealed ? ty0 : 0; ty < ty0 + h; ty++)
       for (let tx = tx0; tx < tx0 + w; tx++) tw.clear(band, tx, ty);
     for (let tx = tx0; tx < tx0 + w; tx++) tw.set(band, tx, ty0 + h - 1, S.stone);
@@ -3834,37 +3343,25 @@ async function winchScene(page, spec) {
     __mf.cmd.hasMouse = false;
     __mf.frames(spec.frames ?? 4);
 
-    /* CARRIER POSITION, LOAD AND ROTATION PHASE ARE SET *AFTER* THE SUBSTEPS.
-       `rules/drive.js` owns all three -- it slides an unpowered carrier down
-       the cable every substep, recomputes `load` from what is actually
-       aboard, and advances `turn` for every drivetrain node -- so a value
-       written before `frames` is a value the simulation immediately
-       overwrites. Set here, the shot photographs the state the spec
-       DECLARES, which is what an appearance baseline is for, and the
-       assertions each test makes about its own `t`/`load` stay true. The
-       MOVING states are a separate matrix; this one is deliberately static. */
+    /* Carrier position, load and rotation phase are set after the substeps:
+       `rules/drive.js` owns all three and overwrites anything written before
+       `frames`. These shots are deliberately static. */
     for (const [i, t, load] of spec.carriers || []) {
       segw.carrier(segments[i], t, 0);
       segw.load(segments[i], load || 0);
     }
     for (const [i, phase] of spec.turns || []) mw.turn(placed[i], phase);
 
-    /* ARMED AND AIMED LAST, and both through the model. `aim` is clamped to
-       the player's own `eff('reach')` by `rules/mining.js#aimAtWorld` -- 3.2
-       tiles -- so a ghost stretched to a hub twelve tiles away cannot be
-       produced by moving a pointer at all, and the reach clip could never be
-       photographed that way. Setting `aim` directly is the model's own
-       statement of where the reticle is. */
+    /* Armed and aimed last, through the model: `rules/mining.js#aimAtWorld`
+       clamps a pointer to `eff('reach')`, 3.2 tiles, so a ghost stretched to a
+       hub twelve tiles away cannot be produced by moving a pointer at all. */
     if (spec.arm !== undefined) {
       armLink(placed[spec.arm]);
       aimw.set(band, spec.aimAt[0], spec.aimAt[1], true);
     }
 
-    /* THE ROOM IS CENTRED IN THE VIEWPORT, not pinned to its top-left corner.
-       Pinned was the first attempt and every shot in the matrix put the
-       machinery in the top-left sixth of a 640x400 frame with five sixths of
-       black rock beside it -- unreviewable, which for a baseline whose whole
-       purpose is a human looking at it is a defect. */
+    /* The room is centred in the viewport rather than pinned to its
+       top-left corner. */
     const { VIEW } = await import('/src/core/canvas.js');
     __mf.cam.x = Math.round(worldX(band, tx0) + w * band.tile / 2 - VIEW.w / 2)
                + (spec.offset?.[0] ?? 0);
@@ -3882,8 +3379,7 @@ async function winchScene(page, spec) {
 }
 
 /* A vertical shaft four tiles wide with rock either side, used by the chain
-   shots so the mid-chain hubs read as bracketed to a wall rather than
-   floating. `tx0+1.. tx0+4` is carved; the cable runs inside it. */
+   shots; `tx0+1..tx0+4` is carved and the cable runs inside it. */
 const SHAFT = { tx0: 41, ty0: 24, w: 6, h: 23 };
 const ROOM  = { tx0: 40, ty0: 28, w: 15, h: 18 };
 const TALL  = { tx0: 40, ty0: 24, w: 16, h: 22 };
@@ -3908,11 +3404,9 @@ test('winch: two hubs, not linked', async ({ page }) => {
   await shot(page, 'winch-hubs-unlinked.png');
 });
 
-/* THE SAME VERTICAL SEGMENT AT THREE CARRIER POSITIONS. Three baselines and
-   not one, because the bucket chain is PHASE-LOCKED to the carrier: every
-   bucket on the cable moves with it, so `t` changes the whole picture and not
-   just one sprite's position. If a future change broke the phase lock, the
-   bottom shot would still pass and the middle one would not. */
+/* The same vertical segment at three carrier positions: the bucket chain is
+   phase-locked to the carrier, so `t` changes the whole picture rather than one
+   sprite's position. */
 const VERTICAL = {
   room: ROOM, machines: [['hub', 44, 43], ['hub', 44, 33]], links: [[0, 1]],
   player: [41, 43]
@@ -3938,10 +3432,9 @@ test('winch: a loaded carrier', async ({ page }) => {
   await shot(page, 'winch-carrier-loaded.png');
 });
 
-/* THREE ANGLES AND A HORIZONTAL, and the angle is asserted rather than
-   trusted: `slope` is the number `rules/drive.js` divides gravity by,
-   so a shot named "45 degrees" whose slope had drifted would be a
-   baseline of the wrong mechanic. */
+/* Three angles and a horizontal, with `slope` asserted: it is the number
+   `rules/drive.js` divides gravity by, so a shot named "45" whose slope had
+   drifted would baseline the wrong mechanic. */
 const ANGLES = [
   ['30', ['hub', 52, 37], 0.51],
   ['45', ['hub', 50, 35], 0.71],
@@ -3973,9 +3466,9 @@ test('winch: a crank alone', async ({ page }) => {
   await shot(page, 'winch-crank.png');
 });
 
-/* A CRANK, TWO GEARS AND A HUB, all orthogonally adjacent -- the drivetrain
-   `rules/drive.js` actually solves, drawn so it reads as one continuous run of
-   meshed teeth. Every footprint here shares a full edge with the next. */
+/* A crank, two gears and a hub, all orthogonally adjacent: every footprint
+   shares a full edge with the next, which is the drivetrain
+   `rules/drive.js` solves. */
 test('winch: a crank, a two-gear train and a hub', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -3988,11 +3481,9 @@ test('winch: a crank, a two-gear train and a hub', async ({ page }) => {
   await shot(page, 'winch-train.png');
 });
 
-/* THE ONE SHOT THAT HAS TO TEACH A RULE. docs/PLAN A3: diagonals do not
-   conduct torque, a corner needs a gear IN it. Left, a diagonal pair with
-   nothing bridging the corner; right, the same corner done properly with a
-   third gear in it. A human looking at this baseline should be able to say
-   which one turns without being told. */
+/* Diagonals do not conduct torque; a corner needs a gear in it. Left, a
+   diagonal pair with nothing bridging the corner; right, the same corner with
+   a third gear in it. */
 test('winch: a diagonal gear pair does not mesh, and a cornered one does', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -4007,11 +3498,9 @@ test('winch: a diagonal gear pair does not mesh, and a cornered one does', async
   await shot(page, 'winch-gears-diagonal.png');
 });
 
-/* A THREE-SEGMENT CHAIN, AND THE SAME CHAIN WITH THE MIDDLE ONE MISSING.
-   `model/segments.js#chains` is derived and never stored, so what a human
-   has to be able to see here is that a complete chain reads as continuous and
-   a broken one reads as broken -- which is the whole of what the
-   overview draws from the same query. */
+/* A three-segment chain, and the same chain with the middle one missing.
+   `model/segments.js#chains` is derived and never stored, so these two are the
+   difference between a chain that reads continuous and one that reads broken. */
 const CHAIN = {
   room: SHAFT,
   machines: [['hub', 42, 44], ['hub', 44, 38], ['hub', 42, 32], ['hub', 44, 26]],
@@ -4041,12 +3530,9 @@ test('winch: the same chain with the middle segment missing', async ({ page }) =
   await shot(page, 'winch-chain-gap.png');
 });
 
-/* A NONZERO ROTATION PHASE, written through `model/machines.js#write.turn`.
-   Nothing else in the game writes it; this is the baseline that
-   says what a turning train is supposed to look like when it does, and it is
-   also the proof that the phase comes from a MODEL number rather than from a
-   frame counter -- the same spec drawn twice at the same phase is the same
-   pixels, which is what `maxDiffPixels: 0` is asserting for every shot here. */
+/* A nonzero rotation phase, written through `model/machines.js#write.turn`, so
+   the phase comes from a model number rather than a frame counter: the same
+   spec drawn twice at the same phase is the same pixels. */
 test('winch: a gear train at a nonzero rotation phase', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -4060,13 +3546,9 @@ test('winch: a gear train at a nonzero rotation phase', async ({ page }) => {
   await shot(page, 'winch-turned.png');
 });
 
-/* the cable ghost
-   THE PAIR RULE APPLIES HERE MORE THAN ANYWHERE. `winch-ghost-none.png` is the SAME
-   scene as
-   `winch-ghost-ok.png` with nothing armed, and the test below it reads both
-   canvases back and asserts they actually differ -- so a change that made the
-   ghost draw nothing at all would fail on the comparison rather than quietly
-   re-baselining a picture of two hubs. */
+/* `winch-ghost-none.png` is this same scene with nothing armed, and the third
+   test reads both canvases back and asserts they differ, so a ghost that drew
+   nothing would fail the comparison rather than re-baseline two hubs. */
 const GHOST = {
   room: TALL, machines: [['hub', 44, 43], ['hub', 44, 35]], player: [42, 43]
 };
@@ -4134,12 +3616,9 @@ test('winch: the cable ghost, THE PATH IS BLOCKED', async ({ page }) => {
   await shot(page, 'winch-ghost-blocked.png');
 });
 
-/* the lit / unlit pair
-   A segment emits no light of its own and no row says it should, so a cable
-   in a sealed shaft is as dark as the rock around it. Two baselines, for the
-   reason the existing shaft pair states: a regression that made the darkness
-   pass skip live-drawn machinery would have to move one of these against its
-   OWN accepted baseline, not merely look plausible beside the other. */
+/* A segment emits no light of its own, so a cable in a sealed shaft is as dark
+   as the rock around it. Baselined both ways, so a darkness pass that skipped
+   live-drawn machinery would have to move one of them. */
 const DARK_SHAFT = {
   room: { tx0: 40, ty0: 30, w: 10, h: 16 }, sealed: true,
   machines: [['hub', 42, 43], ['hub', 42, 33]], links: [[0, 1]],
@@ -4167,11 +3646,9 @@ test('winch: the same segment lit by a brazier', async ({ page }) => {
   await shot(page, 'winch-lit.png');
 });
 
-/* RENDER PURITY OVER EVERY NEW DRAW PATH: a cable, a bucket
-   chain, a carrier with cargo, a turned gear train and the cable ghost, all
-   on screen at once, drawn twice -- and `model/epoch.js` must not move. The
-   headless harness in `tools/check.mjs` asserts the same thing over the
-   default scene, which contains none of this. */
+/* A cable, a bucket chain, a carrier with cargo, a turned gear train and the
+   cable ghost, all on screen at once and drawn twice: `model/epoch.js` must
+   not move. */
 test('winch: drawing the whole family writes nothing to the model', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -4194,10 +3671,9 @@ test('winch: drawing the whole family writes nothing to the model', async ({ pag
   expect(moved).toBe(0);
 });
 
-/* These six are the states that only exist while something is moving, and
-   every number in them is the simulation's own: nothing is written after
-   `frames`, so a carrier's position is wherever `rules/drive.js` put it and a
-   gear's phase is however far it actually turned. */
+/* The states that exist only while something is moving. Nothing is written
+   after `frames`, so a carrier's position is wherever `rules/drive.js` put it
+   and a gear's phase is however far it actually turned. */
 
 /* Cranks every two rows up a wall, bottom-to-top, all footprint-adjacent and
    therefore all one drivetrain component. */
@@ -4225,14 +3701,9 @@ async function driveScene(page, spec) {
     const { banner } = await import('/src/view/fx.js');
     const { VIEW } = await import('/src/core/canvas.js');
 
-    /* Pickup is opt-in rather than automatic, so
-       turn the magnet ON for every scene this helper builds, so the
-       boot-placed stock pickaxe near spawn (`shell/boot.js`) is swept up as
-       it always was rather than sitting as incidental clutter a teleported
-       player happens to land near. None of these scenes are about pickup.
-       A SETTER and not a toggle: this
-       helper builds many scenes and must state the state it wants, not flip
-       whatever the last one left behind. */
+    /* Auto-collect on for every scene this helper builds, so the boot-placed
+       stock pickaxe near spawn is swept up rather than left as clutter a
+       teleported player lands beside. Set, never toggled. */
     setAutoCollect(true);
 
     const main = bandOf(spec.band || 'surface');
@@ -4258,8 +3729,8 @@ async function driveScene(page, spec) {
     }
     for (const [i, sub, form, n] of spec.feed || []) mw.take(placed[i], S[sub], F[form], n);
 
-    /* PAST THE TUTORIAL CALLOUT (see this section's header). Four beats is
-       exactly where `data/callouts.js` runs out of strings. */
+    /* Past the tutorial callout: four beats is where `data/callouts.js` runs
+       out of strings. */
     while (run.tutorialBeat < 4) rw.advanceBeat();
 
     pw.band(main);
@@ -4268,18 +3739,16 @@ async function driveScene(page, spec) {
     clearLink();
     __mf.cmd.hasMouse = false;
 
-    /* The beat jump above releases the altar, so its arrival is waited out
-       here -- after the player is parked in the shaft, so the 2 s of idle
-       simulation cannot sweep up the stock pickaxe at spawn. See
-       `ARRIVAL_SUBSTEPS`. */
+    /* The beat jump releases the altar, so its arrival is waited out here --
+       after the player is parked in the shaft, so two seconds of idle
+       simulation cannot sweep up the pickaxe at spawn. */
     __mf.frames(arrival);
 
-    /* Anything that has to happen BEFORE the motion is measured -- lighting a
-       brazier, mostly, which takes seconds of simulation the carrier would
-       spend sliding to the bottom of its cable. */
+    /* Anything that has to happen before the motion is measured -- lighting a
+       brazier, mostly, which the carrier would otherwise spend sliding down. */
     if (spec.preFrames) __mf.frames(spec.preFrames);
 
-    /* THE START STATE, parked after the pre-roll and before the motion. */
+    /* The start state, parked after the pre-roll and before the motion. */
     for (const [i, t] of spec.start || []) segw.carrier(segments[i], t, 0);
     if (spec.burden) rw.collect(S.copper, F.ore, spec.burden);
     for (const [i, sub, form, n] of spec.cargo || []) {
@@ -4297,16 +3766,12 @@ async function driveScene(page, spec) {
       pw.set('fallFrom', carrierTop(seg) - PH);
     }
 
-    /* THE MOTION. Nothing is written after this. `cmd.action` is the crank
-       hold; `spec.turn`, this scene builder's own field name, describes the
-       SCENE's intent rather than the input field, so the two differ on
-       purpose. */
-    /* `riseTo` IS A CABLE PARAMETER AND `frames` IS A SUBSTEP COUNT, and a
-       scene that knows where it wants the carrier should say that instead. A
-       substep count is calibrated to `eff('segUp')`, so it goes stale the
-       moment that tunable moves -- which is how one scene came to assert a
-       parked carrier was ascending. Only sound on a SATURATED drivetrain,
-       where the carrier really does run at the full `segUp`. */
+    /* Nothing is written after the motion. `cmd.action` is the crank hold;
+       `spec.turn` is this builder's own field name for the scene's intent. */
+    /* `riseTo` is a cable parameter and `frames` a substep count: a substep
+       count is calibrated to `eff('segUp')` and goes stale when that tunable
+       moves, and `riseTo` only holds on a drivetrain saturated enough to run
+       at the full `segUp`. */
     const frames = spec.frames ?? Math.round(
       ((spec.riseTo - segments[0].t) * segments[0].len / eff('segUp')) * 120);
     __mf.cmd.action = !!spec.turn;
@@ -4338,12 +3803,9 @@ async function driveScene(page, spec) {
 
 const MOTION_SHAFT = { tx0: 40, ty0: 24, w: 12, h: 23, sky: true };
 
-/* 1. mid-ascent, with a rider aboard
-   `riseTo` RATHER THAN `frames`: the crank stack saturates this span's
+/* `riseTo` rather than `frames`: the crank stack saturates this span's
    drivetrain, so the budget is the cable distance over `eff('segUp')` and the
-   scene stays half way up its 80 px cable through any retune of that tunable.
-   It was 400 substeps, calibrated to `segUp` 11, and at 26 px/s it overran the
-   top and asserted a parked carrier was ascending. */
+   carrier stays half way up its 80 px cable through a retune. */
 test('drive: a carrier mid-ascent with a rider aboard', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -4354,15 +3816,14 @@ test('drive: a carrier mid-ascent with a rider aboard', async ({ page }) => {
     player: [47, 43], centreOn: 0
   });
   expect(r.segments).toBe(1);
-  expect(r.seg[0].dir).toBe(-1);                       // -1 is UP
+  expect(r.seg[0].dir).toBe(-1);                       // -1 is up
   expect(r.seg[0].t).toBeGreaterThan(0.15);
   expect(r.seg[0].t).toBeLessThan(0.95);
-  expect(r.driven).toBeGreaterThan(0);                 // a crank really is in reach
+  expect(r.driven).toBeGreaterThan(0);                 // a crank is in reach
   expect(r.hearts).toBe(5);                            // and riding costs nothing
   await shot(page, 'drive-ascending-rider.png');
 });
 
-/* 2. mid-descent under its own weight, loaded. */
 test('drive: a carrier mid-descent under weight', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -4373,7 +3834,7 @@ test('drive: a carrier mid-descent under weight', async ({ page }) => {
     turn: false, frames: 200, player: [47, 43], centreOn: 0
   });
   expect(r.segments).toBe(1);
-  expect(r.seg[0].dir).toBe(1);                        // +1 is DOWN
+  expect(r.seg[0].dir).toBe(1);                        // +1 is down
   expect(r.seg[0].t).toBeGreaterThan(0.15);
   expect(r.seg[0].t).toBeLessThan(0.85);
   expect(r.seg[0].load).toBeGreaterThan(0);            // the cargo is aboard, not lost
@@ -4381,12 +3842,9 @@ test('drive: a carrier mid-descent under weight', async ({ page }) => {
   await shot(page, 'drive-descending-loaded.png');
 });
 
-/* 3. reversing under an over-cap rider The brief's own correction, as a
-   picture: the crank is being turned, the drivetrain is delivering torque, and
-   the carrier is going DOWN anyway, because the rider is carrying more than
-   that drivetrain can lift. The 'TOO HEAVY TO LIFT' toast in the frame is
-   `rules/drive.js` saying so, and it is in the shot on purpose -- it is the
-   one state that is otherwise baffling. */
+/* The crank is turning and the drivetrain is delivering torque, and the
+   carrier still goes down, because the rider carries more than it can lift.
+   The 'TOO HEAVY TO LIFT' toast is in the frame on purpose. */
 test('drive: a reversing carrier under an over-cap rider', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -4398,19 +3856,18 @@ test('drive: a reversing carrier under an over-cap rider', async ({ page }) => {
   });
   expect(r.segments).toBe(1);
   expect(r.driven).toBe(3);                            // hub, crank and the bridging gear
-  expect(r.seg[0].dir).toBe(1);                        // and it IS going down
+  expect(r.seg[0].dir).toBe(1);                        // and it is going down
   expect(r.seg[0].t).toBeGreaterThan(0.15);
   expect(r.seg[0].t).toBeLessThan(0.4);
-  /* THE RIDER'S OWN MASS IS THE LOAD, and over the 40 T cap: 8 T of body plus
-     45 T of ore. Boarding is never refused at any weight, only felt. */
+  /* The rider's own mass is the load, over the 40 T cap: 8 T of body plus 45 T
+     of ore. Boarding is never refused at any weight, only felt. */
   expect(r.seg[0].load).toBeGreaterThan(40);
   await shot(page, 'drive-reversing-overcap.png');
 });
 
-/* 4. a crank and a gear train, actually turning
-   8e's `winch-turned.png` wrote a phase into the model. This one holds the key
-   and lets the drivetrain arrive at its own phase, which is the only version
-   that can catch a gear that stopped meshing. */
+/* The key is held and the drivetrain arrives at its own phase, rather than a
+   phase written into the model, which is what can catch a gear that has
+   stopped meshing. */
 test('drive: a crank and a gear train being turned', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -4421,19 +3878,15 @@ test('drive: a crank and a gear train being turned', async ({ page }) => {
     links: [[0, 1]], start: [[0, 0.5]], turn: true, frames: 90, player: [47, 41]
   });
   expect(r.segments).toBe(1);
-  /* FOUR nodes turn, not five: the crank, the gear, the axle and the hub they
-     are adjacent to. The FAR hub eight tiles up is its own component with no
-     crank in it, so it delivers nothing and does not spin -- the same fact
-     tools/check.mjs's torque-conservation section asserts about its own top
-     hubs, and the reason a segment is driven by the greater of its two ends
-     rather than by both. */
+  /* Four nodes turn, not five: the crank, the gear, the axle and the hub they
+     are adjacent to. The far hub eight tiles up is its own component with no
+     crank in it, so it delivers nothing and does not spin. */
   expect(r.turning).toBe(4);
   expect(r.driven).toBe(4);
   expect(r.seg[0].dir).toBe(-1);
   await shot(page, 'drive-crank-train-turning.png');
 });
 
-/* 5. a three-segment chain, all of it moving. */
 test('drive: a three-segment chain in motion', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -4454,13 +3907,9 @@ test('drive: a three-segment chain in motion', async ({ page }) => {
   await shot(page, 'drive-chain-moving.png');
 });
 
-/* 6. a carrier crossing a band seam
-   The ordinary case, not the exotic one: every delivery this design is about
-   crosses one. Both bands are carved from the anchors' own rows -- a window
-   sized from a hub's PLACEMENT tile misses the lower band's row 0 entirely,
-   which `tools/check.mjs`'s cross-band section records at length. A brazier
-   lights it, because thirty tiles below the surface floor there is nothing
-   else to see by. */
+/* Both bands are carved from the anchors' own rows: a window sized from a
+   hub's placement tile misses the lower band's row 0 entirely. A brazier lights
+   it, thirty tiles below the surface floor. */
 test('drive: a carrier at a band seam', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -4481,27 +3930,14 @@ test('drive: a carrier at a band seam', async ({ page }) => {
   await shot(page, 'drive-band-seam.png');
 });
 
-/* There is no second Playwright project for a narrow viewport and there never
-   was (`playwright.config.js` declares exactly one, `desktop`) --
-   `__mf.resize` is exposed on the test hook precisely so a scene can reach any
-   viewport directly, the same way every other test in this file drives state
-   through the model rather than through a hardcoded click coordinate. */
-
-/* THE NARROW LAYOUT FLOOR, and it is a DESKTOP condition, not a phone one.
-   `core/canvas.js#resize` clamps the buffer to `Math.max(BASE_W_MIN,...)` by
-   `Math.max(180,...)` at a scale of `max(2, min(6, round(ih / 400)))`, so any
-   browser window around 400x360 renders at exactly this buffer. All four
-   callers ASSERT against it -- tab wrap, label abbreviation, stat visibility,
-   callout-versus-quickbar -- rather than photograph it. The 18 phone
-   baselines that used to pair with them are gone: the game is
-   keyboard-and-mouse only and there is exactly one Playwright project. */
+/* The narrow layout floor, which is a desktop condition: `core/canvas.js#resize`
+   clamps the buffer to 200x180 at `scale = max(2, min(6, round(ih / 400)))`, so
+   any window around 400x360 renders at exactly this buffer. Reached through
+   `__mf.resize` rather than a second Playwright project. */
 const narrowFloor = page => page.evaluate(() => { __mf.resize(200, 180); __mf.draw(); });
 
-/* Exactly one altar stands, and it lies inside the buffer being
-   photographed. A scene whose subject is the first trial has to have the
-   altar in it, and a baseline alone cannot say so -- `tribute-cycle1-armed`
-   pictured an armed trial with no altar anywhere on screen for a whole phase. Screen
-   px, camera already subtracted. */
+/* Exactly one altar stands and it lies inside the buffer being photographed,
+   which a baseline alone cannot say. Screen px, camera already subtracted. */
 const altarOnScreen = page => page.evaluate(async () => {
   const { M } = await import('/src/data/machines.js');
   const standing = __mf.machines.filter(m => m.def === M.altar);
@@ -4511,11 +3947,9 @@ const altarOnScreen = page => page.evaluate(async () => {
   return { standing: 1, onScreen: x + b.w > 0 && y + b.h > 0 && x < c.width && y < c.height };
 });
 
-/* 1. cycle 1, freshly armed, no clock `settle` alone arms it:
-   `rules/cycles.js#step` runs inside `newRun`'s own first frames, and cycle
-   1's `deadlineSecs` is `null`, so the scene this baseline exists to prove is
-   that TRIBUTE draws no timer line for it. THE ALTAR IS THE OTHER HALF OF THE
-   PICTURE. */
+/* `settle` alone arms cycle 1: `rules/cycles.js#step` runs inside `newRun`'s
+   first frames, and cycle 1's `deadlineSecs` is null, so TRIBUTE draws no timer
+   line for it. */
 test('tribute: cycle 1 armed, no clock', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -4525,12 +3959,9 @@ test('tribute: cycle 1 armed, no clock', async ({ page }) => {
   await shot(page, 'tribute-cycle1-armed.png');
 });
 
-/* 2. mid-cycle-3, a running deadline, two of three gods known, AND a boon
-   active Written directly rather than played to: reaching cycle 3 for real
-   means building the astral chain the cycle director's own walkthrough covers,
-   which this scene does not own. `rw.tribute`/`rw.cycle`/`rw.favour` are the
-   SAME writers `rules/cycles.js` itself calls, so this is the identical state
-   a real run would reach, just arrived at directly. */
+/* Written directly rather than played to: `rw.tribute`/`rw.cycle`/`rw.favour`
+   are the same writers `rules/cycles.js` calls, so this is the state a real run
+   reaches at cycle 3, without building the astral chain to get there. */
 test('tribute and favour: mid-cycle-3, two of three gods known, a boon active', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -4538,12 +3969,9 @@ test('tribute and favour: mid-cycle-3, two of three gods known, a boon active', 
     const { write: rw, run } = await import('/src/model/run.js');
     const { grant } = await import('/src/rules/boons.js');
     const { BOONS } = await import('/src/data/boons.js');
-    /* 10, NOT 6. The rule stated above is "past the point any
-       `data/callouts.js` row has a string", so a panel-crowding shot is not
-       dominated by an unrelated callout. Beat 6 was that point until cycle
-       2's four first-time asks gave `CALLOUTS[6..9]` copy of their own, and
-       10 is the honest number besides: a run at cycle 3 has fired every
-       beat. */
+    /* Beat 10 is past every `data/callouts.js` row that has a string, so a
+       panel-crowding shot is not dominated by an unrelated callout; a run at
+       cycle 3 has fired every beat anyway. */
     while (run.tutorialBeat < 10) rw.advanceBeat();
     rw.cycle(3);
     rw.tribute({ id: 'grey-eyed-tithe', have: {}, left: 300 });
@@ -4555,13 +3983,8 @@ test('tribute and favour: mid-cycle-3, two of three gods known, a boon active', 
   await shot(page, 'tribute-favour-cycle3.png');
 });
 
-/* 3. the over-cap burden bar, with TRIBUTE drawn beneath it
-   FINDINGS #13's own regression guard: `view/ui/bar.js`'s fix (step 1 of
-   this phase) is proven on `drive-reversing-overcap.png` already, but that
-   scene predates TRIBUTE and never exercised a LABELLED bar (every demand
-   row) sitting directly under a bar whose value is wide enough to have
-   caused the original defect. This scene is the one place both are true at
-   once. */
+/* The one scene with a labelled demand row sitting directly under an over-cap
+   burden bar whose value is wide enough to crowd it. */
 test('tribute: the over-cap burden scene', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -4576,10 +3999,8 @@ test('tribute: the over-cap burden scene', async ({ page }) => {
   await shot(page, 'tribute-overcap-burden.png');
 });
 
-/* 4. THE WIN SCREEN ONE NEW BASELINE, and the only one this phase adds: a
-   whole end-of-run screen shipped with no pixels under test is exactly the gap
-   this file exists for, and `view/hud.js#winScreen` shares `endScreen` with
-   the death screen, so a layout regression here would take both down together. */
+/* `view/hud.js#winScreen` shares `endScreen` with the death screen, so a
+   layout regression here would take both down together. */
 test('the win screen: every shipped trial paid', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -4604,13 +4025,9 @@ test('the win screen: every shipped trial paid', async ({ page }) => {
   await shot(page, 'win-screen.png');
 });
 
-/* THE BATCH ROW AND THE HUD CLOSEOUT. */
-
-/* A hash of the whole canvas, or of one rectangle of it. The "not vacuous"
-   probe this file already uses for the relic halo and the cable ghost,
-   pulled out here because four of the tests below need it and two of them
-   need it over a crop -- a flashing clock is 30 pixels on a 640x400 frame,
-   and a whole-canvas hash would also answer for anything else that moves. */
+/* A hash of the whole canvas, or of one rectangle of it. A crop matters where
+   the subject is small: a flashing clock is 30 px on a 640x400 frame, and a
+   whole-canvas hash would answer for anything else that moved. */
 async function canvasHash(page, rect = null) {
   return page.evaluate(r => {
     const c = document.getElementById('stage');
@@ -4626,12 +4043,9 @@ async function canvasHash(page, rect = null) {
   }, rect);
 }
 
-/* Cycle 4 armed with both demand rows already full, and a batch ledger built
-   to order. Written directly through `rw.tribute` for the same reason the
-   cycle-3 scene above is: reaching cycle 4 for real means the whole astral
-   chain. `credits` is a list of unit counts, all stamped at the current
-   `run.t`, which is the shape `rules/cycles.js#creditTribute` produces and
-   `model/run.js#prunedCredits` then bounds. */
+/* Cycle 4 armed with both demand rows full, and a batch ledger built to order.
+   `credits` is a list of unit counts stamped at the current `run.t`, the shape
+   `rules/cycles.js#creditTribute` produces and `prunedCredits` then bounds. */
 async function ratedCycle(page, { credits = [], left = 200 } = {}) {
   await page.evaluate(async ({ credits, left }) => {
     const { write: rw, run } = await import('/src/model/run.js');
@@ -4646,10 +4060,9 @@ async function ratedCycle(page, { credits = [], left = 200 } = {}) {
     have[keyOf(S.copper, F.plate)] = 8;
     have[keyOf(S.granite, F.gravel)] = 8;
     rw.tribute({ id: 'salt-tribute', have, left, credits: credits.map(n => ({ t: run.t, n })) });
-    /* The opening title card is still up two substeps into a run and this
-       scene's subject is the panel underneath it. Cleared directly rather
-       than stepped past, because stepping 240 substeps with cycle 4 armed
-       and paid would let `rules/cycles.js` complete the trial. */
+    /* The opening title card is still up two substeps in, and stepping past it
+       with cycle 4 armed and paid would let `rules/cycles.js` complete the
+       trial, so `banner.fade` is cleared directly. */
     (await import('/src/view/fx.js')).banner.fade = 0;
     __mf.draw();
   }, { credits, left });
@@ -4662,10 +4075,8 @@ const tributeBars = page => page.evaluate(async () => {
   return { met: tributeMet(), bars: by };
 });
 
-/* 1. the batch row, and an aggregate that cannot read 100% unpaid. The panel
-   used to sum the demand rows alone, so a cycle with both piles full and an
-   empty batch window drew 8/8, 8/8 and 100% while the trial refused to pay
-   and the clock ran out. */
+/* The batch row, and an aggregate that cannot read 100% while the trial is
+   unpaid: both demand piles full with an empty batch window is 80%. */
 test('17e: a rated cycle 4 reads honestly at every stage of its batch window', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -4676,8 +4087,8 @@ test('17e: a rated cycle 4 reads honestly at every stage of its batch window', a
   expect(Object.keys(empty.bars)).toContain('tribute-batch');
   expect(empty.bars['tribute-batch'].valueText).toBe('0 / 4');
   expect(empty.bars['tribute-batch'].label).toBe('COPPER PLATE IN 2:00');
-  /* And the same row abbreviates rather than running under FAVOUR when the
-     column cannot hold the full name. */
+  /* The same row abbreviates rather than running under FAVOUR when the column
+     cannot hold the full name. */
   await narrowFloor(page);
   const floor = await tributeBars(page);
   expect(floor.bars['tribute-batch'].label).toBe('CU PLT IN 2:00');
@@ -4700,11 +4111,9 @@ test('17e: a rated cycle 4 reads honestly at every stage of its batch window', a
   await shot(page, 'tribute-cycle4-batch-full.png');
 });
 
-/* `model/run.js#batchHave` saturates near `batch.n` rather than counting
-   deliveries, and its own doc says a raw readout would under-report. A
-   single credit of six is the case that proves the bar is clamped rather
-   than merely reading the query: `prunedCredits` keeps that entry whole, so
-   the query answers 6 against a demand for 4. */
+/* A single credit of six proves the bar is clamped rather than reading the
+   query: `prunedCredits` keeps that entry whole, so `batchHave` answers 6
+   against a demand for 4. */
 test('17e: the batch bar is clamped at batch.n, not a raw delivery count', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -4720,11 +4129,8 @@ test('17e: the batch bar is clamped at batch.n, not a raw delivery count', async
   expect(over.bars['tribute-progress'].valueText).toBe('100%');
 });
 
-/* 2. the miss tally (punch-list #11)
-   `run.misses` was drawn on the win screen and nowhere else, so a player
-   one miss from the end of the run had no way to know it. Nothing about a
-   miss changes the world, so the canvas hash is the whole assertion: the
-   two frames differ only if something drew the count. */
+/* Nothing about a miss changes the world, so the canvas hash is the whole
+   assertion: the two frames differ only if something drew the count. */
 test('17e: the miss tally is not vacuous -- one expired deadline changes the TRIBUTE column', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -4742,11 +4148,9 @@ test('17e: the miss tally is not vacuous -- one expired deadline changes the TRI
   await shot(page, 'tribute-cycle4-missed-once.png');
 });
 
-/* The flash is `((t * 6) | 0) % 2`, which flips either side of a sixth of a
-   second, so the two times below straddle 10.0 s by a tenth of a millisecond:
-   `view/scene.js`'s clouds drift on the same `clock.t` and the TRIBUTE column
-   sits over open sky, and 0.0002 s of drift cannot move a cloud by a whole
-   pixel. */
+/* The flash is `((t * 6) | 0) % 2`, so the two times below straddle 10.0 s by
+   a tenth of a millisecond: the clouds drift on the same `clock.t` under the
+   TRIBUTE column, and 0.0002 s cannot move one by a whole pixel. */
 const clockCrop = page => page.evaluate(() => {
   const agg = __mf.ui.bars.find(b => b.id === 'tribute-progress');
   return { x: Math.max(0, agg.x - 2), y: agg.y + agg.h, w: 60, h: 10 };
@@ -4774,12 +4178,9 @@ test('17e: the deadline flashes inside the urgency threshold and holds steady ou
   await shot(page, 'tribute-deadline-urgent.png');
 });
 
-/* 4. the death screen's tally (punch-list #16)
-   Both end screens go through `view/hud.js#endScreen`, and the death half
-   used to print only the depth. Two deaths whose runs went differently must
-   not render the same tally, and the CROP is the two rows directly above the
-   restart button -- the wash is translucent, so a whole-canvas hash would
-   also answer for the FAVOUR bars showing through it. */
+/* Two deaths whose runs went differently must not render the same tally. The
+   crop is the two rows above the restart button: the wash is translucent, so a
+   whole-canvas hash would answer for the FAVOUR bars showing through it. */
 async function deathScene(page) {
   await page.evaluate(async () => {
     const { write: rw, run } = await import('/src/model/run.js');
@@ -4790,10 +4191,9 @@ async function deathScene(page) {
   });
 }
 
-/* The run's tally, written onto the SAME dead run. A second `newRun` would
-   be a second world behind the translucent wash, and `view/paint.js`
-   repaints at most `REPAINT_BUDGET` chunks a frame, so the two frames would
-   differ for reasons that have nothing to do with the lines under test. */
+/* The tally is written onto the same dead run: a second `newRun` would put a
+   second world behind the translucent wash, and `view/paint.js` repaints at
+   most `REPAINT_BUDGET` chunks a frame. */
 async function tallyTheDeath(page) {
   await page.evaluate(async () => {
     const { write: rw } = await import('/src/model/run.js');
@@ -4827,18 +4227,14 @@ test('17e: the death screen carries the same tally the win screen does', async (
   await shot(page, 'death-screen-tallied.png');
 });
 
-/* 5. the Character tab's stat block scrolls (FINDINGS 16b.3)
-   Three of four stat rows were clipped at `body.bottom` at every viewport.
-   The region reuses the inventory grid's own mechanism, so this drives a
-   REAL wheel over it and reads back the lines that were actually drawn --
-   a rect recorded with the right `rows` but drawing the wrong slice would
-   pass a count assertion and fail this one. */
+/* A real wheel over the stat region, reading back the lines actually drawn: a
+   rect recorded with the right `rows` but drawing the wrong slice would pass a
+   count assertion and fail this one. */
 const STAT_LABELS = ['WALK', 'CLIMB', 'PICK POWER', 'FURNACE RATE'];
 
-/* Everything the HUD draws OVER the main panel, put away so a shot of the
-   panel is a shot of the panel: the title card, the last toast, and the
-   world tooltip the pointer leaves behind wherever the wheel parked it.
-   `pointerleave` is the real event `shell/input.js` listens for. */
+/* Puts away what the HUD draws over the main panel -- the title card, the last
+   toast, and the world tooltip the pointer left behind. `pointerleave` is the
+   real event `shell/input.js` listens for. */
 const quietHud = page => page.evaluate(async () => {
   const fx = await import('/src/view/fx.js');
   fx.banner.fade = 0;
@@ -4861,12 +4257,10 @@ const statRegion = page => page.evaluate(() => {
   return g ? { x: g.x, y: g.y, w: g.w, h: g.h, rows: g.rows, lines: g.lines } : null;
 });
 
-/* Down one real wheel notch at a time, collecting every line drawn on the
-   way. The offset is zeroed through `shell/ui.js#scrollSet` first rather
-   than wheeled back up: `scrollBy` stores the raw value and only the draw
-   clamps it, so a pass at a wider viewport leaves an offset past the end,
-   and Chromium coalesces a run of upward wheel events into one. The
-   direction under test is down, and every notch of it is a real event. */
+/* Down one real wheel notch at a time, collecting every line drawn on the way.
+   The offset is zeroed through `shell/ui.js#scrollSet` rather than wheeled back
+   up: `scrollBy` stores the raw value and only the draw clamps it, and Chromium
+   coalesces a run of upward wheel events into one. */
 async function statLinesSeen(page, notches) {
   await page.evaluate(async () => {
     const { scrollSet } = await import('/src/shell/ui.js');
@@ -4888,11 +4282,9 @@ async function statLinesSeen(page, notches) {
 test('17e: all four stat rows are reachable in the Character tab, at the desktop buffer and at the 200 px floor', async ({ page }) => {
   await boot(page);
   await settle(page);
-  /* Beat 4 is the one index `data/callouts.js` leaves null. The callout, a
-     toast and the title card all draw OVER the main panel by design
-     (`view/hud.js#drawHUD` puts a toast above the window so a refusal fired
-     from inside the panel is not hidden by it), and all three would sit on
-     the rows this scene exists to show. */
+  /* Beat 4 is the one index `data/callouts.js` leaves null. A callout, a toast
+     and the title card all draw over the main panel by design, and all three
+     would sit on the rows this scene exists to show. */
   await page.evaluate(async () => {
     const { write: rw, run } = await import('/src/model/run.js');
     while (run.tutorialBeat < 4) rw.advanceBeat();
@@ -4916,13 +4308,9 @@ test('17e: all four stat rows are reachable in the Character tab, at the desktop
     expect(floor.seen.some(l => l.startsWith(label + ' '))).toBe(true);
 });
 
-/* 6. the bottom callout clears the quickbar (17i, FINDINGS)
-   `view/hud.js#hint` centred the callout at `H - 16` without reserving the
-   strip's rectangle, so at the 200 px floor 'TAKE THE PICKAXE' ran under
-   cells 1-5. Beat 4 is the one index `data/callouts.js` leaves null, so the
-   same scene at beat 0 and at beat 4 differs ONLY by the callout -- and if
-   the callout clears the strip, the pixels inside the strip's own recorded
-   rectangle are identical in both. */
+/* Beat 4 is the one index `data/callouts.js` leaves null, so the same scene at
+   beat 0 and at beat 4 differs only by the callout: if the callout clears the
+   strip, the pixels inside the strip's own recorded rectangle match. */
 test('17e: the bottom callout does not paint over the quickbar at the 200 px floor', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -4959,12 +4347,9 @@ test('17e: the bottom callout does not paint over the quickbar at the 200 px flo
   expect(withCallout).toBe(withoutCallout);
 });
 
-/* 7. `view/fx.js#reset` rewinds the chip stream
-   `spark` is a module-scope generator seeded from a constant, and `reset`
-   used to clear the chips without rewinding it, so a chip's scatter depended
-   on how many chips the page had ever emitted. Playwright gives every test a
-   fresh page, so this could not move a baseline -- it is a latent hole, and
-   this is the assertion that keeps it closed. */
+/* `spark` is a module-scope generator seeded from a constant, so `reset` has to
+   rewind it or a chip's scatter depends on how many chips the page has ever
+   emitted. */
 test('17e: view/fx.js#reset rewinds the chip stream, so two runs scatter alike', async ({ page }) => {
   await boot(page);
   const [first, second] = await page.evaluate(async () => {
@@ -4983,21 +4368,10 @@ test('17e: view/fx.js#reset rewinds the chip stream, so two runs scatter alike',
   expect(second).toEqual(first);
 });
 
-/* Added incrementally against the sixteen baselines already above: a
-   soil/stone contact zone, an ore blob against pale rock, a tree crossing a
-   chunk seam, a natural hollow (unlit, with a glowing relic, and lit), the
-   surface's own hills and a cliff face, the overview at three scroll positions
-   and with a broken lift chain, and the Cloud Dock. */
-
-/* THE SOIL/STONE CONTACT ZONE, AT FULL FRAME. `data/world.js`'s surface band
-   declares it at row 27, 4 tiles thick, and `rules/generate.js#contact` runs
-   it across the WHOLE band width outside the spawn shelf -- no seed-hunting
-   needed, only a column clear of the shelf's own blend (`SHELF` 9 +
-   `BLEND` 3 either side of `spawnTx` 42). tx 80 is comfortably clear of it.
-   FULL FRAME rather than a tight crop, because the fingering is a property
-   of many columns at once -- a narrow crop could land on a column that
-   happened to roll all-stone or all-soil and prove nothing about the seam. */
-/* THE CONTACT ZONE IS SOLID ROCK, AND SOLID ROCK IS DARK UNTIL LIT. */
+/* The surface band declares the contact zone at row 27, 4 tiles thick, run
+   across the whole band width outside the spawn shelf (`SHELF` 9 + `BLEND` 3
+   either side of `spawnTx` 42), so tx 80 is clear of it. Full frame, because
+   the fingering is a property of many columns at once. */
 test('a soil/stone contact zone at full frame', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -5023,13 +4397,10 @@ test('a soil/stone contact zone at full frame', async ({ page }) => {
   await shot(page, 'contact-zone.png');
 });
 
-/* AN ORE BLOB AGAINST PALE STONE. `data/substances.js#stone`'s own tile look
-   (`base:'irC'`, `#4a4a54`) is a mid-dark grey; `granite`'s
-   (`base:'graniteB'`, `#b3b0ba`, `hi:'graniteA'` `#d8d6dc`) is the one rock
-   substance that actually reads as PALE -- lavender-grey against copper's warm
-   orange (`cuA`/`cuB`). `data/world.js`'s topsoil band overlaps a copper
-   `blobs` row (rows 4-180) with a granite one (rows 120-320), so the two are
-   found together rather than placed by hand. */
+/* `granite` (`graniteB` #b3b0ba) is the one rock substance that reads as pale
+   against copper's warm orange, and the topsoil band overlaps a copper `blobs`
+   row (rows 4-180) with a granite one (rows 120-320), so the two are found
+   together rather than placed by hand. */
 const BLOB_SEED = 65;
 
 test('an ore blob against pale stone', async ({ page }) => {
@@ -5055,9 +4426,8 @@ test('an ore blob against pale stone', async ({ page }) => {
     for (let ty = 133; ty <= 175 && !found; ty++)
       for (let c = 45; c < band.tw - 45 && !found; c++) {
         if (!(isCu(c, ty - 1) && isCu(c, ty) && isCu(c, ty + 1))) continue;
-        /* WIDEST GAP FIRST. A 4-column room puts both walls deep in
-           `drawDarkness`'s outer bucket and the boundary stops reading; 5 to
-           7 columns is the framing the old hand-written address had. */
+        /* Widest gap first: a 4-column room puts both walls deep in
+           `drawDarkness`'s outer bucket and the boundary stops reading. */
         for (let d = 8; d >= 6 && !found; d--) {
           const g = c + d;
           if (!(isGr(g, ty) && isGr(g, ty + 1))) continue;
@@ -5079,7 +4449,7 @@ test('an ore blob against pale stone', async ({ page }) => {
 
     __mf.revealAll(band);
     banner.fade = 0;
-    __mf.frames(700);         // > 6s honest-fuel recipe, then settle
+    __mf.frames(700);         // past the 6 s fuel recipe, then settle
 
     __mf.resize(200, 180);
     __mf.cam.x = Math.round(worldX(band, mid) - VIEW.w / 2);
@@ -5091,14 +4461,10 @@ test('an ore blob against pale stone', async ({ page }) => {
   await shot(page, 'ore-against-pale-stone.png');
 });
 
-/* A TREE CROSSING A CHUNK SEAM. `view/treatments.js#canopy` reaches up to
-   `EXTENT.canopy` (4 tiles) either side of its trunk, and `view/paint.js`'s
-   `DECO_MARGIN` is sized off that exact table so a crown straddling a chunk
-   boundary bakes correctly into BOTH chunk canvases. Hand-planted at tx 64 a
-   multiple of the surface band's own `chunk:16` -- rather than hunted for in
-   worldgen, the same call `carveShaft` above already makes: a tree landing
-   exactly on a chunk boundary at seed 1337 is not a bet worth making, and the
-   point here is the SEAM, not the tree's own placement. */
+/* `view/treatments.js#canopy` reaches `EXTENT.canopy` (4 tiles) either side of
+   its trunk and `view/paint.js`'s `DECO_MARGIN` is sized off that table, so a
+   crown straddling a boundary bakes into both chunk canvases. Planted at tx 64,
+   a multiple of the surface band's own `chunk:16`, rather than hunted for. */
 test('a tree crossing a chunk seam', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -5129,17 +4495,13 @@ test('a tree crossing a chunk seam', async ({ page }) => {
   await shot(page, 'tree-chunk-seam.png');
 });
 
-/* THE CHUNK CACHE'S CEILING `view/paint.js` holds one baked canvas per chunk
-   and, until this phase, dropped one only on `newRun`. At 128 tiles the whole
-   world is 264 chunks 17 MB, under the 24 MB budget -- so THE CEILING CANNOT
-   BE REACHED BY PLAYING, and a test that swept the camera and watched the
-   cache stay small would be watching a cache that was never asked to grow. */
+/* `view/paint.js` holds one baked canvas per chunk, and the whole world is
+   1,728 chunks at about 108 MB against a 24 MB budget, so a whole-world sweep
+   evicts. */
 
-/* THE SWEEP. Camera steps of one viewport across a band and down it, drawing
-   each time -- the cheapest way to make `view/scene.js#drawChunks` ask for
-   every chunk in the world, which is what fills the cache. `__mf.draw` runs
-   no simulation, so the terrain is identical at every step and the model is
-   untouched between the two legs. */
+/* Camera steps of one viewport across each band and down it, drawing each time,
+   so `view/scene.js#drawChunks` asks for every chunk in the world. `__mf.draw`
+   runs no simulation, so the model is untouched between the two legs. */
 const sweepWorld = page => page.evaluate(async () => {
   const { bands } = await import('/src/model/world.js');
   const { VIEW } = await import('/src/core/canvas.js');
@@ -5163,7 +4525,7 @@ test('the chunk cache is bounded by its byte budget, and eviction is what bounds
   const read = page => page.evaluate(async () => {
     const { cacheLimit, stats } = await import('/src/view/paint.js');
     /* One more draw at the camera the sweep finished on, so the reading is
-       taken AFTER an eviction pass rather than after a frame of cold bakes:
+       taken after an eviction pass rather than after a frame of cold bakes:
        `beginFrame` evicts and then publishes `stats.bytes`. */
     __mf.draw();
     return { cached: stats.cached, bytes: stats.bytes,
@@ -5174,9 +4536,8 @@ test('the chunk cache is bounded by its byte budget, and eviction is what bounds
   const SHIPPED = 384;                           // 24 MB of budget / 64 KB a chunk
   const GRACE = 64;   // twice the 24 chunks a 640x400 viewport covers, for two frames of it
 
-  /* HOW MANY CHUNKS THE WORLD HAS AT ALL, which is what makes the shipped leg
-     below non-vacuous: read off the bands rather than written down, because
-     it moved by 8x when the bands last widened. */
+  /* Read off the bands rather than written down, and what makes the shipped
+     leg below non-vacuous. */
   const worldChunks = await page.evaluate(async () => {
     const { bands } = await import('/src/model/world.js');
     return bands.reduce((n, b) => n + b.cx * b.cy, 0);
@@ -5190,33 +4551,27 @@ test('the chunk cache is bounded by its byte budget, and eviction is what bounds
   await sweepWorld(page);
   const forced = await read(page);
 
-  /* THE SHIPPED LEG, AND AT 1,024 TILES IT IS AN EVICTING ONE. The world is
-     1,728 chunks and 108 MB against a 384-chunk budget, so a whole-world sweep
-     sheds everything it cannot hold -- the case that did not exist at 128
-     tiles, where the whole world fitted the budget and `evictedTotal` stayed 0
-     no matter how far the camera walked. What is left is the budget plus what
-     the last two frames drew, which eviction may never take
-     (`view/paint.js#evict`). */
+  /* The shipped leg evicts too: 1,728 chunks and 108 MB against a 384-chunk
+     budget, so the sweep sheds everything it cannot hold. What is left is the
+     budget plus what the last two frames drew, which `view/paint.js#evict` may
+     never take. */
   expect(worldChunks).toBeGreaterThan(SHIPPED * 2);   // or the leg proves nothing
   expect(shipped.evictedTotal).toBeGreaterThanOrEqual(worldChunks - SHIPPED - GRACE);
   expect(shipped.cached).toBeLessThanOrEqual(SHIPPED + GRACE);
   expect(shipped.bytes).toBeLessThanOrEqual(shipped.cap + GRACE * CHUNK_BYTES);
 
-  /* AND THE FORCED LEG: the same sweep under a 2 MB budget holds an order of
-     magnitude less, which is what says residency tracks the BUDGET rather than
-     some incidental ceiling of its own. */
+  /* The forced leg: the same sweep under a 2 MB budget holds an order of
+     magnitude less, so residency tracks the budget rather than a ceiling of its
+     own. */
   expect(forced.evictedTotal).toBeGreaterThanOrEqual(worldChunks - 32 - GRACE);
   expect(forced.cached).toBeLessThanOrEqual(32 + GRACE);
   expect(forced.cached).toBeLessThan(shipped.cached / 2);
   expect(forced.bytes).toBeLessThanOrEqual(forced.cap + GRACE * CHUNK_BYTES);
 });
 
-/* AND THE PROPERTY THAT MAKES EVICTION SAFE: a chunk thrown away and baked
-   again is the same pixels. It has to be -- `paintChunk` is a pure function of
-   the tile grid, the substance rows and `hash2` of absolute tile coordinates,
-   with no `rand` anywhere -- but "has to be" is what the render purity probes
-   in `tools/check.mjs` say about a frame, and nothing said it about a bake
-   that had been dropped and rebuilt from scratch. */
+/* A chunk thrown away and baked again is the same pixels, `paintChunk` being a
+   pure function of the tile grid, the substance rows and `hash2` of absolute
+   tile coordinates, with no `rand` anywhere. */
 test('a chunk evicted and re-baked is byte-identical to one never evicted', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -5264,13 +4619,10 @@ test('a chunk evicted and re-baked is byte-identical to one never evicted', asyn
   expect(info.again).toBe(info.first);           // and it came back identical
 });
 
-/* A DIG STILL REPAINTS ITS CHUNK, NOT THE WORLD, WITH THE CACHE. FULL AND
-   EVICTING. The script fills the cache past a 2 MB budget by sweeping the
-   world first, so evictions are already running when the pick starts, and THEN
-   digs. Every chunk under the pick is on screen, so `view/paint.js#evict` may
-   not take one -- which is the claim, and it is measurable two ways at once:
-   the same dig under the forced budget and under the shipped one must repaint
-   the same chunks AND leave a bit-identical frame. */
+/* The cache is filled by a whole-world sweep before the pick starts, so
+   eviction is already running during the dig. Every chunk under the pick is on
+   screen, so `view/paint.js#evict` may not take one: the same dig under either
+   budget repaints the same chunks and leaves the same pixels. */
 test('a dig under a full, evicting cache repaints the same chunks and draws the same pixels', async ({ page }) => {
   await boot(page);
 
@@ -5281,10 +4633,8 @@ test('a dig under a full, evicting cache repaints the same chunks and draws the 
     const { banner } = await import('/src/view/fx.js');
     const { write: rw, run } = await import('/src/model/run.js');
 
-    /* HELD KEYS DO NOT SURVIVE INTO THE SECOND LEG. `hold` leaves whatever
-       it held set on `cmd` and `newRun` does not clear it, so without this
-       the second leg digs its way through the two settling frames and the two
-       legs stop being the same script. */
+    /* `hold` leaves whatever it held set on `cmd` and `newRun` does not clear
+       it, so without this the second leg digs through its settling frames. */
     for (const k of ['dig', 'down', 'right', 'collect']) __mf.cmd[k] = false;
 
     __mf.newRun(1337); __mf.clock.t = 10; __mf.frames(2);
@@ -5293,10 +4643,9 @@ test('a dig under a full, evicting cache repaints the same chunks and draws the 
     cacheLimit.bytes = bytes;
     banner.fade = 0;
 
-    /* THE PICKAXE FIRST, or `hasPick` is false and the dig is a no-op --
-       the same walk-and-collect `digging.png` opens with, for the same
-       reason. `right` is a held key and has to be released, or the player
-       drifts and no single tile ever accumulates enough work to break. */
+    /* The pickaxe first, or `hasPick` is false and the dig is a no-op. `right`
+       is held and has to be released, or the player drifts and no tile
+       accumulates enough work to break. */
     __mf.hold({ right: 1, collect: 1 }, 90);
     __mf.cmd.right = false;
 
@@ -5311,10 +4660,9 @@ test('a dig under a full, evicting cache repaints the same chunks and draws the 
     const swept = stats.evictedTotal;
 
     const before = { repainted: stats.repainted, skipped: stats.skipped };
-    /* TEN SEPARATE CALLS RATHER THAN ONE 600-SUBSTEP CALL, because `hold`
-       draws once at the end and eviction runs once per FRAME: a single call
-       would give the pass one turn and prove nothing about a cache under
-       sustained pressure. */
+    /* Ten calls rather than one of 600 substeps: `hold` draws once at the end
+       and eviction runs once per frame, so a single call would give the pass
+       one turn. */
     for (let i = 0; i < 10; i++) __mf.hold({ dig: 1, down: 1, collect: 1 }, 60);
 
     const c = document.getElementById('stage');
@@ -5330,11 +4678,9 @@ test('a dig under a full, evicting cache repaints the same chunks and draws the 
   const capped = await dig(page, 32 * 128 * 128 * 4);
   const shipped = await dig(page, 24 * 1024 * 1024);
 
-  /* BOTH BUDGETS EVICT AT 1,024 TILES -- the world is 1,728 chunks against a
-     384-chunk shipped budget -- so the two legs differ in HOW HARD they evict
-     rather than in whether they do. The property under test is unchanged and is
-     the three equalities below: the same dig repaints the same chunks and draws
-     the same pixels however much the sweep before it shed. */
+  /* Both budgets evict -- 1,728 chunks against a 384-chunk shipped budget -- so
+     the legs differ in how hard they evict, and the equalities below say the dig
+     repaints the same chunks and draws the same pixels either way. */
   expect(capped.swept).toBeGreaterThan(shipped.swept);
   expect(shipped.swept).toBeGreaterThan(0);
   expect(capped.repainted).toBeGreaterThan(0);   // the dig really did invalidate
@@ -5343,9 +4689,8 @@ test('a dig under a full, evicting cache repaints the same chunks and draws the 
   expect(capped.hash).toBe(shipped.hash);
 });
 
-/* a natural hollow (worldgen's own generator), three ways A GENERATED room
-   rather than a hand-carved shaft, and THE FLOOD FILL THAT FINDS IT RUNS IN
-   THE TEST. */
+/* A generated room rather than a hand-carved shaft: the flood fill that finds
+   one runs in the test. */
 async function hollowScene(page) {
   const at = await page.evaluate(async () => {
     const { bandOf, worldX, worldY, write: ww } = await import('/src/model/world.js');
@@ -5388,11 +4733,9 @@ async function hollowScene(page) {
         if (sky || x1 - x0 < 5 || y1 - y0 < 3 || y0 < 60) continue;
         const mid = (x0 + x1) >> 1;
         if (mid < 45 || mid > W - 45) continue;
-        /* THE BRAZIER GOES IN THE POCKET'S WIDEST ROW, not in its lowest cell.
-           A hollow generated by overlapping discs tapers to one column at top
-           and bottom, and a brazier in that notch is walled on three sides --
-           light leaves it at `eff('lightFalloffRock')` and the room stays dark,
-           which is the picture `hollow-unlit.png` already holds. */
+        /* The brazier goes in the pocket's widest row, not its lowest cell: a
+           hollow of overlapping discs tapers to one column, and a brazier
+           walled on three sides leaves light at `eff('lightFalloffRock')`. */
         const wide = new Map();
         for (let k = 0; k < cells.length; k += 2)
           wide.set(cells[k + 1], (wide.get(cells[k + 1]) ?? 0) + 1);
@@ -5443,11 +4786,9 @@ test('a glowing relic lying in the unlit hollow', async ({ page }) => {
   await shot(page, 'hollow-relic-unlit.png');
 });
 
-/* THE PAIR ABOVE IS NOT A NO-OP, proved the way the cable ghost's own pair
-   is: `view/scene.js#drawDarkness` uses 0.94 alpha at light level 0, so a
-   halo on unlit tiles is crushed to a few percent of its true colour. Real,
-   but far too subtle for a human to catch by eye between two PNGs, so a
-   canvas hash over both scenes is the honest version of the claim. */
+/* `view/scene.js#drawDarkness` uses 0.94 alpha at light level 0, so a halo on
+   unlit tiles is crushed to a few percent of its colour -- real, but too subtle
+   to catch by eye between two PNGs, hence a canvas hash. */
 test('the glowing relic in the unlit hollow is not a no-op', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -5495,16 +4836,14 @@ test('the same natural hollow lit by a brazier', async ({ page }) => {
 
     const brazier = mw.place(bandOf('topsoil'), M.brazier, at.tx, at.ty + 1);
     mw.take(brazier, S.timber, F.log, 4);
-    __mf.frames(700);          // > 6s honest-fuel recipe, then settle -- same margin `shaft-lit.png` uses
+    __mf.frames(700);          // past the 6 s fuel recipe, then settle
   }, at);
   await shot(page, 'hollow-lit.png');
 });
 
-/* SURFACE HILLS. `surface.png` is deliberately the flat spawn shelf; this is
-   everywhere else. Framed from the
-   surface band's own left edge so the shelf itself sits in the same
-   picture as the relief either side of it -- the comparison IS the point,
-   not a close crop of one hill. */
+/* `surface.png` is the flat spawn shelf; this is everywhere else, framed from
+   the band's own left edge so the shelf and the relief either side of it are in
+   one picture. */
 test('surface hills', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -5524,12 +4863,9 @@ test('surface hills', async ({ page }) => {
   await shot(page, 'surface-hills.png');
 });
 
-/* THE PICTURE ABOVE IS NOT A NO-OP EITHER, and this is the half of it a human
-   cannot check by eye. `view/treatments.js#grassCap`'s bank chamfers the outer
-   corner of every one-tile step, which is most of what stops the frame above
-   reading as terraces -- but it paints turf over turf, so "with it" and
-   "without it" are two plausible hillsides rather than one obviously broken
-   one. */
+/* `view/treatments.js#grassCap`'s bank chamfers the outer corner of every
+   one-tile step, but it paints turf over turf, so with it and without it are
+   two plausible hillsides rather than one obviously broken one. */
 test('the turf bank is not a no-op', async ({ page }) => {
   await boot(page);
   const hashOf = () => page.evaluate(() => {
@@ -5570,21 +4906,17 @@ test('the turf bank is not a no-op', async ({ page }) => {
   expect(banked).not.toBe(flat);
 });
 
-/* A CLIFF FACE. `rules/generate.js#stepPass` permits a 2-tile step
-   (`STEP_BIG`) outside `SAFE_R` of spawn, no closer together than `STEP_GAP`
-   columns -- the steepest face the generator will ever produce, and the one
-   face `view/treatments.js#grassCap`'s bank deliberately does NOT chamfer, so
-   the picture holds a real cliff and banked one-tile steps side by side. */
+/* `rules/generate.js#stepPass` permits a 2-tile step (`STEP_BIG`) outside
+   `SAFE_R` of spawn: the steepest face it produces, and the one face
+   `view/treatments.js#grassCap`'s bank does not chamfer. */
 const CLIFF_SEED = 58;
 
 test('a cliff face', async ({ page }) => {
   await boot(page);
   await settle(page, CLIFF_SEED);
-  /* THE CLIFF IS ASSERTED, NOT ASSUMED. A screenshot cannot tell a 2-tile
-     face from a 1-tile one, so the geometry is read off the live band the
-     same way `tools/worldgen-check.mjs#groundRow` reads it -- topmost solid
-     row per column, skipping timber so a trunk is never mistaken for
-     ground. */
+  /* A screenshot cannot tell a 2-tile face from a 1-tile one, so the geometry
+     is read off the live band: topmost solid row per column, skipping timber so
+     a trunk is not mistaken for ground. */
   const steps = await page.evaluate(async () => {
     const { bandOf } = await import('/src/model/world.js');
     const { solidAt, subAt } = await import('/src/model/tiles.js');
@@ -5624,11 +4956,9 @@ test('a cliff face', async ({ page }) => {
   await shot(page, 'cliff-face.png');
 });
 
-/* THE MAP OVERVIEW AT THREE SCROLL POSITIONS, AND THEY SCROLL ACROSS RATHER.
-   THAN DOWN. `map.png` above never scrolls -- `flags.showMap` with `follow`
-   left at its default `true`, centred wherever `settle` happens to leave the
-   player. `mapMoveTo` (`shell/ui.js`) is the identical model-level scroll the
-   fog test above already drives the overview through. */
+/* Three scroll positions across the width. `map.png` never scrolls: it leaves
+   `follow` at its default, centred wherever `settle` left the player, and
+   `mapMoveTo` is the model-level scroll. */
 test('the map overview at three scroll positions', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -5642,12 +4972,9 @@ test('the map overview at three scroll positions', async ({ page }) => {
     }
     return h >>> 0;
   });
-  /* A FRACTION OF THE SCROLLABLE RANGE, not a world x. `ui.map.x` is the
-     window's LEFT edge and `view/overview.js#fit` clamps it to
-     `worldW - vw / scale`, so world x 4000 and world x 9999 are the SAME
-     picture -- the first pass at this test parked at both and got two
-     baselines for one frame. The range is read off `mapView`, which records
-     what the last draw used. */
+  /* A fraction of the scrollable range, not a world x: `ui.map.x` is the
+     window's left edge and `view/overview.js#fit` clamps it to
+     `worldW - vw / scale`, so two far-apart world x values are one picture. */
   const park = k => page.evaluate(async k => {
     const { mapMoveTo } = await import('/src/shell/ui.js');
     const { mapView } = await import('/src/view/overview.js');
@@ -5682,16 +5009,10 @@ test('the map overview at three scroll positions', async ({ page }) => {
   expect(new Set([left, mid, right]).size).toBe(3);
 });
 
-/* OVERVIEW WITH A BROKEN LIFT CHAIN. Reuses the exact hub layout `winch:
-   the same chain with the middle segment missing` above already baselines
-   at scene scale -- CHAIN's four hubs, linked [0,1] and [2,3] with the
-   middle segment deliberately absent -- and opens the map on it instead of
-   the scene camera. `view/overview.js#drawChain`'s own header names this
-   exact construction as the LOGISTICS layer's acceptance case: an open end
-   draws as a red ring, a joined hub as a small solid box, a driven cable is
-   solid and bright and an idle one dashes -- so a broken chain has to be
-   visually distinguishable from a working one without reading a single
-   number. */
+/* CHAIN's four hubs, linked [0,1] and [2,3] with the middle segment absent,
+   opened on the map instead of the scene camera: an open end draws as a red
+   ring, a joined hub as a solid box, a driven cable solid and an idle one
+   dashed. */
 test('overview with a broken lift chain', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -5708,11 +5029,9 @@ test('overview with a broken lift chain', async ({ page }) => {
   await shot(page, 'map-broken-chain.png');
 });
 
-/* THE HORIZONTAL EXTENT RIBBON. The overview fits the world's DEPTH and
-   WINDOWS its width, so at any zoom where the width does not fit, the body
-   shows a slice and the ribbon says which slice. At 1,024 tiles no zoom fits:
-   the world is 8,192 px wide against a 609 px body at the desktop buffer, so
-   the ribbon is present at the DEFAULT zoom and `map.png` carries it. */
+/* The overview fits the world's depth and windows its width, so where the
+   width does not fit the ribbon says which slice the body shows. The world is
+   8,192 px wide against a 609 px body, so it is there at the default zoom. */
 test('the overview extent ribbon appears only when the width does not fit, and tracks the scroll', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -5744,9 +5063,8 @@ test('the overview extent ribbon appears only when the width does not fit, and t
 
     return {
       track, win,
-      /* The world span the body can show, over the world's own width: the
-         fraction the thumb is supposed to be. Read off `mapView` rather than
-         re-derived, the same reason the fog test reads the transform back. */
+      /* The world span the body can show over the world's width: the fraction
+         the thumb should be, read off `mapView` rather than re-derived. */
       fraction: (mapView.vw / mapView.scale) / mapView.worldW,
       /* One pixel inside the thumb and one in the track beyond its far end. */
       inWindow: win ? rgb(win.x + 1, win.y) : null,
@@ -5760,21 +5078,21 @@ test('the overview extent ribbon appears only when the width does not fit, and t
   const hex = h => [h.slice(1, 3), h.slice(3, 5), h.slice(5, 7)].map(x => parseInt(x, 16));
   const rgbStr = s => s.match(/\d+/g).map(Number);
 
-  /* ONE PIXEL PER TILE IN A 2,400 px BUFFER FITS THE WHOLE WIDTH, so there is
+  /* One pixel per tile in a 2,400 px buffer fits the whole width, so there is
      nothing to say and nothing is drawn. */
   const fits = await at(page, 0, 0, 2400);
   expect(fits.fraction).toBeGreaterThanOrEqual(1);
   expect(fits.track).toBe(null);
   expect(fits.win).toBe(null);
 
-  /* AND THE SAME ZOOM IN THE BUFFER THIS SUITE ACTUALLY PHOTOGRAPHS DOES NOT,
-     which is why the ribbon is in every overview baseline. */
+  /* The same zoom in the buffer this suite photographs does not fit, which is
+     why the ribbon is in every overview baseline. */
   const narrow = await at(page, 0, 0);
   expect(narrow.fraction).toBeLessThan(1);
   expect(narrow.track).not.toBe(null);
 
-  /* ZOOM 8 DOES NOT EITHER. The thumb is the window's share of the world's
-     width, and it is painted rather than merely recorded. */
+  /* Zoom 8 does not fit either. The thumb is the window's share of the world's
+     width, and it is painted rather than only recorded. */
   const mid = await at(page, 8, 400);
   expect(mid.fraction).toBeLessThan(1);
   expect(mid.win.w / mid.track.w).toBeCloseTo(mid.fraction, 1);
@@ -5782,17 +5100,16 @@ test('the overview extent ribbon appears only when the width does not fit, and t
   expect(mid.inWindow).toEqual(hex(mid.ui));
   expect(mid.inTrack).toEqual(rgbStr(mid.trackTone));
 
-  /* AND IT TRACKS THE SCROLL, to both ends. `fit` clamps the offset to the
-     world, so parking past an edge parks ON it. */
+  /* It tracks the scroll to both ends: `fit` clamps the offset to the world, so
+     parking past an edge parks on it. */
   const left = await at(page, 8, -9999);
   expect(left.win.x).toBe(left.track.x);
   const right = await at(page, 8, 9999);
   expect(right.win.x + right.win.w).toBe(right.track.x + right.track.w);
 });
 
-/* AND WHAT IT LOOKS LIKE. Zoom 8 over a fully revealed world, parked mid-width
-   so the thumb sits mid-track: the one scroll position where the ribbon says
-   something neither end would. */
+/* Zoom 8 over a fully revealed world, parked mid-width so the thumb sits
+   mid-track, which is what neither end shows. */
 test('the overview at a zoom the world does not fit', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -5811,11 +5128,8 @@ test('the overview at a zoom the world does not fit', async ({ page }) => {
   await shot(page, 'map-zoom8.png');
 });
 
-/* THE CLOUD DOCK, PLACED FOR REAL through `rules/placement.js#placeMachine`
-   rather than by a model-level write that would skip the legality this scene
-   exercises: astral's floor, and `footing:2`. Its build bill is given
-   directly rather than mined and pressed, because this scene's point is the
-   dock's LOOK once placed, not the crafting grind. */
+/* Placed through `rules/placement.js#placeMachine` rather than a model-level
+   write, so astral's floor and `footing:2` are actually exercised. */
 test('the Cloud Dock', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -5830,11 +5144,9 @@ test('the Cloud Dock', async ({ page }) => {
 
     const astral = bandOf('astral');
     pw.band(astral);
-    /* A FULL BODY HEIGHT clear of the floor, not just a bare pixel -- placed
-       any closer, the body already overlaps the solid row before physics
-       ever runs, and `moveY`'s collision resolves that embedded start by
-       sinking a further tile rather than pushing back out -- the same wedge
-       an auto-step gated on `onGround` once produced. */
+    /* A full body height clear of the floor: any closer and the body overlaps
+       the solid row before physics runs, and `moveY` resolves an embedded start
+       by sinking a further tile rather than pushing out. */
     pw.move(worldX(astral, 60), worldY(astral, 29) - PH);
     __mf.revealAll(astral);
     __mf.cmd.hasMouse = false;
@@ -5845,9 +5157,7 @@ test('the Cloud Dock', async ({ page }) => {
   });
   await moveHeldToQuickbar(page, 0, 'cloud_dock', 'rig');
   await page.keyboard.press('1');
-  /* 'e' no longer places: placement is LMB only, and the LMB dispatch has its
-     own tests, so this pokes the same edge flag a real click ultimately
-     sets. */
+  /* Placement is LMB only; this pokes the same edge flag a real click sets. */
   await page.evaluate(() => { __mf.cmd.place = true; });
   await page.evaluate(() => __mf.frames(10));
 
@@ -5865,14 +5175,9 @@ test('the Cloud Dock', async ({ page }) => {
     const { banner } = await import('/src/view/fx.js');
     const dock = __mf.machines.find(m => m.def === M.cloud_dock);
     banner.fade = 0;
-    /* The dock's own footprint is 2x1 tiles (16x8 world px) -- tiny against
-       the 640x400 desktop view, and its marble body reads close to white
-       against astral's own bright sky, so a wide shot leaves it a pale
-       sliver easy to miss. The narrow floor (`core/canvas.js#resize`'s own
-       200x180 clamp) is used here for the opposite of its usual reason: not
-       to prove narrow-viewport layout, but to make a small machine fill
-       enough of the frame that its trim actually reads. It is a framing tool
-       as much as a layout assertion. */
+    /* The dock's footprint is 2x1 tiles (16x8 world px), a pale sliver against
+       the 640x400 view and astral's bright sky, so the 200x180 buffer is used
+       here for framing rather than as a layout assertion. */
     __mf.resize(200, 180);
     __mf.cam.x = Math.round(dock.box.x + dock.box.w / 2 - VIEW.w / 2);
     __mf.cam.y = Math.round(dock.box.y + dock.box.h / 2 - VIEW.h / 2);
@@ -5881,22 +5186,13 @@ test('the Cloud Dock', async ({ page }) => {
   await shot(page, 'cloud-dock.png');
 });
 
-/* `view/scene.js#drawDepletion` is the answer, and it is a LIVE OVERLAY rather
-   than a chunk bake for the reason `model/world.js`'s band record states
-   twice, once for `seen` and once for `light`. THREE TESTS, AND THE THIRD IS
-   THE ONE THAT MATTERS. Two are baselines -- a fresh vein and the same vein
-   part-spent, at the desktop viewport -- and a screenshot pair only proves the
-   two scenes are not identical to each OTHER. */
+/* `view/scene.js#drawDepletion` is a live overlay rather than a chunk bake,
+   for the reason the band record gives for `seen` and `light`. */
 
-/* A hand-carved copper vein with OPEN SKY above it. The sky matters: a cue
-   this phase exists to prove visible must not be baselined underneath
-   `drawDarkness`, which paints 94% black over an unlit tile. `rules/light.js`
-   seeds every tile from row 0 down to and INCLUDING the first solid one at
-   `eff('lightMax')`, so clearing the pocket to row 0 leaves the vein row
-   itself fully lit and the darkness pass with nothing to do to it.
-
-   Hand-carved and not found: the seed decides what lies UNDER the vein, and
-   a found vein would let it decide the vein too. */
+/* A hand-carved copper vein with open sky above it. `rules/light.js` seeds
+   every tile from row 0 down to and including the first solid one at
+   `eff('lightMax')`, so clearing to row 0 leaves the vein row fully lit and
+   `drawDarkness`, 94% black over an unlit tile, with nothing to do to it. */
 const VEIN = { tx0: 40, ty: 26, w: 6 };
 
 async function veinScene(page) {
@@ -5916,14 +5212,14 @@ async function veinScene(page) {
     pw.band(band);
     pw.move(worldX(band, tx0 - 2), worldY(band, ty) - PH);
     ww.revealAll(band);
-    banner.fade = 0;   // past the opening title, same reasoning `settle()` gives
+    banner.fade = 0;   // past the opening title
   }, VEIN);
   await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(2); });
 }
 
-/* Centre the vein in whatever viewport is current and render ONCE. Separate
-   from `veinScene` and always called last, because a substep also runs
-   `updateCamera`, which would pull the camera back onto the player. */
+/* Centres the vein in the current viewport and renders once. Called last,
+   because a substep runs `updateCamera` and would pull the camera back onto
+   the player. */
 const frameVein = page => page.evaluate(async ({ tx0, ty, w }) => {
   const { bandOf, worldX, worldY } = await import('/src/model/world.js');
   const { VIEW } = await import('/src/core/canvas.js');
@@ -5933,11 +5229,9 @@ const frameVein = page => page.evaluate(async ({ tx0, ty, w }) => {
   __mf.draw();
 }, VEIN);
 
-/* Spend real units out of named tiles through `model/mining.js#write.add` --
-   the same call `rules/mining.js` makes, driven through the model rather than
-   through a click at a hardcoded pixel. `effHardAt` is `view/paint.js`'s own
-   resolved hardness, so the test cannot disagree with the renderer about what
-   a unit costs. */
+/* Spends real units out of named tiles through `model/mining.js#write.add`, the
+   call `rules/mining.js` makes. `effHardAt` is `view/paint.js`'s own resolved
+   hardness, so the test cannot disagree with the renderer on a unit's cost. */
 async function spendUnits(page, spec) {
   await page.evaluate(async ({ ty, spec }) => {
     const { bandOf } = await import('/src/model/world.js');
@@ -5961,21 +5255,17 @@ test('the same copper vein, one tile 3 of 4 spent and its neighbour 1 of 4', asy
   await boot(page);
   await settle(page);
   await veinScene(page);
-  /* Framed once BEFORE the work is added so every chunk the shot needs is
-     already baked: `write.add` bumps the epoch and never a chunk version
-     (that is the whole reason this cue cannot live in the bake), so a chunk
-     first painted after the work exists would bake a crack that a chunk
-     painted before it would not. The nudge in `spendUnits` keeps the crack
-     read at 0.0001 either way -- but a baseline should not depend on that. */
+  /* Framed once before the work is added, so every chunk the shot needs is
+     already baked: `write.add` bumps the epoch and never a chunk version, so a
+     chunk first painted after the work would bake a crack. */
   await frameVein(page);
   await spendUnits(page, [{ tx: VEIN.tx0 + 2, units: 3 }, { tx: VEIN.tx0 + 3, units: 1 }]);
   await frameVein(page);
   await shot(page, 'vein-depleted.png');
 });
 
-/* THE PROOF THAT THE OVERLAY IS DOING SOMETHING, and the reason it is a pixel
-   count rather than a third screenshot: one scene, rendered twice, with
-   NOTHING different between the two draws but `dig.work`. */
+/* A pixel count rather than a third screenshot: one scene, rendered twice, with
+   nothing different between the two draws but `dig.work`. */
 test('the depletion cue actually changes pixels, and only on the tiles that were worked', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -6036,12 +5326,9 @@ test('the depletion cue actually changes pixels, and only on the tiles that were
   expect(seen.total).toBe(at(worked[0]) + at(worked[1]));
 });
 
-/* It read as an edge-lit wooden cube floating in the void.
-   `view/paint.js#paintTile` now draws a form's own `look` instead of all of
-   that. ONE SCENE, TWO LIGHTINGS, TWO VIEWPORTS, on the pair rule `shaft-
-   unlit.png`/`shaft-lit.png` states above: a screenshot pair proves the two
-   are not identical to EACH OTHER, so each is baselined separately and a
-   regression has to move a file relative to its own accepted image. */
+/* `view/paint.js#paintTile` draws a form's own `look`. One scene, two
+   lightings, each baselined separately, so a regression has to move a file
+   against its own accepted image. */
 const LADDER = { tx0: 40, ty0: 104, w: 7, h: 14, top: 110, n: 6 };
 
 async function ladderShaft(page) {
@@ -6057,37 +5344,33 @@ async function ladderShaft(page) {
     for (let ty = ty0; ty < ty0 + h; ty++)
       for (let tx = tx0; tx < tx0 + w; tx++) tw.clear(band, tx, ty);
 
-    /* A floor for the ladders to stand on and for the brazier to sit on --
-       stone rather than the band's own soil so the shaft floor reads as a
-       different material from its walls. */
+    /* A floor for the ladders and the brazier, stone rather than the band's own
+       soil so it reads as a different material from the walls. */
     const floor = ty0 + h - 1;
     for (let tx = tx0; tx < tx0 + w; tx++) tw.set(band, tx, floor, S.stone);
 
-    /* Placed through `model/tiles.js#write.set` with a real form ordinal --
-       the same call `rules/placement.js#placeTile` makes -- never through a
-       click at a hardcoded pixel, which resolves against a different tile the
-       moment the viewport changes size, and these are shot at two. */
+    /* Placed through `model/tiles.js#write.set` with a real form ordinal, the
+       call `rules/placement.js#placeTile` makes, rather than a click at a
+       hardcoded pixel: these are shot at two viewports. */
     for (let i = 0; i < n; i++) {
       tw.set(band, tx0 + 1, top + i, S.timber, F.rung);
       tw.set(band, tx0 + w - 2, top + i, S.copper, F.stair);
     }
 
-    /* Standing at the FOOT of the timber ladder, and clear of the column the
-       brazier goes in below -- the lit shot's whole point is that the light
-       source is visible in frame, and the player sprite is 3 tiles of the
-       shaft's 7. */
+    /* At the foot of the timber ladder and clear of the brazier's column: the
+       player sprite is 3 tiles of the shaft's 7, and the lit shot needs the
+       light source in frame. */
     pw.band(band);
     pw.move(worldX(band, tx0 + 2), worldY(band, floor) - PH);
     ww.revealAll(band);
-    banner.fade = 0;   // past the opening title, same reasoning `settle()` gives
+    banner.fade = 0;   // past the opening title
   }, LADDER);
   await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(2); });
 }
 
-/* Centre the shaft in whatever viewport is current and render ONCE. Separate
-   from the setup and always called last, for the reason `frameVein` gives: a
-   substep also runs `updateCamera`, which would pull the camera back onto the
-   player. */
+/* Centres the shaft in the current viewport and renders once. Called last,
+   because a substep runs `updateCamera` and would pull the camera back onto
+   the player. */
 const frameLadder = page => page.evaluate(async ({ tx0, ty0, w, h }) => {
   const { bandOf, worldX, worldY } = await import('/src/model/world.js');
   const { VIEW } = await import('/src/core/canvas.js');
@@ -6118,25 +5401,20 @@ test('the same ladder column lit by a brazier', async ({ page }) => {
 
     const brazier = mw.place(bandOf('topsoil'), M.brazier, tx0 + 4, ty0 + h - 2);
     mw.take(brazier, S.timber, F.log, 4);
-    __mf.frames(700);          // > 6s honest-fuel recipe, then settle -- `shaft-lit.png`'s own margin
+    __mf.frames(700);          // past the 6 s fuel recipe, then settle
   }, LADDER);
   await frameLadder(page);
   await shot(page, 'ladder-lit.png');
 });
 
-/* Two baselines and one pixel-diff, on exactly the structure the depletion
-   trio above already uses and for exactly the same reasons. `seedling.png` is
-   a mid-growth seedling: a LIVE OVERLAY, drawn every frame from
-   `model/growth.js#stageAt`, over a tile the chunk canvas has baked as
+/* `seedling.png` is a mid-growth seedling: a live overlay drawn every frame
+   from `model/growth.js#stageAt`, over a tile the chunk canvas has baked as
    ordinary terrain. */
 const SPROUT = { tx: 44, fy: 26 };          // fy is the floor; the seed sits at fy - 1
 
-/* Everything is driven through the MODEL and the REAL placement rule, never
-   through a click at a hardcoded pixel: these scenes are shot at two
-   viewports, and a click at (400, 300) hits a different tile at the other
-   one. `placeTile` and not `write.set`, because the claim is that a seed is
-   planted by the same verb as everything else and is legal on a bare floor --
-   writing the tile directly would skip that clause. */
+/* Driven through the model and the real placement rule, not a click at a
+   hardcoded pixel: these scenes are shot at two viewports. `placeTile` rather
+   than `write.set`, so a seed's legality on a bare floor is exercised. */
 async function sproutScene(page) {
   await page.evaluate(async ({ tx, fy }) => {
     const { S } = await import('/src/data/substances.js');
@@ -6164,14 +5442,13 @@ async function sproutScene(page) {
     banner.fade = 0;
   }, SPROUT);
   await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(2); });
-  /* The beat jump above releases the altar and it stands in frame here.
-     See `ARRIVAL_SUBSTEPS`. */
+  /* The beat jump above releases the altar, and it stands in frame here. */
   await pastArrival(page);
 }
 
-/* Centre the sprout in whatever viewport is current and render ONCE.
-   Separate from `sproutScene` and always called last, because a substep also
-   runs `updateCamera`, which would pull the camera back onto the player. */
+/* Centres the sprout in the current viewport and renders once. Called last,
+   because a substep runs `updateCamera` and would pull the camera back onto
+   the player. */
 const frameSprout = page => page.evaluate(async ({ tx, fy }) => {
   const { bandOf, worldX, worldY } = await import('/src/model/world.js');
   const { VIEW } = await import('/src/core/canvas.js');
@@ -6181,11 +5458,9 @@ const frameSprout = page => page.evaluate(async ({ tx, fy }) => {
   __mf.draw();
 }, SPROUT);
 
-/* Put `frac` of `eff('treeGrowSecs')` on the ledger through the same
-   `model/growth.js#write.add` the real step calls. Driving 7,200 real
-   substeps to reach a third of 180 s would measure nothing these baselines
-   are about, and the growth timing is asserted at all 8 framerates in
-   `tools/check.mjs`. */
+/* Puts `frac` of `eff('treeGrowSecs')` on the ledger through the same
+   `model/growth.js#write.add` the real step calls, rather than driving 7,200
+   substeps to reach a third of 180 s. */
 const growTo = (page, frac) => page.evaluate(async ({ spec, frac }) => {
   const { bandOf } = await import('/src/model/world.js');
   const { write: gw } = await import('/src/model/growth.js');
@@ -6193,12 +5468,9 @@ const growTo = (page, frac) => page.evaluate(async ({ spec, frac }) => {
   gw.add(bandOf('surface'), spec.tx, spec.fy - 1, eff('treeGrowSecs') * frac);
 }, { spec: SPROUT, frac });
 
-/* 0.4 and not exactly 1/3: `view/scene.js#SEED_STAGES` steps the silhouette
-   at a third and at two thirds, and a baseline that sat ON a boundary would
-   be one floating-point hair away from showing the previous stage -- the
-   same reason `spendUnits` above nudges past each unit boundary rather than
-   landing on it. 0.4 is comfortably inside the middle stage, which is what
-   "roughly a third grown" means to look at. */
+/* 0.4 rather than exactly 1/3: `view/scene.js#SEED_STAGES` steps the silhouette
+   at a third and at two thirds, and a baseline sitting on a boundary is one
+   floating-point hair from showing the previous stage. */
 test('a planted seed part-way grown', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -6209,10 +5481,8 @@ test('a planted seed part-way grown', async ({ page }) => {
   await shot(page, 'seedling.png');
 });
 
-/* THE SAME TILE, ONCE IT IS A TREE. One real substep past the full grow time
-   so the REAL `rules/growth.js` is what resolves it -- not a hand-written
-   stack of trunk tiles, which would baseline this phase's own opinion of
-   what a tree looks like instead of what it actually produces. */
+/* One real substep past the full grow time, so `rules/growth.js` resolves the
+   tile rather than a hand-written stack of trunk tiles. */
 test('the same tile once the seed has become a tree', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -6231,10 +5501,9 @@ test('the same tile once the seed has become a tree', async ({ page }) => {
            formAt(band, tx, fy - 1 - h) === NATIVE) h++;
     return h;
   }, SPROUT);
-  /* Asserted, not assumed: a baseline of an unresolved seedling would look
-     plausible and prove nothing about growth at all. `data/world.js`'s own
-     `trees` row declares [3, 5] and `rules/growth.js` reads that range off
-     it, so a planted tree is the same size as a wild one. */
+  /* `data/world.js`'s `trees` row declares [3, 5] and `rules/growth.js` reads
+     that range off it, so a planted tree is the size of a wild one, and an
+     unresolved seedling would look plausible while proving nothing. */
   expect(height).toBeGreaterThanOrEqual(3);
   expect(height).toBeLessThanOrEqual(5);
 
@@ -6242,14 +5511,10 @@ test('the same tile once the seed has become a tree', async ({ page }) => {
   await shot(page, 'grown-tree.png');
 });
 
-/* THE PROOF THAT THE GROWTH OVERLAY IS DOING SOMETHING, and the reason it is a
-   pixel count rather than a third screenshot: one scene, rendered twice, with
-   NOTHING different between the two draws but whether `model/growth.js` holds
-   an entry for the tile. Clearing the entry leaves the `timber/seed` TILE
-   exactly where it was -- the chunk canvas has already baked it as ordinary
-   terrain and `write.clear` on the LEDGER touches no tile byte and no chunk
-   version -- so this is precisely the same scene with the overlay pass
-   suppressed. */
+/* A pixel count rather than a third screenshot: one scene, rendered twice, with
+   nothing different between the draws but whether `model/growth.js` holds an
+   entry. Clearing the ledger touches no tile byte and no chunk version, so the
+   tile stays and only the overlay pass is suppressed. */
 test('the growth cue actually changes pixels, and only on the tile that was planted', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -6267,13 +5532,13 @@ test('the growth cue actually changes pixels, and only on the tile that was plan
     const ctx = c.getContext('2d');
     const grab = () => ctx.getImageData(0, 0, c.width, c.height).data;
 
-    /* OVERLAY SUPPRESSED: the ledger entry goes, the tile stays. */
+    /* Overlay suppressed: the ledger entry goes, the tile stays. */
     gw.clear(band, tx, py);
     const wasSuppressed = !growingAt(band, tx, py);
     __mf.draw();
     const before = grab();
 
-    /* OVERLAY BACK, at the same 0.4 the `seedling.png` baseline uses. */
+    /* Overlay back, at the same 0.4 the `seedling.png` baseline uses. */
     gw.plant(band, tx, py);
     gw.add(band, tx, py, eff('treeGrowSecs') * 0.4);
     __mf.draw();
@@ -6310,12 +5575,10 @@ test('the growth cue actually changes pixels, and only on the tile that was plan
   expect(seen.total).toBe(at(0));
 });
 
-/* THE DRAFT MODAL. THE DELIVERY IS SET UP THROUGH THE MODEL; EVERYTHING AFTER
-   IT IS THE SHIPPED PATH. The subject here is the modal, not the mining, so
-   these tests fill a receiver's buffer directly and then let the real director
-   run: `rules/cycles.js#drainReceivers` credits it, `#resolve` completes the
-   trial and writes `run.offer`, `rules/draft.js` draws the cards out of the
-   seeded stream, and `shell/main.js#raiseOffer` opens the panel. */
+/* The delivery is set up through the model and everything after it is the
+   shipped path: `rules/cycles.js#drainReceivers` credits the buffer, `#resolve`
+   writes `run.offer`, `rules/draft.js` draws the cards from the seeded stream,
+   and `shell/main.js#raiseOffer` opens the panel. */
 async function payTrial(page, cycle) {
   await page.evaluate(async (cycle) => {
     const { run, write } = await import('/src/model/run.js');
@@ -6350,8 +5613,8 @@ test('17c2: cycle 2 raises a two-card grant draft over a frozen world, and its r
   await settle(page);
   await payTrial(page, 2);
 
-  /* The grant tier ships TWO rows against an `offerSize` of 3, so two cards
-     is the honest answer and the layout must not reserve a third. */
+  /* The grant tier ships two rows against an `offerSize` of 3, so two cards is
+     the answer and the layout must not reserve a third. */
   const offer = await offerOf(page);
   expect(offer.tier).toBe('grant');
   expect(offer.ids.length).toBe(2);
@@ -6362,9 +5625,8 @@ test('17c2: cycle 2 raises a two-card grant draft over a frozen world, and its r
   const drawn = await draftPanels(page);
   expect(drawn.map(p => p.id).sort()).toEqual(['draft-card-0', 'draft-card-1', 'draft-reroll']);
 
-  /* THE WORLD REALLY IS FROZEN BEHIND IT: 120 substeps change no
-     simulated time and move no body. `stepFx` is deliberately not part of
-     this claim -- it runs outside `step` and always has. */
+  /* The world is frozen behind it: 120 substeps change no simulated time and
+     move no body. `stepFx` is not part of the claim; it runs outside `step`. */
   const frozen = await page.evaluate(async () => {
     const { run } = await import('/src/model/run.js');
     const { player } = await import('/src/model/player.js');
@@ -6383,10 +5645,9 @@ test('17c2: the modal is not vacuous -- the same frame with the panel closed is 
   await payTrial(page, 2);
   const [card] = await draftPanels(page);
 
-  /* Two draws with no step between them, the panel popped for the first, so
-     nothing but the modal itself can account for a moved pixel. `view` reads
-     the stack off the frame context, so popping it is the whole "feature
-     off" switch -- the same shape the armed-slot and growth-cue probes use. */
+  /* Two draws with no step between them and the panel popped for the first, so
+     only the modal can account for a moved pixel. `view` reads the stack off
+     the frame context, so popping it is the whole "off" switch. */
   const delta = await page.evaluate(async (card) => {
     const { open, close } = await import('/src/shell/ui.js');
     const c = document.getElementById('stage');
@@ -6412,7 +5673,7 @@ test('17c2: the modal is not vacuous -- the same frame with the panel closed is 
     return { total, inside, closedPanels, area: card.w * card.h };
   }, card);
 
-  expect(delta.closedPanels).toBe(0);                 // the "off" state really is off
+  expect(delta.closedPanels).toBe(0);                 // nothing draft-related is drawn
   expect(delta.inside).toBeGreaterThan(0);            // the card is painted where it says it is
   expect(delta.total).toBeGreaterThan(delta.inside);  // and the wash covers the rest of the screen
 });
@@ -6433,10 +5694,9 @@ test('17c2: clicking a card takes that card and ends the freeze', async ({ page 
     return { offer: __mf.ui.offer, open: __mf.ui.open, granted: run.granted.slice(), moved: run.t - t0 };
   });
 
-  /* `draft-card-0` is `run.offer.ids[0]`, and the grant tier's own `grants`
-     key names the machine it unlocks -- read back through the table rather
-     than remembered, so this goes red if the pointer ever reaches a
-     different card than the digit key would. */
+  /* `draft-card-0` is `run.offer.ids[0]`, and the grant row's `grants` key
+     names the machine it unlocks, read back through the table rather than
+     remembered. */
   const expected = await page.evaluate(async (id) => {
     const { GRANT } = await import('/src/data/grants.js');
     return GRANT[id].grants;
@@ -6461,8 +5721,7 @@ test('17c2: cycle 3 draws three boon cards with their modifier lines, and a live
   expect(offer.canReroll).toBe(true);            // athena's own trial paid exactly the price
 
   /* Every offered boon carries at least one `mods` row, which is what the
-     card's delta lines are built from -- if a tier ever shipped a row with
-     none, this scene would be photographing an empty claim. */
+     card's delta lines are built from; a row with none draws an empty card. */
   const modded = await page.evaluate(async (ids) => {
     const { BOON } = await import('/src/data/boons.js');
     return ids.every(id => (BOON[id].mods ?? []).length > 0);
@@ -6501,10 +5760,8 @@ test('17c2: a reroll spends the asking god\'s favour, and the row then dims with
 test('17c2: the modal stays legible at the 200 px base-buffer floor', async ({ page }) => {
   await boot(page);
   /* 400x360 css px at `core/canvas.js#resize`'s scale-2 floor is exactly the
-     200x180 base buffer the widget contract names -- three cards no longer fit
-     across, so the grid drops to two per row rather than squeezing them under
-     the readable minimum. WAIT FOR THE PAGE'S OWN RESIZE LISTENER, not just
-     for the browser. */
+     200x180 base buffer, where three cards no longer fit across. The wait is
+     for the page's own resize listener, not just for the browser. */
   await page.setViewportSize({ width: 400, height: 360 });
   await page.waitForFunction(w => document.getElementById('stage').width === w, 200);
   await settle(page);
@@ -6522,13 +5779,9 @@ test('17c2: the modal stays legible at the 200 px base-buffer floor', async ({ p
   const reroll = drawn.find(p => p.id === 'draft-reroll');
   expect(cards.length).toBe(3);
 
-  /* THE LAYOUT CHOSE TO FIT; IT WAS NOT CLAMPED INTO FITTING. `drawPanel`
-     (`view/ui/panel.js:34-37`) forces every rect inside the buffer BEFORE
-     recording it, so `x + w <= vw` is a tautology and proves nothing -- three
-     cards drawn on top of each other at x 2 would satisfy it. What cannot be
-     faked is landing STRICTLY inside every one of those clamp boundaries:
-     `w == vw - 4`, `x == 2` or `x + w == vw - 2` is exactly what a clamped
-     rect looks like. */
+  /* `view/ui/panel.js#drawPanel` clamps every rect inside the buffer before
+     recording it, so `x + w <= vw` is a tautology. Landing strictly inside
+     those boundaries is what a clamped rect cannot do. */
   for (const p of drawn) {
     expect(p.w).toBeLessThan(V.w - 4);
     expect(p.h).toBeLessThan(V.h - 4);
@@ -6538,7 +5791,7 @@ test('17c2: the modal stays legible at the 200 px base-buffer floor', async ({ p
     expect(p.y + p.h).toBeLessThan(V.h - 2);
   }
 
-  /* AND NOTHING SITS ON TOP OF ANYTHING ELSE. */
+  /* Nothing sits on top of anything else. */
   for (let i = 0; i < drawn.length; i++)
     for (let j = i + 1; j < drawn.length; j++) {
       const a = drawn[i], b = drawn[j];
@@ -6547,16 +5800,15 @@ test('17c2: the modal stays legible at the 200 px base-buffer floor', async ({ p
       expect({ pair: [a.id, b.id], overlap }).toEqual({ pair: [a.id, b.id], overlap: false });
     }
 
-  /* THE 2+1 GRID IS REAL: three cards at this width cannot go across, so two
-     share a row and the third drops below it. A single column (the shape a
-     too-wide MIN_CARD_W produces) has three distinct y values and fails here;
-     a squeezed single row has one. */
+  /* Two cards share a row and the third drops below it: a single column, the
+     shape a too-wide MIN_CARD_W gives, has three distinct y values, and a
+     squeezed single row has one. */
   expect(cards[0].y).toBe(cards[1].y);
   expect(cards[2].y).toBeGreaterThanOrEqual(cards[0].y + cards[0].h);
   expect(new Set(cards.map(c => c.w)).size).toBe(1);         // one uniform card width
 
-  /* EACH ROW IS CENTRED ON ITS OWN COUNT, so the odd card does not hang left.
-     Off-by-one is the integer `>> 1` in the layout, not slop. */
+  /* Each row is centred on its own count, so the odd card does not hang left.
+     The one-pixel tolerance is the layout's integer `>> 1`. */
   const centred = r => Math.abs(r.left - r.right) <= 1;
   const rowOf = rs => ({ left: Math.min(...rs.map(r => r.x)),
                          right: V.w - Math.max(...rs.map(r => r.x + r.w)) });
@@ -6568,11 +5820,9 @@ test('17c2: the modal stays legible at the 200 px base-buffer floor', async ({ p
   await shot(page, 'draft-boon-floor.png');
 });
 
-/* OP-STREAM PURITY. `tools/check.mjs`'s render-purity probe watches the model
-   epoch over the default scene: it cannot see a draw that varies without
-   writing to the model, and it never reaches a panel, so `view/ui/draft.js`
-   had never executed under any headless check at all. These record what the
-   renderer actually emitted and compare it call for call. */
+/* A draw can vary without writing to the model, which a model-epoch probe
+   cannot see. These record what the renderer emitted and compare it call for
+   call. */
 
 const SCENES = {
   surface: async () => {},
@@ -6592,10 +5842,9 @@ const SCENES = {
 
   'the draft modal': async page => { await payTrial(page, 3); },
 
-  /* The arrival is the one draw path that animates off `run.t` and a
-     positional hash, so it is the one most likely to reach for `rand`.
-     Frozen mid-presentation, since `draw` advances no clock. See
-     `altarArrives`. */
+  /* The arrival animates off `run.t` and a positional hash, so it is the draw
+     path most likely to reach for `rand`. Frozen mid-presentation, since `draw`
+     advances no clock. */
   'the altar arriving': async page => {
     await altarArrives(page);
     await page.evaluate(n => __mf.frames(n), MID_ARRIVAL);
@@ -6612,9 +5861,8 @@ for (const [name, setup] of Object.entries(SCENES)) {
        warm second draw legitimately does not. */
     await page.evaluate(() => { for (let i = 0; i < 12; i++) __mf.draw(); });
 
-    /* FOUR draws, not two. A draw path drawing from `rand` lands on the
-       same op string by chance often enough that one repeat is a weak
-       sample -- an injected `(rand * 10) | 0` passed a two-draw compare. */
+    /* Four draws, not two: an injected `(rand * 10) | 0` passed a two-draw
+       compare by landing on the same op string twice. */
     const runs = [];
     for (let i = 0; i < 4; i++) runs.push(await recordOps(page, () => page.evaluate(() => __mf.draw())));
 
@@ -6656,30 +5904,23 @@ test('op stream: the draft modal is drawn, and closing it removes those ops', as
 });
 
 
-/* THE ALTAR'S ARRIVAL. */
-
-/* Beat 4 is `rules/cycles.js#ALTAR_BEAT`, the climbed-back-up beat that
-   releases cycle 1's altar. Jumped rather than played, because the
-   dig and the climb that fire it for real are other tests' subject. The
-   `frames(1)` is what gives the director a frame to place anything in --
-   a scene that jumps the beat and draws without stepping gets no altar at
-   all. */
+/* Beat 4 is `rules/cycles.js#ALTAR_BEAT`, which releases cycle 1's altar. The
+   `frames(1)` is what gives the director a frame to place it in: a scene that
+   jumps the beat and draws without stepping gets no altar at all. */
 async function altarArrives(page) {
   await page.evaluate(async () => {
     const { write: rw, run } = await import('/src/model/run.js');
     while (run.tutorialBeat < 4) rw.advanceBeat();
-    /* The opening title card is still up two substeps into a run and it sits
-       straight across the altar. Cleared the same way `ratedCycle` above
-       clears it. */
+    /* The opening title card is still up two substeps in and sits straight
+       across the altar. */
     (await import('/src/view/fx.js')).banner.fade = 0;
     __mf.frames(1);
   });
 }
 
-/* The arrival's own rectangle in SCREEN px, grown by a margin that takes in
-   the base flare and still leaves the idling player out -- they spawn 6
-   tiles away, and a crop that reached them would answer for their blink
-   rather than for the altar. */
+/* The arrival's rectangle in screen px, padded to take in the base flare and
+   still leave the idling player out: they spawn 6 tiles away, and a crop that
+   reached them would answer for their blink. */
 const arrivalCrop = page => page.evaluate(() => {
   const a = __mf.run.arrival;
   const m = __mf.machines.find(mm => mm.box.x === a.x && mm.box.y === a.y);
@@ -6715,10 +5956,9 @@ test('17f2: the arrival is not vacuous -- the same altar with the window closed 
   const midOps = await recordOps(page, () => page.evaluate(() => __mf.draw()));
   const pinned = await page.evaluate(() => ({ t: __mf.clock.t, x: __mf.cam.x, y: __mf.cam.y }));
 
-  /* Two seconds of simulated time, which is past `altarRiseSecs` at 1.6 s. The
-     altar has not moved and the stamp is still on `run`; only the window has
-     closed. THE RENDER CLOCK AND THE CAMERA ARE BOTH PUT BACK before the
-     second draw, and the hash assertion below is worthless without both. */
+  /* Two seconds of simulated time, past `altarRiseSecs` at 1.6 s: the altar has
+     not moved and the stamp is still on `run`, only the window has closed. The
+     render clock and the camera are both put back before the second draw. */
   await page.evaluate(() => __mf.frames(240));
   expect(await page.evaluate(() => __mf.run.arrival !== null)).toBe(true);
   await shot(page, 'altar-arrival-over.png');
@@ -6735,13 +5975,9 @@ test('17f2: the arrival is not vacuous -- the same altar with the window closed 
   expect(midOps.length - doneOps.length).toBeGreaterThan(100);
 });
 
-/* THE CALLOUT FITS, AND ITS FADE IS HONEST. */
-
 /* Two crops of the bottom of the frame: the strip `view/hud.js#bottomLine`
-   draws into, and a control strip immediately above it. Both stop short of
-   the quickbar on the right and the KEYS toggle on the left, so only the
-   callout and plain world are inside them. Device px, so they scale with
-   whatever `core/canvas.js#resize` chose. */
+   draws into, and a control strip above it. Both stop short of the quickbar on
+   the right and the KEYS toggle on the left, and both are device px. */
 const calloutCrops = page => page.evaluate(async () => {
   const { VIEW } = await import('/src/core/canvas.js');
   const c = document.getElementById('stage');
@@ -6768,27 +6004,21 @@ test('17k: a callout at the start of its fade draws nothing, bevel included', as
   await settle(page);
   const { strip, control } = await calloutCrops(page);
 
-  /* Beats 2 and 3 are the two widest rows in `data/callouts.js` and they are
-     different widths, so a panel that leaked any pixel at fade 0 would leak
-     a different number of them for each. `view/hud.js:1036` is the only
-     reader of `beat(run)` in all of `view/`, so nothing else in the frame
-     moves between these two draws. */
+  /* Beats 2 and 3 are the two widest rows in `data/callouts.js`, and different
+     widths, so a panel leaking any pixel at fade 0 leaks a different number for
+     each. Nothing else in `view/` reads `beat(run)`. */
   await beatAtFadeZero(page, 2);
   const two = await canvasHash(page, strip);
 
   await beatAtFadeZero(page, 3);
   const three = await canvasHash(page, strip);
 
-  /* THE ASSERTION THIS TEST EXISTS FOR. `panel` used to draw its top bevel
-     after putting `globalAlpha` back to 1, so a fading callout showed a
-     fully opaque 1 px line over nothing. That line was the only callout
-     pixel in six baselines, and it was the whole of the diff in
-     `ore-against-pale-stone`. */
+  /* A callout at fade 0 leaks no pixel, its top bevel included. */
   expect(two).toBe(three);
 
-  /* NOT VACUOUS. The same beat one full fade later must differ, and the
-     control strip just above must not -- so the difference is the callout
-     appearing and not `clock.t` moving something else nearby. */
+  /* The same beat one full fade later must differ while the control strip above
+     it must not, so the difference is the callout and not `clock.t` moving
+     something else nearby. */
   const controlBefore = await canvasHash(page, control);
   await page.evaluate(() => { __mf.clock.t += 0.4; __mf.draw(); });
   const lit = await canvasHash(page, strip);
@@ -6800,16 +6030,13 @@ test('17k: a callout at the start of its fade draws nothing, bevel included', as
   expect(errors).toEqual([]);
 });
 
-/* THE DEPTH TINT IS WORLD-ANCHORED. `view/scene.js#depthTint` gives every
-   world row the tint its own band claims and ramps adjacent bands into each
-   other across a short span centred on their seam. Two defects have lived
-   here. One frame-wide alpha read off the camera centre stepped the whole
-   screen 0.055 -> 0.440 the frame the centre crossed world-Y 768. */
+/* `view/scene.js#depthTint` gives every world row the tint its own band claims,
+   ramping adjacent bands into each other across a short span centred on their
+   seam. */
 
 /* Alpha per world row over `[0, worldBottom)`, assembled from tiled camera
-   positions. `phase` shifts every camera position, so a given world row lands
-   at a different screen row in each profile -- which is what makes comparing
-   two profiles a test of camera-invariance rather than of repeatability. */
+   positions. `phase` shifts every camera position, so a world row lands at a
+   different screen row per profile: camera-invariance, not repeatability. */
 const tintProfile = (page, buffer, phase) => page.evaluate(async ({ buffer, phase }) => {
   const { stats } = await import('/src/view/scene.js');
   const { VIEW } = await import('/src/core/canvas.js');
@@ -6836,9 +6063,8 @@ test('17l: the depth tint is world-anchored, and a seam ramps rather than steps'
   const errors = await boot(page);
   await settle(page);
 
-  /* The 200 px floor and the 400 px desktop buffer. Astral is 320 px tall, so
-     it fits inside the first and never inside the second -- which is exactly
-     the case the area-weighted mean got wrong, and the reason both are here. */
+  /* The 200 px floor and the 400 px desktop buffer: astral is 320 px tall, so
+     it fits inside the first viewport and never inside the second. */
   for (const buffer of [400, 800]) {
     const a = await tintProfile(page, buffer, 0);
     const b = await tintProfile(page, buffer, 37);
@@ -6846,9 +6072,8 @@ test('17l: the depth tint is world-anchored, and a seam ramps rather than steps'
     expect(a.H).toBe(buffer / 2);
     expect(a.bottom).toBe(3328);
 
-    /* CAMERA-INVARIANCE. Bit-identical, not close: the alpha is a function of
-       the world row, so three different screen placements of that row compute
-       the same double. */
+    /* Bit-identical, not close: the alpha is a function of the world row, so
+       three screen placements of that row compute the same double. */
     let worstInv = 0, atInv = -1;
     for (let wy = 0; wy < a.bottom; wy++) {
       const d = Math.max(Math.abs(b.out[wy] - a.out[wy]), Math.abs(c.out[wy] - a.out[wy]));
@@ -6856,10 +6081,10 @@ test('17l: the depth tint is world-anchored, and a seam ramps rather than steps'
     }
     expect(worstInv, `H=${a.H}: worst camera-dependence ${worstInv} at world row ${atInv}`).toBe(0);
 
-    /* NO ROW WAS MISSED. -1 is the fill the profile starts at. */
+    /* No row was missed: -1 is the fill the profile starts at. */
     expect(a.out.indexOf(-1)).toBe(-1);
 
-    /* NO HARD EDGE ANYWHERE IN THE WORLD. */
+    /* No hard edge anywhere in the world. */
     let worstStep = 0, atStep = -1;
     for (let wy = 1; wy < a.bottom; wy++) {
       const d = Math.abs(a.out[wy] - a.out[wy - 1]);
@@ -6868,16 +6093,15 @@ test('17l: the depth tint is world-anchored, and a seam ramps rather than steps'
     expect(worstStep, `H=${a.H}: worst row step ${worstStep} at world row ${atStep}`)
       .toBeLessThanOrEqual(5 / 255);
 
-    /* EXACT INTERIORS, AT BOTH BUFFERS. No neighbour bleeds in, which is what
-       the area-weighted mean did: at the 400 px buffer it put astral's interior
-       at 0.011 and surface's at anything from 0.048 to 0.228. */
+    /* Exact interiors at both buffers, so no neighbouring band's tint bleeds
+       into one of them. */
     expect(a.out[100]).toBe(0);
     expect(a.out[500]).toBeCloseTo(0.055, 10);
     expect(a.out[2000]).toBeCloseTo(0.44, 10);
 
-    /* THE RAMP IS REAL. At each seam, count the rows strictly between the two
-       interior values it joins. A full tile's worth at least, so the ramp
-       cannot degenerate into a two-row dither and still pass the step bound. */
+    /* At each seam, the rows strictly between the two interior values it joins:
+       a tile's worth at least, so the ramp cannot degenerate into a two-row
+       dither and still pass the step bound. */
     for (const [seam, lo, hi] of [[320, 0, 0.055], [768, 0.055, 0.44]]) {
       let n = 0;
       for (let wy = seam - 40; wy <= seam + 40; wy++)
@@ -6885,23 +6109,21 @@ test('17l: the depth tint is world-anchored, and a seam ramps rather than steps'
       expect(n, `H=${a.H}: ramp rows at world-Y ${seam}`).toBeGreaterThanOrEqual(8);
     }
 
-    /* NOT VACUOUS. The three interiors must be three different numbers, or
-       every assertion above is measuring one constant. */
+    /* The three interiors must be three different numbers, or everything above
+       is measuring one constant. */
     expect(new Set([a.out[100], a.out[500], a.out[2000]]).size).toBe(3);
   }
 
   expect(errors).toEqual([]);
 });
 
-/* THE MAIN MENU AND THE SHORTCUTS PAGE. Nothing in the game opens the menu
-   yet, so these drive `shell/ui.js`'s own accessors through a dynamic import
-   of the live module -- the idiom `putInQuickbar` above uses -- and never
-   through a screen coordinate. */
+/* Nothing in the game opens the menu yet, so these drive `shell/ui.js`'s own
+   accessors through a dynamic import of the live module, never through a screen
+   coordinate. */
 
-/* Open the menu on a page, in a stated state, and draw one frame. `index` and
-   `scroll` go through the real clamping accessors rather than being written
-   onto the object, so a test cannot park the cursor somewhere the game could
-   not put it. */
+/* Opens the menu on a page in a stated state and draws one frame. `index` and
+   `scroll` go through the real clamping accessors, so a test cannot park the
+   cursor where the game could not. */
 const showMenu = (page, opts = {}) => page.evaluate(async o => {
   const u = await import('/src/shell/ui.js');
   u.openMenu(o.page ?? 'root');
@@ -6916,19 +6138,16 @@ const showMenu = (page, opts = {}) => page.evaluate(async o => {
   __mf.draw();
 }, opts);
 
-/* WHAT THE MENU ACTUALLY DREW, out of `view/ui/state.js#drawn` rather than out
-   of `__mf.ui` -- that projection is `shell/main.js`'s and 6o owns the line
-   that adds `menu` to it. Plain values only, so it survives the structured
-   clone. */
+/* What the menu drew, out of `view/ui/state.js#drawn` rather than `__mf.ui`.
+   Plain values only, so it survives the structured clone. */
 const menuDrawn = page => page.evaluate(async () => {
   const { drawn } = await import('/src/view/ui/state.js');
   return drawn.menu && JSON.parse(JSON.stringify(drawn.menu));
 });
 
-/* `core/canvas.js#resize` takes WINDOW pixels and derives the buffer from
-   them, so a test that wants to assert "inside the buffer" has to read the
-   buffer back rather than assume its own argument. 1280x800 is the one
-   Playwright project's viewport (buffer 640x400) and 200x180 is the floor. */
+/* `core/canvas.js#resize` takes window pixels and derives the buffer from them,
+   so "inside the buffer" has to read the buffer back. 1280x800 is the one
+   project's viewport (buffer 640x400) and 200x180 is the floor. */
 const atWindow = (page, iw, ih) => page.evaluate(([iw, ih]) => {
   __mf.resize(iw, ih);
   __mf.draw();
@@ -6945,25 +6164,24 @@ test('6l: the main menu, the shortcuts page, settings and the debug page', async
   const errors = await boot(page);
   await settle(page);
 
-  /* NO SAVE: CONTINUE states why it is dead rather than vanishing. */
+  /* No save: CONTINUE states why it is dead rather than vanishing. */
   await showMenu(page, { hasSave: false });
   await shot(page, 'menu-root.png');
 
   await showMenu(page, { hasSave: true, seed: '1337', index: 2 });
   await shot(page, 'menu-root-continue.png');
 
-  /* A REFUSED SAVE IS NOT THE SAME EVENT AS NO SAVE, so
-     the reason is on screen, verbatim and wrapped. */
+  /* A refused save is not the same event as no save, so the reason is on
+     screen, verbatim and wrapped. */
   await showMenu(page, { hasSave: false, notice: 'CORRUPT SAVE: bands[0].edits', index: 2 });
   await shot(page, 'menu-root-refused.png');
 
-  /* MID-RUN: RESUME is the first row, and NEW RUN --
-     taken once and awaiting a second press -- says CONFIRM? rather than
-     silently arming. */
+  /* Mid-run: RESUME is the first row, and NEW RUN awaiting a second press says
+     CONFIRM? rather than silently arming. */
   await showMenu(page, { hasSave: true, inRun: true, index: 1, confirm: 'new' });
   await shot(page, 'menu-root-inrun.png');
 
-  /* A HEADER FROM ANOTHER BUILD IS NOT AN EMPTY SLOT. */
+  /* A header from another build is not an empty slot. */
   await showMenu(page, { hasSave: false, stale: true, index: 2 });
   await shot(page, 'menu-root-stale.png');
 
@@ -6987,10 +6205,9 @@ test('6l: the menu at the 200 px buffer floor', async ({ page }) => {
   await showMenu(page, { hasSave: true, seed: '1337' });
   await shot(page, 'menu-root-floor.png');
 
-  /* PAGE 1 OF THE PAGED TABLE. The floor affords one column and about 18
-     lines against 46, so the shortcuts page pages rather than clipping. The
-     next test proves every page's content is reachable rather than trusting
-     this picture. */
+  /* The floor affords one column and about 18 lines against 46, so the
+     shortcuts page pages rather than clipping; the next test proves every page
+     is reachable. */
   await showMenu(page, { page: 'controls' });
   await shot(page, 'menu-controls-floor.png');
 
@@ -7000,19 +6217,13 @@ test('6l: the menu at the 200 px buffer floor', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-/* MEASUREMENTS, NOT PICTURES. A baseline proves the pixels have not changed.
-   It cannot prove a row is reachable -- two tests in this suite once
-   photographed a scene with the feature accidentally off and passed. */
-
 test('6l: every menu row lies inside the buffer, at the floor and at the desktop size', async ({ page }) => {
   const errors = await boot(page);
   await settle(page);
 
-  /* EVERY ROW, not merely a non-empty list: the draw loop stops at the panel's
-     bottom edge rather than clipping, so a page that ran out of height would
-     record fewer rows and still photograph tidily. The DEBUG count comes off
-     the content table so a sixth scenario fails here rather than going
-     unreachable. */
+  /* Every row, not merely a non-empty list: the draw loop stops at the panel's
+     bottom edge, so a page out of height records fewer rows and still
+     photographs tidily. The DEBUG count comes off the content table. */
   const EXPECT_ROWS = await page.evaluate(async () => {
     const { SCENARIOS } = await import('/src/data/scenarios.js');
     return { root: 6, controls: 1, settings: 7, debug: SCENARIOS.length + 1 };
@@ -7038,8 +6249,8 @@ test('6l: every menu row lies inside the buffer, at the floor and at the desktop
         expect(ids.has(r.id), `${where}: duplicate id`).toBe(false);
         ids.add(r.id);
       }
-      /* EXACTLY ONE FOCUSED ROW, always -- a cursor that lands nowhere cannot
-         be driven by a keyboard. */
+      /* Exactly one focused row: a cursor that lands nowhere cannot be driven
+         by a keyboard. */
       expect(rec.rows.filter(r => r.focused).length, `${name} at ${w}x${h}`).toBe(1);
       /* BACK exists on every page but the root, and never on the root. */
       expect(ids.has('back'), `${name} at ${w}x${h}: BACK`).toBe(name !== 'root');
@@ -7055,9 +6266,8 @@ test('6z: the mid-run root page adds RESUME first, and a destructive row confirm
 
   for (const [iw, ih] of [[1280, 800], [200, 180]]) {
     const { w, h } = await atWindow(page, iw, ih);
-    /* THE ROW THE CURSOR STARTS ON MUST CHANGE NOTHING.
-       Index 0 and `resume` first is the whole protection against a reflex
-       ENTER on a menu opened mid-run. */
+    /* The row the cursor starts on must change nothing: index 0 and `resume`
+       first is the protection against a reflex ENTER mid-run. */
     await showMenu(page, { hasSave: true, inRun: true });
     let rec = await menuDrawn(page);
     expect(rec.rows.map(r => r.id), `${w}x${h}`)
@@ -7072,15 +6282,14 @@ test('6z: the mid-run root page adds RESUME first, and a destructive row confirm
       expect(r.h, where).toBeGreaterThanOrEqual(7);
     }
 
-    /* AND THE CONFIRMATION IS A LABEL, NOT A LIVENESS CHANGE: an armed row
-       must still be dispatchable or the second press does nothing. */
+    /* The confirmation is a label, not a liveness change: an armed row must
+       still be dispatchable or the second press does nothing. */
     await showMenu(page, { hasSave: true, inRun: true, index: 1, confirm: 'new' });
     rec = await menuDrawn(page);
     expect(rec.rows.length, `${w}x${h}`).toBe(7);
     expect(rec.rows.find(r => r.id === 'new').live, `${w}x${h}`).toBe(true);
 
-    /* WITH NO RUN BEHIND IT THE BOOT PAGE IS UNCHANGED, which is why the
-       committed `menu-root` baselines did not move. */
+    /* With no run behind it, the boot page is unchanged. */
     await showMenu(page, { hasSave: true });
     expect((await menuDrawn(page)).rows.map(r => r.id), `${w}x${h}`)
       .toEqual(['new', 'seed', 'continue', 'controls', 'settings', 'debug']);
@@ -7098,9 +6307,8 @@ test('6z: Escape escalates -- a panel, then a selection, then the menu', async (
     return { menu: ui.menu.open, top: top(), armed: !!ui.armedPlace };
   });
 
-  /* A PANEL CLAIMS THE PRESS. `openMenu` is never called here: the real
-     keydown handler is what decides, and it is the only thing that can prove
-     the menu does not steal a close. */
+  /* A panel claims the press. `openMenu` is never called here: the real keydown
+     handler is what decides whether the menu steals a close. */
   await page.evaluate(async () => {
     const { open } = await import('/src/shell/ui.js');
     open('main');
@@ -7108,7 +6316,7 @@ test('6z: Escape escalates -- a panel, then a selection, then the menu', async (
   await page.keyboard.press('Escape');
   expect(await state()).toEqual({ menu: false, top: null, armed: false });
 
-  /* AN ARMED PAIR CLAIMS THE NEXT ONE. */
+  /* An armed pair claims the next one. */
   await page.evaluate(async () => {
     const { armPlace } = await import('/src/shell/ui.js');
     const { S } = await import('/src/data/substances.js');
@@ -7118,18 +6326,18 @@ test('6z: Escape escalates -- a panel, then a selection, then the menu', async (
   await page.keyboard.press('Escape');
   expect(await state()).toEqual({ menu: false, top: null, armed: false });
 
-  /* AND WITH NOTHING STANDING, THE MENU OPENS -- straight out of the key
-     handler, so no frame has to run first. */
+  /* With nothing standing, the menu opens straight out of the key handler, so
+     no frame has to run first. */
   await page.keyboard.press('Escape');
   expect((await state()).menu).toBe(true);
 
-  /* Escape inside the menu is BACK, THEN PLAY, so the two
-     are a toggle once nothing else is open. */
+  /* Escape inside the menu is BACK then PLAY, so the two are a toggle once
+     nothing else is open. */
   await page.evaluate(() => __mf.draw());
   await page.keyboard.press('Escape');
   expect((await state()).menu).toBe(false);
 
-  /* THE MAP CLAIMS IT TOO, and leaving the mode is all one press does. */
+  /* The map claims it too, and leaving the mode is all one press does. */
   await page.evaluate(() => { __mf.flags.showMap = true; __mf.draw(); });
   await page.keyboard.press('Escape');
   expect(await page.evaluate(() => __mf.flags.showMap)).toBe(false);
@@ -7164,13 +6372,12 @@ test('6l: every keymap binding is drawn on the shortcuts page, at both sizes', a
         expect(k.label.length, where).toBeGreaterThan(0);
       }
     }
-    /* EVERY BINDING, ONCE. A group dropped by the column arithmetic or paged
-       off the bottom fails here and photographs as a tidy page. */
+    /* Every binding, once: a group dropped by the column arithmetic or paged
+       off the bottom fails here while photographing as a tidy page. */
     expect(seen.slice().sort(), `${w}x${h}: ${first.pages} page(s)`).toEqual(declared.slice().sort());
   }
 
-  /* THE FLOOR REALLY DOES PAGE, or the loop above proved nothing about
-     paging. */
+  /* The floor really does page, or the loop above proved nothing about it. */
   await atWindow(page, 200, 180);
   await showMenu(page, { page: 'controls' });
   expect((await menuDrawn(page)).pages).toBeGreaterThan(1);
@@ -7199,7 +6406,7 @@ test('6l: the menu is not vacuous -- it replaces the HUD and the pixels differ w
   expect(await menuDrawn(page)).toBe(null);
   expect(Buffer.compare(open, closed), 'the menu changed no pixels').not.toBe(0);
 
-  /* AND IT STANDS INSTEAD OF THE HUD, not over it: the quickbar strip the HUD
+  /* It stands instead of the HUD, not over it: the quickbar strip the HUD
      records every frame is absent while the menu is up. */
   const stripWhileOpen = await page.evaluate(async () => {
     const u = await import('/src/shell/ui.js');
@@ -7212,16 +6419,13 @@ test('6l: the menu is not vacuous -- it replaces the HUD and the pixels differ w
   expect(errors).toEqual([]);
 });
 
-/* FOUR HUD READOUTS, three of them numbers or text rather than pictures. A
-   baseline of a three-glyph depth gauge proves almost nothing, so each test
-   below reads back what was actually drawn -- the tooltip's lines, the glyph
-   mask the gauge printed, the pixels a mark changed -- and the screenshots
-   are there to catch a later change of shape. */
+/* Each test below reads back what was drawn -- the tooltip's lines, the glyph
+   mask the gauge printed, the pixels a mark changed -- with the screenshots
+   there to catch a change of shape. */
 
 /* A copper tile with a known amount of work on it, hovered. `write.setByte`
-   clears the work ledger whenever the byte changes, so the tile is written FIRST and
-   the work added after; doing it the
-   other way round silently measures a fresh tile. */
+   clears the work ledger whenever the byte changes, so the tile is written
+   first and the work added after. */
 async function hoverDeposit(page, { subKey, work }) {
   return page.evaluate(async ({ subKey, work }) => {
     const { S } = await import('/src/data/substances.js');
@@ -7238,8 +6442,8 @@ async function hoverDeposit(page, { subKey, work }) {
     const hard = baseHardAt(band, tx, ty);
     if (work > 0) mw.add(band, tx, ty, hard * work);
 
-    /* `drawHUD` draws the title card INSTEAD of the tooltip while the banner
-       is up; `settle` advances `clock.t` but not `stepFx`. */
+    /* `drawHUD` draws the title card instead of the tooltip while the banner
+       is up, and `settle` advances `clock.t` but not `stepFx`. */
     banner.fade = 0;
     __mf.cmd.hasMouse = true;
     __mf.cam.x = worldX(band, tx) - 40;
@@ -7267,7 +6471,7 @@ test('6m: a deposit tile says how many units are left, and a charge-1 tile says 
   expect(fresh.charge).toBe(4);
   expect(fresh.lines).toContain('UNITS 4 / 4');
 
-  /* ONE UNIT SHORT OF GONE, never "0 / 4": the last unit is the break itself,
+  /* One unit short of gone, never "0 / 4": the last unit is the break itself,
      so a tile that still exists still holds one. */
   const nearly = await hoverDeposit(page, { subKey: 'copper', work: 3.9 });
   expect(nearly.lines).toContain('UNITS 1 / 4');
@@ -7281,9 +6485,8 @@ test('6m: a deposit tile says how many units are left, and a charge-1 tile says 
   await hoverDeposit(page, { subKey: 'copper', work: 2.2 });
   await shot(page, 'deposit-units-left.png');
 
-  /* AND RESOLVING THE LINE WRITES NOTHING. `npm run check`'s
-     epoch probe renders with no pointer, so `resolveHover` returns before it
-     reaches a tile there and this read path goes unexercised. */
+  /* Resolving the line writes nothing. The headless epoch probe renders with
+     no pointer, so `resolveHover` returns before it reaches a tile there. */
   const wrote = await page.evaluate(async () => {
     const { epoch } = await import('/src/model/epoch.js');
     const before = epoch.n;
@@ -7333,9 +6536,9 @@ const markScene = page => page.evaluate(async () => {
   return { reach, marks };
 });
 
-/* The tile, PLUS the row under it: the shadow every mark is drawn over lands
-   on the mark's own last row, and nothing but a second read can prove it does
-   not spill into the neighbour. */
+/* The tile plus the row under it: every mark's shadow lands on the mark's own
+   last row, and only a second read proves it does not spill into the
+   neighbour. */
 const markTiles = (page, marks) => page.evaluate(ms => {
   const g = document.getElementById('stage').getContext('2d');
   return ms.map(m => [...g.getImageData(m.x, m.y, m.t, m.t + 1).data]);
@@ -7352,9 +6555,8 @@ test('6n: the dig queue draws three distinct states, and none of them is the bar
   expect(scene.marks.filter(m => m.state === 'deferred')).toHaveLength(4);
   await shot(page, 'dig-marks.png');
 
-  /* NOT VACUOUS, AND THE THREE STATES MEASURED RATHER THAN PHOTOGRAPHED. The
-     same seven tiles are read twice, once with the queue up and once with it
-     cleared, so what is counted is the mark and never the rock under it. */
+  /* The same seven tiles are read twice, once with the queue up and once with
+     it cleared, so what is counted is the mark and never the rock under it. */
   const withMarks = await markTiles(page, scene.marks);
   await page.evaluate(async () => {
     const { write: dq } = await import('/src/model/digqueue.js');
@@ -7373,24 +6575,19 @@ test('6n: the dig queue draws three distinct states, and none of them is the bar
     return { state: m.state, n, spill };
   });
 
-  /* The X inside its frame, the X alone, and two pixels of each of the X's
-     four ends -- each over a shadow of itself one row lower, which is what
-     makes the sparse states read on lit grass at all. 48,
-     22 and 16 opaque pixels on an 8 px tile. Exact rather than "greater
-     than", because the whole feature is that the three do not look alike. */
+  /* The X inside its frame, the X alone, and two pixels of each of its four
+     ends, each over a shadow of itself one row lower: 48, 22 and 16 opaque
+     pixels on an 8 px tile. Exact, because the three must not look alike. */
   for (const c of count) {
     expect(c.n, `${c.state} mark`).toBe(c.state === 'worked' ? 48 : c.state === 'reach' ? 22 : 16);
-    /* AND THE SHADOW STAYS INSIDE ITS OWN TILE. The lowest shadow pixel falls
-       on the tile's last row, so a mark cannot dirty its neighbour below. */
+    /* The lowest shadow pixel falls on the tile's last row, so a mark cannot
+       dirty its neighbour below. */
     expect(c.spill, `${c.state} mark bled into the tile below`).toBe(0);
   }
 
-  /* AND DRAWING THEM WRITES NOTHING. `npm run check`'s epoch probe renders a
-     scene with an EMPTY queue, so `digMarks` returns before it touches
-     anything there and `view` never mutates `model` goes unexercised for this pass. A
-     mark is
-     skipped when stale rather than pruned, which
-     is the line that would break it. */
+  /* Drawing them writes nothing. The headless epoch probe renders an empty
+     queue, so `digMarks` returns before it touches anything there; a stale mark
+     is skipped rather than pruned, which is the line that would break it. */
   const wrote = await page.evaluate(async () => {
     const { epoch } = await import('/src/model/epoch.js');
     const { write: dq } = await import('/src/model/digqueue.js');
@@ -7410,12 +6607,10 @@ test('6n: the dig queue draws three distinct states, and none of them is the bar
   expect(errors).toEqual([]);
 });
 
-/* THE GAUGE'S OWN GLYPHS, READ BACK. `depth` draws `s` at
-   `(W - textWidth(s) - 10, 6)` in `uiDim` at or above the datum, with no
-   shadow (it sits inside a panel), so every glyph pixel is that colour
-   exactly. Rendering the expected string with the same `drawText` and
-   comparing the two masks is what makes this an assertion about the TEXT
-   rather than about a rectangle of pixels. */
+/* `depth` draws `s` at `(W - textWidth(s) - 10, 6)` in `uiDim` at or above the
+   datum, with no shadow, so every glyph pixel is exactly that colour. Rendering
+   the expected string through the same `drawText` makes this a claim about the
+   text rather than about a rectangle of pixels. */
 const gaugeReads = (page, expected) => page.evaluate(async (expected) => {
   const { drawText, textWidth } = await import('/src/core/font.js');
   const { colour } = await import('/src/data/palette.js');
@@ -7460,19 +6655,17 @@ test('6w: the depth gauge measures the feet, so the spawn floor reads 0M', async
     };
   });
 
-  /* The player's FEET are on the datum row, which is the whole claim: the
-     gauge used to measure `player.y`, the top of a 16 px body, and read +2M
-     standing here. */
+  /* The gauge measures the player's feet, not `player.y`, the top of a 16 px
+     body. */
   expect(at.standing).toBe(true);
   expect(at.feet).toBeCloseTo(at.datum + 0.8, 1);
 
   const zero = await gaugeReads(page, '0M');
   expect(zero.drew).toBe(zero.want);
 
-  /* AND IT IS NOT STUCK AT ZERO. Eight tiles down the same column reads 8M,
-     in the primary ink rather than the state tone, so this second read is
-     against `ui` and not `uiDim` -- which is itself the assertion that the
-     datum sign still drives the colour. */
+  /* Eight tiles down the same column reads 8M in the primary ink rather than
+     the state tone, so this second read is against `ui` and not `uiDim`: the
+     datum's sign drives the colour. */
   const deep = await page.evaluate(async () => {
     const { PH, player, write: pw } = await import('/src/model/player.js');
     const { drawText, textWidth } = await import('/src/core/font.js');
@@ -7508,12 +6701,9 @@ test('6x: the First Trial announces both its rewards, in the order they were gra
   const errors = await boot(page);
   await settle(page);
 
-  /* THE FRAME THE FIRST TRIAL ACTUALLY PRODUCES. `rules/cycles.js#complete`
-     pushes the `cycle` row and queues the reward; `rules/grants.js#step` then
-     awards the furnace and the cloud dock in the SAME substep, and
-     `shell/notify.js` drains all three together. The award queue is driven
-     through `model/run.js#write.award`, which is the real path -- not a hand
-     -written pair of toasts. */
+  /* `rules/grants.js#step` awards the furnace and the cloud dock in the same
+     substep and `shell/notify.js` drains all three rows together. Driven
+     through `model/run.js#write.award`, not a hand-written pair of toasts. */
   const paid = await page.evaluate(async () => {
     const { run, write: rw } = await import('/src/model/run.js');
     const { push } = await import('/src/model/journal.js');
@@ -7525,9 +6715,8 @@ test('6x: the First Trial announces both its rewards, in the order they were gra
     return { banner: { ...banner }, queue: toasts.map(t => t.text), front: toasts[0].text };
   });
 
-  /* Both facts are held, and the furnace -- the First Trial's whole reward --
-     is the one on screen. Before the queue it was overwritten inside its own
-     frame and never appeared. */
+  /* Both facts are held, and the furnace, the First Trial's own reward, is the
+     one on screen. */
   expect(paid.queue).toEqual(['CRUDE FURNACE IS GRANTED', 'THE CLOUD DOCK IS GRANTED']);
   expect(paid.front).toBe('CRUDE FURNACE IS GRANTED');
   /* And the god's own line is the banner beside it, not a third thing
@@ -7536,7 +6725,7 @@ test('6x: the First Trial announces both its rewards, in the order they were gra
   expect(paid.banner.sub).toBe('IS SATISFIED');
   await shot(page, 'cycle1-reward-announced.png');
 
-  /* THE SECOND LINE ARRIVES, and within the handoff rather than 3.2 s later:
+  /* The second line arrives within the handoff rather than 3.2 s later:
      anything waiting cuts the row on screen to one glance. */
   const next = await page.evaluate(async () => {
     const { toasts } = await import('/src/view/fx.js');
@@ -7546,8 +6735,8 @@ test('6x: the First Trial announces both its rewards, in the order they were gra
   });
   expect(next.queue).toEqual(['THE CLOUD DOCK IS GRANTED']);
 
-  /* A REPEAT REFRESHES RATHER THAN STACKING. Eleven hand-feeds push eleven
-     identical rows and the bottom line must not become a backlog of them. */
+  /* A repeat refreshes rather than stacking: eleven hand-feeds push eleven
+     identical rows and the bottom line must not become a backlog. */
   const repeats = await page.evaluate(async () => {
     const { toast, toasts } = await import('/src/view/fx.js');
     toasts.length = 0;
@@ -7556,8 +6745,8 @@ test('6x: the First Trial announces both its rewards, in the order they were gra
   });
   expect(repeats).toEqual(['1 COPPER ORE TITHED']);
 
-  /* AND THE QUEUE IS BOUNDED, dropping the row that has already had its
-     glance rather than the newest fact. */
+  /* The queue is bounded, dropping the row that has already had its glance
+     rather than the newest fact. */
   const capped = await page.evaluate(async () => {
     const { toast, toasts } = await import('/src/view/fx.js');
     toasts.length = 0;

@@ -1,24 +1,12 @@
-/* LAYER core — integer-pixel drawing primitives.
-   Depends only on `core/rng.js`. May be imported by every layer.
-
-   Every coordinate is floored HERE, so there is no path to a sub-pixel
-   anywhere in the renderer. Nothing in this file knows what it is drawing:
-   these take a 2D context and numbers, never a substance or a machine.
-
-   Ported near-verbatim from the previous codebase's `core/canvas.js`, split out
-   from the viewport so that a headless tool can import the drawing helpers
-   without touching `document`. */
+/* core layer — integer-pixel drawing primitives. Depends only on
+   `core/rng.js`, touches no `document`, and floors every coordinate here, so
+   no caller can reach a sub-pixel. */
 
 import { mulberry } from './rng.js';
 
-/* THE ONE LIGHT DIRECTION. A painter with no shared answer to "where is the
-   sun" grows one per function, so: the sun is UP AND TO THE LEFT, as a
-   unit-ish direction pointing the way the light TRAVELS. A surface whose
-   outward normal opposes this is lit; one that agrees is in shadow.
-
-   Integer components on purpose: shading is a comparison, never a multiply
-   against a fractional normal, so there is no path from here to a
-   sub-pixel. */
+/* Shared light direction in canvas axes (y-down), pointing the way light
+   travels, so the sun is up and to the left and a surface whose outward normal
+   opposes it is lit. Integer components keep shading a comparison. */
 export const LIGHT = Object.freeze({ x: 1, y: 1, fromX: -1, fromY: -1 });
 
 /* Minimum size 1: a rect rounded to zero width is a silent missing pixel. */
@@ -27,7 +15,7 @@ export const R = (g, x, y, w, h, c) => {
   g.fillRect(x | 0, y | 0, Math.max(1, w | 0), Math.max(1, h | 0));
 };
 
-/* Bresenham. Used for ladders, cables and the depth gauge. */
+/* Bresenham. */
 export function lineTo(g, x0, y0, x1, y1, c, thick = 1) {
   x0 |= 0; y0 |= 0; x1 |= 0; y1 |= 0;
   const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
@@ -43,8 +31,8 @@ export function lineTo(g, x0, y0, x1, y1, c, thick = 1) {
   }
 }
 
-/* Speckle a rect from a local generator seeded by the caller. Seeded and not
-   `rand()`, so a repaint consumes no run randomness. */
+/* Speckle a rect from a local generator seeded by the caller, so a repaint
+   consumes none of the run's `rand()` stream. */
 export function noiseFill(g, x0, y0, w, h, cols, density, seed, blk = 1) {
   const r = mulberry(seed);
   for (let y = y0; y < y0 + h; y += blk)
@@ -52,7 +40,8 @@ export function noiseFill(g, x0, y0, w, h, cols, density, seed, blk = 1) {
       if (r() < density) R(g, x, y, blk, blk, cols[(r() * cols.length) | 0]);
 }
 
-/* A drunken downward walk. Cracks, roots and mineral seams are this. */
+/* A drunken downward walk from a caller-seeded generator; cracks, roots and
+   mineral seams. */
 export function walk(g, x, y, len, col, seed, dxBias = 0, thick = 1) {
   const r = mulberry(seed);
   for (let i = 0; i < len; i++) {
@@ -62,8 +51,8 @@ export function walk(g, x, y, len, col, seed, dxBias = 0, thick = 1) {
   }
 }
 
-/* The one non-integer effect in the project, and it is additive light rather
-   than geometry, so it cannot produce a half-pixel edge. */
+/* Additive radial light, the one non-integer draw here; it shifts no
+   geometry. Leaves `g`'s composite, alpha and fill as it found them. */
 export function glow(g, x, y, r, col, a = 0.5) {
   if (!(r > 0)) return;
   const grd = g.createRadialGradient(x, y, 0, x, y, r);

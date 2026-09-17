@@ -1,14 +1,6 @@
-/* LAYER rules — BOONS: the TIMED gift tier. Imports `data`, `model`, and no
-   other `rules` module.
-
-   `step()` IS A SYNC, NOT AN EVENT: every fixed substep it ticks every active
-   boon down and expires anything at zero, then rebuilds `model/mods.js`'s
-   `'boon:'`-keyed rows FROM SCRATCH off the current active list, resolving
-   every `conflictsWith` fresh.
-
-   Registered immediately before `machines`, for the reason
-   `trinkets before machines` is stated in `shell/schedule.js`: a rate
-   modifier that turned on this frame should apply to this frame's tick. */
+/* rules layer — the timed gift tier. Each substep `step()` ticks active boons
+   down, expires anything at zero, and rebuilds `model/mods.js`'s
+   `'boon:'`-keyed rows from the active list. */
 
 import { BOON, BOONS } from '../data/boons.js';
 import { push } from '../model/journal.js';
@@ -23,12 +15,9 @@ export function grant(id) {
   return true;
 }
 
-/* Boons not currently active. Same shape as every other tier's `draftable`
-   -- */
 export const draftable = () => BOONS.filter(b => !boons.active.some(a => a.id === b.id));
 
-/* mul -> 1/mul, add -> -add. What "invert" means for a row: flip whichever
-   halves are present, leave the other undefined exactly as it came in. */
+/* mul -> 1/mul, add -> -add; a half absent from the row stays absent. */
 const invert = mods => mods.map(m => ({
   key: m.key,
   mul: m.mul !== undefined ? 1 / m.mul : undefined,
@@ -36,23 +25,17 @@ const invert = mods => mods.map(m => ({
 }));
 
 export function step(dt) {
-  /* 1. tick, then expire. A journal row either way: grant and expiry
-     both announce themselves. */
   bw.tick(dt);
-  /* Collect first, THEN expire: `write.expire` splices `boons.active`, so
-     mutating it while still iterating it would skip an entry -- filtering
-     into a separate array first sidesteps that regardless of iteration
-     order. */
+  /* `write.expire` splices `boons.active`, so collect the doomed ids into a
+     separate array before expiring any of them. */
   const expiring = boons.active.filter(a => a.left <= 0).map(a => a.id);
   for (const id of expiring) {
     bw.expire(id);
     push('lost', null, { boon: id, name: BOON[id]?.name });
   }
 
-  /* Sync `model/mods.js` from the active list, honouring `conflictsWith`. A
-     FULL REBUILD every frame over the CONTENT table rather than over what
-     happens to be active, so a boon that just expired loses its row THIS
-     frame with no "was this active a moment ago" bookkeeping. */
+  /* Clear over the whole content table, not over the active list, so a boon
+     that expired above loses its row on this substep. */
   for (const b of BOONS) modw.removeBySource('boon:' + b.id);
 
   const ids = boons.active.map(a => a.id);
@@ -61,9 +44,8 @@ export function step(dt) {
     let mods = b.mods;
     let suppressed = false;
 
-    /* Only a LATER boon (higher index -- granted more recently) may act on
-       an earlier one, per `data/boons.js`'s own contract: "the OLDER of the
-       two is either suppressed or inverted." */
+    /* Only a later boon (higher index, granted more recently) suppresses or
+       inverts an earlier one. `conflictsWith` rows live in `data/boons.js`. */
     for (let j = i + 1; j < ids.length; j++) {
       const later = BOON[ids[j]];
       const conflict = (later.conflictsWith || []).find(c => c.id === b.id);

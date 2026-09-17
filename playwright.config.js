@@ -21,28 +21,20 @@ export default defineConfig({
   },
   expect: {
     toHaveScreenshot: {
-      /* BOTH numbers are needed for bit-exactness, and `maxDiffPixels` alone
-         is not enough. Playwright's `threshold` is a per-pixel YIQ distance a
-         difference must exceed before pixelmatch counts the pixel at all, and
-         it defaults to 0.2 — wide enough to swallow an 11-unit shift in a
-         near-black pixel. What the default hid, measured: giving the bellows
-         relic a sprite moved 100 pixels of `hollow-relic-unlit`, the suite
-         stayed green, and a later blanket re-accept wrote the drift into the
-         reference image. Raise neither without a written reason. */
+      /* Both numbers are needed for bit-exactness. `threshold` is a per-pixel
+         YIQ distance a difference must exceed before pixelmatch counts it at
+         all, and its 0.2 default is wide enough to swallow an 11-unit shift in
+         a near-black pixel. Raise neither without a written reason. */
       threshold: 0,
       maxDiffPixels: 0,
       animations: 'disabled',
       scale: 'css'
     }
   },
-  /* ONE PROJECT, DELIBERATELY. The game is keyboard-and-mouse only — there is
-     no touch handling anywhere in `src/` — so a second device project would
-     re-photograph every scene without testing a single input path. The 18
-     `*-phone.png` baselines that used to pair with these are gone; what they
-     actually exercised was the 200x180 buffer floor, which is a DESKTOP
-     condition (`core/canvas.js#resize`), and the four tests that care about it
-     now assert against it through `narrowFloor` instead of photographing it.
-     Do not add a device project without an input path that needs one. */
+  /* One project. The game is keyboard-and-mouse only, with no touch handling
+     in `src/`, so a second device project would re-photograph every scene
+     without testing an input path. The 200x180 buffer floor is a desktop
+     condition, asserted through `narrowFloor` rather than photographed. */
   projects: [
     { name: 'desktop', use: { viewport: { width: 1280, height: 800 } } }
   ]
