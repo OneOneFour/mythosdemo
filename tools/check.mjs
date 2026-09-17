@@ -1,22 +1,20 @@
-// Headless verification for the layered architecture.
-//
-// Four sections, in order of what they can prove:
-//   0  dependency direction    — the architecture is intact
-//   1  name resolution         — every string key in data/ resolves
-//   2  purity                  — render() performs no model writes
-//   3  behaviour               — the game actually does what SPEC.md says
-//
-// It CANNOT tell you whether anything looks good. Screenshot tests cover
-// appearance changing; a human covers appearance being right.
-// See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves
+/* Headless verification for the layered architecture, in four sections
+   ordered by what they can prove:
+
+     0  dependency direction    the layering is intact
+     1  name resolution         every string key in `data/` resolves
+     2  purity                  a render performs no model writes
+     3  behaviour               the game does what it says it does
+
+   It CANNOT tell you whether anything looks good. Screenshots cover
+   appearance changing; a human covers appearance being right. */
 
 import { readdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { checkLayers } from './layers.mjs';
 import { checkContent } from './content.mjs';
 
-/* ---------- DOM and canvas2d stub ----------
-   Not a pure stub: fillRect/drawImage also assert finiteness, which is where a
+/* DOM and canvas2d stub. Not a pure stub: fillRect/drawImage also assert finiteness, which is where a
    good share of this harness's value comes from. */
 const calls = { fillRect: 0, drawImage: 0, clearRect: 0 };
 
@@ -76,8 +74,8 @@ globalThis.addEventListener = () => {};
 globalThis.requestAnimationFrame = () => 0;
 
 /* `src/shell/save.js` is the only reader, and it guards against storage being
-   absent or throwing. Section 8r installs hostile stand-ins of its own and
-   restores this one afterwards. */
+   absent or throwing. The save-slot section installs hostile stand-ins of its
+   own and restores this one afterwards. */
 const defaultStore = () => {
   const m = new Map();
   return {
@@ -104,7 +102,7 @@ console.log('\n0. dependency direction');
 }
 
 
-/* ---- import every module, so an orphan or a parse error cannot hide ---- */
+/* Import every module, so an orphan or a parse error cannot hide. */
 const canvas = await import('../src/core/canvas.js');
 const rng    = await import('../src/core/rng.js');
 const D_sub  = await import('../src/data/substances.js');
@@ -137,21 +135,13 @@ const modelBoons = await import('../src/model/boons.js');
 const aimModel = await import('../src/model/aim.js');
 const digqueue = await import('../src/model/digqueue.js');
 /* THE ONE `rules` MODULE IMPORTED DIRECTLY, and the reason is written down so
-   it does not become a habit. Every other behavioural probe in this file drives
-   the game through `shell/main.js#step` and the real `cmd` object, which is the
-   whole point of `stepReal`. But the LINK verb cannot be reached that way from
-   a headless harness: `shell/main.js:246`'s branch is gated on
-   `cmd.link && aim.valid && aim.band`, and `model/aim.js` is only valid while a
-   real pointer is over the stage -- so a scripted link would have to fake a
-   mouse position, which is exactly the hardcoded-coordinate mistake CLAUDE.md
-   records ("a click at (400,300) fails at a different base buffer"). Calling
-   `linkSegment` directly is the same module instance `shell/main.js` calls, one
-   layer in from the pointer, and it keeps the journal row and the refusal
-   string in the assertion. */
+   it does not become a habit. Every other behavioural probe in this file
+   drives the game through `shell/main.js#step` and the real `cmd` object,
+   which is the whole point of `stepReal`. */
 const R_place = await import('../src/rules/placement.js');
 /* THE ONE `view` MODULE IMPORTED DIRECTLY, for the identical reason as
    `R_place` immediately above: the CHUNK SEAM probe needs
-   `chunkCanvas`'s own return value, one chunk at a time, which `main.draw()`
+   `chunkCanvas`'s own return value, one chunk at a time, which `main.draw`
    never exposes -- it composites many chunks into the visible viewport and
    throws each cached canvas away behind that. */
 const viewPaint = await import('../src/view/paint.js');
@@ -168,13 +158,11 @@ const input  = await import('../src/shell/input.js');
 const shellUi = await import('../src/shell/ui.js');
 const save   = await import('../src/shell/save.js');
 
-/* ---- and every OTHER module, derived from the filesystem ----
-   The named bindings above are there because probes use them. COVERAGE is
-   this sweep's job, and the split matters: the hand-written list omitted
-   `src/shell/save.js`, `src/rules/scenarios.js`, `src/data/scenarios.js` and
-   `src/model/digqueue.js` for a whole wave, so a parse error or a stale
-   import in any of them was invisible to every gate -- `npm run lint`'s
-   `no-undef` sees an identifier and not a module. A new file under `src/` is
+/* And every OTHER module, derived from the filesystem. The named bindings
+   above exist because probes use them; COVERAGE is this sweep's job. The
+   split matters: a hand-written list once omitted four modules, so a parse
+   error or a stale import in any of them was invisible to every gate --
+   `no-undef` sees an identifier, not a module. A new file under `src/` is
    covered the moment it exists. */
 const SRC_DIR = fileURLToPath(new URL('../src/', import.meta.url));
 const srcFiles = (function walk(dir) {
@@ -192,28 +180,21 @@ const srcFiles = (function walk(dir) {
   else if (!bad) console.log(`\n   imported all ${srcFiles.length} modules under src/ without error`);
 }
 
-/* ============================================================
-   THE REAL STEP(), NOT A REIMPLEMENTED LOOP
-   ------------------------------------------------------------
-   CLAUDE.md records the known defect this section fixes: earlier drafts of
-   this file re-implemented the frame loop by calling `sched.stepAll` at a
-   fixed dt directly, bypassing `shell/main.js#step` entirely -- which is the
-   ONLY place `clock.t`/`clock.frame` advance, the map-freeze guard lives, the
-   craft-queue re-assertion happens, and `cmd.dig`/`cmd.mouse` merge into one
-   `dig` intent. `sched.stepAll` IS the core of `step()` (the STEPS array),
-   so this was not a different SIMULATION, only a smaller one -- but "smaller"
-   is exactly the gap a framerate- or clock-dependent bug hides in.
+/* THE REAL STEP, NOT A REIMPLEMENTED LOOP. Earlier drafts called
+   `sched.stepAll` at a fixed dt, bypassing `shell/main.js#step` -- the ONLY
+   place `clock.t`/`clock.frame` advance, the map-freeze guard lives, the
+   craft queue is re-asserted, and `cmd.dig`/`cmd.mouse` merge into one
+   intent. That was not a different simulation, only a smaller one, and
+   smaller is exactly the gap a framerate- or clock-dependent bug hides in.
 
-   `stepReal(dt)` below is what every behavioural probe uses from here on: it
-   drives the SAME `cmd` object `shell/input.js` exports (the one every real
-   keystroke and every Playwright test ultimately writes to), calls the real
-   `main.step(dt)`, then clears edge-triggered flags exactly the way
-   `shell/main.js#frame`'s real RAF loop and `__mf.frames`/`hold` both do. */
+   `stepReal(dt)` drives the SAME `cmd` object `shell/input.js` exports,
+   calls the real `main.step(dt)`, and clears edge-triggered flags the way
+   the real RAF loop does. */
 /* `action` is on this list for the same reason `craft` is: it is a HOLD, so
-   `clearEdges()` will not put it back down, and `cmd` is a module singleton
+   `clearEdges` will not put it back down, and `cmd` is a module singleton
    shared by every probe in this file -- a section that leaves a crank held
    would silently power the next section's drivetrain. `feed` is
-   an EDGE and `clearEdges()` does drop it, but it is listed anyway so that
+   an EDGE and `clearEdges` does drop it, but it is listed anyway so that
    `want` is the whole truth about the input state of a probe's frame rather
    than "the whole truth about twelve of the thirteen fields". */
 const CMD_FIELDS = ['left', 'right', 'up', 'down', 'hop', 'dig', 'place', 'feed',
@@ -226,14 +207,12 @@ function stepReal(dt, want = {}) {
   input.clearEdges();
 }
 
-/* THE OTHER HALF OF THE REAL FRAME, for the ONE-SHOT INTENTS.
-   `stepReal` above drives the fixed substep, which is where every `rules`
-   module runs -- but placement, deconstruction, linking, the drop verb and
-   the feed verb are EVENTS, not steps: `shell/main.js#frame`
-   dispatches them through `applyIntents()` once per animation frame, outside
-   `step()`. A probe for one of those has to run both halves, in that order,
-   and this is the only difference between the two helpers. Used by section 8i
-   below; every other probe in this file still wants `stepReal`. */
+/* THE OTHER HALF OF THE REAL FRAME, for the ONE-SHOT INTENTS. `stepReal`
+   drives the fixed substep, where every `rules` module runs -- but placement,
+   deconstruction, linking, the drop verb and the feed verb are EVENTS:
+   `shell/main.js#frame` dispatches them through `applyIntents` once per
+   animation frame, outside `step`. A probe for one of those runs both halves
+   in that order, which is the only difference between the two helpers. */
 function frameReal(dt, want = {}) {
   setCmd(want);
   main.step(dt);
@@ -244,35 +223,14 @@ function runReal(n, dt, want = {}) {
   for (let i = 0; i < n; i++) stepReal(dt, want);
 }
 
-/* HAND `n` UNITS OVER FOR REAL.
-   Every probe in this file that used to fill a machine by standing beside it
-   and waiting was measuring `rules/machines.js#handFeed`, the proximity
-   drain -- which is OFF BY DEFAULT as of Phase 16b
-   (docs/PLAN-phase16-interaction-model-v2.md §5 D16-C). The scenes whose
-   subject is the TRIBUTE/DELIVERY LOOP were switched to this instead of
-   being given the flag back, because real coverage of the path a player
-   actually uses is worth more than preserving the old test mechanics; the
-   scenes whose subject is something else entirely (the mass-conservation
-   fuzz) set `shellUi.setAutoFeed(true)` and say so.
+/* HAND `n` UNITS OVER FOR REAL: the whole verb, in the order `shell` drives
+   it. Arm the pair through `shell/ui.js#armPlace`, point at the machine, and
+   fire ONE edge-triggered `cmd.feed` per unit through `frameReal`, which runs
+   `main.step` AND `main.applyIntents`, because feeding is an EVENT.
 
-   This is the WHOLE of the real verb, in the order `shell` drives it: arm
-   the pair (`shell/ui.js#armPlace`, what a click on an inventory slot does),
-   point at the machine, and fire ONE edge-triggered `cmd.feed` per unit
-   through `frameReal` -- which runs `main.step` AND `main.applyIntents`,
-   because the feed verb is a one-shot EVENT and not a substep intent.
-
-   MOUSE AIM, and the coordinate is DERIVED from the machine's own box rather
-   than typed, so this is not the hardcoded-screen-coordinate mistake
-   CLAUDE.md records -- there is no viewport in it. `aimAtWorld` clamps to
-   `eff('reach')` from the player's centre, so the caller has to be standing
-   within reach; that is the same requirement the real verb has and the same
-   one the old magnet had, only 2.5 tiles wider.
-
-   `dt` is the frame each press is delivered on. It defaults to a 120 Hz
-   frame and is passed explicitly only by section 8m's framerate sweep, where
-   the whole point is that a delivery lands at the same SIMULATED time
-   whatever the refresh rate.
-
+   MOUSE AIM, with the coordinate DERIVED from the machine's own box rather
+   than typed -- there is no viewport in it. `aimAtWorld` clamps to
+   `eff('reach')` from the player's centre, so a caller has to stand in reach.
    Returns how many units actually left the pockets, so a caller can fail on
    the SETUP rather than on the assertion it meant to make. */
 function feedByHand(m, sub, form, n, dt = 1 / 120) {
@@ -299,7 +257,7 @@ function sumBytes(arr) {
 }
 
 /* Every exported model object's own live state, flattened into one plain,
-   JSON-comparable snapshot -- used both by the newRun() reset probe and by
+   JSON-comparable snapshot -- used both by the newRun reset probe and by
    the determinism probe. `epoch` is deliberately excluded: it only ever
    increases and is not itself gameplay state (see model/epoch.js's own
    header), so including it would make two otherwise-identical snapshots
@@ -332,11 +290,12 @@ function snapshotModel() {
        it is -- so a count would fingerprint identically for a fresh seed and
        for one 179 seconds in. Sorted by key so `Map` insertion order (which
        depends on the order the player planted, not on the state) cannot make
-       two identical worlds compare unequal. Invariant 8. */
+       two identical worlds compare unequal. `newrun` resets everything. */
     growth: [...growth.planted().entries()]
       .map(([k, e]) => ({ k, ord: e.ord, tx: e.tx, ty: e.ty, secs: +e.secs.toFixed(6) }))
       .sort((a, b2) => a.k - b2.k),
-    /* `torque` and `turn` are in here for invariant 8's sake as much as for
+    /* `torque` and `turn` are in here for `newRun` resets everything's sake as much
+       as for
        determinism's: they are the two fields `rules/drive.js` writes on a
        machine record every frame, and a `turn` phase that survived a restart
        would be a gear that remembers how far it had been cranked in the
@@ -349,8 +308,9 @@ function snapshotModel() {
     /* SEGMENTS ARE STATE AND THEREFORE FINGERPRINTED, and the two hub RECORDS
        are recorded as their index in `machs.machines` -- an identity, flattened
        to something JSON can compare, without pulling the whole machine in
-       twice. A segment surviving `newRun()` is precisely the determinism bug
-       invariant 8 exists to name, and until this line existed neither the
+       twice. A segment surviving `newRun` is precisely the determinism bug
+       `newRun` resets everything exists to name, and until this line existed neither
+       the
        determinism probe nor the reset probe could see one. */
     segments: segs.segments.map(s => ({
       a: machs.machines.indexOf(s.a), b: machs.machines.indexOf(s.b),
@@ -368,7 +328,7 @@ function snapshotModel() {
 
 /* A deterministic scripted play session: fresh `newRun(seed)`, then `steps`
    substeps of a CONTROL-INPUT stream driven by its OWN seeded generator
-   (`rng.mulberry`, entirely separate from the game's own seeded `rand()`
+   (`rng.mulberry`, entirely separate from the game's own seeded `rand`
    stream -- the same separation the existing 7,200-frame fuzz above already
    relies on). Returns a single string fingerprint. A run that dies mid-script
    restarts on the SAME seed rather than stopping, so the script always runs
@@ -379,15 +339,7 @@ function snapshotModel() {
    touches. `scriptRig` plants two hubs and a crank beside the player's own
    spawn tile, carves the span clear, and links it; the intent stream gains a
    `turn` hold at 40%, so the player wanders in and out of the crank's 12 px
-   reach and the carrier rises, stalls and sinks all through the run.
-
-   WHY THE LINK INTENT IS A DIRECT `rules` CALL and not `cmd.link`: see the
-   `R_place` import's own comment. `shell/main.js`'s link branch needs
-   `aim.valid`, which needs a pointer.
-
-   `scriptStats` is how the section below proves this is not vacuous. A script
-   that quietly failed to build its rig would still produce two identical
-   fingerprints and tell nobody. */
+   reach and the carrier rises, stalls and sinks all through the run. */
 const scriptStats = { turned: 0, moved: 0, links: 0, cuts: 0 };
 
 function scriptRig() {
@@ -396,7 +348,7 @@ function scriptRig() {
   const ptx = world.tileX(band, player.player.x), pty = world.tileY(band, player.player.y);
   for (let ty = pty - 12; ty <= pty + 1; ty++)
     for (let tx = ptx + 1; tx <= ptx + 4; tx++) tiles.write.clear(band, tx, ty);
-  /* `footUnder` (section 5's own helper, hoisted): every hub in this file
+  /* `footUnder`: every hub in this file
      stands on a real footing tile, and this rig links THROUGH `linkCheck`, so
      without one it is a scene `rules/placement.js` could not have built. */
   const lo = footUnder(machs.write.place(band, D_mach.M.hub, ptx + 2, pty - 1));
@@ -452,14 +404,13 @@ function scriptedPlay(seed, steps) {
   return JSON.stringify(snapshotModel());
 }
 
-/* ---- the fresh-PROCESS half of the determinism check ----
+/* The fresh-PROCESS half of the determinism check.
    `--determinism-probe` runs ONLY this and prints the fingerprint as its last
    line of stdout, so the section below can compare a truly separate Node
    process (a fresh module graph, fresh V8 heap) against two in-process runs.
-   Checked here, immediately after every module needed to run a scripted
-   session exists, and before section 0's own logging starts -- the parent
-   only reads the LAST stdout line, so anything printed here or by an earlier
-   `console.log` in this fresh process does not need to be suppressed. */
+   Checked here, as soon as every module a scripted session needs exists and
+   before any other logging starts -- the parent reads only the LAST stdout
+   line, so nothing printed before it has to be suppressed. */
 if (process.argv.includes('--determinism-probe')) {
   console.log(scriptedPlay(2024, 10000));
   process.exit(0);
@@ -475,24 +426,15 @@ console.log('\n1. content resolves');
   /* `forms.expand(sel)` is the purpose-built validator: it returns every legal
      substance x form pair a selector covers, and an EMPTY result is exactly the
      failure that would let a substance accumulate in a buffer no recipe
-     consumes. Use it rather than string-matching ids.
-     See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves */
+     consumes. Use it rather than string-matching ids. */
   for (const m of D_mach.MACHINES) {
     for (const r of m.recipes || []) {
       /* A recipe with `from:` draws from a NON-ITEM source, so its inputs are
-         that source's named units rather than substance x form selectors.
-         NO ROW IN THE GAME DOES THIS TODAY, and the check is deliberately kept
-         anyway. The one that did was the retired winch stage's second recipe
-         -- `{ in:{heart:1}, from:'vital' }`, the "blood winch", which bought a
-         lift charge with the player's health once the timber ran out. Phase 8f
-         deleted the winch, and docs/PLAN-gears-and-winches.md A5 records the
-         user rejecting the trap outright rather than moving it to the hand
-         crank: the crank is manual only and there is no passive power source
-         of any kind. `data/sources.js#vital` went with it, so `NAMED_UNITS`
-         is currently empty -- which makes this branch assert "no recipe may
-         name a bare unit", exactly true right now, and makes it the guard for
-         whatever non-item source lands next. It is generic over the source
-         table and knows no name, so it needed no edit when `vital` went. */
+         that source's named units rather than substance x form selectors. NO
+         ROW IN THE GAME DOES THIS TODAY, and the check is deliberately kept
+         anyway. The one that did was the retired winch stage's second recipe,
+         `{ in:{heart:1}, from:'vital' }` -- the "blood winch", which bought a
+         lift charge with the player's health once the timber ran out. */
       if (r.from) {
         if (!sourceIds.has(r.from))
           { fail(`machine ${m.id}: recipe from:"${r.from}" is not a source`); bad++; }
@@ -515,9 +457,8 @@ console.log('\n1. content resolves');
 
   /* A trinket/boon key is dotted: `rate.furnace` is the tunable `rate`
      scoped to `furnace`. Splitting on the FIRST dot is the rule mods.js
-     applies. `tools/content.mjs`'s assertion 8 does the deep version of this
-     (scope resolution too); this is the same quick sanity check that table
-     already ran for trinkets, now covering the timed-boon tier too. */
+     applies. `tools/content.mjs` does the deep version, scope resolution
+     included; this is the quick sanity check, over every modifier tier. */
   for (const row of [...(D_trk.TRINKETS || []), ...(D_boon.BOONS || [])]) {
     for (const mod of row.mods || []) {
       const raw = mod.tunable || mod.key || '';
@@ -532,8 +473,8 @@ console.log('\n1. content resolves');
       { fail(`grant ${id}: grants unknown machine "${g.grants}"`); bad++; }
 
   /* Every boon a `conflictsWith` entry names must itself be a real boon --
-     `tools/content.mjs`'s assertion 10 is the same check; kept here too so a
-     typo fails at this quicker layer first. */
+     `tools/content.mjs` makes the same check; kept here too so a typo fails
+     at this quicker layer first. */
   for (const b of D_boon.BOONS || []) {
     for (const c of b.conflictsWith || []) {
       if (!D_boon.BOON[c.id])
@@ -578,7 +519,7 @@ console.log('\n1b. content lint');
 }
 
 
-/* ---- boot once, for everything below ---- */
+/* Boot once, for everything below. */
 canvas.attach(stageEl);
 canvas.resize(1600, 900);
 boot.boot(1337);
@@ -640,10 +581,10 @@ console.log('\n3. behaviour');
   if (!failures) ok(`hardness honours spec at 8 framerates (worst ${worst.toFixed(4)}s, ${worstAt})`);
 }
 
-/* --- the fall-damage table from docs/SPEC.md --- */
+/* The fall-damage table: drop in tiles -> hearts spent. */
 {
   const TABLE = [[4, 0], [5, 0], [8, 1], [11, 2], [14, 3], [17, 4], [20, 5]];
-  /* TUNE maps id -> ROW, not id -> number. Every value is read through eff(),
+  /* TUNE maps id -> ROW, not id -> number. Every value is read through eff,
      which is the only legal reader and the reason a trinket can change it. */
   const GRAV = mods.eff('grav');
   let bad = 0;
@@ -665,50 +606,11 @@ console.log('\n3. behaviour');
   if (!(p.x > x0 + 8)) fail(`walking right moved the player ${(p.x - x0).toFixed(1)} px`);
   else ok(`walks: ${(p.x - x0).toFixed(0)} px in 2 simulated seconds`);
 
-  /* THE FUZZ NOW COLLECTS, AND IS HELD AGAINST THE CAP WHILE IT DOES
-     (Phase 13c, docs/PLAN-phase13.md §4.4). Until this landed the burden
-     assertion below was UNFALSIFIABLE: the fuzz never set `collect`, so
-     NOTHING could enter `run.inv` at all, `burdenOf()` was identically 0 for
-     all 7,200 frames, and the comparison passed while proving nothing
-     whatever about the refusal branch at `rules/items.js:124`.
-
-     Holding `collect` is necessary and, measured, nowhere near sufficient.
-     Three things were in the way, and all three are answered here:
-
-       1. NO TOOL. `rules/mining.js:139` gates on `hasPick()` and the stock
-          pickaxe is PLANTED on the ground rather than credited (invariant 5),
-          so `dig: true` broke nothing at all. A pick is credited directly --
-          the same `write.collect` precedent every other probe in this file
-          uses to skip re-proving pickup.
-       2. RANDOM DIGGING BARELY MINES. Instrumented over the real 7,200
-          frames: ONE tile broken and 2 pickups, because `dig` is re-rolled
-          every substep and the aim retargets as the player wanders, so
-          almost no tile ever accumulates its full hardness. Mined material
-          cannot be this probe's supply of mass.
-       3. THE ALTAR ATE THE PRELOAD. Cycle 1's altar once stood within
-          `handFeed.reach` of spawn and took ore with no key held, so
-          a one-shot preload drained from 38.5 T to 0.9 T inside the fuzz (38
-          `accept` rows, cycle 1 completed) and the cap stopped being
-          relevant a few hundred frames in. As of Phase 16b (D16-C) that
-          drain is opt-in and this fuzz never asks for it, so the altar takes
-          nothing -- but the MAINTAINED top-up below is what makes this probe
-          honest at all and is not being unwound on the strength of a
-          preference that one click could flip back.
-
-     So the mass is supplied and MAINTAINED: every quarter second the pockets
-     are topped back up to within one ore of `eff('burden')` and one copper
-     ore is dropped at the player's feet as a real falling item. The pickup
-     that follows is a real `rules/items.js` pickup through the one real gate,
-     and at that burden it must be REFUSED -- which is the branch under test.
-     Delete the check at `rules/items.js:124` and this probe reports burden
-     over the cap on thousands of frames; that is exactly how it was verified.
-
-     The top-up goes through `write.collect` DIRECTLY, which does not check
-     burden -- deliberately, because the cap is the RULE's decision and not
-     the model's storage -- so it computes a whole number of ore that keeps
-     itself under the cap, or it would trip the assertion on its own.
-     `heavyRefusals` is the ANTI-HOLLOW GUARD: if the fuzz ever stops reaching
-     the cap, the probe says so out loud instead of going quietly green. */
+  /* THE FUZZ NOW COLLECTS, AND IS HELD AGAINST THE CAP WHILE IT DOES. Until
+     this landed the burden assertion below was UNFALSIFIABLE: the fuzz never
+     set `collect`, so NOTHING could enter `run.inv` at all, `burdenOf` was
+     identically 0 for all 7,200 frames, and the comparison passed while
+     proving nothing whatever about the refusal branch at `rules/items.js:124`. */
   const CAP = mods.eff('burden');
   const ORE_T = items.massOfPair(D_sub.S.copper, D_form.F.ore);
   const TOP_UP_EVERY = 30;                       // substeps; a quarter second
@@ -739,7 +641,7 @@ console.log('\n3. behaviour');
     stepReal(1 / 120, c);
     /* `stepReal` never drains the journal (see `runScript`'s note below), so
        the rows pile up and can be read with an index rather than a copy per
-       frame. `newRun()` clears them, hence the pointer reset on death. */
+       frame. `newRun` clears them, hence the pointer reset on death. */
     for (let k = jSeen; k < journal.journal.length; k++) {
       const row = journal.journal[k];
       if (row.kind === 'refused' && row.data && row.data.why === 'TOO HEAVY TO CARRY') heavyRefusals++;
@@ -767,8 +669,7 @@ console.log('\n3. behaviour');
 /* --- a trinket is an item: drafting it drops a relic, picking it up and
    EQUIPPING it changes an effective value, and spending it out of the
    inventory restores the base -- all through `run.inv`/`run.equipped`, none of
-   it through a dedicated list, so holding alone is not enough.
-   See docs/DEVELOPER_GUIDE.md#the-four-gift-tiers --- */
+   it through a dedicated list, so holding alone is not enough. --- */
 {
   boot.newRun(1337);
   const t = (D_trk.TRINKETS || [])[0];
@@ -781,7 +682,7 @@ console.log('\n3. behaviour');
     const base = mods.eff(key, scope);
     sched.trinkets.grant(t.id);
     /* The draft spawns a falling item; let it land in the pickup radius.
-       Phase 12b (docs/PLAN-phase12.md): pickup is opt-in, not automatic --
+       Pickup is opt-in, not automatic --
        hold `collect` for the wait, the same "which device/preference asked
        is a shell question" `cmd.dig`/`cmd.mouse` merging already states. */
     for (let i = 0; i < 180 && run.invCount(D_sub.S[t.id], D_form.F.relic) === 0; i++)
@@ -792,7 +693,7 @@ console.log('\n3. behaviour');
     /* Equip it into the first slot directly -- `rules/trinkets.js#equipFirst`
        is retired (the 'p' key's own primitive, superseded
        by drag-to-equip); `model/run.js#write.equip` is the same model write
-       that real path already calls. Then `trinkets.step()` syncs
+       that real path already calls. Then `trinkets.step` syncs
        `model/mods.js` from the intersection `run.equipped ∩ run.inv`. */
     run.write.equip(0, D_sub.S[t.id]);
     sched.trinkets.step();
@@ -848,7 +749,7 @@ console.log('\n4. Phase 6 probes');
 
 /* --- DETERMINISM: same seed + same scripted intents -> identical state hash
    after 10,000 substeps. Twice in this process, once in a genuinely fresh
-   one. `snapshotModel()` covers player position, inventory, item count,
+   one. `snapshotModel` covers player position, inventory, item count,
    machine buffers, mods rows, b.seen/b.light and more -- not just the five
    fields the old "one seed twice" probe above used (that probe stays; this
    is broader and longer). --- */
@@ -872,12 +773,13 @@ console.log('\n4. Phase 6 probes');
 
   /* AND THE SCRIPT ACTUALLY DROVE A DRIVETRAIN. Two identical
      fingerprints over a script that never turned a crank would be a green
-     result about nothing, which is CLAUDE.md's "a test can silently test
-     nothing" with the drivetrain in the blank. So: the crank delivered torque
+     result about nothing -- a test silently testing nothing, with the
+     drivetrain in the blank. So: the crank delivered torque
      on some substep, the carrier travelled a real distance along its cable
      (200 px is two and a half cables' worth -- far more than float noise
      and far less than the 316 px twelve relinks actually produce, so the
-     bound is not fitted to the number it happens to produce), and the scripted cut ran at least once. */
+     bound is not fitted to the number it happens to produce), and the scripted cut
+     ran at least once. */
   console.log(`  ..  determinism script: crank delivered torque on ${scriptStats.turned} of ${steps} ` +
               `substeps, carrier travelled ${scriptStats.moved.toFixed(1)} px along its cable, ` +
               `${scriptStats.cuts} scripted cut(s), ${scriptStats.links} relink(s)`);
@@ -891,7 +793,7 @@ console.log('\n4. Phase 6 probes');
           `${scriptStats.cuts} cable cut(s) reordering \`segments\``);
 }
 
-/* --- THE FINGERPRINT CAN SEE A SEGMENT AT ALL. `snapshotModel()` is the
+/* --- THE FINGERPRINT CAN SEE A SEGMENT AT ALL. `snapshotModel` is the
    instrument both probes above and the reset probe below depend on, and an
    instrument blind to the field it is asked about reports success forever.
    Three writes, each the smallest one that exists, each of which MUST move the
@@ -926,14 +828,14 @@ console.log('\n4. Phase 6 probes');
        'the determinism and reset probes are not blind to the drivetrain');
 }
 
-/* --- newRun() RESETS EVERYTHING (invariant 8): fingerprint every exported
+/* --- newRun RESETS EVERYTHING: fingerprint every exported
    model object, play enough to dirty every one of them (mining, walking,
    hand-crafting progress, a placed machine's buffer, an equipped trinket, a
    granted machine, a granted timed boon, a spent heart, aim, the journal),
-   newRun() on the SAME seed, and fingerprint again -- deterministic worldgen
+   newRun on the SAME seed, and fingerprint again -- deterministic worldgen
    from a fixed seed means the two snapshots should be BYTE IDENTICAL if
    nothing survived. Also the cheapest live confirmation that
-   model/boons.js#write.clear() is actually wired into shell/boot.js (it is,
+   model/boons.js#write.clear is actually wired into shell/boot.js (it is,
    read there directly -- this is the regression guard, not the discovery). --- */
 {
   const seed = 9090;
@@ -946,17 +848,11 @@ console.log('\n4. Phase 6 probes');
   run.write.equip(0, D_sub.S.pick);
   run.write.craft(2.5, 'smelt');
   run.write.brand(42);
-  /* THE TRIBUTE LEDGER, all six fields, one write each. This line
-     was `run.write.tribute({ n: 1 })` -- a placeholder shape, when
-     the field had zero callers -- and it is now the real record
-     `rules/cycles.js` writes, `{ id, have, left }`, so a reset that forgot the
-     ledger fails here on its own contents rather than on a stand-in.
-     `favour`/`charted` are the two that would survive if `write.reset()` had
-     kept them on the frozen template instead of building them fresh, which is
-     the failure their own comment in `model/run.js` describes. `offer` is the
-     draft bridge `shell/main.js` reads -- a run that just completed a cycle
-     mid-frame and reset a moment later must not hand the NEXT run a stale
-     draft. */
+  /* THE TRIBUTE LEDGER, all six fields, one write each. This line was
+     `run.write.tribute({ n: 1 })` -- a placeholder shape, when the field had
+     zero callers -- and it is now the real record `rules/cycles.js` writes, `{
+     id, have, left }`, so a reset that forgot the ledger fails here on its own
+     contents rather than on a stand-in. */
   run.write.tribute({ id: D_cycles.CYCLES[0].id, have: { 'copper/ore': 4 }, left: 123.5 });
   run.write.favour('hephaestus', 2);
   run.write.chart('astral');
@@ -981,7 +877,7 @@ console.log('\n4. Phase 6 probes');
   /* AND THE DRIVETRAIN, dirtied the same way the rest of this list is: through
      the real write API, one call per field that could possibly survive. A
      linked segment with a carrier halfway up it, a hub holding delivered
-     drive, and a gear phase mid-rotation. `write.clear()` in `shell/boot.js`
+     drive, and a gear phase mid-rotation. `write.clear` in `shell/boot.js`
      is what has to forget the first; the machine list going with it is what
      forgets the other two. */
   {
@@ -1008,9 +904,10 @@ console.log('\n4. Phase 6 probes');
 
   /* THE SAME FACT, SAID IN ITS OWN WORDS. The byte-comparison above catches
      this, but it reports "segments differs" -- and a future reader of a red
-     `npm run check` deserves the sentence invariant 8 is actually about. Both
+     `npm run check` deserves the sentence `newRun` resets everything is actually
+     about. Both
      halves are named because they fail for different reasons: `segments`
-     survives when `shell/boot.js` forgets `segw.clear()`, and a nonzero
+     survives when `shell/boot.js` forgets `segw.clear`, and a nonzero
      `torque`/`turn` survives when a machine record does. */
   if (segs.segments.length !== 0) {
     fail(`newRun() RESET: ${segs.segments.length} segment(s) survived newRun() -- a cable outliving its ` +
@@ -1025,8 +922,8 @@ console.log('\n4. Phase 6 probes');
   }
 }
 
-/* --- AUTO COLLECT RESETS TOO (D13-A, docs/PLAN-phase13.md §4.3). The
-   fingerprint probe above cannot see this one: `snapshotModel()` covers
+/* --- AUTO COLLECT RESETS TOO. The
+   fingerprint probe above cannot see this one: `snapshotModel` covers
    exported MODEL objects and `ui.autoCollect` lives in `shell/ui.js`, which is
    the correct layer for it (`rules/items.js` may not import `shell` at all).
    It is nonetheless simulation-affecting INPUT and not a presentation
@@ -1034,7 +931,7 @@ console.log('\n4. Phase 6 probes');
    `write.collect`, which moves `run.inv`, burden, climb speed and carrier
    load. Left sticky it would make two `newRun(1337)`s replay differently
    depending on what the player clicked before dying, which is the class of
-   bug invariant 8 names. Hence its own probe, in its own words. --- */
+   bug `newRun` resets everything names. Hence its own probe, in its own words. --- */
 {
   shellUi.setAutoCollect(true);
   if (shellUi.ui.autoCollect !== true)
@@ -1047,11 +944,10 @@ console.log('\n4. Phase 6 probes');
   else ok('newRun() RESET: ui.autoCollect is false after a restart that began with it ON (D13-A)');
 }
 
-/* --- AND SO DOES AUTO FEED (Phase 16b, D16-C -- which is D13-A's answer
-   applied unchanged rather than a second policy). Everything the probe above
+/* --- AND SO DOES AUTO FEED. Everything the probe above
    says applies word for word one layer over: `ui.autoFeed` lives in
    `shell/ui.js` because `rules/machines.js` may not import `shell` at all,
-   `snapshotModel()` therefore cannot see it, and it is simulation-affecting
+   `snapshotModel` therefore cannot see it, and it is simulation-affecting
    INPUT rather than presentation -- `shell/main.js#step` folds it into
    `cmd.autoFeed`, which gates `rules/machines.js#handFeed`, which spends
    `run.inv` into a machine buffer and, through
@@ -1070,52 +966,32 @@ console.log('\n4. Phase 6 probes');
   else ok('newRun() RESET: ui.autoFeed is false after a restart that began with it ON (D16-C = D13-A)');
 }
 
-/* --- CONSERVATION: over a 10,000-substep random-intent fuzz, mass ADDED to
-   any of the three held buckets (inventory, ground items, machine buffers)
-   through their own accountable write functions must equal mass REMOVED
-   from them the same way, at every substep -- i.e. `run.inv`/`items`/
-   `m.buf` may only ever change through `model/items.js#write.spawn/remove`,
+/* CONSERVATION: over a 10,000-substep random-intent fuzz, mass ADDED to any of
+   the three held buckets (inventory, ground items, machine buffers) through
+   their own accountable write functions must equal mass REMOVED from them the
+   same way, at every substep -- i.e. `run.inv`/`items`/ `m.buf` may only ever
+   change through `model/items.js#write.spawn/remove`,
    `model/run.js#write.collect/spend` and `model/machines.js#write.take/
-   consume`. This is a STRUCTURAL/bookkeeping check, not a re-run of
-   tools/content.mjs's static mass-fairness assertion (which already proves
-   no recipe nets mass from nothing, and is the right, and only necessary,
-   place for that -- a live ledger has no independent "correct" answer to
-   compare a recipe's own output against, only its own bookkeeping). What
-   THIS catches is a bug no static table check can: a future code path that
-   bypasses the write API to poke `run.inv`/`items`/`m.buf` directly. Prints
-   the substep where the two figures first disagree.
-   See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves --- */
+   consume`. */
 {
   const seed = 5150;
   boot.newRun(seed);
   const band = player.player.band;
 
   /* One placed furnace, fed for free (bypassing cost) so catchFalling AND
-     handFeed both get exercised by whatever the fuzz digs near it -- both
-     are additional accountable writers (`take`) this probe must prove
-     balance the same as the six top-level ones.
-
-     AUTO FEED IS TURNED ON FOR THIS PROBE AND ONLY THIS PROBE (Phase 16b,
-     D16-C), and it is the FLAG rather than the real feed verb deliberately:
-     the subject here is BOOKKEEPING -- that every path which moves mass
-     between the three held buckets goes through an accountable write -- and
-     `handFeed` is one of those paths whether or not a player would ever
-     trigger it today. Driving the verb instead would prove `handOne`
-     balances (which section 8i's own probe already exercises) and leave
-     `handFeed` untouched by the fuzz, quietly deleting a writer from this
-     probe's coverage. Reset immediately after the loop below, because `cmd`
-     and `ui` are module singletons shared by every section in this file --
-     the same reason `action` is on `CMD_FIELDS`. */
+     handFeed both get exercised by whatever the fuzz digs near it -- both are
+     additional accountable writers (`take`) this probe must prove balance the
+     same as the six top-level ones. */
   shellUi.setAutoFeed(true);
   machs.write.place(band, D_mach.M.furnace,
     world.tileX(band, player.player.x) - 1, world.tileY(band, player.player.y) + 2);
 
-  /* A PICKAXE, CREDITED BEFORE THE BASELINE IS TAKEN (Phase 13c,
-     docs/PLAN-phase13.md §4.4). `rules/mining.js:139` gates on `hasPick()`
-     and the stock pickaxe is planted on the ground rather than handed over
-     (invariant 5), so a fuzz that never collects also never MINES -- and this
+  /* A PICKAXE, CREDITED BEFORE THE BASELINE IS TAKEN. `rules/mining.js:139` gates on
+     `hasPick`
+     and the stock pickaxe is planted on the ground rather than handed over, so a fuzz
+     that never collects also never MINES -- and this
      probe's whole subject is what mining, crafting and pickup do to the three
-     held buckets. Credited here, above `reconstructed = actualHeldMass()`, so
+     held buckets. Credited here, above `reconstructed = actualHeldMass`, so
      it is part of the baseline rather than a write the wrappers have to
      account for. */
   run.write.collect(D_sub.S.pick, D_form.F.relic, 1);
@@ -1138,7 +1014,7 @@ console.log('\n4. Phase 6 probes');
   /* `collectCalls` is the ANTI-HOLLOW GUARD, asserted at the end: a fuzz that
      never invokes this wrapper is not watching the ground-to-pockets transfer
      at all, which is exactly the coverage this probe silently lost when
-     pickup became opt-in (docs/PLAN-phase13.md §4.4). */
+     pickup became opt-in. */
   let collectCalls = 0;
   run.write.collect = (sub, form, n) => { collectCalls++; reconstructed += items.massOfPair(sub, form) * n; return origCollect(sub, form, n); };
   run.write.spend = (sub, form, n) => {
@@ -1160,23 +1036,12 @@ console.log('\n4. Phase 6 probes');
   let driftAt = -1;
   for (let i = 0; i < 10000 && driftAt < 0; i++) {
     /* `collect` IS HELD ON HALF THE SUBSTEPS, AND THERE IS SOMETHING TO
-       COLLECT (Phase 13c, docs/PLAN-phase13.md §4.4). `collect` was absent,
-       and pickup has been opt-in, so the wrapped
-       `run.write.collect` above was never invoked through the real path at
-       all: this fuzz's coverage had silently shrunk to `items.spawn`/`remove`
-       plus the machine `take`/`consume` pair, and the one bucket transfer a
-       player performs most often -- ground to pockets -- was not being
-       watched by the probe that claims to watch all of them.
-
-       Holding the intent alone bought exactly ONE pickup in 10,000 substeps
-       (measured), for the same reason the burden fuzz above documents: random
-       `dig` re-rolled every substep hardly ever accumulates a tile's full
-       hardness, so there is almost nothing on the ground to pick up. So an
-       ore is dropped at the player's feet every half second, and the pocket
-       stack is spent back out every five seconds to keep room under the
-       burden cap -- both through the SAME wrapped, accountable writes every
-       other transfer in this probe goes through, so neither one can hide a
-       drift; they only make the ground-to-pockets leg busy. */
+       COLLECT. It was absent, and pickup has been opt-in, so the
+       wrapped `run.write.collect` above was never invoked through the real
+       path at all: this fuzz's coverage had silently shrunk to
+       `items.spawn`/`remove` plus the machine `take`/`consume` pair, and the
+       one bucket transfer a player performs most often -- ground to pockets --
+       was not being watched by the probe that claims to watch all of them. */
     if (i % 60 === 0 && player.player.band)
       items.write.spawn(player.player.band,
                         player.player.x + player.PW / 2, player.player.y + player.PH / 2,
@@ -1209,12 +1074,10 @@ console.log('\n4. Phase 6 probes');
           `(${actualHeldMass().toFixed(2)} T, ${collectCalls} real pickups)`);
 }
 
-/* --- HAND EQUALS MACHINE: every hand:true recipe is the SAME OBJECT a
-   machine names. tools/content.mjs's assertion 7 already proves this
-   statically over the content tables; re-asserted here, live, over
-   `data/machines.js#MACH`/`data/recipes.js#recipesOf`, because it costs
-   nothing to check twice from two angles.
-   See docs/DEVELOPER_GUIDE.md#adding-a-recipe --- */
+/* --- HAND EQUALS MACHINE: every `hand:true` recipe is the SAME OBJECT a
+   machine names. `tools/content.mjs` proves it statically over the tables;
+   re-asserted here, live, over `MACH`/`recipesOf`, because it costs nothing
+   to check twice from two angles. --- */
 {
   let bad = 0;
   for (const m of D_mach.MACH) {
@@ -1232,23 +1095,16 @@ console.log('\n4. Phase 6 probes');
   if (!bad) ok('HAND EQUALS MACHINE: every hand-craftable recipe a machine names is the SAME frozen object (identity, not just equal fields)');
 }
 
-/* --- T2 = T3, PROVEN STRUCTURALLY, NOT BY MATCHING NUMBERS: a hand swing
-   with the T2 auger and an autonomous, placed T3 Talos Head both accumulate
-   mining work through the identical `model/mining.js#write.add` call, the
-   identical `eff('pickPower')`, and the identical tool `power` (auger is the
-   single highest `item.tool.power` in the game, which is what
-   `rules/machines.js#bestHandToolPower` scans for and what `run.bestTool()`
-   returns once the auger is held) -- against the SAME substance, for the
-   SAME wall-clock duration, at two DIFFERENT tiles (never the same one,
-   or the two accumulators would just be the same Map entry adding to
-   itself). The Talos Head runs through the REAL `stepReal`/`main.step`
-   pipeline, fully autonomously; the hand side calls the identical model
-   primitive directly rather than routing a controlled player through the
-   full aim/collision pipeline, which would need exact sub-pixel placement
-   to keep the aim locked on one tile for the whole probe and would prove
-   the INPUT PLUMBING, not the RATE -- rules/mining.js#step is exactly that
-   plumbing wrapped around this one call, and is not what "T2 = T3" is
-   actually a claim about. --- */
+/* --- T2 = T3, PROVEN STRUCTURALLY RATHER THAN BY MATCHING NUMBERS: a hand
+   swing with the auger and an autonomous placed Talos Head accumulate mining
+   work through the identical `model/mining.js#write.add` call, the identical
+   `eff('pickPower')` and the identical tool `power` -- same substance, same
+   wall-clock duration, two DIFFERENT tiles, since one tile would make both
+   accumulators the same Map entry adding to itself.
+
+   The head runs autonomously through the real `main.step`; the hand side
+   calls the model primitive directly rather than steering a player through
+   the aim and collision pipeline, which would prove the plumbing. --- */
 {
   const seed = 7070;
   boot.newRun(seed);
@@ -1286,57 +1142,18 @@ console.log('\n4. Phase 6 probes');
   }
 }
 
-/* --- BREAK-EVEN DEPTH, REPRICED IN PLAYER SECONDS (Phase 8f).
-   docs/DESIGN.md's "lift cost per item-slot = k x depth" equation, computed
-   against the LIVE numbers rather than restated as prose -- but `k` is no
-   longer denominated in TALENTS OF FUEL, because there is no fuel at the way
-   up any more. The staged winch burned timber (or a heart) per haul; segment
-   transport burns nothing at all and is powered by a crank the player has to
-   stand at and hold. So the currency of ascent is now SECONDS OF PLAYER
-   CRANKING, which docs/PLAN-gears-and-winches.md section 4.2 argues is a
-   STRONGER statement of the same thesis: the one resource automation cannot
-   give you more of is your own standing there.
+/* The staged winch burned timber (or a heart) per haul; segment transport
+   burns nothing at all and is powered by a crank the player has to stand at
+   and hold. */
 
-   `k` = seconds of cranking per item-slot per tile, for ONE unit of a tier
-   riding alone on a vertical segment driven by ONE hand crank -- the honest
-   minimum build, and the one where the cargo's own mass still matters. It is
-   the real motion expression, read through the real `eff()`:
-
-     need    = segBase + segLoad * mass                 (slope 1: vertical)
-     surplus = crank.torque * eff('crankTorque') - need
-     drive   = min(1, supply / need)                    (one segment, so
-                                                         demand == need)
-     v       = segUp * min(1, surplus / segBase) * drive     px/s
-     k       = tile / v                                      s/tile/item-slot
-
-   THE DATUM ON THE OTHER SIDE OF THE EQUATION is what an item-slot is WORTH,
-   and it has to be in seconds too or there is no depth to solve for. Taken as
-   THE SECONDS IT COST TO MINE ITS CONTENTS: `tile.hard` for copper, through
-   the same `eff('hard', ...)` / `eff('pickPower')` / stock-pick-power formula
-   `rules/mining.js` uses, times docs/SPEC.md section 8's compression ratio.
-   That is the closest analogue to what the old section did -- it priced an
-   item-slot at its own mass in timber, equally a stated datum -- and it is
-   derived from live content rather than invented here.
-
-   Break-even depth is then `worth / k` TILES: how deep you can be before
-   cranking one item-slot up costs more of your life than mining its contents
-   did. A MORE COMPRESSED TIER MUST SURVIVE TO A GREATER DEPTH, and that
-   ordering -- not the exact figure -- is the game's central pressure and the
-   thing actually asserted. The raw-ore figure is printed for a human, as it
-   always was.
-
-   Read the printed ore figure as the headline it is: raw ore does not pay to
-   crank up even ONE tile. That is the compression thesis holding, not a bug.
-   See docs/DEVELOPER_GUIDE.md#checkers-what-each-one-proves --- */
-
-/* The two DATA sides of the equation, hoisted out of the block below so that
-   section 5's measured counterpart divides the same worth by the same
-   compression ratios rather than by a second copy of them. Seconds to mine one
-   copper ore by hand with the stock pick, from the same three numbers
-   `rules/mining.js` multiplies; and docs/SPEC.md section 8's ratios. */
+/* The two DATA sides of the equation, hoisted out of the block below so the
+   measured counterpart further down divides the same worth by the same
+   compression ratios rather than by a second copy of them: seconds to mine
+   one copper ore by hand with the stock pick, from the three numbers
+   `rules/mining.js` multiplies, and the refining ratios. */
 const oreSecs = D_sub.SUB[D_sub.S.copper].tile.hard * mods.eff('hard', 'copper')
               / (mods.eff('pickPower') * D_sub.SUB[D_sub.S.pick].item.tool.power);
-const RATIOS = { ore: 1, ingot: 4, plate: 12 };             // docs/SPEC.md section 8
+const RATIOS = { ore: 1, ingot: 4, plate: 12 };             // units of ore per unit
 const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate };
 
 {
@@ -1380,7 +1197,7 @@ const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate
 }
 
 /* --- BURDEN: walking and falling are IDENTICAL at 0% and 150% of the hard
-   cap -- only ASCENT is taxed (CLAUDE.md D4). Set via a direct model write
+   cap -- only ASCENT is taxed. Set via a direct model write
    (`run.write.collect` has no cap of its own; only the PICKUP path in
    rules/items.js refuses one) rather than by fighting the real pickup
    refusal to get there, which is the point: this test's job is to prove the
@@ -1445,8 +1262,7 @@ const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate
        above this one. The distance costs nothing and removes the question. */
     const tx = world.tileX(band, player.player.x) + 15, ty = world.tileY(band, player.player.y);
     for (let dy = -1; dy <= 4; dy++) tiles.write.clear(band, tx, ty + dy);
-    /* `F.rung`, not `F.log`: `log`'s `tile` block is stripped (CLAUDE.md
-       D12 -- a form is either feedstock or buildable), so a placed log is no
+    /* `F.rung`, not `F.log`: `log`'s `tile` block is stripped, so a placed log is no
        longer a climbable tile at all. `timber/rung` is what `peg_rungs` makes
        and what a ladder has been built from; the scene is the
        same, the tile is the one the game can actually produce. */
@@ -1541,7 +1357,7 @@ const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate
 }
 {
   /* Light recomputation is not per frame. The player stands still, nothing
-     digs, nothing is placed -- `isDirty()` should find nothing changed after
+     digs, nothing is placed -- `isDirty` should find nothing changed after
      the very first settle and stop recomputing entirely. */
   boot.newRun(4242);
   runReal(5, 1 / 120, { hasMouse: false });
@@ -1556,11 +1372,10 @@ const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate
   else ok(`LIGHT: only ${recomputes} recompute(s) over 600 idle substeps (bound ${bound}) -- not per frame`);
 }
 
-/* --- RENDER PURITY, extended over the view/ui/ tree: opening
-   the main panel, giving it real content to draw (an inventory, a crafting
-   grid, an equipped trinket) and hovering a slot must not move the epoch
-   counter or consume randomness any more than the plain-HUD case already
-   proven in section 2 above. --- */
+/* --- RENDER PURITY, extended over the `view/ui/` tree: opening the main
+   panel, giving it real content to draw and hovering a slot must not move
+   the epoch counter or consume randomness, any more than the plain HUD
+   already proven pure does. --- */
 {
   boot.newRun(2222);
   run.write.collect(D_sub.S.copper, D_form.F.ore, 5);
@@ -1589,51 +1404,30 @@ const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate
   shellUi.close('main');
 }
 
-/* ============================================================
-   5. SEGMENT TRANSPORT: THE DRIVETRAIN, THE CARRIER, THE RIDE
-   ------------------------------------------------------------
-   `rules/drive.js`, `model/segments.js`, the ride
-   branch in `rules/player.js`, asserted as PROPERTIES rather than as one
-   worked example. docs/SPEC.md section 17 is the contract; where the shipped
-   formula deviates from docs/PLAN-gears-and-winches.md section 4.3 -- the
-   `* drive` factor on the ascent case -- these tests are written against
-   17.8, which records the deviation and the argument for it, and against
-   `rules/drive.js`'s own header, which states the same argument at the code.
+/* 5. SEGMENT TRANSPORT: THE DRIVETRAIN, THE CARRIER, THE RIDE.
+   `rules/drive.js`, `model/segments.js` and the ride branch in
+   `rules/player.js`, asserted as PROPERTIES rather than as one worked
+   example.
 
-   EVERY PROBE HERE DRIVES THE REAL `main.step()` through `stepReal`, and
-   nothing re-implements the motion expression except `predictV` below, which
-   is a DELIBERATE second implementation transcribed from docs/SPEC.md 17.8
-   and exists precisely so that a change to `rules/drive.js` disagrees with
-   the spec instead of silently redefining it.
-   ============================================================ */
+   EVERY PROBE HERE DRIVES THE REAL `main.step` through `stepReal`, and
+   nothing re-implements the motion expression except `predictV` below --
+   a DELIBERATE second implementation, so that a change to `rules/drive.js`
+   has to disagree with something rather than silently redefine the
+   mechanic. */
 console.log('\n5. segment transport (Phase 8g)');
 
-/* ---------- ONE RIG, DECLARED AS DATA ----------
-   A shaft carved in `topsoil`, hubs placed, segments linked THROUGH THE REAL
-   `linkCheck` (a rig that silently failed to link would photograph as two
-   hubs and no cable -- CLAUDE.md's "a test can silently test nothing"), the
-   carriers parked, the player either standing at a crank or aboard a carrier,
-   and cargo already at rest on the deck.
-
-   `topsoil` and not `surface`: 320 rows of solid rock with nothing in it but
+/* `topsoil` and not `surface`: 320 rows of solid rock with nothing in it but
    what this rig puts there, so no relief, no tree and no vein can wander into
    a span and refuse a link. The floor row is laid last so the player has
    something to stand on after the carve. */
 const RIG = { band: 'topsoil', tx0: 18, w: 12 };
 
-/* ---------- EVERY HUB IN THIS SECTION STANDS ON A REAL FOOTING TILE ----------
-   `machs.write.place` asks nothing about footing -- `data/machines.js:465-467`
-   records that exact blind spot -- so before this fix every hub in every scene
-   below floated over air, which is a machine `rules/placement.js` could never
-   have built (`model/run.js#placementCheck` demands `def.footing` solid tiles
-   directly under the footprint). That is how the headframe defect survived:
-   no vertical span in the harness ever met the footing tile every
-   real span must pass through. So: lay the tiles, in the hub's own band, and
-   lay them AFTER any clearing the scene does.
-
-   `def.footing` tiles under the LEFTMOST columns, which is the straddle
-   docs/SPEC.md 17.2 argues for: one column on rock, one over the void. Returns
-   the machine, so it can wrap a `write.place` call in place. */
+/* EVERY HUB IN THIS SECTION STANDS ON A REAL FOOTING TILE.
+   `machs.write.place` asks nothing about footing, so before this fix every hub in
+   every scene below floated over
+   air, which is a machine `rules/placement.js` could never have built
+   (`model/run.js#placementCheck` demands `def.footing` solid tiles directly
+   under the footprint). */
 function footUnder(m) {
   const def = D_mach.MACH[m.def];
   for (let i = 0; i < def.footing; i++)
@@ -1641,11 +1435,11 @@ function footUnder(m) {
   return m;
 }
 
-/* The tile range docs/SPEC.md 17.6's headframe exemption covers, DERIVED HERE
-   rather than imported -- the same "independent second implementation"
+/* The tile range the headframe exemption covers, DERIVED HERE rather than
+   imported -- the same independent-second-implementation discipline
    `chordThrough` below is written for, so the harness and
    `model/segments.js#headframe` can disagree instead of agreeing by sharing.
-   Footprint columns, from the anchor's own row down to the footprint's bottom
+   Footprint columns, from the anchor's row down to the footprint's bottom
    plus one row. */
 function headframeOf(m) {
   const def = D_mach.MACH[m.def];
@@ -1654,18 +1448,11 @@ function headframeOf(m) {
 }
 
 /* A RIDER MAY NOW START AT THE VERY TOP OF A SPAN (`t = 1`), and once they
-   could not. The footing exemption let the CABLE cross the upper hub's
-   own footing tile; `rules/drive.js#ride` still refused to translate a player
+   could not. The footing exemption let the CABLE cross the upper hub's own
+   footing tile; `rules/drive.js#ride` still refused to translate a player
    across it, because a 6 px box centred on the anchor straddles the anchor's
    column boundary and the footing tile is inside that box whichever of the two
-   columns holds it. Measured then: the rider descended 10 px from `t = 1` and
-   stopped while the carrier left without them, so every ride probe in this file
-   had to park its carrier 40 px down (`belowHeadframe`, now deleted) to keep
-   measuring what it claimed to measure. docs/FINDINGS.md #17 recorded it and
-   the fix landed in `rules/drive.js#boxSolid`, which now reads
-   `model/segments.js#headframe` -- the same two rows per endpoint, not one
-   more. So `carriers: [[0, 1]]` below is load-bearing in both directions: it is
-   the honest scene, and it fails if the rider exemption regresses. */
+   columns holds it. */
 
 function driveRig(spec) {
   boot.newRun(spec.seed ?? 8080);
@@ -1677,7 +1464,7 @@ function driveRig(spec) {
   for (const [tx, ty, n] of spec.rock ?? [])
     for (let i = 0; i < (n ?? 1); i++) tiles.write.set(band, tx + i, ty, D_sub.S.stone);
 
-  /* Both of these are REAL MODIFIER ROWS through the real `eff()` pipeline --
+  /* Both of these are REAL MODIFIER ROWS through the real `eff` pipeline --
      the same shape a boon's row has -- and not a poke at a frozen table. A
      40-tile span is a legal build for a hub whose reach a god has widened;
      it is not reachable by the base `hub.reach` of 96 px, and the point of
@@ -1749,10 +1536,10 @@ function measureV(seg, secs, dt, want = { action: true }) {
    `crank.torque` through `eff('crankTorque', 'crank')`, and the ascent sweep
    below deliberately bends that modifier -- so a `const` hoisted to the top of
    a block would capture whatever the PREVIOUS block left in `model/mods.js`.
-   It did, on the first draft of the torque-conservation section (2.4 instead
-   of 1.5), and CLAUDE.md's "a harness can be wrong about correct code" is
-   exactly that failure. Call it after the rig is built: `driveRig` runs
-   `newRun`, which clears every modifier row. */
+   It did, on the first draft of the torque-conservation section -- 2.4
+   instead of 1.5 -- which is a harness being wrong about correct code. Call
+   it after the rig is built: `driveRig` runs `newRun`, which clears every
+   modifier row. */
 const crankTorque = () =>
   D_mach.MACH[D_mach.M.crank].crank.torque * mods.eff('crankTorque', 'crank');
 
@@ -1760,7 +1547,7 @@ const crankTorque = () =>
    VERTICAL SEGMENT -- the `surplus == 0` boundary, inverted out of
    `supply = segBase + segLoad * mass`. Two probes below stand a row on it, and
    both used to state it as 20 T; that literal is what made a correct `segLoad`
-   retune read as six regressions (docs/FINDINGS.md phase 6t). Call it after a
+   retune read as six regressions. Call it after a
    rig is built, for the reason `crankTorque` above states. */
 const stallMass = () => (crankTorque() - mods.eff('segBase')) / mods.eff('segLoad');
 
@@ -1777,24 +1564,9 @@ function predictV(supply, mass, slope, demand = null) {
   return 0;
 }
 
-/* --- FRAMERATE INDEPENDENCE (invariant 10) applied to this mechanic: ten
-   simulated seconds of carrier travel, and ten of a RIDING player's own
-   displacement, must come out the same at 30, 60, 90 and 144 fps. This is the
-   same class of bug as the truncated-byte mining progress CLAUDE.md opens
-   with, and `rules/drive.js` is the newest place in the game where a `dt`
-   could get squared or dropped.
-
-   TWO CASES, because they exercise different code: the carrier case is a
-   POWERED ASCENT with cargo (the `surplus > 0` branch, and the whole
-   supply/demand/drive solve behind it), driven by a player standing at the
-   crank; the rider case is an UNPOWERED DESCENT (the `surplus < 0` branch)
-   with the player aboard, which is the only state in which a rider can be
-   measured over ten whole seconds -- a crank has a 12 px reach and a
-   descending rider leaves it in the first pixel, which is a fact about the
-   design, not a gap in the test (see WEIGHT REVERSES IT below).
-
-   The 40-tile cable the rider case needs is built through a real
-   `segReach` modifier row, not by bypassing `linkCheck`. --- */
+/* FRAMERATE INDEPENDENCE applied to this mechanic: ten simulated seconds of
+   carrier travel, and ten of a RIDING player's own displacement, must come out
+   the same at 30, 60, 90 and 144 fps. */
 {
   const RATES = [30, 60, 90, 144];
   const rows = [];
@@ -1852,26 +1624,11 @@ function predictV(supply, mass, slope, demand = null) {
           `the full segDown x 10 s (${wantRider} px)`);
 }
 
-/* --- THE MOTION EXPRESSION, AS A TABLE. docs/SPEC.md 17.8 states three cases
-   and then measures five rows of one of them; this is that table plus the two
-   geometries it does not cover (a 45-degree span and a horizontal one) and the
-   unpowered column, every cell measured off the real `main.step()` and
-   compared against `predictV`'s independent transcription of the spec.
-
-   THE EXACT BOUNDARY IS A ROW OF ITS OWN. At 20 T aboard a vertical segment,
+/* THE EXACT BOUNDARY IS A ROW OF ITS OWN. At 20 T aboard a vertical segment,
    `need` is 1.5 and one crank supplies exactly 1.5, so `surplus` is exactly
    zero and the carrier must HOLD STILL -- not creep, not jitter. That is the
    only row in the table whose expected value is an exact 0, and it is the one
-   a sign error in the surplus test would move first.
-
-   A HORIZONTAL SEGMENT IS NOT A SPECIAL CASE AND IT IS NOT INERT EITHER: at
-   `slope = 0` the load term vanishes, so `need` is `segBase` whatever is
-   aboard and one crank has a surplus -- the carrier travels ALONG the cable,
-   which is horizontally, at the full unloaded rate. It gains no height, so
-   invariant 4 is untouched (ASCENT IS NEVER CHEAP below asserts that
-   separately, in world-y terms rather than along-cable ones), and the
-   unpowered horizontal row is the one the spec does call out: `segDown x 0`,
-   dead still. --- */
+   a sign error in the surplus test would move first. */
 {
   /* Three geometries. The 45-degree span is 113 px long and the base
      `hub.reach` is 96, so it needs a real `segReach` row -- same as the
@@ -1898,7 +1655,7 @@ function predictV(supply, mass, slope, demand = null) {
   /* THE BOUNDARY ROWS ARE DERIVED, and the labels claim a SHAPE rather than a
      figure -- every row prints its own `want` and `got` two lines down, so a
      px/s in a string here is a second copy of a tunable waiting to go stale.
-     `newRun` first, because `eff()` reads whatever modifier rows the section
+     `newRun` first, because `eff` reads whatever modifier rows the section
      above left in `model/mods.js`. */
   boot.newRun(8099);
   const STALL = stallMass(), CAP = mods.eff('burden');
@@ -1959,37 +1716,16 @@ function predictV(supply, mass, slope, demand = null) {
                `exactly (three geometries x load x supply, including the surplus == 0 boundary)`);
 }
 
-/* --- WEIGHT REVERSES IT. The load-bearing correction in
-   docs/PLAN-gears-and-winches.md, and CLAUDE.md D4 as amended: BOARDING IS
-   NEVER REFUSED AT ANY WEIGHT, because an over-cap rider is real mass in
-   `rules/drive.js#step`'s own arithmetic and the carrier therefore slows,
-   stalls and then runs backwards under them. A refusal would be a permission;
-   this is physics, and it gets its own named assertion.
+/* --- WEIGHT REVERSES IT. BOARDING IS NEVER REFUSED AT ANY WEIGHT, because
+   an over-cap rider is real mass in `rules/drive.js#step`'s own arithmetic,
+   so the carrier slows, stalls and then runs backwards under them. A refusal
+   would be a permission; this is physics.
 
-   THE THREE POCKET LOADS ARE DERIVED, NEVER STATED. `stallMass()` inverts the
-   `surplus == 0` boundary out of the tunables, and the rider's own body is
-   `eff('riderMass')` of whatever rides, so the pockets are the remainder:
-
-     empty pockets                     climbs
-     stallMass() - riderMass           HOLDS STILL, the exact boundary
-     the whole eff('burden') cap       RUNS BACKWARDS, over 5 s, net negative
-
-   The reversing row carries the burden cap rather than one ore past the
-   boundary, and that is an assertion in itself: the heaviest load the game
-   lets a player hold must still reverse a single crank. A rig that lifts it is
-   D4's failure from the other side -- load stops mattering and ascent is free
-   again -- so the guard below fails outright if the cap ever climbs. Stating
-   these three as 0, 12 and 30 T of ore is what made a correct `segLoad`
-   retune read as six regressions (docs/FINDINGS.md phase 6t).
-
-   THE CRANK IS PROVABLY TURNING WHEN IT REVERSES, which is the whole claim:
-   `m.torque` is the component's delivered `drive` and is nonzero only while a
-   crank is in reach, so asserting it on the substep the reversal is measured
-   rules out the trivial reading (that the carrier sank because nobody was
-   cranking). A crank's reach is 12 px and a reversing rider leaves it within a
-   second or two, so the 5 s figure is measured with the crank held THROUGHOUT
-   and in reach for the first stretch only -- which makes the net figure more
-   negative, never less, and the fraction is printed rather than hidden. --- */
+   THE THREE POCKET LOADS ARE DERIVED, NEVER STATED: empty pockets climb,
+   `stallMass - riderMass` holds exactly still, and the whole `eff('burden')`
+   cap runs backwards -- so the heaviest load the game allows must still
+   reverse one crank. Stating them as 0, 12 and 30 T of ore is what made a
+   correct `segLoad` retune read as six regressions. --- */
 {
   const at = (crankTy, carrierT) => ({
     room: { ty0: 100, h: 18 },
@@ -2064,8 +1800,7 @@ function predictV(supply, mass, slope, demand = null) {
   }
 
   /* The one thing said out loud, and ONLY in the one state that is otherwise
-     baffling (D4 as amended): a crank is being turned and the thing is going
-     down anyway. Re-run the reversing row alone and read the journal, which
+     baffling: a crank is being turned and the thing is going down anyway. Re-run the reversing row alone and read the journal, which
      `stepReal` never drains. */
   {
     driveRig({ ...at(105, 1), seed: 8299, burden: CAP / ORE_T });
@@ -2098,28 +1833,11 @@ function predictV(supply, mass, slope, demand = null) {
                `provably turning, and says 'TOO HEAVY TO LIFT' once a second, only then`);
 }
 
-/* --- NOTHING MAKES ASCENT CHEAP (CLAUDE.md invariant 4, and the premise the
-   whole project is one sentence of). A seeded property test over 2,000 random
-   (slope x mass x supply) triples, measured off the real `main.step()` one
-   substep at a time, asserting two things no combination may ever break:
-
-     1. no triple ascends faster than `eff('segUp')` ALONG THE CABLE, and none
-        gains height faster than that in world y either. `segUp` is at most
-        `segDown`, so nothing rises faster than it falls for free, and the
-        `min(1, surplus / segBase)` clamp and the `drive` fraction are what
-        hold the line -- neither of which is obvious from the expression, and
-        both of which a "helpful" simplification would remove.
-     2. NO UNPOWERED SEGMENT EVER ASCENDS. Not slowly, not at slope 0, not
-        under any load: with no crank turned, `surplus` is `-need`, which is at
-        least `segBase`, so the sign is negative or the motion is zero.
-
-   Supply is swept through a REAL `crankTorque` modifier row (0x to 6x, i.e.
-   0 to 9 units of torque against a `segBase` of 1) rather than by editing the
-   frozen `data/machines.js` row, so the sweep is exactly the range a stack of
-   boons could actually produce. Mass is swept with real items resting on the
-   deck, respawned per triple. Slope is the one parameter that is geometry, so
-   it is four rigs rather than a number: vertical, 45 degrees, shallow, and
-   flat. --- */
+/* NOTHING MAKES ASCENT CHEAP. A seeded property test over 2,000 random (slope
+   x mass x supply) triples, measured off the real `main.step` one substep at a
+   time, asserting two things no combination may ever break: 1. no triple
+   ascends faster than `eff('segUp')` ALONG THE CABLE, and none gains height
+   faster than that in world y either. */
 {
   const GEOMS = [
     ['vertical', 1, { room: { ty0: 100, h: 18 },
@@ -2144,9 +1862,9 @@ function predictV(supply, mass, slope, demand = null) {
     const cargo = [];
 
     for (let i = 0; i < PER; i++) {
-      /* Half the triples are unpowered, which is assertion 2's whole
-         population; `mul` of 0 with the key held down is a third case (a god
-         who has taken all your torque away) and must behave identically. */
+      /* Half the triples are unpowered, which is the second claim's whole
+         population; `mul` of 0 with the key held down is a third case -- a god
+         who has taken all your torque away -- and must behave identically. */
       const powered = ctl() < 0.5;
       const mul = Math.round(ctl() * 60) / 10;                 // 0.0 .. 6.0
       const units = Math.round(ctl() * 60);                    // 0 .. 60 T of ore
@@ -2210,24 +1928,11 @@ function predictV(supply, mass, slope, demand = null) {
   else ok(`ASCENT: all ${tried} triples also match docs/SPEC.md 17.8 exactly, not merely the bound`);
 }
 
-/* --- TORQUE CONSERVATION: one crank driving N segments delivers, in total, no
-   more than its own torque. docs/SPEC.md 17.9's `drive = min(1, supply /
-   demand)` is the whole mechanism, and `drive x demand <= supply` is the
-   statement of it that does not depend on the formula's shape -- if a future
-   change apportioned supply differently, THIS is the line that must still
-   hold, because a drivetrain that delivers more than it is given is a
-   perpetual-motion machine and CLAUDE.md's premise is that up costs.
-
-   N ROWS OF HUBS, ONE COMPONENT. Bottom hubs are footprint-adjacent along the
+/* N ROWS OF HUBS, ONE COMPONENT. Bottom hubs are footprint-adjacent along the
    floor, so they flood into one component with the crank; the top hubs form a
-   second, unpowered one; each segment joins one of each. `pick()` takes the
+   second, unpowered one; each segment joins one of each. `pick` takes the
    GREATER of the two supplies, never the sum, which is the other half of the
-   same conservation claim (docs/SPEC.md 17.9's "two half-fed drivetrains at
-   opposite ends of one cable do not add up to a free ride").
-
-   `drive` is read off `m.torque`, which `rules/drive.js` writes for every node
-   -- so this measures what the drivetrain actually delivered, not a
-   recomputation of it. --- */
+   same conservation claim. */
 {
   let bad = 0;
   for (const N of [1, 2, 5]) {
@@ -2290,19 +1995,10 @@ function predictV(supply, mass, slope, demand = null) {
                'than its own torque, and every shared segment slows by the same fraction');
 }
 
-/* --- GEAR LOSS IS MONOTONIC, AND A DIAGONAL DELIVERS ZERO
-   (docs/PLAN-gears-and-winches.md A3, confirmed; docs/SPEC.md 17.9).
-
-   A train of K gears laid along the floor between a crank and a hub: supply is
-   `1.5 x 0.94^K`, so the carrier's climb rate must fall STRICTLY with every
-   hop added, and past enough hops the crank can no longer lift an empty
-   carrier at all. Monotonic is the assertion; the exact figures are printed.
-
-   THE DIAGONAL IS THE OTHER HALF AND IT IS A ZERO, not a small number: a crank
-   whose footprint only touches a hub's CORNER is in a component with no hub in
-   it, contributes nothing, and the carrier sinks at the full `segDown`. Put a
-   gear in the corner and the same crank drives it. The art is what
-   teaches this to a player; this is what stops it drifting. --- */
+/* GEAR LOSS IS MONOTONIC, AND A DIAGONAL DELIVERS ZERO. A train of K gears
+   laid along the floor between a crank and a hub: supply is `1.5 x 0.94^K`, so
+   the carrier's climb rate must fall STRICTLY with every hop added, and past
+   enough hops the crank can no longer lift an empty carrier at all. */
 {
   const LOSS = D_mach.MACH[D_mach.M.gear].gear.loss;
   const HOPS = [0, 1, 2, 3, 4, 6];
@@ -2378,21 +2074,12 @@ function predictV(supply, mass, slope, demand = null) {
   }
 }
 
-/* ---------- SHARED SPAN GEOMETRY, for the two link sections below ----------
-
-   `chordThrough` IS AN INDEPENDENT SECOND IMPLEMENTATION, on purpose and in a
-   different family of algorithm from the thing it judges. `model/segments.js`
-   answers "is this span clear" by SAMPLING (the half-tile sweep); this answers
-   it ANALYTICALLY, by clipping the span against a tile's closed box
-   (Liang-Barsky) and returning how much of the span lies inside it. Two
-   samplers with different step sizes would agree about the same blind spots; a
-   sampler and a clipper do not.
-
-   CLOSED boxes, deliberately. A span running exactly along a tile boundary
-   lies inside the closed box of BOTH tiles that share it, so both count -- the
-   identical rule `model/segments.js#solidNear` applies, and the reason
-   commit b48203d had to be written at all. `p === 0 && q < 0` is "parallel and
-   outside"; `q === 0` is "parallel and exactly on the edge", which is inside. */
+/* SHARED SPAN GEOMETRY for the two link sections below. `chordThrough` IS AN
+   INDEPENDENT SECOND IMPLEMENTATION, on purpose and in a different family of
+   algorithm from the thing it judges. `model/segments.js` answers "is this
+   span clear" by SAMPLING (the half-tile sweep); this answers it ANALYTICALLY,
+   by clipping the span against a tile's closed box (Liang-Barsky) and
+   returning how much of the span lies inside it. */
 const mixTo = (a, b, f) => a + (b - a) * f;
 
 function chordThrough(pa, pb, x0, y0, x1, y1) {
@@ -2408,16 +2095,12 @@ function chordThrough(pa, pb, x0, y0, x1, y1) {
 }
 
 /* The longest chord this span cuts through ANY solid tile of ANY band, and
-   where. Scanned over every band the span's bounding box touches, so a
-   cross-band span is one call and not a special case.
-
-   `exempt` is the endpoints' headframe ranges (`headframeOf`), and this
-   function has to know about them for the same reason `linkCheck` does: a
-   legally placed hub HAS a footing tile, the cable is allowed through it
-   (docs/SPEC.md 17.6, docs/PLAN-phase10.md 3.1 A1), and an accepted span
-   therefore cuts a full tile of it. Counted rather than ignored, so the
-   summary line says how much the exemption is actually covering -- if that
-   number ever exceeds two tiles per endpoint the exemption has grown. */
+   where. Scanned over every band the span's bounding box touches, so a cross-
+   band span is one call and not a special case. `exempt` is the endpoints'
+   headframe ranges (`headframeOf`), and this function has to know about them
+   for the same reason `linkCheck` does: a legally placed hub HAS a footing
+   tile, the cable is allowed through it, and an accepted span therefore cuts a
+   full tile of it. */
 function worstChord(pa, pb, exempt = []) {
   let worst = 0, at = null, exemptHits = 0;
   const bx0 = Math.min(pa.x, pb.x), bx1 = Math.max(pa.x, pb.x);
@@ -2457,19 +2140,13 @@ function offWorldOn(pa, pb) {
   return null;
 }
 
-/* THE CLEAR WINDOW IS SIZED FROM THE SPAN, NEVER FROM A HUB'S PLACEMENT TILE,
-   and this is the whole of a bug a previous attempt at this section shipped and
-   then had to diagnose. A hub's anchor is its footprint CENTRE, which for a
-   2x2 row is one tile ABOVE its placement row -- so a window carved as
-   "ty-1 .. ty+2 around each hub's own tile" leaves the middle of the span
+/* THE CLEAR WINDOW IS SIZED FROM THE SPAN, NEVER FROM A HUB'S PLACEMENT
+   TILE, and a previous attempt at this section shipped the bug and then had
+   to diagnose it. A hub's anchor is its footprint CENTRE, which for a 2x2 row
+   is one tile ABOVE its placement row -- so a window carved as `ty-1` to
+   `ty+2` around each hub's own tile leaves the middle of the span
    untouched, and near a band seam it leaves the LOWER band's row 0 untouched
-   too, which in real generated terrain is solid rock. The cross-band case then
-   fails for a reason that has nothing to do with the code under test.
-
-   So: walk the actual anchor-to-anchor line, and clear a (2*pad+1)^2 tile
-   neighbourhood around every sample, in EVERY band -- `tiles.write.clear`
-   bounds-checks itself (`model/tiles.js:107`), so a band the sample is nowhere
-   near is a cheap no-op and the seam needs no arithmetic of its own. */
+   too, which in real generated terrain is solid rock. */
 function clearAlong(pa, pb, pad = 1) {
   const len = Math.hypot(pb.x - pa.x, pb.y - pa.y);
   const n = Math.max(1, Math.ceil(len / 2));
@@ -2486,46 +2163,13 @@ function clearAlong(pa, pb, pad = 1) {
 
 const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
 
-/* --- LINK LEGALITY, OVER 240 SEEDED SPANS AT EVERY ANGLE, IN ONE BAND AND
-   ACROSS BOTH SEAMS (docs/PLAN-gears-and-winches.md section 4.5,
-   docs/SPEC.md 17.6).
-
-   FOUR CLAIMS, and each is one-sided on purpose:
-
-     1. A LINK IS ACCEPTED IF AND ONLY IF `linkCheck` SAYS SO. Every trial goes
-        through the real `rules/placement.js#linkSegment`, so "accepted" means a
-        record appeared in `model/segments.js#segments` and a `'link'` journal
-        row was pushed -- and a refusal means no record and a `'refused'` row
-        carrying the same `why` string the check returned. Two readers of one
-        decision is the pattern (docs/DEVELOPER_GUIDE.md#one-decision-two-readers);
-        this is the assertion that they have not drifted.
-
-     2. AN ACCEPTED SPAN CUTS NO SOLID TILE BY AS MUCH AS HALF A TILE. Half a
-        tile and not zero, and the bound is derived rather than tolerated: the
-        sweep samples at `tile * 0.5` or finer (`model/segments.js:257-262`), and
-        any interval of length >= the sample spacing must contain a sample. So a
-        chord of half a tile or more is a blockage the sweep is GUARANTEED to
-        see, and asserting it is asserting the sweep's own contract. A shorter
-        chord -- a span clipping the corner of a tile for three pixels -- may
-        legally pass, is cosmetic, and is printed rather than asserted so a
-        future reader can see how often it actually happens.
-
-     3. AN ACCEPTED SPAN LEAVES NO SAMPLE OFF-WORLD, at one-pixel resolution,
-        which is eight times finer than the sweep looks.
-
-     4. THE REFUSAL ORDER IS THE ORDER 17.6 LOCKS. `'TOO FAR APART'` outranks
-        `'THE PATH IS BLOCKED'`, so a span that is both must say the structural
-        one -- otherwise a player learns to clear rock out of a span that was
-        never going to reach.
-
-   THREE FAMILIES, EIGHTY TRIALS EACH: one wholly inside `topsoil`, one across
-   the surface/topsoil seam, one across the astral/surface seam. The cross-band
-   families are the ones that matter most (`bandAt` per sample is the only
-   reason a cross-band cable works at all) and they are also the ones a badly
-   sized clear window silently turns into "always blocked" -- hence the
-   per-family accepted counts in the summary, and the assertion that each
-   family accepted at least one span. A family that accepted nothing has tested
-   nothing. --- */
+/* LINK LEGALITY, OVER 240 SEEDED SPANS AT EVERY ANGLE, IN ONE BAND AND ACROSS
+   BOTH SEAMS. FOUR CLAIMS, and each is one-sided on purpose: 1. A LINK IS
+   ACCEPTED IF AND ONLY IF `linkCheck` SAYS SO. Every trial goes through the
+   real `rules/placement.js#linkSegment`, so "accepted" means a record appeared
+   in `model/segments.js#segments` and a `'link'` journal row was pushed -- and
+   a refusal means no record and a `'refused'` row carrying the same `why`
+   string the check returned. */
 {
   const TRIALS = 80;
   const STONE = D_sub.S.stone;
@@ -2682,25 +2326,10 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
        `'TOO FAR APART' always outranks 'THE PATH IS BLOCKED'`);
 }
 
-/* --- LINK LEGALITY, CROSS-BAND, HAND-CARVED. The seeded sweep above proves a
+/* LINK LEGALITY, CROSS-BAND, HAND-CARVED. The seeded sweep above proves a
    property over a cloud of spans; these are the four NAMED cases, at fixed
    coordinates, with the answer written down beside each one -- so a failure
-   here says which geometry broke rather than which seed.
-
-   Case 2 is commit b48203d's own repro, verbatim (astral hub anchored at
-   496,304 -> surface hub at 496,344, solid tile at surface tile 61,1). It is
-   here because that bug -- a boundary-exact axis-aligned span sampling only
-   the tile column `Math.floor` happened to favour -- was found by this
-   section's earlier draft and is exactly the kind of thing that comes back.
-   BOTH columns are tested each time, the favoured one and the other one,
-   because "it blocks when the rock is in column 61" is half a test.
-
-   A CROSS-BAND CABLE IS THE ORDINARY CASE, not the exotic one: astral's floor
-   is 40 rows above the surface's ceiling, and every delivery the design is
-   about crosses a seam. So the first assertion in each case is that a
-   genuinely clear seam-crossing span is ACCEPTED -- and it is stated first
-   because a clear window carved too small makes every later assertion pass for
-   the wrong reason. --- */
+   here says which geometry broke rather than which seed. */
 {
   const STONE = D_sub.S.stone;
   let bad = 0;
@@ -2782,9 +2411,9 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     }
     expect('a clear span across the astral/surface seam', h.A, h.B, 'ok');
 
-    /* x 496 is the boundary between surface columns 61 and 62 (496/8 = 62
-       exactly, so `Math.floor` favours 62 and 61 is the one that used to be
-       invisible). b48203d's own repro is the 61 half. */
+    /* x 496 is the boundary between surface columns 61 and 62: 496/8 is
+       62 exactly, so `Math.floor` favours 62 and 61 is the one that used to
+       be invisible. */
     for (const tx of [61, 62]) {
       const h2 = handSpan(8801, astralHub, surfaceHub);
       tiles.write.set(world.bandOf('surface'), tx, 1, STONE);
@@ -2794,29 +2423,9 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
   }
 
   /* CASE 3 -- OUTSIDE THE WORLD, AND THE DEAD ZONE THAT USED TO PRODUCE IT.
-     Astral was once `tw:96` at `origin.x:128`, so world x < 128 and
-     x >= 896 above y 320 were no band at all, and a surface hub at column 11
-     linking up to astral's leftmost column left the world for a few pixels on
-     the way. That case is GONE, deliberately: the widening closed two
-     16-column strips in which the game's own destination was unreachable.
-
-     ASSERTED IN BOTH DIRECTIONS, because "the dead zone is closed" and "the
-     refusal still works" are two different claims and the first one is what
-     silently retires the second:
-
-       3a. THE THREE BANDS NOW TILE ONE RECTANGLE. Every world column, at a
-           height in every band, resolves to a band -- so no span between two
-           in-bounds anchors can leave the world, and the old case cannot be
-           written any more. This is the assertion that would fail if a future
-           band were added narrower than the rest, which is exactly when
-           someone needs to be told.
-       3b. THE BRANCH IS STILL LIVE. Off-world therefore has to be reached
-           through a hub whose ANCHOR is off-world, which needs a footprint
-           straddling the band's own edge -- `model/machines.js#write.place`
-           allows it and `placementCheck` refuses it ('NOT THERE'), so this is
-           a deliberate bypass of the legality this file otherwise insists on.
-           Stated, because `data/machines.js:465-467` records what happens when
-           a harness places what the game cannot. */
+     Astral was once `tw:96` at `origin.x:128`, so world x < 128 and x >= 896
+     above y 320 were no band at all, and a surface hub at column 11 linking up
+     to astral's leftmost column left the world for a few pixels on the way. */
   {
     /* 3a */
     const cols = [];
@@ -2834,9 +2443,9 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
 
     /* 3b. `topsoil`'s LAST column with a `tw:2` footprint: the second column is
        out of bounds, so the anchor lands one pixel past the world's right edge.
-       Derived from `b.tw`, never hardcoded -- the columns moved once already,
-       when wave 6.3 widened the bands, and a literal here does not fail, it
-       silently starts testing an interior column. */
+       Derived from `b.tw`, never hardcoded -- the columns moved once already
+       when the bands widened, and a literal here does not fail, it
+       silently starts testing an interior column instead. */
     const top = world.bandOf('topsoil');
     const edge = top.tw - 1, near = edge - 7, past = world.widthPx(top);
     const h = handSpan(8802, ['topsoil', near, 100], ['topsoil', edge, 100]);
@@ -2863,44 +2472,13 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
        'that is both reports the rock');
 }
 
-/* --- THE HEADFRAME EXEMPTION: A LEGALLY PLACED VERTICAL PAIR LINKS
-   (docs/PLAN-phase10.md 2.6 and 3.1 option A1, docs/SPEC.md 17.6).
-
-   THE HUBS HERE ARE BUILT THROUGH `rules/placement.js#placeMachine`, and that
-   is the whole point of this block. Every other scene in this file places
-   through `model/machines.js#write.place`, which asks nothing about footing
+/* THE HEADFRAME EXEMPTION: A LEGALLY PLACED VERTICAL PAIR LINKS. THE HUBS HERE
+   ARE BUILT THROUGH `rules/placement.js#placeMachine`, and that is the whole
+   point of this block. Every other scene in this file places through
+   `model/machines.js#write.place`, which asks nothing about footing
    (`data/machines.js:465-467` records the blind spot) -- so "a hub with the
    solid tile under it that `placementCheck` demands", which is the only kind
-   the game will ever build, went untested and took a defect
-   with it.
-
-   THE DEFECT, measured before the fix, topsoil, two hubs 12 tiles apart on
-   flat ground: `{ok:true}` with no footing tile at all -- i.e. only where the
-   upper hub could not legally exist -- and `THE PATH IS BLOCKED` at
-   (168, 1632), the footing row's own lower boundary, with the footing under
-   the left column, the right column, or both. The anchor is the footprint's
-   CENTRE, so a span rising from below terminates one row above the footprint's
-   bottom and must cross the footing row, and `solidNear` sees the tile in
-   either column of a boundary-exact span (correctly, per b48203d). This is
-   docs/SPEC.md 17.2's `footing:2` bug recurring at `footing:1`.
-
-   FOUR CLAIMS, and the last two are what stop the fix from being "ignore
-   anything under a hub":
-
-     1. BOTH HUBS ARE LEGALLY PLACED. `placeMachine` returning a record means
-        `placementCheck` passed, which means the footing tile is really there
-        and the footprint is really clear. Asserted, not assumed.
-     2. THE 96 PX VERTICAL SPAN IS ACCEPTED, through the real
-        `rules/placement.js#linkSegment`, with the footing under either column
-        or both -- 96 px is exactly `hub.reach`, so this is also the longest
-        vertical stage the design gets (docs/PLAN-phase10.md 4.5 prices the
-        climb on it).
-     3. A REAL OBSTRUCTION MID-SPAN STILL REFUSES, in both columns of the
-        boundary-exact span.
-     4. THE EXEMPTION IS EXACTLY TWO ROWS DEEP. One stone ONE ROW BELOW it --
-        still directly under the hub, in the footprint's own columns -- refuses.
-        Without this row, "exempt the footing tile" and "exempt everything
-        beneath a hub" pass identically. --- */
+   the game will ever build, went untested and took a defect with it. */
 {
   const STONE = D_sub.S.stone;
   let bad = 0;
@@ -2985,41 +2563,15 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
        'exemption is exactly two rows deep -- one row lower still blocks');
 }
 
-/* --- THE RIDER'S HALF OF THE SAME EXEMPTION (docs/FINDINGS.md #17,
-   docs/SPEC.md 17.6). Phase 10a exempted the CABLE and left the RIDER refused,
-   which is the one thing standing between that fix and
-   docs/PLAN-phase10.md 4.4's "the player rides to the dock and steps off onto
-   astral's floor".
+/* --- THE RIDER'S HALF OF THE SAME EXEMPTION. Exempting the CABLE alone left
+   the RIDER refused: riding UP under a held crank they stopped dead 34 px
+   below the deck and fell back down the shaft.
 
-   THE DEFECT, measured before the fix on a 12-tile pair on real footing tiles
-   with the player aboard: riding UP under a held crank the rider stopped dead
-   at world y 1632 -- 34 px, 4.25 tile rows, below the deck -- and then
-   detached and fell back down the shaft; riding DOWN from `t = 1` they
-   descended 10 px and stopped while the carrier left. Same three facts as the
-   cable's, one swapped: the anchor is on a tile COLUMN boundary, the player's
-   6 px box straddles it, and `footing:1` puts a solid tile directly under the
-   upper hub.
-
-   THREE CLAIMS, and the third is what keeps this from being "riders ignore
-   rock":
-
-     1. A RIDER TRACKS THE CARRIER THROUGH THE UPPER HEADFRAME. Measured as
-        displacement equal to the carrier's own, flush to the deck, for the
-        whole descent -- not merely "moved further than 10 px".
-     2. THEY REACH BELOW THE FOOTING ROW. Stated as a tile row rather than a
-        pixel count, because the pixel count is what the old defect passed
-        with.
-     3. THE RIDER'S EXEMPTION IS EXACTLY THE CABLE'S TWO ROWS. One stone ONE
-        ROW BELOW the exempt range, in the footprint's own columns, still stops
-        the rider. Without this row, "exempt the footing tile" and "exempt
-        everything under a hub" pass identically -- the same claim 4 the cable
-        block above makes, in the rider's own units.
-
-   Claim 3's segment is linked through `model/segments.js#write.link` rather
-   than `linkCheck`, and that bypass is the point: a stone one row below the
-   exemption BLOCKS THE CABLE too (claim 4 above proves it), so there is no way
-   to build this scene legally, and what is under test here is the ride
-   translation and not the link. --- */
+   THREE CLAIMS, the third keeping this from meaning "riders ignore rock":
+   the rider tracks the carrier through the upper headframe; they reach BELOW
+   the footing row, as a tile row rather than the pixel count the old defect
+   passed with; and the exemption is EXACTLY the cable's two rows, so one
+   stone a row below it still stops them. --- */
 {
   const STONE = D_sub.S.stone;
   let bad = 0;
@@ -3107,29 +2659,16 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
        'still stops them -- the rider passes exactly the two rows the cable does');
 }
 
-/* --- BREAK-EVEN, REPRICED AND NOW MEASURED. Section 3's BREAK-EVEN DEPTH is
-   ARITHMETIC: it prices ascent in seconds of cranking straight from the tuning
-   rows, and asserts `ore < ingot < plate`. What it cannot tell you is whether
-   the game charges that price. So this puts one unit of each tier on a real
-   carrier, cranks it with a real crank for a real second, and derives `k` --
-   seconds of cranking per item-slot per tile -- from the pixels the simulation
-   actually moved.
+/* --- BREAK-EVEN, REPRICED AND NOW MEASURED. The arithmetic version above
+   prices ascent in seconds of cranking straight from the tuning rows and
+   asserts `ore < ingot < plate`; what it cannot say is whether the game
+   charges that price. So this puts one unit of each tier on a real carrier,
+   cranks it for a real second, and derives `k` -- seconds of cranking per
+   item-slot per tile -- from the pixels the simulation moved.
 
-   THREE CLAIMS, in the order they matter:
-
-     1. THE MEASURED CLIMB IS docs/SPEC.md 17.8's, per tier. If this drifts,
-        section 3 is pricing a game that no longer exists and its ordering is a
-        statement about a formula rather than about the game.
-     2. `k` RISES WITH MASS. A heavier item-slot costs more seconds per tile;
-        that is the only reason compression is worth anything.
-     3. THE BREAK-EVEN DEPTH ORDERING SURVIVES IN MEASURED SECONDS:
-        `ore < ingot < plate`, dividing docs/SPEC.md section 8's own ratios
-        (hoisted, so this section and section 3 cannot disagree about them) by
-        the measured `k` rather than the computed one.
-
-   The worth datum is section 3's: what an item-slot's contents cost to MINE.
-   Nothing about the currency changes here -- what changes is that it is read
-   off the simulation. --- */
+   Three claims: the measured climb matches the motion expression per tier;
+   `k` RISES WITH MASS, the only reason compression is worth anything; and the
+   break-even ordering survives in MEASURED seconds. --- */
 {
   const rows = [];
   let bad = 0;
@@ -3178,22 +2717,16 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
        `${rows[2].be.toFixed(2)} tiles -- section 3's price is the one the game charges`);
 }
 
-/* --- RENDER PURITY OVER THE DRIVETRAIN'S OWN DRAW PATHS (invariants 9 and 7).
-   Section 2 proves the plain HUD and the terrain are pure and section 4 proves
-   the `view/ui/` tree is; neither draws a cable, a carrier, a bucket chain, a
-   turning gear or the cable ghost -- segment transport's own art, made to move
-   by the drivetrain.
+/* --- RENDER PURITY OVER THE DRIVETRAIN'S OWN DRAW PATHS. The purity probes
+   above cover the plain HUD, the terrain and the `view/ui/` tree; none of
+   them draws a cable, a carrier, a bucket chain, a turning gear or the cable
+   ghost.
 
-   FIVE STATES, and every one is DRAWN TWICE with the epoch counter compared
-   across the pair -- the same instrument section 2 uses, because `model` bumps
-   on every write and `view` may not write.
-
-   AND PROVEN NON-VACUOUS, which for a render test means proving the pixels
-   would have differed: CLAUDE.md records a test that set `flags.grid` instead
-   of `flags.showGrid` and baselined a scene with the overlay off. So each state
-   is compared by `fillRect` count against the same frame with the thing
-   removed -- no cable, or no armed hub -- and a state whose draw touched
-   nothing is a failure rather than a pass. --- */
+   FIVE STATES, each DRAWN TWICE with the epoch counter compared across the
+   pair, because `model` bumps on every write and `view` may not write. AND
+   PROVEN NON-VACUOUS: each state is compared by `fillRect` count against the
+   same frame with the thing removed, so a draw that touched nothing fails
+   rather than passes. --- */
 {
   const CAM = seg => {
     const p = segs.carrierPos(seg);
@@ -3260,8 +2793,8 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
   }
 
   /* THE CABLE GHOST, all four states its own header names. `aim` is written
-     directly rather than through a fake pointer, for the reason CLAUDE.md gives
-     about hardcoded click coordinates. */
+     directly rather than through a fake pointer, because a hardcoded screen
+     coordinate resolves against a different tile at another buffer size. */
   const ghost = [
     ['ok', r.placed[1].tx, r.placed[1].ty],
     ['nothing under the reticle', 24, 110],
@@ -3284,10 +2817,10 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     bad++;
   }
 
-  /* AND NO RANDOMNESS ANYWHERE IN ANY OF IT (invariant 7): the gear phase, the
-     bucket spacing and the cable's own dashes must all come from `m.turn`,
-     `seg.t` and a position hash, never from `rand()`. This is section 2's probe
-     pointed at a frame that has a drivetrain in it. */
+  /* AND NO RANDOMNESS ANYWHERE IN ANY OF IT: the gear phase, the bucket
+     spacing and the cable's dashes must all come from `m.turn`, `seg.t` and a
+     position hash, never from `rand`. The render-purity probe above, pointed
+     at a frame with a drivetrain in it. */
   shellUi.armLink(r.placed[0]);
   segs.write.carrier(r.seg, 0.4, -1);
   rng.seedRng(8951);
@@ -3311,29 +2844,11 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
        `with the ghost vs ${noGhost} without)`);
 }
 
-/* --- NO SECOND COLLISION MODEL (invariant 1: the tile grid is the only source
-   of truth for terrain). A carrier holds the player and its cargo up, and it
-   does it through `model/segments.js#carrierUnder` -- a MODEL QUERY, exactly
-   the way `model/tiles.js#climbAt` answers the ladder branch. The failure this
-   guards against is the obvious shortcut: writing a solid tile under the deck
-   so the existing collision code holds the player up for free. That works
-   immediately and is wrong permanently -- it would leave rock behind wherever a
-   carrier had been, and `rules/belts.js` already leans on machines not being
-   solid.
-
-   FOUR ASSERTIONS, and the third is the one that would catch the shortcut:
-
-     1. a rider is HELD UP WITH NOTHING SOLID UNDER THEM: `onGround` true while
-        every tile under their feet reads `solidAt` false. Both halves, because
-        either alone is satisfiable by a bug (falling through, or standing on
-        rock).
-     2. the carrier's own tiles are all non-solid, at every position it visits.
-     3. NOT ONE BYTE OF ANY BAND'S `mat` CHANGES across linking a cable, moving
-        a carrier, loading it, and 120 substeps of a rider descending on it.
-        Checksummed over all three bands with the same rolling hash the
-        determinism probe uses.
-     4. cargo aboard is resting on air too -- a carrier is not a floor for
-        items either. --- */
+/* A carrier holds the player and its cargo up, and it does it through
+   `model/segments.js#carrierUnder` -- a MODEL QUERY, exactly the way
+   `model/tiles.js#climbAt` answers the ladder branch. The failure this guards
+   against is the obvious shortcut: writing a solid tile under the deck so the
+   existing collision code holds the player up for free. */
 {
   let bad = 0;
   const matSum = () => world.bands.map(b => sumBytes(b.mat)).join('/');
@@ -3433,18 +2948,11 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
        `tiles are all air, ${aboard.length} item(s) ride on air, and not one byte of any band's mat changed`);
 }
 
-/* --- A SEGMENT EMITS NO LIGHT UNLESS A ROW SAYS SO. `rules/light.js` owns the
+/* A SEGMENT EMITS NO LIGHT UNLESS A ROW SAYS SO. `rules/light.js` owns the
    glow/light separation and this does not duplicate it; what it adds is the
    transport-specific half: a cable, a carrier and a bucket chain are drawn
    objects, and `rules/light.js` builds its emitter list from machine rows
-   carrying a `light:{}` block. A segment is not a machine at all (D10), so it
-   has no row and can have no block -- but "cannot" is a claim about today's
-   data, so it is asserted twice: structurally over the four transport rows,
-   and live in a sealed chamber.
-
-   WITH A POSITIVE CONTROL, because "everything underground reads 0" would pass
-   the live half by itself: the same sealed chamber, with a `hearth` (whose row
-   DOES say so -- `light:{ level:'max' }`) placed in it, must read lit. --- */
+   carrying a `light:{}` block. */
 {
   let bad = 0;
 
@@ -3505,29 +3013,13 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
        `nothing in a sealed chamber where a hearth reads ${control}`);
 }
 
-/* --- NO FALL DAMAGE WHILE RIDING, AND FULL FALL DAMAGE THE MOMENT YOU STEP
-   OFF, both asked for in one test, and the reason is the mechanism: the ride branch does not DISABLE fall
-   damage, it PINS `fallFrom` to the player's own y every substep
-   (`rules/player.js`'s existing line, reused unchanged). A test that only
-   proved "riding hurts nobody" would pass just as well against a ride branch
-   that switched damage off -- and that build would then let a player ride one
-   tile down and step off a cliff for free.
-
-   SO THREE THINGS, on the same 40-tile shaft:
-
-     A. RIDING 40 TILES COSTS NOTHING. Forty tiles is lethal twice over as a
-        fall (docs/SPEC.md section 3: 20 tiles is five hearts), and it is
-        travelled unpowered, under gravity, with the player aboard.
-     B. `fallFrom` TRACKS THE RIDER while they ride, within a pixel. That is
-        the mechanism, asserted directly rather than inferred from A.
-     C. STEPPING OFF AT THE TOP COSTS THE TABLE'S ANSWER. Not "some damage":
-        exactly `model/player.js#fallHearts(v)` for the landing speed the
-        simulation actually reached -- the same query section 3 already pins to
-        docs/SPEC.md's seven rows, so this inherits that pinning instead of
-        restating the table. --- */
+/* NO FALL DAMAGE WHILE RIDING, AND FULL FALL DAMAGE THE MOMENT YOU STEP OFF,
+   both asked for in one test, and the reason is the mechanism: the ride branch
+   does not DISABLE fall damage, it PINS `fallFrom` to the player's own y every
+   substep (`rules/player.js`'s existing line, reused unchanged). */
 {
   /* A 46-ROW SPAN RIDDEN FROM THE VERY TOP. Forty is the number claim A is
-     about (docs/SPEC.md section 3 makes 20 tiles a lethal fall) and 46 rows
+     about and 46 rows
      leaves room for it; the span grew rather than the claim shrinking. The
      start at `t = 1` is only possible because of the footing exemption --
      see the rider exemption note above `driveRig`. */
@@ -3582,7 +3074,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     /* Walk right until the carrier is no longer under the feet, then stop
        pressing so the fall itself is vertical. `onGround` is NOT the test for
        having left -- it is true the whole time they are standing on the deck,
-       which is the point of the ride branch; `riddenSegment()` going null is. */
+       which is the point of the ride branch; `riddenSegment` going null is. */
     stepReal(1 / 120, { right: !off, hasMouse: false });
     if (!segs.riddenSegment()) off = true;
     if (player.player.vy > vLand) vLand = player.player.vy;
@@ -3620,48 +3112,13 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
        `fallHearts(${vLand.toFixed(1)} px/s), and fatal`);
 }
 
-/* ============================================================
-   6. PHASE 10B — THE TRIBUTE LOOP: THE TWO RECEIVERS AND THE DIRECTOR
-   ------------------------------------------------------------
-   docs/SPEC.md section 18 is the contract. The receivers first, because a
-   director draining a receiver that never fills is a phase that looks finished
-   and is not (docs/PLAN-phase10.md's own risk register says so).
-   ============================================================ */
+/* 6. THE TRIBUTE LOOP: THE TWO RECEIVERS AND THE DIRECTOR. The receivers
+   first, because a director draining a receiver that never fills looks
+   finished and is not. */
 console.log('\n6. the tribute loop (Phase 10b)');
 
-/* --- WHERE A RELEASED HAUL ACTUALLY COMES TO REST, AND WHETHER THE DOCK'S
-   MOUTH REACHES IT. This is the assertion docs/PLAN-phase10.md 3.3 demands not
-   be eyeballed, and the reason is that the dock is the ONLY catch box in the
-   game that does not catch its item in flight: `rules/drive.js` releases an
-   arriving haul INSIDE the footprint at the anchor -- which for `th:1` is two
-   pixels BELOW the top mouth's lower edge -- and the item then falls AWAY from
-   the mouth onto the footing tile. Every other row's `slack:2` would therefore
-   be wrong here and would be wrong SILENTLY: a dock that never credits looks
-   exactly like a dock nobody has delivered to yet.
-
-   FOUR CLAIMS:
-
-     1. THE ARITHMETIC. The dock's anchor and the resting position
-        `rules/items.js#hop` computes are both inside the inflated mouth, for
-        every form the dock accepts -- derived from `sizeOf`, not from the
-        `slack` the row happens to carry, so the two can disagree.
-     2. THE MEASURED REST POSITION agrees with claim 1's arithmetic. Read off a
-        real item dropped in the footprint and stepped until it rests.
-     3. THE END TO END: a real haul on a real carrier, cranked to `t = 1`,
-        released, ends up in `m.buf`. Nothing about the mouth is asserted here
-        -- only that a unit of copper went in at the bottom and is in the
-        dock's ledger at the top. THIS CLAIM ALONE IS NOT ENOUGH, and that was
-        checked: with the slack set to the furnace's 2 it still PASSES, because
-        the release frame leaves the item at the anchor with `vy = 0` and the
-        catch box gets one look at it before gravity has moved it a fifth of a
-        pixel. Claims 1 and 2 are what fail, which is why they exist -- a dock
-        that only works while the item has not started falling yet is a dock
-        that stops working the first time a frame is dropped.
-     4. THE DOCK DOES NOT SWALLOW A RELIC. A `pick` in `relic` form dropped in
-        the same place is still lying there afterwards. CLAUDE.md D1 gives
-        `relic` and `phial` their own `subTags` precisely so a receiver cannot
-        eat a trinket by accident, and a star-slash-star `accepts` would pass
-        claims 1-3 identically. --- */
+/* WHERE A RELEASED HAUL ACTUALLY COMES TO REST, AND WHETHER THE DOCK'S MOUTH
+   REACHES IT. */
 {
   const DOCK = D_mach.MACH[D_mach.M.cloud_dock];
   const dockPorts = DOCK.ports.filter(p => p.mode === 'in');
@@ -3748,7 +3205,7 @@ console.log('\n6. the tribute loop (Phase 10b)');
   /* CLAIM 3 -- end to end, through the real crank, carrier and release. The
      dock sits 12 tiles above a plain hub; the player stands at a crank on the
      floor and holds it, which is the only way anything ascends (a rider cannot
-     power their own segment -- docs/SPEC.md 17.6). */
+     power their own segment). */
   {
     boot.newRun(9102);
     /* CYCLE 2 IS MADE LIVE BEFORE THE DELIVERY: `drainReceivers` only pays the
@@ -3868,20 +3325,9 @@ console.log('\n6. the tribute loop (Phase 10b)');
     }
   }
 
-  /* CLAIM 2 -- HAND-FED, THROUGH THE REAL VERB.
-     This used to stand the player beside the altar and wait 240 substeps for
-     `rules/machines.js#handFeed` to empty their pockets into it. That drain
-     is opt-in and off by default now (D16-C), and THE FLAG WAS DELIBERATELY
-     NOT USED HERE: this claim is about the TRIBUTE LOOP -- ten ore get from
-     a hand into the altar and cycle 1 gets paid -- so it is driven through
-     the verb a player actually has (`feedByHand`, ten presses, one unit
-     each, docs/SPEC.md section 23.3), which is strictly more of the real
-     path than the old version tested.
-
-     The GEOMETRY is unchanged: the player still stands 8 px from a 2x2 altar
-     on a hand-built floor, because "standing beside it" is still the
-     requirement -- `shell/input.js#feedTargetAt` asks `handFeed.reach` for
-     exactly that. Only who initiates the transfer moved. */
+  /* CLAIM 2 -- HAND-FED, THROUGH THE REAL VERB. This used to stand the player
+     beside the altar and wait 240 substeps for `rules/machines.js#handFeed` to
+     empty their pockets into it. */
   {
     boot.newRun(9111);
     const band = world.bandOf('topsoil');
@@ -3902,7 +3348,7 @@ console.log('\n6. the tribute loop (Phase 10b)');
       bad++;
     }
     runReal(2, 1 / 120, { hasMouse: false });    // let the director see the last unit
-    /* 10 copper/ore is the WHOLE of cycle 1's demand (docs/SPEC.md 18.4), so
+    /* 10 copper/ore is the WHOLE of cycle 1's demand, so
        feeding it all in does not just fill a buffer -- `rules/cycles.js`
        drains the altar into the ledger the same frame (buffer back to 0) and
        then completes the trial: cycle advances, the furnace and the dock are
@@ -3934,7 +3380,7 @@ console.log('\n7. tutorial beats 5 and 6 (Phase 10b, D-E/E1)');
 {
   /* Beats 1-4 are somebody else's test; jumped past the same way
      `tests/visual.spec.js`'s `driveScene` already does
-     (`while (run.tutorialBeat < 4) rw.advanceBeat()`), because what is new
+     (`while (run.tutorialBeat < 4) rw.advanceBeat`), because what is new
      here is only whether 5 and 6 fire off the director's own state. */
   boot.newRun(9130);
   while (run.run.tutorialBeat < 4) run.write.advanceBeat();
@@ -3956,7 +3402,7 @@ console.log('\n7. tutorial beats 5 and 6 (Phase 10b, D-E/E1)');
 
        FED THROUGH THE REAL VERB (`feedByHand`, ten presses),
        not by standing still and waiting: the proximity drain is off by
-       default now (D16-C). The flag was not used here either, for the same
+       default now. The flag was not used here either, for the same
        reason as THE ALTAR probe above -- beat 6's predicate is `run.cycle`,
        so what this probe needs is a cycle really completing, and the only
        way a player completes one is the verb. */
@@ -3988,18 +3434,16 @@ console.log('\n7. tutorial beats 5 and 6 (Phase 10b, D-E/E1)');
   }
 }
 
-/* ============================================================
-   7a. THE ALTAR ARRIVES — THE GATE AND ITS GRACE (D17-G, docs/SPEC.md 5)
-   ------------------------------------------------------------
-   `rules/cycles.js#ensureAltarPlaced` no longer places cycle 1's altar on
-   frame 0. It waits for tutorial beat 4, the climbed-back-up beat, or for
-   `run.t` to pass `eff('altarGraceSecs')`, whichever comes first.
+/* 7a. THE ALTAR ARRIVES -- THE GATE AND ITS GRACE.
+   `rules/cycles.js#ensureAltarPlaced` does not place cycle 1's altar on frame
+   0; it waits for tutorial beat 4, the climbed-back-up beat, or for `run.t`
+   to pass `eff('altarGraceSecs')`, whichever comes first.
 
-   THE SOFT-LOCK IS THE THING UNDER TEST. Cycle 1 has exactly one receiver,
-   so an altar that never arrives is a run that can never be played. Claim 3
-   below therefore does not stop at "an altar exists" -- it pays the trial,
-   through the real feed verb, in a run that never dug, never walked and
-   never fired a single beat. ============================================ */
+   THE SOFT-LOCK IS THE THING UNDER TEST. Cycle 1 has exactly one receiver, so
+   an altar that never arrives is a run that can never be played -- which is
+   why the last claim does not stop at "an altar exists" but pays the trial
+   through the real feed verb, in a run that never dug, never walked and never
+   fired a beat. */
 console.log('\n7a. the altar arrives: the beat, and the grace (D17-G)');
 {
   let bad = 0;
@@ -4025,9 +3469,8 @@ console.log('\n7a. the altar arrives: the beat, and the grace (D17-G)');
      Beats 1-3 are driven off the state their own predicates read: a real
      walked step, a pick in the pockets, six ore seen. Beat 4 is a round
      trip, so the descent is a REAL FALL down a cleared shaft and only the
-     climb back is placed by hand -- the ladder is proven in section 8h and
-     what is under test here is the director's gate, not how the player got
-     out. */
+     climb back is placed by hand -- the ladder has its own probe, and what is
+     under test here is the director's gate, not how the player got out. */
   {
     boot.newRun(9151);
     const band = world.bandOf('surface');   // SPAWN_BAND -- see data/world.js
@@ -4116,49 +3559,20 @@ console.log('\n7a. the altar arrives: the beat, and the grace (D17-G)');
        `where it is then fed cycle 1's ten ore by hand and pays the trial`);
 }
 
-/* ============================================================
-   8. PHASE 11 TIER 2 — HARNESS GAPS FOUND BY A READ-ONLY AUDIT
-   ------------------------------------------------------------
-   Five invariant tests docs/BUILD_PLAN.md's Phase 11 TIER 2 block names but
-   `tools/check.mjs` never wrote, plus three HEAVENS LEDGER sub-bullets the
-   same block names alongside "cargo delivered to the dock credits the ledger
-   exactly once" (already proven in section 6 above, so not repeated here).
-   ============================================================ */
+/* 8. HARNESS GAPS FOUND BY A READ-ONLY AUDIT: five invariants this file
+   never asserted, plus three claims about the Heavens ledger, the last of
+   them that cargo delivered to the dock credits it exactly once. */
 console.log('\n8. Phase 11 TIER 2 harness gaps');
 
-/* --- CHUNK SEAM (docs/SPEC.md section 1's open question). A decoration
-   wider than one tile paints into a NEIGHBOUR chunk -- `view/paint.js`'s own
-   `DECO_MARGIN` comment (lines 62-98) states the claim: a chunk's pixels
-   depend on tiles up to `DECO_MARGIN` outside it, and NO FURTHER.
-   `tests/visual.spec.js:736` turns the debug overlay on and looks at the
-   result, which can show a seam looking wrong; it cannot show a chunk's
-   paint is UNAFFECTED by a tile beyond the margin, which is the actual claim
-   `stackVer`'s own header makes and the one worth breaking.
-
-   THIS LIVES HERE, NOT IN `tests/visual.spec.js`, because the property is a
-   canvas-buffer identity and `check.mjs` already trades in exactly that: the
-   render-purity probes above diff `fillRect` COUNTS across two draws of the
-   same frame; this diffs the full ORDERED `fillRect` trace of one BAKE
-   (`view/paint.js#chunkCanvas`) against the same bake with something changed
-   only beyond the margin. A Playwright screenshot could only show the seam
-   looking continuous, which is a claim about art, not about the dependency
-   bound -- and it cannot isolate "beyond the margin changed nothing" from
-   "nothing anywhere changed" the way a controlled second bake can.
-
-   THE HEADLESS CANVAS HAS NO REAL BACKING BITMAP (see `makeCtx` above), so
-   there is no `getImageData` to diff. What stands in for it: every pixel a
-   chunk bake ever plots goes through `core/pixels.js#R`/`lineTo`/`noiseFill`
-   or `core/font.js#drawText`, and all four bottom out in `g.fillRect` right
-   after setting `g.fillStyle` (confirmed by reading each) -- and a chunk
-   bake calls no `drawImage` at all (that verb belongs to `view/scene.js`
-   blitting the CACHED canvas afterwards, not to painting one). So the
-   ORDERED sequence of `(x, y, w, h, fillStyle)` a bake performs determines
-   its pixels completely, and two bakes with an identical sequence produced
-   identical pixels -- which is the pixel-identity proof this stub can
-   actually make. */
+/* CHUNK SEAM. A decoration wider than one tile paints into a NEIGHBOUR
+   chunk, and `view/paint.js#DECO_MARGIN` states the claim: a chunk's pixels
+   depend on tiles up to that margin outside it, and NO FURTHER. The visual
+   suite turns the debug overlay on and can show a seam looking wrong; it
+   cannot show a chunk's paint is UNAFFECTED by a tile beyond the margin,
+   which is the claim worth breaking. */
 {
   /* Every canvas this stub hands out is fresh (`makeCanvas`'s own
-     `getContext` caches one `_c` per canvas, and `offscreen()` always calls
+     `getContext` caches one `_c` per canvas, and `offscreen` always calls
      `document.createElement('canvas')` first) -- so wrapping
      `document.createElement` for the span of exactly one `chunkCanvas` call
      catches the one canvas that call creates and patches ITS `fillRect`
@@ -4194,10 +3608,10 @@ console.log('\n8. Phase 11 TIER 2 harness gaps');
      far edge; the NEIGHBOUR chunk (`DST`) is what gets baked and traced,
      because it is the one whose pixels the decoration bleeds INTO, per
      `stackVer`'s own header. `view/treatments.js#EXTENT` is the two
-     decoration kinds `decorate()` actually margin-scans for -- there is no
+     decoration kinds `decorate` actually margin-scans for -- there is no
      third, "cloud", kind in that table (checked before writing this: a
      cloud is not something any substance's `look` block declares, so it
-     never goes through `decorate()`'s cross-chunk scan at all and has no
+     never goes through `decorate`'s cross-chunk scan at all and has no
      seam to test the same way). */
   let bad = 0;
   for (const [i, seam] of [
@@ -4252,16 +3666,13 @@ console.log('\n8. Phase 11 TIER 2 harness gaps');
        'changes it again when a tile outside every declared decoration margin is changed');
 }
 
-/* --- GLOW IS NOT LIGHT, for a held or dropped glowing relic. `tools/content.mjs`
-   assertion 17 already proves the CONTENT shape (every relic/miracle-tagged
-   substance carries a `halo` treatment, no machine-tagged substance does) and
-   the SEGMENT LIGHT probe above already proves this exact RUNTIME shape for a
-   cable and its carrier. This is the identical live proof for the checklist's
-   own named example -- `pick` (`data/substances.js`), the relic every run
-   starts with, carries `look.treatments:[{fn:'halo',...}]`, a VIEW-ONLY glow
-   `view/paint.js#paintItem` draws -- and it must never reach `b.light`, held
-   or dropped. `hub`/`rig` rides along as the negative case the checklist
-   names by name: a machine substance carries no halo at all. */
+/* --- GLOW IS NOT LIGHT, for a held or dropped glowing relic.
+   `tools/content.mjs` proves the CONTENT shape and the segment-light probe
+   above proves the runtime shape for a cable; this is the same live proof for
+   the starting `pick`, whose `look.treatments` halo is a VIEW-ONLY glow
+   `view/paint.js#paintItem` draws and must never reach `b.light`, held or
+   dropped. `hub`/`rig` rides along as the negative case: a machine substance
+   carries no halo at all. --- */
 {
   let bad = 0;
   boot.newRun(9510);
@@ -4342,24 +3753,9 @@ console.log('\n8. Phase 11 TIER 2 harness gaps');
        `named negative case) light nothing in a sealed chamber where a hearth reads ${control}`);
 }
 
-/* --- DATUM: `model/run.js#placementCheck`'s `minDepth` branch and
-   `view/hud.js#depth` (lines ~316-325) are two SEPARATE pieces of source
-   using the textually near-identical formula
-   `datum = worldY(bandOf(SPAWN_BAND), floorTy); depth = (worldY - datum) / tile`
-   -- docs/SPEC.md section 12 and CLAUDE.md D9 both say the two may never
-   disagree. `view/hud.js#depth` is a PRIVATE, unexported function (only
-   `hoverInfo`, `drawHUD` and `pairLabel` leave that file), and widening its
-   exports is outside this pass's file ownership -- so this cannot CALL it.
-   What it can do, and does: transcribe both formulas verbatim (cited by
-   file and line) from PUBLIC primitives (`world.bandOf`, `world.worldY`)
-   the two source files already read the identical way, then exercise
-   `model/run.js#placementCheck`'s REAL, live decision -- not a copy of its
-   arithmetic -- against that shared datum at the three points the checklist
-   names. `cyclops_maw` (`data/machines.js`) is the one shipped row with a
-   numeric `minDepth` (200), so it is the one gate this arithmetic actually
-   flips; its own comment there claims topsoil row 220 is "depth ~256"
-   against this datum, which this test cross-checks as an independent
-   second source for the same number. */
+/* `view/hud.js#depth` is a PRIVATE, unexported function (only `hoverInfo`,
+   `drawHUD` and `pairLabel` leave that file), and widening its exports is
+   outside this pass's file ownership -- so this cannot CALL it. */
 {
   let bad = 0;
   boot.newRun(9520);
@@ -4452,17 +3848,8 @@ console.log('\n8. Phase 11 TIER 2 harness gaps');
        `data/machines.js's own note on cyclops_maw)`);
 }
 
-/* --- RENDER PURITY, extended to the map overview, the band ruler, and an
-   active tutorial callout (invariants 9 and 7). Section 2 proves this for
-   the plain HUD and the terrain; section 4's own extension (the drivetrain,
-   above) proves it again for the `view/ui/` panel tree and the segment
-   drawing. Neither probe has ever set `flags.showMap`, and the band ruler
-   and the callout hint both draw INSIDE every one of those frames without
-   either ever having been the thing under test on purpose -- this points
-   the SAME two instruments (the epoch counter, the seeded `rand()` stream)
-   at all three, proven non-vacuous first the same way section 4's cable
-   probe is: checked to have actually drawn something, not merely drawn
-   without complaint. */
+/* RENDER PURITY, extended to the map overview, the band ruler, and an active
+   tutorial callout. */
 {
   const drawTwice = label => {
     const before = epoch.epoch.n;
@@ -4504,7 +3891,7 @@ console.log('\n8. Phase 11 TIER 2 harness gaps');
   /* THE BAND RULER: `view/hud.js#hudRuler` draws whenever there is room
      (`HUD_RULER_MIN_H`), which this harness's 1600x900 headless viewport
      always has -- proven ON SCREEN, not assumed, by requiring one of its
-     own per-band rects (`view/ui/ruler.js#drawRuler` -- `id + '-band-' + ...`)
+     own per-band rects (`view/ui/ruler.js#drawRuler` -- `id + '-band-' +...`)
      actually landed in `drawn.panels` this frame, the same record
      `hudRuler` itself trusts for the quickbar's rect immediately above it. */
   main.draw();
@@ -4539,41 +3926,12 @@ console.log('\n8. Phase 11 TIER 2 harness gaps');
        'HUD and the view/ui/ tree above');
 }
 
-/* --- REVEAL LEAK's LIGHT GATE, isolated from the radius cap. `rules/reveal.js#step`
-   (Pass B) has TWO independent gates: solid rock blocks the flood outright
-   (trivially true, and not what is in question), and past the always-
-   revealed first ring, `if (d >= 1 && lightAt(...) < 1) continue` (around
-   line 192) stops it at an UNLIT tile even when nothing solid is in the
-   way. The existing Playwright enclosure test
-   (`tests/visual.spec.js:928-970`) cannot isolate that second gate from
-   `eff('sightRadius')`: its sealed room carries no light source at all, so
-   its own boundary sits at graph distance 1 (the trivial always-revealed
-   ring, widened only by the player's own footprint) regardless of the
-   radius -- which proves the rule exists, not that it binds independently
-   of the cap.
-
-   AMBIENT IS NOT THE GATE, and "topsoil carries non-zero ambient light" is
-   not why that test can't isolate it. `data/world.js#look.ambient` is read in
-   exactly two places, `view/paint.js#cavityColour` and
-   `view/scene.js#atmosphere` -- both pure render tint, neither ever reaching
-   `model/world.js#b.light` or `rules/light.js`. No band's `ambient` touches
-   the light FIELD at all, so there is no zero-ambient band to go find.
-
-   `lightAt()` reads 0 wherever nothing real reaches, and what counts as real
-   is three things: the sky of a band that carries one
-   (`model/world.js#hasOwnSky`), an emitter, and the level a band above
-   carried down across a seam. Section 8o holds the seam carry to one tile of
-   falloff, so `ty0 = 260` below is far enough down `topsoil` for the carry to
-   have died out long before -- which is what lets this probe treat a dark
-   corridor as dark. What actually isolates the two mechanisms is a real light GRADIENT
-   that dies out before the radius does -- any emitter dimmer than
-   `eff('sightRadius')` (14) produces exactly that: a fuelled `brazier`
-   (`level:12`, `rules/light.js`'s own falloff of 1/tile through open air)
-   reaches 0 around 12 tiles out, inside the flood's own cap rather than at
-   it. A real, fuelled brazier (the same idiom the LIGHT section above uses)
-   in a long straight open-air corridor -- nowhere near rock -- produces
-   that gradient for real, and the flood can be shown to stop partway along
-   it, PROVABLY because of light and not because of distance. */
+/* REVEAL LEAK's LIGHT GATE, isolated from the radius cap.
+   `rules/reveal.js#step` (Pass B) has TWO independent gates: solid rock blocks
+   the flood outright (trivially true, and not what is in question), and past
+   the always- revealed first ring, `if (d >= 1 && lightAt(...) < 1) continue`
+   stops it at an UNLIT tile even when nothing solid is in
+   the way. */
 {
   let bad = 0;
   boot.newRun(9550);
@@ -4641,21 +3999,13 @@ console.log('\n8. Phase 11 TIER 2 harness gaps');
        'well inside the flood\'s own radius, and the flood stops exactly there -- the light gate, not the cap');
 }
 
-/* --- HEAVENS LEDGER, sub-bullet: delivery with a broken lift chain fails and
-   says why. CHECKED FIRST, BEFORE WRITING A TEST: does anything in
-   `rules/drive.js` or `rules/cycles.js` surface a "why" when a haul arrives
-   at a hub with nowhere further to go? It did not -- `drive(s, dt)`'s own
-   'winch' journal row (`"<n> DELIVERED TO <BAND>"`) fires on arrival at
-   EVERY segment's own top hub, relay leg or not, so a haul stranded at a
-   dead-end hub read exactly like a real delivery. That is a real gap in the
-   GAME, not only in this test suite (CLAUDE.md's own caution against a test
-   that asserts behaviour that is not there), so `rules/drive.js` gains the
-   minimal fix first: the SAME 'refused' journal kind `'TOO HEAVY TO LIFT'`
-   already uses, fired once, on the same edge-triggered arrival, when the
-   top hub is neither a receiver (`tribute:{}`/`ports`) nor anchors any
-   OTHER segment. Tested here in three shapes: the dead end itself, a real
-   receiver (must NOT fire), and a mid-chain hub with a segment still beyond
-   it (must NOT fire either -- a relay leg is not a dead end). */
+/* HEAVENS LEDGER, sub-bullet: delivery with a broken lift chain fails and says
+   why. CHECKED FIRST, BEFORE WRITING A TEST: does anything in `rules/drive.js`
+   or `rules/cycles.js` surface a "why" when a haul arrives at a hub with
+   nowhere further to go? It did not -- `drive(s, dt)`'s own 'winch' journal
+   row (`"<n> DELIVERED TO <BAND>"`) fires on arrival at EVERY segment's own
+   top hub, relay leg or not, so a haul stranded at a dead-end hub read exactly
+   like a real delivery. */
 console.log('\n8b. broken-chain delivery (rules/drive.js fix, checked here)');
 {
   let bad = 0;
@@ -4744,7 +4094,7 @@ console.log('\n8b. broken-chain delivery (rules/drive.js fix, checked here)');
 /* --- HEAVENS LEDGER, sub-bullet: cycle completion unlocks exactly one band.
    `rules/cycles.js#complete`'s `for (const id of reward.charts ?? []) rw.chart(id)`
    is the mechanism -- driven here through the SAME real feed verb THE
-   ALTAR test (section 6, above) already uses, twice, for cycle 1 (charts
+   ALTAR test already uses, twice, for cycle 1 (charts
    'astral') and cycle 2 (charts 'topsoil'). No two shipped rows in
    `data/cycles.js#CYCLES` chart the same band, so the table itself never
    exercises re-charting one -- said here rather than pretended otherwise --
@@ -4760,12 +4110,12 @@ console.log('\n8c. HEAVENS LEDGER: cycle completion unlocks exactly one band');
   for (let tx = 16; tx <= 29; tx++) tiles.write.set(topsoil, tx, 119, D_sub.S.stone);
 
   /* CYCLE 1: the altar, placed by hand rather than waited for. The director
-     withholds its own until beat 4 or `altarGraceSecs` (D17-G, proven in
-     section 7a), and this scene is about the CHART a completion writes, not
+     withholds its own until beat 4 or `altarGraceSecs`, and this scene is about the
+     CHART a completion writes, not
      about when the receiver turns up. Placing it before the first real step
      also means `ensureAltarPlaced`'s `machines.some(...)` guard sees one
      already standing and never adds a second -- the same order THE ALTAR
-     test (section 6) already relies on. */
+     test already relies on. */
   const chartAltar = footUnder(machs.write.place(topsoil, D_mach.M.altar, 22, 117));
   player.write.band(topsoil);
   player.write.move(world.worldX(topsoil, 21), world.worldY(topsoil, 117));
@@ -4788,9 +4138,9 @@ console.log('\n8c. HEAVENS LEDGER: cycle completion unlocks exactly one band');
        the wrong receiver either way -- but `handFeed`'s proximity auto-drain
        is one AUTO FEED click away from being live, and a scene that only
        works with that preference off is a scene one click from lying, so the
-       geometry stays clear regardless. The 13d live-cycle gate is proven
-       properly, at point-blank range and through the real verb, in section
-       8f's TRIBUTE GATE below. */
+       geometry stays clear regardless. The live-cycle gate itself is proven
+       at point-blank range through the real verb, by the TRIBUTE GATE probe
+       below. */
     const chartDock = footUnder(machs.write.place(topsoil, D_mach.M.cloud_dock, 27, 115));
     player.write.move(world.worldX(topsoil, 26), world.worldY(topsoil, 115));
     run.write.collect(D_sub.S.copper, D_form.F.plate, 3);
@@ -4827,17 +4177,12 @@ console.log('\n8c. HEAVENS LEDGER: cycle completion unlocks exactly one band');
        'and re-charting an already-charted band is a no-op');
 }
 
-/* --- HEAVENS LEDGER, sub-bullet: two misses ends the run. `rules/cycles.js#miss`'s
-   own comment: a punishment applies on every miss, and a SECOND ONE tops
-   hearts off to zero outright, "regardless of which cycle it was" -- so this
-   drives the SAME cycle (2, `first-delivery`, `deadlineSecs:480`) past its
-   own deadline TWICE, through the real schedule (`rules/cycles.js#step`'s
-   own `tickDeadline`/`resolve`, never `run.write.miss()` called directly --
-   the one existing caller of that, in the reset-fingerprint probe elsewhere
-   in this file, never drives it through gameplay at all). Cycle 1 is
-   completed first, for real (the same `feedByHand` idiom as above -- ten
-   presses, the real verb, not the retired proximity drain), so cycle 2
-   is actually the LIVE one with a real clock counting down. */
+/* --- TWO MISSES ENDS THE RUN. A punishment applies on every miss and a
+   SECOND one tops hearts off to zero regardless of which cycle it was, so
+   this drives ONE cycle past its own deadline twice, through the real
+   schedule rather than by calling `run.write.miss`. Cycle 1 is completed for
+   real first, so the cycle under test is the LIVE one with a clock counting
+   down. --- */
 console.log('\n8d. HEAVENS LEDGER: two misses ends the run');
 {
   let bad = 0;
@@ -4896,42 +4241,18 @@ console.log('\n8d. HEAVENS LEDGER: two misses ends the run');
        'documents');
 }
 
-/* ============================================================
-   8e. DEPLETION (Phase 14e, docs/PLAN-phase14-mining-and-drops.md D14-D/E/F)
-   ------------------------------------------------------------
-   A deposit tile yields `tile.charge` units before it is gone, each unit
-   costing a full `hard` of accumulated work. Measured once, by
-   hand; this section is the permanent regression check, and it drives the REAL
+/* 8e. DEPLETION. A deposit tile yields `tile.charge` units before it is gone,
+   each costing a full `hard` of accumulated work. This drives the REAL
    `rules/mining.js` and `rules/machines.js#mine` through `stepReal` rather
-   than re-implementing their arithmetic -- which is the whole point, because
-   the arithmetic is the thing under test.
-   ============================================================ */
+   than re-implementing their arithmetic, which is the point: the arithmetic
+   is the thing under test. */
 console.log('\n8e. DEPLETION (Phase 14e)');
 
-/* ONE NATIVE TILE, MINED BY HAND UNTIL IT IS GONE, at an arbitrary framerate.
-
-   Everything about the scene is derived, never hardcoded to a viewport
-   (CLAUDE.md: a click at (400,300) fails at a different base buffer). The
-   player is planted two tiles above the target so their 16 px body's FEET land
-   exactly on its top edge, which makes `rules/mining.js#resolveStraightDown`
-   resolve to that one tile and no other: the body is 6 px wide inside an 8 px
-   tile and `player.x` is set to the tile's own left edge, so both columns the
-   hitbox can straddle are the same column. `cmd.down` with no horizontal key
-   is the keyboard-aim path (`hasMouse:false`), so no pointer is faked.
-
-   UNITS ARE COUNTED AS SPAWNED ITEMS, not as journal rows: invariant 5 says
-   mined material becomes a falling item, so a spawn IS the yield, and the
-   count is unaffected by whether the player then walks over the ore and picks
-   it up. `items.write.spawn` is wrapped exactly the way the CONSERVATION probe
-   above wraps it, and filtered to the tile's own drop pair so the rare-trinket
-   roll (`data/drops.js`) cannot inflate the count.
-
-   The tile is read for its drop pair BEFORE the first swing, for the same
-   reason both break sites do it: once it is AIR there is nothing to ask. */
+/* ONE NATIVE TILE, MINED BY HAND UNTIL IT IS GONE, at an arbitrary framerate. */
 function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } = {}) {
   const dt = 1 / fps;
   boot.newRun(seed);
-  /* Applied AFTER `newRun()`, which clears `mods.rows` -- a caller that added
+  /* Applied AFTER `newRun`, which clears `mods.rows` -- a caller that added
      an override before this call would have it silently wiped. Removed by
      source at the end of this function so two calls in the same process
      cannot leak an override into each other via a forgotten cleanup. */
@@ -4943,7 +4264,7 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
   tiles.write.set(band, tx, ty, D_sub.S[subId]);
   mining.write.clearAll();
   /* THE STOCK PICK IS NOT STARTING INVENTORY. `rules/generate.js` drops one
-     near spawn and `model/run.js#hasPick` is `bestTool() !== null`, so a
+     near spawn and `model/run.js#hasPick` is `bestTool !== null`, so a
      player teleported into a test shaft holds nothing and `rules/mining.js`
      returns on its first line -- a probe that forgot this would measure a
      tile that never breaks, not a rate. */
@@ -4990,24 +4311,12 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
   };
 }
 
-/* --- UNITS PER TILE EQUALS `tile.charge`, AND THE TILE SURVIVES UNTIL
-   EXACTLY `hard x charge` -- at all 8 framerates section 3's hardness table
-   already sweeps, and for the same reason it sweeps them: the simulation runs
-   a fixed 1/120 s substep, so a per-unit boundary crossed by
-   `model/mining.js#unitsCrossed` must not depend on how often the browser
-   asks for a frame. The historical bug this echoes is in CLAUDE.md's own list
-   -- a truncated per-tile byte made granite unmineable above 106 fps, and 107
-   is in this list because of it.
-
-   Three substances, chosen to vary every term independently: `copper`
-   (charge 4, tier 1, the stock pick), `tin` (charge 4 at a different
-   hardness, so the seconds-per-unit and the unit COUNT cannot be conflated)
-   and `granite` (charge 3, tier 2, mined with the auger at power 1.8, so the
-   expected time is `hard x charge / power` and a probe that had quietly
-   hardcoded power 1.0 would fail). `adamant` (charge 2, tier 3) is
-   deliberately absent: no hand tool reaches tier 3 at all, which is
-   `data/machines.js#cyclops_maw`'s whole gate -- assertion 22 in
-   tools/content.mjs covers its charge value statically. --- */
+/* Three substances, chosen to vary every term independently: `copper` (charge
+   4, tier 1, the stock pick), `tin` (charge 4 at a different hardness, so the
+   seconds-per-unit and the unit COUNT cannot be conflated) and `granite`
+   (charge 3, tier 2, mined with the auger at power 1.8, so the expected time
+   is `hard x charge / power` and a probe that had quietly hardcoded power 1.0
+   would fail). */
 {
   const RATES = [20, 30, 60, 90, 107, 120, 144, 240];
   const CASES = [
@@ -5031,7 +4340,7 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
          AFTER, stated as two bounds on the ledger reading at the top of the
          substep that killed it: it was still short of the total then (nothing
          broke early), and one more substep's credit reached it (nothing
-         lingered). `hard` is read through `eff()` for the reason
+         lingered). `hard` is read through `eff` for the reason
          `rules/mining.js` reads it there -- the base is not the effective
          number and a trinket may bend it. */
       const total = row.tile.hard * mods.eff('hard', c.sub) * charge;
@@ -5062,20 +4371,13 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
   }
 }
 
-/* --- YIELD QUALITY (D-Q): `soil`/`stone` are POOR -- docs/SPEC.md section
-   19.1's own "bulk" pair, filler you tunnel through rather than a vein of
-   anything -- `copper`/`tin`/`granite`/`adamant` (ore and named deposits)
-   stay at the default. Read straight off the tunable rather than
-   re-declaring the numbers here, so this fails the moment `data/tuning.js`'s
-   own values move without a matching edit here.
-
-   THE MECHANISM ITSELF IS PROVED DETERMINISTICALLY, not statistically:
-   `stone`'s own dropChance is forced to 1 (every unit lands, same as the
-   CASES loop above proves for copper/tin/granite at their real value) and
-   then to 0 (no unit ever lands, and the tile still breaks on schedule --
-   `dropChance` touches yield only, never hardness or charge). A real run's
-   0.10 sits between those two proven ends; sampling it here would only add
-   flakiness, not confidence. */
+/* Read straight off the tunable rather than re-declaring the numbers here, so
+   this fails the moment `data/tuning.js`'s own values move without a matching
+   edit here. THE MECHANISM ITSELF IS PROVED DETERMINISTICALLY, not
+   statistically: `stone`'s own dropChance is forced to 1 (every unit lands,
+   same as the CASES loop above proves for copper/tin/granite at their real
+   value) and then to 0 (no unit ever lands, and the tile still breaks on
+   schedule -- `dropChance` touches yield only, never hardness or charge). */
 {
   const REAL = {
     copper: mods.eff('dropChance', 'copper'), tin: mods.eff('dropChance', 'tin'),
@@ -5118,18 +4420,13 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
 }
 
 /* --- HAND AND A FUELLED PLACED MINER EXHAUST AN IDENTICAL TILE IN AN
-   IDENTICAL TIME. docs/SPEC.md section 12 stakes a measured "0.0000 s
-   difference" on this, re-measured by hand once depletion
-   made a tile take four bites instead of one. This is that measurement, kept.
-
-   The T2=T3 probe in section 3 proves the two accumulate the same WORK
-   through the same `model/mining.js#write.add`; this proves the consequence
-   -- the same number of units out of the same tile, and the same tile gone at
+   IDENTICAL TIME, to 0.0000 s. The T2=T3 probe above proves the two
+   accumulate the same WORK through the same `write.add`; this proves the
+   consequence -- the same units out of the same tile, and the tile gone on
    the same substep -- through the two REAL break sites, which are `rules`
    siblings that may not import one another and so implement the sequence
-   twice. Two tiles twenty columns apart, never one (a shared Map entry would
-   just be adding to itself), in ONE run stepped once per frame, so neither
-   side can differ by a frame of clock or a frame of scheduling. --- */
+   twice. Two tiles twenty columns apart, never one, in ONE run stepped once
+   per frame, so neither side can differ by a frame. --- */
 {
   const dt = 1 / 120;
   boot.newRun(1462);
@@ -5150,20 +4447,11 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
   const head = machs.write.place(band, D_mach.M.talos_head, txB - 1, tyB);
   machs.write.take(head, D_sub.S.timber, D_form.F.log, 4);
 
-  /* THE AUGER IS HELD, AND THAT IS NOT INCIDENTAL. docs/SPEC.md section 12's
-     equality is "T3 mines at exactly the T2 HAND rate", and T2 is the auger --
-     the same reason section 3's T2=T3 probe collects one before measuring.
-     `rules/machines.js#bestHandToolPower` scans `item.tool.power` over the
+  /* `rules/machines.js#bestHandToolPower` scans `item.tool.power` over the
      SUBSTANCE TABLE rather than over the player's pockets (read there
      directly; its own comment says "a future hand tool raises every placed
      miner's rate the same day it raises a swinging player's"), so a placed
-     head always chews at the best power the content tables define -- 1.8. A
-     player holding only the stock pick swings at 1.0 and this probe measured
-     3.8083 s against the head's 2.1167 s, a ratio of exactly the auger's
-     1.8, which is the pick/auger gap and not a break-site disagreement.
-     Parked in docs/FINDINGS.md as an observation about which player the
-     equality is stated for; what is asserted here is the equality SPEC
-     actually claims. */
+     head always chews at the best power the content tables define -- 1.8. */
   run.write.collect(D_sub.S.pick, D_form.F.relic, 1);
   run.write.collect(D_sub.S.auger, D_form.F.relic, 1);
   player.write.band(band);
@@ -5207,20 +4495,12 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
        `break sites agree on units as well as on rate`);
 }
 
-/* --- D14-E: ACCUMULATED WORK IS CLEARED WHENEVER A TILE'S BYTE CHANGES,
-   through the REAL terrain-editing verbs and not by poking the model.
-   `model/tiles.js#write.setByte` clears `model/mining.js`'s entry in the one
+/* `model/tiles.js#write.setByte` clears `model/mining.js`'s entry in the one
    place every edit funnels through; the claim that matters is that every real
    caller therefore inherits it, and a synthetic `setByte` call would not prove
    that. So: the `chasm` miracle (`rules/miracles.js#use`, spending a real held
    phial) and `rules/placement.js#placeTile` (spending real held material,
-   through its own backing check).
-
-   Without this, a half-depleted copper tile chasmed away leaves ~1.9 s of work
-   at that coordinate and a `soil/block` placed there breaks on the first
-   touch -- which is why the end of this probe places one and asserts its work
-   is zero against its own full hardness, rather than stopping at "the Map
-   entry went away". --- */
+   through its own backing check). */
 {
   boot.newRun(1463);
   const band = world.bandOf('topsoil');
@@ -5239,7 +4519,7 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
   let bad = 0;
   if (!(staleA > 0)) { fail('D14-E setup: no work accumulated to clear'); bad++; }
 
-  /* THE CHASM. A real held phial, spent by the real `use()`, applied at the
+  /* THE CHASM. A real held phial, spent by the real `use`, applied at the
      aimed tile the same way a dig is -- radius 1 collapse
      (`data/miracles.js`), so it takes the neighbours with it. */
   run.write.collect(D_sub.S.chasm, D_form.F.phial, 1);
@@ -5297,15 +4577,12 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
        'neighbour keeps its own');
 }
 
-/* --- INVARIANT 8, AGAINST A PARTIALLY DEPLETED WORLD. Section 4's reset
-   probe already fingerprints every exported model object across two fresh
-   `newRun()` calls, and `snapshotModel()` includes `mining.activeCount()` --
-   but a count is not the ledger. That Map IS the depletion
-   ledger, so a run that half-worked thirty veins and restarted must forget
-   every one of them: the count AND the seconds. Fingerprinted as both here,
-   so a future partial clear that kept the keys and zeroed the values, or kept
-   the values and dropped the count, cannot pass on the half it happens to
-   satisfy. --- */
+/* --- `newRun` RESETS EVERYTHING, AGAINST A PARTIALLY DEPLETED WORLD. The
+   reset probe above fingerprints `mining.activeCount`, but a count is not the
+   ledger: that Map IS the depletion ledger, so a run that half-worked thirty
+   veins must forget the count AND the seconds. Fingerprinted as both, so a
+   partial clear that kept the keys and zeroed the values cannot pass on the
+   half it happens to satisfy. --- */
 {
   const seed = 1464;
   const workPrint = () => {
@@ -5321,25 +4598,7 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
      (which breaks tiles and so exercises the break sites' own clear), and a
      spread of PART-worked tiles that nothing breaks -- the entries that
      persist for the rest of a run by design, and therefore the only ones that
-     could outlive a `newRun()`.
-
-     HALF OF THEM ARE OPEN SKY, AND THAT IS THE HALF THAT CAN FAIL. Two
-     earlier drafts of this probe could not fail AT ALL with `digw.clearAll()`
-     commented out of `shell/boot.js`, and the reason is worth writing down
-     because it decides the whole probe design. `newRun()` reallocates every
-     band (`model/world.js#write.clear` empties `bands`), so worldgen writes
-     into a freshly ZEROED `mat`: every stratum write is a byte CHANGE, and
-     since D14-E a byte change clears that coordinate's work. Underground that
-     covers everything -- topsoil's air pockets are `tw.clear`ed out of stone
-     the layer pass had already written, which is a change too -- so
-     regeneration scrubs the ledger for the whole band on its own. What it
-     never writes is TRUE OPEN SKY: the spawn band's rows above the ground
-     line are still zero when generation finishes, so a stale entry there
-     survives anything but `clearAll`. It is also the entry that matters,
-     because a coordinate the player can build in is exactly where an
-     inherited half-vein's worth of seconds would make the next run's first
-     placed block break on first touch. Both kinds are planted; the assertion
-     covers the whole Map. */
+     could outlive a `newRun`. */
   const deep = world.bandOf('topsoil');
   const sky  = world.bandOf(D_world.SPAWN_BAND);
   runReal(600, 1 / 120, { right: true, dig: true, hasMouse: false });
@@ -5383,24 +4642,15 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
        `count and seconds both back to ${freshWork.n}/${freshWork.sum}`);
 }
 
-/* --- MASS CONSERVATION OVER `pack`, LIVE. tools/content.mjs assertion 6
-   already proves STATICALLY that no recipe nets mass from nothing, and it
-   covers `pack` with no special case: the recipe's one selector expands to
-   soil/gravel and stone/gravel, and each combination is priced through the
-   same `model/items.js#massOfPair` the game uses (soil 1.25 in / 1.00 out,
-   stone 1.50 / 1.20). That is the right place for the arithmetic and this
-   does not duplicate it.
-
-   What this adds is the one thing a table check cannot see: that the REAL
-   hand-craft path spends and produces what the table says, for the recipe
-   this wave added. `pack` is the first `hand:true` row whose input is a
-   TAG-scoped selector (`#bulk`) rather than a literal pair, so
-   `rules/crafting.js#choose` has to resolve it through
-   `model/run.js#pocketedPair` and then carry the element across into a
-   `subFrom` output -- five soil rubble must become one SOIL block, not a
-   stone one, and not five. Mass is measured over pockets AND ground items
-   together, because invariant 5 means the output falls at the player's feet
-   and may or may not have been picked back up by the time this reads it. --- */
+/* MASS CONSERVATION OVER `pack`, LIVE. `tools/content.mjs` owns the
+   arithmetic and this does not duplicate it. What this adds is the one thing
+   a table check cannot see: that the REAL
+   hand-craft path spends and produces what the table says, for the recipe this
+   wave added. `pack` is the first `hand:true` row whose input is a TAG-scoped
+   selector (`#bulk`) rather than a literal pair, so `rules/crafting.js#choose`
+   has to resolve it through `model/run.js#pocketedPair` and then carry the
+   element across into a `subFrom` output -- five soil rubble must become one
+   SOIL block, not a stone one, and not five. */
 {
   boot.newRun(1465);
   const heldMass = () => {
@@ -5441,35 +4691,19 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
        `${(wantIn - wantOut).toFixed(2)} T lost as waste, nothing created`);
 }
 
-/* ============================================================
-   8f. THE CLOSED LOOP (Phase 13d, docs/PLAN-phase13.md 5.3)
-   ------------------------------------------------------------
-   Four claims, one per thing the phase changed that is not a string:
-     1. only the live cycle's own receiver credits it (the tribute-anywhere
-        exploit), and the material fed to the wrong one is still THERE.
-     2. `cloud_dock` may only be placed in the band its row names.
-     3. every shipped trial paid sets `run.won`, pushes a `win` row, and draws
-        a restart button the pointer can actually find.
-     4. a reward grant reaches `run.granted` AND pushes a `grant` journal row
-        -- the bridge, not `rw.grant` direct.
-   ============================================================ */
+/* 8f. THE CLOSED LOOP. Four claims, one per thing the phase changed that is not
+   a string: 1. only the live cycle's own receiver credits it (the tribute-
+   anywhere exploit), and the material fed to the wrong one is still THERE. 2.
+   `cloud_dock` may only be placed in the band its row names. 3. every shipped
+   trial paid sets `run.won`, pushes a `win` row, and draws a restart button
+   the pointer can actually find. 4. a reward grant reaches `run.granted` AND
+   pushes a `grant` journal row the bridge, not `rw.grant` direct. */
 console.log('\n8f. THE CLOSED LOOP (Phase 13d)');
 
-/* --- CLAIM 1: cycle 2 cannot be paid at cycle 1's altar. Driven through the
-   real feed verb, with the altar and the dock BOTH in reach at once -- which
-   is the arrangement the exploit lived in, and the only arrangement that can
-   prove the gate rather than prove a distance.
-
-   PHASE 16b CHANGED HOW THE SPLIT HAPPENS, NOT WHAT IS CLAIMED. The old
-   version stood between the two receivers and let `rules/machines.js#
-   handFeed` decide the split for it -- the altar got two plates because it
-   sorts earlier in `machines`, the dock got one, and the probe asserted
-   against whatever fell out. That drain is off by default now (D16-C), and
-   the flag was deliberately NOT used here: this probe's subject IS the
-   tribute loop, so it now feeds the split ON PURPOSE, two presses aimed at
-   the wrong receiver and one at the right one, which is exactly the exploit
-   a player would attempt by hand. The geometry, the seed and every assertion
-   are unchanged. --- */
+/* CLAIM 1: cycle 2 cannot be paid at cycle 1's altar. Driven through the real
+   feed verb, with the altar and the dock BOTH in reach at once -- which is the
+   arrangement the exploit lived in, and the only arrangement that can prove
+   the gate rather than prove a distance. */
 {
   let bad = 0;
   boot.newRun(9600);
@@ -5589,17 +4823,16 @@ console.log('\n8f. THE CLOSED LOOP (Phase 13d)');
 {
   let bad = 0;
   boot.newRun(9602);
-  /* One completion per cycle, each through `tributeMet()` -- the demand rows
+  /* One completion per cycle, each through `tributeMet` -- the demand rows
      are credited straight into the live ledger the same way `creditTribute`
-     does, since what this claim is about is the BOUNDARY, not the delivery
-     (claim 1 and section 6 both cover deliveries end to end). */
+     does, since what this claim is about is the BOUNDARY, not the delivery. */
   for (let i = 0; i < D_cycles.CYCLES.length; i++) {
     stepReal(1 / 120, { hasMouse: false });               // arm the row
     const row = D_cycles.CYCLES[run.run.cycle - 1];
     const have = {};
     for (const d of row.demand) have[`${d.sub}/${d.form}`] = d.n;
-    /* A row carrying a batch clause (docs/SPEC.md section 18.10) needs its
-       window filled as well, or `tributeMet()` is short by its second clause
+    /* A row carrying a batch clause needs its
+       window filled as well, or `tributeMet` is short by its second clause
        and the boundary this claim is about never arrives. Stamped at `run.t`
        the way `rules/cycles.js#creditTribute` stamps a real credit. */
     const credits = row.batch ? [{ t: run.run.t, n: row.batch.n }] : [];
@@ -5607,7 +4840,7 @@ console.log('\n8f. THE CLOSED LOOP (Phase 13d)');
     stepReal(1 / 120, { hasMouse: false });               // resolve it
     /* AND RESOLVE THE REWARD, which `stepReal` alone cannot: a cycle whose
        reward is a draft raises an offer, the offer freezes the run, and a
-       run is not won while one is outstanding (docs/SPEC.md section 18.8).
+       run is not won while one is outstanding.
        `applyIntents` is the other half of a real frame -- it lays the cards
        out -- and taking one is the only thing that ends the pause. Without
        this the loop below stalls on cycle 2's grant draft and the win never
@@ -5717,8 +4950,8 @@ console.log('\n8f. THE CLOSED LOOP (Phase 13d)');
    `BEATS` and `CALLOUTS` is guarded at import in `rules/tutorial.js` itself
    (every module is imported at the top of this file, so that guard runs
    here); what is checked below is that the four new slots actually carry
-   copy, which is docs/FINDINGS.md #10's own failure mode -- guidance that is
-   absent rather than wrong is guidance nobody notices is missing. --- */
+   copy, because guidance that is absent rather than wrong is guidance nobody
+   notices is missing. --- */
 {
   let bad = 0;
   const C = D_callouts.CALLOUTS;
@@ -5741,46 +4974,17 @@ console.log('\n8f. THE CLOSED LOOP (Phase 13d)');
        `cycle 2's plate, dock, chain and clock each have one`);
 }
 
-/* ============================================================
-   8g. GROWTH (Phase 15, docs/PLAN-phase15-trees.md, docs/SPEC.md section 22)
-   ------------------------------------------------------------
-   A felled tree drops a seed; a planted seed becomes a tree after
+/* 8g. GROWTH. A felled tree drops a seed; a planted seed becomes a tree after
    `eff('treeGrowSecs')` of ACCUMULATED SIMULATION TIME. Four separate
-   properties, and every one of them is a class of bug this project has
-   already been bitten by once:
-
-     A TIMED TRANSITION IS THE CLASSIC FRAMERATE-DEPENDENT BUG. CLAUDE.md
-     records that a fixed-`DT` harness cannot see one, which is why every
-     probe below drives the REAL `main.step()` through `stepReal` at each of
-     the 8 framerates section 3's hardness table sweeps -- 107 is in that
-     list because a truncated per-tile byte once made granite unmineable
-     above 106 fps, and a growth timer is the same shape of thing one level
-     up.
-
-     A HEIGHT DRAWN FROM `rand()` DIVERGES BETWEEN TWO RUNS OF ONE SEED
-     depending on WHEN the player planted, because `rand()` is a stream and
-     its value depends on how many draws preceded it. That is the obvious
-     thing to write and `rules/mining.js` next door already rolls `rand()`
-     for drops, so the probe plants the same tile at two DIFFERENT times in
-     the same seed and asserts the resolved height matches.
-
-     A `clearAll` THAT BOOT FORGETS IS HOW A FIELD SURVIVES A RESTART.
-     docs/FINDINGS.md (8d, #2) records exactly that happening to `segments`,
-     whose reset was verified by hand and invisible to this harness until
-     `snapshotModel` learned about it. `growth` is in that snapshot now (see
-     its own note there) and the reset probe below is the assertion.
-
-     AN ORPHANED GROWTH ENTRY accumulating time against a tile that is now
-     rock would be invisible: nothing draws it, nothing reports it, and the
-     tile it names would just refuse to ever become a tree.
-   ============================================================ */
+   properties, and every one of them is a class of bug this project has already
+   been bitten by once: A TIMED TRANSITION IS THE CLASSIC FRAMERATE-DEPENDENT
+   BUG. */
 console.log('\n8g. GROWTH (Phase 15)');
 
-/* A FLAT SHELF WITH SOIL UNDER IT, cleared by hand rather than found, for
-   CLAUDE.md's own reason about not trusting natural worldgen: the seed's
-   whole placement legality is "a solid tile directly below and air on the
-   other three sides", and a found location makes the seed decide what that
-   is. Returns the band and the planting column.
+/* A FLAT SHELF WITH SOIL UNDER IT, cleared by hand rather than found,
+   because the seed's whole placement legality is "a solid tile directly below
+   and air on the other three sides" and a found location would let the seed
+   decide what that is. Returns the band and the planting column.
 
    The `surface` band and not `topsoil`, because a planted tree grows UPWARD
    and needs open air above it -- `rules/growth.js#resolve` writes as many
@@ -5798,7 +5002,7 @@ function growScene(seed, { tx = 20, ty = 24 } = {}) {
 }
 
 /* Plant a seed through the REAL `rules/placement.js#placeTile`, not through
-   `model/tiles.js#write.set`: the whole of D15-C is that a seed is placed by
+   `model/tiles.js#write.set`: the whole of is that a seed is placed by
    the same verb as everything else and is legal on a bare floor, so a probe
    that wrote the tile directly would skip the one clause this phase added.
    The unit is collected first because `placeTile` spends one. */
@@ -5817,22 +5021,8 @@ function trunkHeight(band, tx, ty) {
   return h;
 }
 
-/* --- CLAIM 1: A PLANTED SEED BECOMES A TREE AFTER EXACTLY
-   `eff('treeGrowSecs')` OF ACCUMULATED SIMULATION TIME, AT ALL 8 FRAMERATES.
-
-   Stated as two bounds on the LEDGER READING at the top of the substep that
-   resolved it, exactly the way section 8e's depletion probe states its own --
-   and for the same reason that probe gives at length: reconstructing the
-   total as `frames x dt` disagrees with the running float sum by accumulated
-   rounding, and the running sum is what `rules/growth.js` actually compares.
-   So: it was still short of the total when that substep began (nothing
-   resolved early), and one more substep's `dt` reached it (nothing lingered).
-
-   `dig:false` and no keys held, because this is the ONE mechanic in the game
-   that advances with no input at all -- which is also why this is the probe
-   that would catch a `Date.now()` implementation: wall-clock time does not
-   pass between two synchronous `main.step()` calls, so a clock-driven seed
-   would never resolve here at any framerate. --- */
+/* CLAIM 1: A PLANTED SEED BECOMES A TREE AFTER EXACTLY `eff('treeGrowSecs')`
+   OF ACCUMULATED SIMULATION TIME, AT ALL 8 FRAMERATES. */
 {
   const RATES = [20, 30, 60, 90, 107, 120, 144, 240];
   let bad = 0, worst = 0, worstAt = '';
@@ -5886,26 +5076,11 @@ function trunkHeight(band, tx, ty) {
        `advances with no input held, so nothing here is wall-clock driven`);
 }
 
-/* --- CLAIM 2: THE RESOLVED HEIGHT IS A FUNCTION OF THE TILE AND NOTHING
-   ELSE. This is what `hash2` buys and what a `rand()` draw would not, and it
-   is asserted the only way that distinction is observable: plant the SAME
-   tile in the SAME seed at two DIFFERENT points in the run, and require the
-   same height.
-
-   "A different point in the run" has to mean the `rand()` STREAM HAS MOVED,
-   or the probe proves nothing -- two identical runs would agree even with a
-   `rand()` implementation. So the second run mines real tiles first, through
-   the real `rules/mining.js`, whose break branch draws from the stream for
-   every drop toss and every rare-trinket roll. `rand()` is then at a
-   different cursor when the seed is planted, and a stream-drawn height would
-   almost certainly differ.
-
-   THE SECOND HALF, and it is the one that makes this a test of `hash2`
-   rather than of determinism in general: two DIFFERENT tiles must be allowed
-   to differ, or a constant would pass. `data/world.js`'s `trees` row declares
-   height [3, 5], so a scan across enough columns must produce more than one
-   value -- otherwise `heightAt` is returning a constant and the positional
-   hash is not being consulted at all. --- */
+/* CLAIM 2: THE RESOLVED HEIGHT IS A FUNCTION OF THE TILE AND NOTHING ELSE.
+   This is what `hash2` buys and what a `rand` draw would not, and it is
+   asserted the only way that distinction is observable: plant the SAME tile in
+   the SAME seed at two DIFFERENT points in the run, and require the same
+   height. */
 {
   let bad = 0;
   const SEED = 9620, tx = 20, ty = 24;
@@ -5926,7 +5101,7 @@ function trunkHeight(band, tx, ty) {
   /* Run B: same seed, but dig a real shaft first so the stream has moved.
      Driven through `stepReal` with `dig`/`down` held, i.e. the real break
      branch, so the drop tosses and the `data/drops.js` rolls really do
-     consume `rand()`. */
+     consume `rand`. */
   const b = growScene(SEED, { tx, ty });
   run.write.collect(D_sub.S.pick, D_form.F.relic, 1);
   player.write.band(b.band);
@@ -5993,29 +5168,12 @@ function trunkHeight(band, tx, ty) {
        `${seen.size} distinct heights in [3, 5], so the positional hash is doing the work`);
 }
 
-/* --- CLAIM 3: MINING A GROWING SEED RETURNS THE SEED AND LEAVES NO ORPHANED
-   PROGRESS. Two facts in one probe because they are two halves of one
-   promise: a misplaced seed costs nothing to recover.
-
-   The ITEM half is free code and is asserted anyway --
-   `model/tiles.js#dropOf` returns the pair itself for any non-NATIVE form, so
-   digging a seedling gives back a `timber/seed` with no seed-specific line
-   anywhere. Counted as a SPAWNED ITEM, not as a journal row, for invariant
-   5's reason (mined material becomes a falling item) and section 8e's own
-   precedent.
-
-   The LEDGER half is the one that could rot silently. `model/growth.js`'s
-   entry is dropped by `model/tiles.js#write.setByte` the instant the byte
-   stops declaring `tile.roots`, so mining it out is enough -- but if that
-   hook were removed the entry would go on accumulating `dt` forever against
-   a tile that is now air, and NOTHING in the game would report it: no cue
-   (the overlay is keyed on the same map, so it would draw a seedling in
-   mid-air), no journal row, and no resolve (`rules/growth.js`'s own
-   still-there check would clear it, which is the belt to this braces).
-
-   HALFWAY THROUGH, deliberately: an entry with 90 seconds on it is the one
-   that would be visible as a stale seedling, where a fresh one looks like
-   nothing. --- */
+/* CLAIM 3: MINING A GROWING SEED RETURNS THE SEED AND LEAVES NO ORPHANED
+   PROGRESS. Two facts in one probe because they are two halves of one promise:
+   a misplaced seed costs nothing to recover. The ITEM half is free code and is
+   asserted anyway -- `model/tiles.js#dropOf` returns the pair itself for any
+   non-NATIVE form, so digging a seedling gives back a `timber/seed` with no
+   seed-specific line anywhere. */
 {
   let bad = 0;
   const { band, tx, ty } = growScene(9630);
@@ -6032,7 +5190,7 @@ function trunkHeight(band, tx, ty) {
   /* The seedling has to be actually mineable by hand: `hardK:0.05` on a 0.35 s
      substance is 0.0175 s, so this breaks in three substeps at 120 fps. The
      player is planted two tiles above it so `resolveStraightDown` targets
-     that one column, exactly as section 8e's `handMineTile` does. */
+     that one column, the way `handMineTile` does. */
   run.write.collect(D_sub.S.pick, D_form.F.relic, 1);
   player.write.band(band);
   player.write.move(world.worldX(band, tx), world.worldY(band, ty - 2));
@@ -6094,32 +5252,9 @@ function trunkHeight(band, tx, ty) {
        `there -- no orphaned progress`);
 }
 
-/* --- CLAIM 4: A FELLED TREE DROPS EXACTLY ONE SEED, ON ITS LAST TRUNK TILE
-   AND NOT BEFORE (D15-A).
-
-   The condition is a COLUMN fact -- "the last remaining trunk tile" -- which
+/* The condition is a COLUMN fact -- "the last remaining trunk tile" -- which
    `data/drops.js` structurally cannot express, so it is real code in
-   `rules/mining.js` and needs a real probe. Three things are asserted, and
-   the middle one is the interesting one:
-
-     a 3-tile trunk felled tile by tile yields ONE seed, not three;
-     the seed arrives on the LAST tile, so a player who fells two of three
-       and wanders off has nothing yet -- which is a reachable and confusing
-       state, named in the plan's risk register, and correct;
-     a PLACED timber tile mined out yields NO seed, which is the
-       `formOf === NATIVE` half of the test. `data/forms.js#rung` is the pair
-       used, since D14-H means `log` no longer places at all -- a rung's byte
-       still reads `timber` through `subOf`, so without that half of the test
-       a player could peg rungs into a wall and farm them for seeds.
-
-   FELLED THE WAY A PLAYER FELLS: the player is dropped two tiles above the
-   crown, holds `dig` and `down`, and `rules/mining.js#resolveStraightDown`
-   does the rest -- as each tile breaks they fall one tile onto the next and
-   the aim retargets, which is why felling a tree needs no per-tile
-   repositioning here and none in the game. One tile of fall per break is far
-   inside `eff('fallSafe')` (5 tiles), so nothing gets hurt doing it. Driven
-   entirely through `stepReal`, so no second direct `rules` import joins
-   `R_place` at the top of this file. --- */
+   `rules/mining.js` and needs a real probe. */
 {
   let bad = 0;
   const { band, tx, ty } = growScene(9640);
@@ -6181,17 +5316,11 @@ function trunkHeight(band, tx, ty) {
   }
 
   /* THE PLACED-LADDER PROBE. A `timber/rung` on its own, mined out: the
-     substance reads `timber` through `subOf` exactly as a trunk does, the
-     form does not read NATIVE, and no seed may appear.
-
-     STRUCK SIDEWAYS AND NOT FROM ABOVE, because a rung is `solid:false` --
-     a player standing over one falls straight through it and ends up digging
-     the floor underneath instead, which would pass this probe while testing
-     nothing. So: stone to stand on one column over, `face` set left, and
-     `aimAtKeys`'s bare horizontal branch (no `down`, no `up`) resolves to
-     the player's own centre row in the column they face. That row is the
-     rung's, since a 16 px body standing on row ty+1 has its centre in row
-     ty. */
+     substance reads `timber` through `subOf` exactly as a trunk does, the form
+     does not read NATIVE, and no seed may appear. STRUCK SIDEWAYS AND NOT FROM
+     ABOVE, because a rung is `solid:false` -- a player standing over one falls
+     straight through it and ends up digging the floor underneath instead,
+     which would pass this probe while testing nothing. */
   {
     const rx = tx + 8;
     for (let dy = -4; dy <= 1; dy++)
@@ -6238,34 +5367,11 @@ function trunkHeight(band, tx, ty) {
        `a placed timber/rung mined out drops none`);
 }
 
-/* --- CLAIM 6: `tile.roots` CHANGED NOTHING FOR ANY OTHER FORM (D15-C).
-
-   The risk this exists for is named in the plan's own register: adding
-   solid-below to `rules/placement.js#placeTile`'s shared backing predicate
-   UNCONDITIONALLY is one fewer branch and reads like the obvious edit, and it
-   would quietly change how a ladder is built -- a rung standing on a floor
-   with nothing beside it, in the exact function CLAUDE.md records wedging a
-   player in their own shaft permanently.
-
-   So this is an exhaustive table rather than a spot check. Every distinct
-   NEIGHBOURHOOD the predicate can see -- above and below each one of
-   {air, solid, climbable}, left and right each one of {air, solid}, 36 in
-   all -- crossed with all four tile-capable forms, and each verdict compared
-   against the predicate computed here INDEPENDENTLY of the module under
-   test. `rung`/`stair`/`block` are held to the PRE-PHASE-15 rule with no
-   `roots` term at all; `seed` is held to that rule plus solid-below. A
-   regression in either direction fails: a rung that started accepting a bare
-   floor, and a seed that did not.
-
-   (`log` is not a fifth column. Phase 14a's D14-H deleted its `tile` block,
-   so `placeTile`'s form gate turns it away with 'THAT DOES NOT BUILD' before
-   the backing predicate is reached at all -- asserted below rather than
-   assumed, since this phase's plan was written when it was still placeable.)
-
-   The neighbourhood is built with `model/tiles.js#write.set` directly, not
-   through the rule: the fixture is the thing being varied and a climbable
-   above the target could not be legally placed there in the first place. The
-   VERDICT is always the real `R_place.placeTile`. --- */
+/* So this is an exhaustive table rather than a spot check. Every distinct
+   NEIGHBOURHOOD the predicate can see -- above and below each one of {air,
+   solid, climbable}, left and right each one of {air, solid}, 36 in all --
+   crossed with all four tile-capable forms, and each verdict compared against
+   the predicate computed here INDEPENDENTLY of the module under test. */
 {
   let bad = 0, cases = 0;
   const OUTSIDE = ['air', 'solid'];
@@ -6353,7 +5459,7 @@ function trunkHeight(band, tx, ty) {
   }
   tiles.write.clear(band, tx, ty);
 
-  /* AND `log` REALLY IS OUT OF THIS FUNCTION ENTIRELY (D14-H). */
+  /* AND `log` REALLY IS OUT OF THIS FUNCTION ENTIRELY. */
   run.write.collect(D_sub.S.timber, D_form.F.log, 1);
   put(tx - 1, ty, 'solid');
   tiles.write.clear(band, tx, ty);
@@ -6370,36 +5476,13 @@ function trunkHeight(band, tx, ty) {
        `solid-below case, and log does not reach the predicate at all`);
 }
 
-/* --- CLAIM 5: `newRun()` STILL FINGERPRINTS IDENTICALLY WITH A GROWING SEED
-   PLANTED IN BETWEEN (invariant 8). The standard pattern this file already
-   uses for `segments` and `ui.autoCollect`: fingerprint a fresh run, dirty
-   it, restart on the SAME seed, fingerprint again.
-
-   `snapshotModel()` covers `growth` as the full entry rather than as a count
-   (see its own note there), so this catches BOTH failure modes: a seed
-   surviving at all, and a seed surviving with its accumulated seconds
-   intact. `b.mat`'s checksum is in that snapshot too, so a seed tile left in
-   the grid fails here even if the ledger were somehow clean.
-
-   THE SEED IS PLANTED HIGH IN THE SKY, AND THAT IS THE WHOLE VALIDITY OF
-   THIS PROBE. Written first at the obvious spot -- row 24, the same shelf
-   every other claim in this section uses -- it PASSED with
-   `growthw.clearAll()` deleted from `shell/boot.js`, which is precisely the
-   trap CLAUDE.md records ("a test that measures the wrong thing passes and
-   teaches nothing"). The reason: `newRun` runs worldgen, worldgen writes
-   through `model/tiles.js#write.set`, and that funnels into the same
-   `setByte` hook that drops a growth entry when the byte at a coordinate
-   stops declaring `tile.roots`. So a stale seed anywhere worldgen writes is
-   swept up INCIDENTALLY, by a mechanism that has nothing to do with the
-   reset, and the reset itself goes unchecked.
-
-   Instrumented `setByte` over a real `newRun` to find where that does not
-   happen: rows 0-12 of the `surface` band are written by nothing at all (the
-   band is `fillByte`'d, which touches `b.mat` directly and bypasses the hook
-   by design, and the shallowest strata handler reaches row 13). A seed at
-   row 6 therefore survives a restart if and only if `clearAll` is missing --
-   which is the fact under test. Verified by deleting that line and watching
-   this fail. --- */
+/* CLAIM 5: `newRun` STILL FINGERPRINTS IDENTICALLY WITH A GROWING SEED PLANTED
+   IN BETWEEN. The standard pattern this file already uses for `segments` and
+   `ui.autoCollect`: fingerprint a fresh run, dirty it, restart on the SAME
+   seed, fingerprint again. `snapshotModel` covers `growth` as the full entry
+   rather than as a count (see its own note there), so this catches BOTH
+   failure modes: a seed surviving at all, and a seed surviving with its
+   accumulated seconds intact. */
 {
   const seed = 9650;
   boot.newRun(seed);
@@ -6438,44 +5521,18 @@ function trunkHeight(band, tx, ty) {
        `fresh run on the same seed`);
 }
 
-/* ============================================================
-   8h. BAND SEAMS — A CROSSING IS MONOTONE AND HAPPENS ONCE
-   ------------------------------------------------------------
-   `data/world.js` stacks three bands in one vertical space, so the world has
-   two seams: astral/surface at world y 320, surface/topsoil at 768. The hitbox
-   is 16 px against an 8 px tile, so EVERY crossing spends 15 px with the box in
-   two bands at once — and nothing in this harness looked at that until a player
-   reported "dig down from layer II to III and you teleport up". Section 3's
-   fuzz wanders around spawn; the framerate sweeps mine one tile; every scripted
-   scene in sections 4 to 8g is carved inside a SINGLE band. The one seam-shaped
-   thing that was ever tested is `bandBelow`'s existence.
-
-   WHAT WAS WRONG. `rules/player.js#reband` tested the two LEADING edges — feet
-   past the bottom of the band to hand off down, head above the top to hand off
-   up — and both are true for the whole straddle, so the band flipped EVERY
-   FRAME. Each flip then resolved collision against a grid that answers BEDROCK
-   for the half of the box hanging out of it (`model/tiles.js#tileAt`, correctly,
-   for the edge of the WORLD), which snapped the player back up flush to the
-   seam with `vy` zeroed. Measured down a fully cleared shaft: 154 band flips in
-   200 frames, y oscillating between 752 and 753, not one pixel of descent. A
-   ladder out of topsoil stalled identically at 767/768. Both seams, both
-   directions: the shaft simply ended.
-
-   WHY THE CLAIMS ARE ABOUT MOTION AND NOT ABOUT `reband`. "One band flip" alone
-   goes green on a handoff that never happens; "ends up in topsoil" alone goes
-   green on a player teleported there. So every crossing below asserts the
-   arrival, the single flip, AND that no substep moved the player against the
-   direction of travel — which is the property the report described the absence
-   of. Checked descending, climbing, on a diagonal staircase, and at the other
-   seam, because the fix has to be about seams and not about one of them.
-   ============================================================ */
+/* 8h. BAND SEAMS -- A CROSSING IS MONOTONE AND HAPPENS ONCE.
+   `data/world.js` stacks three bands in one vertical space, so the world has two seams:
+   astral/surface at world y 320, surface/topsoil at 768. The hitbox is 16 px
+   against an 8 px tile, so EVERY crossing spends 15 px with the box in two
+   bands at once — and nothing in this harness looked at that until a player
+   reported "dig down from layer II to III and you teleport up". */
 console.log('\n8h. BAND SEAMS (the reported layer II -> III teleport)');
 
 /* Carve columns `tx`..`tx+w-1` clear over rows `fromTy`..`toTy`, and hand back
    whether every one of them is actually air afterwards. The return value is not
    decoration: a scene that failed to carve itself makes every claim below
-   vacuous, which is the "test that silently tests nothing" CLAUDE.md records
-   twice. */
+   vacuous, which is a test silently testing nothing. */
 function seamCarve(b, tx, fromTy, toTy, w = 2) {
   let clear = true;
   for (let ty = fromTy; ty <= toTy; ty++)
@@ -6499,7 +5556,7 @@ function seamLadder(b, tx, fromTy, toTy) {
    0 for a clean crossing, and the whole bug when it is not.
 
    `player.write.spawn` is the only legal way to park the player for this: it
-   resets `fallFrom` along with everything else, and a bare `move()` leaves
+   resets `fallFrom` along with everything else, and a bare `move` leaves
    `fallFrom` where the previous scene was, so the first landing bills the
    teleport as a fall and kills the player before the claim is reached. That
    cost half an hour while writing this section. */
@@ -6522,7 +5579,7 @@ function seamRun(steps, dir, want = {}) {
    landing exactly on the boundary it names. Derived, because the two climb
    claims below spent a fixed 260 substeps each -- 2.167 s, which is what
    30 px/s needs for the 64 px they require -- and that literal blocked a
-   `climb` retune for a whole wave (docs/FINDINGS.md phase 6t). The overshoot
+   `climb` retune for a whole wave. The overshoot
    stays one tile on purpose: both claims assert `worstBack === 0` over the
    WHOLE run, and a budget long enough to reach the rock above the shaft would
    bill a legitimate ceiling bonk as a slip. */
@@ -6697,12 +5754,11 @@ const climbSteps = dist => Math.ceil(((dist + 8) / mods.eff('climb')) * 120);
        `${(r.y - seam).toFixed(0)} px past the seam`);
 }
 
-/* --- CLAIM 5: THE OTHER SEAM, BOTH WAYS.
-   astral/surface at y 320, and it is not a duplicate of claims 1 and 3: the fix
-   is either about seams or about one of them, and this is the seam CLAUDE.md D5
-   hangs the whole Heavens act on — cargo ascends, the player rides up and can
-   step off the dock into a fatal fall. Both of those need the crossing to work
-   in the direction the other claims do not cover for this pair. --- */
+/* --- CLAIM 5: THE OTHER SEAM, BOTH WAYS. astral/surface at y 320, and not a
+   duplicate of the claims above: a seam fix is either general or about one
+   seam, and this is the seam the whole Heavens act hangs on -- cargo ascends,
+   the player rides up and can step off the dock into a fatal fall. Both need
+   the crossing to work in the direction the other claims leave out. --- */
 {
   const SEED = 4242, TX = 20;
   boot.newRun(SEED);
@@ -6746,33 +5802,9 @@ const climbSteps = dist => Math.ceil(((dist + 8) / mods.eff('climb')) * 120);
 console.log('\n8i. THE FEED VERB (Phase 16a, docs/SPEC.md section 23)');
 {
   /* ONE PRESS, ONE UNIT -- and the measurement is a DIFFERENCE, which is the
-     single most important thing to understand about this probe.
-
-     BEFORE THE FEED VERB EXISTED, `rules/machines.js#handFeed` -- the
-     automatic proximity drain -- was still live and still unconditional. A
-     player standing 6 px from an altar with copper ore in their pockets lost
-     ONE unit per substep to the magnet whether or not they pressed anything,
-     so a probe that stood there and asserted "the pockets went down by
-     exactly one" would have been measuring the magnet, passing for the wrong
-     reason, and would have kept passing with the new verb deleted.
-
-     So: run the IDENTICAL frame twice from the identical seed, once without
-     the intent and once with it, and assert the DIFFERENCE is exactly one
-     unit. That is the verb's own contribution, isolated, and it is 0 if
-     `handOne` does nothing and 2+ if a press ever feeds a stack.
-
-     PHASE 16b PUT THE MAGNET BEHIND `ui.autoFeed` (default false), so the
-     baseline is now a zero -- and NOT ONE ASSERTION HERE HAD TO CHANGE
-     except the one that measures the baseline itself, at the bottom. That is
-     the whole payoff of measuring a difference instead of a total, and it is
-     the reason this section is worth reading before writing another one.
-
-     MOUSE AIM, not keyboard aim, and the coordinate is derived rather than
-     typed: `rules/mining.js#aimAtKeys` only ever reaches ONE tile in the
-     facing direction, which is not far enough to point at a machine the
-     player is standing 6 px clear of. `cmd.mx/my` are WORLD px read off the
-     machine's own box, so this is not the hardcoded-screen-coordinate mistake
-     CLAUDE.md records -- there is no viewport in it. */
+     single most important thing to understand about this probe. BEFORE THE
+     FEED VERB EXISTED, `rules/machines.js#handFeed` -- the automatic proximity
+     drain -- was still live and still unconditional. */
   const SEED = 9160;
   let bad = 0;
 
@@ -6879,9 +5911,8 @@ console.log('\n8i. THE FEED VERB (Phase 16a, docs/SPEC.md section 23)');
   }
 
   /* PRECEDENCE: the same full furnace, the WRONG material. Both refusals are
-     true at once and section 23.4 fixes which is said -- the material, not
-     the room, because a player holding a rung does not care that a buffer
-     they could never fill is full. */
+     true at once, and the material is the one said -- a player holding a rung
+     does not care that a buffer they could never fill is full. */
   const bothM = feedScene(D_mach.M.furnace);
   machs.write.take(bothM.m, D_sub.S.copper, D_form.F.ore, 8);
   run.write.collect(D_sub.S.timber, D_form.F.rung, 2);
@@ -6903,7 +5934,7 @@ console.log('\n8i. THE FEED VERB (Phase 16a, docs/SPEC.md section 23)');
      old 1. The difference assertion above still holds regardless -- one
      press is worth exactly one unit more than doing nothing, whether doing
      nothing costs one or costs zero. The 240-substep version of this claim
-     is section 8j below. */
+     is the standing-still probe below. */
   if (drained !== 0) {
     fail(`FEED VERB (baseline): a player standing ${gap(base.m)} px from an altar with 3 copper/ore and ` +
          `NO press lost ${drained} unit(s) in one substep, not 0 -- rules/machines.js#handFeed must run ` +
@@ -6917,28 +5948,13 @@ console.log('\n8i. THE FEED VERB (Phase 16a, docs/SPEC.md section 23)');
        'docs/SPEC.md section 23.4\'s locked order');
 }
 
-/* ============================================================
-   8j. STANDING STILL COSTS NOTHING (Phase 16b, D16-C)
-   ------------------------------------------------------------
-   THE HEADLINE BEHAVIOUR CHANGE OF THE WHOLE PHASE, and the only probe in
-   this file whose subject is something the game DOES NOT do. Two seconds of
-   simulated time, a player 4 px from an altar that accepts exactly what they
-   are carrying, ten copper ore in the pockets, and NO input at all: the
-   pockets must still read ten.
-
-   4 px, not the 6 the section above uses, deliberately: `handFeed.reach` is
-   10 px, so this is comfortably inside the reach of the very thing being
-   asserted not to fire. A probe standing out of reach would pass with the
-   gate deleted.
-
-   AND THE ANTI-HOLLOW HALF, which matters more than the first: the identical
-   scene with `setAutoFeed(true)` must lose everything. Without that, this
-   probe would keep passing if the scene were quietly wrong -- an altar that
-   does not accept ore, a player standing 40 px away, a machine that was
-   never placed -- which is exactly the mistake CLAUDE.md records twice
-   ("a test that measures the wrong thing passes and teaches nothing";
-   "prove the pixels differ with it off").
-   ============================================================ */
+/* 8j. STANDING STILL COSTS NOTHING, the headline BEHAVIOUR CHANGE OF THE WHOLE
+   PHASE, and the only probe in this file whose subject is something the game
+   DOES NOT do. Two seconds of simulated time, a player 4 px from an altar that
+   accepts exactly what they are carrying, ten copper ore in the pockets, and
+   NO input at all: the pockets must still read ten. 4 px, not the 6 the
+   section above uses, deliberately: `handFeed.reach` is 10 px, so this is
+   comfortably inside the reach of the very thing being asserted not to fire. */
 console.log('\n8j. STANDING STILL COSTS NOTHING (Phase 16b)');
 {
   let bad = 0;
@@ -6963,8 +5979,7 @@ console.log('\n8j. STANDING STILL COSTS NOTHING (Phase 16b)');
     return { band, m };
   };
 
-  /* THE CLAIM: AUTO FEED off (the default -- `newRun` above has just reset it,
-     which is itself asserted in section 3's newRun-reset probe). */
+  /* THE CLAIM: AUTO FEED off. */
   const off = standScene();
   const offGap = Math.round(off.m.box.x - (player.player.x + player.PW));
   runReal(N, 1 / 120, { hasMouse: false });
@@ -6997,23 +6012,9 @@ console.log('\n8j. STANDING STILL COSTS NOTHING (Phase 16b)');
        `ON loses every one of them, so the claim has teeth (Phase 16b, D16-C)`);
 }
 
-/* ============================================================
-   8k. THE QUICKBAR FILLS FIRST (Phase 17i, docs/SPEC.md section 24)
-   ------------------------------------------------------------
-   `model/run.js#write.collect` allocates a brand-new pair into the
-   quickbar's tail before the main grid, so the order the strip fills in is
-   a behavioural contract and not a display detail. Driven through the REAL
-   pickup path -- a ground item under the player and `cmd.collect` held --
-   because invariant 5 says mined material arrives as a falling item, and
-   because the two refusals in `rules/items.js#step` are only reachable from
-   there.
-
-   THE BURDEN CAP IS CHECKED FIRST in that function, so the full-inventory
-   probe below lifts `burden` through `model/mods.js` rather than hunting for
-   38 pairs light enough to fit under 40 T. The 44 crossable pairs weigh
-   60.9 T together; a probe that did not lift the cap would report the wrong
-   refusal and pass.
-   ============================================================ */
+/* 8k. THE QUICKBAR FILLS FIRST. `model/run.js#write.collect` allocates a
+   brand-new pair into the quickbar's tail before the main grid, so the order the
+   strip fills in is a behavioural contract and not a display detail. */
 console.log('\n8k. THE QUICKBAR FILLS FIRST (Phase 17i)');
 {
   let bad = 0;
@@ -7054,7 +6055,7 @@ console.log('\n8k. THE QUICKBAR FILLS FIRST (Phase 17i)');
     for (const form of Object.keys(D_form.FORM))
       if (D_form.crossable(+sub, +form) && +form !== D_form.F.brand) ALL.push([+sub, +form]);
 
-  /* ---- fill order: the strip first, left to right, then slot 0 of the bag ---- */
+  /* Fill order: the strip first, left to right, then slot 0 of the bag. */
   {
     const band = room(7717);
     const want = QUICK + 1;
@@ -7087,7 +6088,7 @@ console.log('\n8k. THE QUICKBAR FILLS FIRST (Phase 17i)');
     }
   }
 
-  /* ---- merge-first outranks the fill order ---- */
+  /* Merge-first outranks the fill order. */
   {
     const band = room(7718);
     const [sub, form] = [D_sub.S.copper, D_form.F.ore];
@@ -7106,7 +6107,7 @@ console.log('\n8k. THE QUICKBAR FILLS FIRST (Phase 17i)');
     }
   }
 
-  /* ---- every slot full: refused, and the ground keeps it ---- */
+  /* Every slot full: refused, and the ground keeps it. */
   {
     const band = room(7719);
     mods.write.add('phase17i-capacity', [{ key: 'burden', mul: 100 }]);
@@ -7138,22 +6139,11 @@ console.log('\n8k. THE QUICKBAR FILLS FIRST (Phase 17i)');
   if (bad) fail(`QUICKBAR: ${bad} of 3 fill-order probes failed`);
 }
 
-/* ============================================================
-   8l. THE DRAFT — the offer, the pause and the price
-   ------------------------------------------------------------
-   `rules/draft.js` had no headless coverage at all. The only mention of
-   `run.offer` in this file before this section took a card purely so the
-   win-state probe could get past cycle 2's reward.
-
-   THE WHOLE SECTION GOES THROUGH `main.step()` AND `main.applyIntents()`.
-   A draft is a one-shot intent, not a substep, so `frameReal` is what raises
-   one; `rules/draft.js` is never called directly. Claims 1 and 2 raise the
-   offer off `shell/input.js#wants.draft`, the field the debug 'b' key sets,
-   because a debug draft and a trial's reward are the same raise path by
-   design (`shell/main.js#applyIntents`). Claim 3 pays three real trials
-   through the director instead, because a debug draft carries no asking god
-   and the price of a reroll is a named god's favour.
-   ============================================================ */
+/* 8l. THE DRAFT -- the offer, the pause and the price. `rules/draft.js` had
+   no headless coverage at all. The only mention of `run.offer` in this file
+   before this section took a card purely so the win-state probe could get past
+   cycle 2's reward. THE WHOLE SECTION GOES THROUGH `main.step` AND
+   `main.applyIntents`. */
 console.log('\n8l. THE DRAFT: the offer, the pause and the price (Phase 17c, D17-A/B/F)');
 {
   let bad = 0;
@@ -7161,10 +6151,10 @@ console.log('\n8l. THE DRAFT: the offer, the pause and the price (Phase 17c, D17
   const PRICE = Math.max(0, Math.round(mods.eff('rerollCost')));
   const BOON_IDS = D_boon.BOONS.map(b => b.id);
 
-  /* `newRun()` clears the model and leaves `shell/ui.js#ui.stack` alone, and
+  /* `newRun` clears the model and leaves `shell/ui.js#ui.stack` alone, and
      the modal's staleness sweep lives in `applyIntents`. One intent pass
      after a reset therefore drops a modal the previous probe left standing,
-     so the next `step()` is not silently frozen by it. */
+     so the next `step` is not silently frozen by it. */
   const freshRun = seed => { boot.newRun(seed); main.applyIntents(); };
 
   const raiseBoon = () => { input.wants.draft = 'boon'; frameReal(1 / 120, { hasMouse: false }); };
@@ -7220,7 +6210,7 @@ console.log('\n8l. THE DRAFT: the offer, the pause and the price (Phase 17c, D17
   }
 
   /* --- CLAIM 2: THE MODAL FREEZES THE RUN, AND THE RUN RESUMES WHERE IT
-     STOPPED (D17-A). Measured on a falling item, because a substep that does
+     STOPPED. Measured on a falling item, because a substep that does
      not run is invisible unless something was mid-flight when it stopped.
      The control run is the same seed with no modal raised, so the assertion
      is a comparison against a world that did advance rather than against a
@@ -7287,9 +6277,9 @@ console.log('\n8l. THE DRAFT: the offer, the pause and the price (Phase 17c, D17
   /* --- CLAIM 3: THE PRICE, AND THE TWO REFUSALS. Driven through the real
      director, three shipped trials paid in turn, so the god who asks is the
      god whose favour a reroll spends and neither the price nor the purse is
-     written here. Each trial's own ledger is credited outright, the way
-     section 8f's win-state claim does it -- what is under test is the offer
-     a reward raises, not the delivery that earned it. --- */
+     written here. Each trial's own ledger is credited outright, the way the
+     win-state claim does it -- what is under test is the offer a reward
+     raises, not the delivery that earned it. --- */
   {
     freshRun(9840);
     const payLive = () => {
@@ -7422,25 +6412,8 @@ console.log('\n8l. THE DRAFT: the offer, the pause and the price (Phase 17c, D17
   if (bad) fail(`DRAFT: ${bad} of 3 draft probes failed`);
 }
 
-/* ============================================================
-   8m. THE BATCH CLAUSE — a rolling window on simulated time
-   ------------------------------------------------------------
-   Cycle 4's `batch:{ sub, form, n, secs }` (D17-C, docs/SPEC.md §18.10) had
-   no assertion anywhere. Section 8f only worked around it, stamping a credit
-   into the ledger by hand so the win-state probe could get past the row.
-
-   SWEPT AT THE SAME EIGHT FRAMERATES SECTION 3'S HARDNESS TABLE USES,
-   because a window measured on `Date.now()` and a window measured on `run.t`
-   are indistinguishable at one framerate and nowhere near each other at
-   eight. Every delivery goes through the real feed verb at the sweep's own
-   frame, so the credit is stamped by `rules/cycles.js#creditTribute` off
-   `run.t` and nothing here writes a credit.
-
-   THE FLAT DEMAND IS CREDITED OUTRIGHT AT THE START, so the batch clause is
-   the only thing left between the rig and a paid trial. Four plates
-   delivered too far apart must NOT pay it, and a fifth inside the window
-   must -- the same four arrivals, passing or failing on their spacing alone.
-   ============================================================ */
+/* 8m. THE BATCH CLAUSE -- a rolling window on simulated time. A cycle's
+   `batch:{ sub, form, n, secs }` had no assertion anywhere. */
 console.log('\n8m. THE BATCH CLAUSE: a rolling window on simulated time (Phase 17d, D17-C)');
 {
   const RATES = [20, 30, 60, 90, 107, 120, 144, 240];
@@ -7459,9 +6432,9 @@ console.log('\n8m. THE BATCH CLAUSE: a rolling window on simulated time (Phase 1
   const PLATE = ROW ? [D_sub.S[ROW.batch.sub], D_form.F[ROW.batch.form]] : [0, 0];
 
   /* A dock on a real footing in `topsoil`, the player 6 px off its left edge
-     -- the same rig and the same 6 px section 8i's feed probe stands at, for
-     the same reason: the feed verb's own reach gate has to consider this
-     "standing beside it". The cycle is armed by moving `run.cycle`, since
+     -- the same rig and the same 6 px the feed probe stands at, for the same
+     reason: the feed verb's reach gate has to count this as standing beside
+     it. The cycle is armed by moving `run.cycle`, since
      what is under test is this row's clause and not the three trials in
      front of it. */
   const rig = (seed, dt) => {
@@ -7490,7 +6463,7 @@ console.log('\n8m. THE BATCH CLAUSE: a rolling window on simulated time (Phase 1
      reconstructed as frames x dt. NaN if it never held.
 
      BOUNDED BY FRAMES AND NOT BY `run.t`, deliberately: a won run and a
-     modal both make `main.step()` return without advancing the clock, so a
+     modal both make `main.step` return without advancing the clock, so a
      `while (run.t < limit)` loop here does not terminate under a
      perturbation that pays the trial early. That is exactly the shape a
      perturbation takes, and a hung checker reports nothing. */
@@ -7599,21 +6572,12 @@ console.log('\n8m. THE BATCH CLAUSE: a rolling window on simulated time (Phase 1
   if (bad) fail('BATCH CLAUSE: the rolling window does not hold');
 }
 
-/* ============================================================================
-   8n. EVERY CALLOUT FITS THE NARROWEST BUFFER
-
-   `view/hud.js#bottomLine` clamps its panel to the viewport and then draws
-   text inside it with no clip, so a row wider than the panel spilled off the
-   right edge. At `core/canvas.js#BASE_W_MIN` that was 8 of the 9 rows in
-   `data/callouts.js`, and the one that mattered most lost its quantity: a
-   player read 'CLICK YOUR ORE, THEN THE ALTAR -' and never saw '10 COPPER'.
-
-   The budget comes from `view/hud.js#calloutLines`, the renderer's own
-   wrapper, so this cannot drift from what is actually drawn. The second
-   claim is what keeps the first from being vacuous: at least one row must
-   still be too wide UNWRAPPED, or the wrap is doing no work and the
-   assertion would pass on any content.
-   ============================================================================ */
+/* 8n. EVERY CALLOUT FITS THE NARROWEST BUFFER. `view/hud.js#bottomLine` clamps
+   its panel to the viewport and then draws text inside it with no clip, so a
+   row wider than the panel spilled off the right edge. At
+   `core/canvas.js#BASE_W_MIN` that was 8 of the 9 rows in `data/callouts.js`,
+   and the one that mattered most lost its quantity: a player read 'CLICK YOUR
+   ORE, THEN THE ALTAR -' and never saw '10 COPPER'. */
 console.log('\n8n. EVERY CALLOUT FITS THE NARROWEST BUFFER (view/hud.js#bottomLine)');
 {
   const { CALLOUTS } = await import('../src/data/callouts.js');
@@ -7658,7 +6622,7 @@ console.log('\n8o. DAYLIGHT STOPS AT A SEAM (docs/AUDIT-seam-light.md)');
    from `model/world.js#bandAbove` rather than from band ids -- a fourth band
    costs this section nothing. Columns are mapped through WORLD X, so a band
    with a different `tile` or `origin.x` than its neighbour is still compared
-   against the column that is actually above it (invariant 2). */
+   against the column that is actually above it. */
 function seamRows() {
   const out = [];
   for (const b of world.bands) {
@@ -7672,18 +6636,10 @@ const seamCols = (a, b, tx) => {
   return { atx: world.tileX(a, wx), aty: a.th - 1 };
 };
 
-/* --- CLAIM 1: LIGHT DOES NOT CROSS A SEAM FOR FREE.
-
-   The level either side of a seam may differ by at most one tile of falloff,
-   because a buried row 0 is seeded from the band above through exactly the
-   same `relax` cost as any other tile. `eff('lightFalloffRock')` is the
-   larger of the two costs, so it is the bound whichever the tile is.
-
-   A BAND CARRYING SKY OF ITS OWN IS EXEMPT, and the exemption is content
-   rather than slack: astral's floor slab is solid over every column of the
-   surface band, whose own 20 rows of sky are what light it, so the step across
-   that ceiling is 0 to 15 by design. The claim is about a band whose row 0 is
-   BURIED -- `topsoil`'s is, under 28 rows of surface rock. --- */
+/* CLAIM 1: LIGHT DOES NOT CROSS A SEAM FOR FREE. The level either side of a
+   seam may differ by at most one tile of falloff, because a buried row 0 is
+   seeded from the band above through exactly the same `relax` cost as any
+   other tile. */
 {
   boot.newRun(1337);
   runReal(4, 1 / 120);
@@ -7749,19 +6705,10 @@ const seamCols = (a, b, tx) => {
        `three seeds have a clear path out of the world (model/tiles.js#worldSkyAt)`);
 }
 
-/* --- CLAIM 3: A CROSSING REVEALS A BOUNDED NEIGHBOURHOOD.
-
-   The shaft is carved from surface row 44 down, NOT from the sky, so nothing
-   above row 44 is open and `worldSkyAt` is false the whole way -- Pass A never
-   fires and every tile revealed below is Pass B's, bounded by
-   `eff('sightRadius')`. That is the point of the scene: before the fix, Pass A
-   fired on `skyExposedAt` and un-fogged all 128 columns of topsoil's row 0 in
-   the single substep `player.band` flipped.
-
-   The bound is Manhattan distance in tiles from the box's own swept path, which
-   is a NECESSARY condition on a 4-connected flood capped at graph distance
-   `radius` -- a tile the flood reached cannot be further than `radius` hops
-   from a seed, and a hop is one tile. --- */
+/* CLAIM 3: A CROSSING REVEALS A BOUNDED NEIGHBOURHOOD. The shaft is carved
+   from surface row 44 down, NOT from the sky, so nothing above row 44 is open
+   and `worldSkyAt` is false the whole way -- Pass A never fires and every tile
+   revealed below is Pass B's, bounded by `eff('sightRadius')`. */
 {
   const SEED = 4242, TX = 20, W = 2;
   boot.newRun(SEED);
@@ -7816,28 +6763,12 @@ const seamCols = (a, b, tx) => {
        `${worstCol}), and ${row0} of ${top.tw} row-0 columns against a bound of ${row0Bound}`);
 }
 
-/* --- CLAIM 4: THE PLAYER'S OWN TILES ARE REVEALED IN EVERY BAND THE HITBOX
-   OVERLAPS.
-
-   Both seams, and the box straddling each of them in both DIRECTIONS -- which
-   is about which band `rules/player.js#reband` hands back, not about which way
-   the player is travelling. `reband` reads the box CENTRE, so a box bottom past
-   the seam with its centre still above gives `ty1 >= b.th`, and a box top above
-   the seam with its centre already below gives `ty0 < 0`. Both used to lose
-   their out-of-range rows: `model/world.js#write.reveal` refuses an
-   out-of-bounds tile silently, so `view/scene.js#drawFog` painted over seven of
-   the sprite's sixteen rows.
-
-   TWO GUARDS, BECAUSE NEITHER ALONE KEEPS A SCENE HONEST. The expected band is
-   asserted, so a change to `reband`'s split cannot quietly collapse four
-   scenes into two. And each scene counts how many of the player's own tiles
-   were fogged BEFORE the step, so a scene whose tiles were already revealed
-   reports that rather than passing on it. `preSeen` marks the one scene where
-   that is the world's own doing and not a flaw: `shell/boot.js` calls
-   `revealRows(home, floorTy + 8)` at spawn, which reveals every column of
-   surface rows 0..27, so the lower side of the astral seam is never fogged in
-   a real run. That direction is covered non-vacuously at the surface/topsoil
-   seam instead. --- */
+/* CLAIM 4: THE PLAYER'S OWN TILES ARE REVEALED IN EVERY BAND THE HITBOX
+   OVERLAPS. Both seams, and the box straddling each of them in both DIRECTIONS
+   -- which is about which band `rules/player.js#reband` hands back, not about
+   which way the player is travelling. `reband` reads the box CENTRE, so a box
+   bottom past the seam with its centre still above gives `ty1 >= b.th`, and a
+   box top above the seam with its centre already below gives `ty0 < 0`. */
 {
   const TX = 20;
   const scenes = [
@@ -7916,7 +6847,7 @@ const seamCols = (a, b, tx) => {
 console.log('\n8p. A CATCH BOX CATCHES WHAT FALLS THROUGH ITS MOUTH (Phase 6q, docs/SPEC.md section 18)');
 
 /* Every machine row that declares a catch box, with the pair its OWN ports
-   accept -- read through `expand()` (the validator `data/forms.js` exports for
+   accept -- read through `expand` (the validator `data/forms.js` exports for
    exactly this) and `acceptedBy`, so a row whose selectors change is probed
    with whatever it now takes rather than with a guess. */
 const CATCHERS = D_mach.MACH.map((def, i) => ({ def, i }))
@@ -7953,23 +6884,7 @@ function catchScene(tx, ty, up, down) {
   return b;
 }
 
-/* --- CLAIM 1: THE CAUGHT REGION IS `mouth ± slack` AND NOTHING WIDER.
-
-   The bug this would have caught shipped for the whole life of the project and
-   is in docs/SPEC.md section 18: `model/space.js#query` visits whole 32 px
-   buckets, so `itemsIn` handed back every occupant of every bucket the rect
-   overlapped and a furnace swallowed ore four tiles to one side of its mouth.
-   Its catch area was 2,048 px of bucket grid; it is 232 positions of declared
-   rect.
-
-   THE EXPECTED VALUE IS DERIVED TWICE OVER, and neither half is a literal.
-   The rect comes off `m.mouth` and the row's own `slack`. The POSITION tested
-   against it comes from a control pass over the same grid with no machine
-   placed, because `shell/schedule.js` runs `items` before `machines`: an item
-   is integrated once before any catch box looks at it, so a position on the
-   rect's lower edge has already fallen out of it by the time it is judged.
-   Measuring that drift through the real loop rather than predicting it is what
-   keeps the claim about the rect instead of about gravity. --- */
+/* CLAIM 1: THE CAUGHT REGION IS `mouth ± slack` AND NOTHING WIDER. */
 {
   const PAD = 3;
   let bad = 0;
@@ -8048,18 +6963,11 @@ function catchScene(tx, ty, up, down) {
   }
 }
 
-/* --- CLAIM 2: NOTHING FALLS THROUGH A MOUTH IT SHOULD HAVE ENTERED.
-
-   Stated as arithmetic first and then measured. `shell/main.js#STEP` is a
-   fixed 1/120 s and `rules/items.js#integrate` clamps to `eff('terminal')`, so
-   the furthest an item can move between two looks at a catch box is
-   `terminal * STEP` -- and while that is under the box's own height the box
-   cannot be stepped over. The measurement drops an item that is ALREADY at
-   terminal from four tiles up, which is the worst case that exists, down every
-   column of the rect and one column outside each edge.
-
-   The outside columns are what keep it honest: a catch box that swallowed
-   everything in its bucket would catch those too. --- */
+/* CLAIM 2: NOTHING FALLS THROUGH A MOUTH IT SHOULD HAVE ENTERED. Stated as
+   arithmetic first and then measured. `shell/main.js#STEP` is a fixed 1/120 s
+   and `rules/items.js#integrate` clamps to `eff('terminal')`, so the furthest
+   an item can move between two looks at a catch box is `terminal * STEP` --
+   and while that is under the box's own height the box cannot be stepped over. */
 {
   const term = mods.eff('terminal');
   const perStep = term * main.STEP;
@@ -8127,21 +7035,16 @@ function catchScene(tx, ty, up, down) {
 
 console.log('\n8q. THE DIG QUEUE DIGS WITH NO BUTTON HELD (Phase 6i, docs/SPEC.md section 28)');
 
-/* Written against BEHAVIOUR and never against the selection policy. Which mark
-   the pick works next, and whether it commits to one until it is done, is
-   `rules/mining.js`'s to change; that a mark breaks with nothing held, that an
-   out-of-reach mark waits, and that no mark survives a restart are the
-   contract docs/SPEC.md section 28 states.
+/* Written against BEHAVIOUR and never against the selection policy. Which
+   mark the pick works next is `rules/mining.js`'s to change; that a mark
+   breaks with nothing held, that an out-of-reach mark waits, and that no mark
+   survives a restart are the contract.
 
-   THE SCENE IS A CORRIDOR IN `topsoil`, well away from spawn: three rows of
-   headroom over a stone floor the player stands on, and the marked tiles go in
-   the row UNDER that floor. Marking the floor itself would drop the player into
-   their own trench and the probe would be measuring a fall.
-
-   The stock pick goes in the pockets deliberately. It is not starting
-   inventory -- `rules/generate.js` drops one on the ground and
-   `model/run.js#hasPick` is `bestTool() !== null` -- so a probe that skipped
-   this would measure a tile that never breaks. */
+   THE MARKED TILES GO IN THE ROW UNDER THE FLOOR the player stands on --
+   marking the floor would drop them into their own trench and the probe would
+   measure a fall. The stock pick goes in the pockets deliberately: it is not
+   starting inventory, so a probe that skipped it would measure a tile that
+   never breaks. */
 const QUEUE_TX = 12, QUEUE_TY = 60, QUEUE_RUN = 14;
 function queueScene(seed = 1461) {
   boot.newRun(seed);
@@ -8172,8 +7075,8 @@ const tileReach = (b, tx, ty) => {
 
 /* Substeps the pick needs for `n` tiles of `subId`, from the rows that set the
    price: `tile.hard x tile.charge / (pickPower x tool power)`. Times three,
-   because the queue walks its own commitment and section 8e already owns the
-   exact-seconds claim. */
+   because the queue walks its own commitment and the depletion section owns
+   the exact-seconds claim. */
 function digBudget(subId, n) {
   const row = D_sub.SUB[D_sub.S[subId]].tile;
   const power = mods.eff('pickPower') * (run.bestTool()?.power ?? 1);
@@ -8184,7 +7087,8 @@ function digBudget(subId, n) {
 
    `cmd` is empty on every substep -- no `dig`, no `mouse`, no `collect` -- so
    the only thing that can break these tiles is the queue. Copper rather than
-   soil because soil's `dropChance` is 0.05 and invariant 5 asserted over three
+   soil because soil's `dropChance` is 0.05 and mined material becomes a falling item
+   asserted over three
    soil tiles is a coin flip. The probe asserts all three tiles start inside
    `eff('reach')` rather than assuming it. --- */
 {
@@ -8289,21 +7193,11 @@ function digBudget(subId, n) {
        `moving 1 px, and walking right clears all ${brokeWalked}`);
 }
 
-/* --- CLAIM 3: NO MARK SURVIVES `newRun()` (invariant 8).
-
-   THE SAME SEED, AND TILES THIS PROBE NEVER EDITED. `model/digqueue.js` records
-   the byte a tile was marked on, and regenerating the same seed writes the same
-   bytes back to the same coordinates -- so a byte comparison alone finds every
-   mark of the previous run perfectly valid and this claim would pass on a
-   determinism bug. The probe asserts that identity first, so the assertion
-   below cannot be satisfied by the terrain having changed. What actually holds
-   it is the band-record identity test in `model/digqueue.js#stale`: `newRun`
-   allocates a fresh record per band, so `m.band !== bands[m.ord]`.
-
-   Asserted through the reads a caller has, so the claim survives whichever
-   mechanism enforces it -- `shell/boot.js#newRun` has no
-   `digqueue.write.clearAll()` today and docs/SPEC.md section 28.4 says it
-   should gain one. --- */
+/* CLAIM 3: NO MARK SURVIVES `newRun`. THE SAME SEED, AND TILES THIS PROBE
+   NEVER EDITED. `model/digqueue.js` records the byte a tile was marked on, and
+   regenerating the same seed writes the same bytes back to the same
+   coordinates -- so a byte comparison alone finds every mark of the previous
+   run perfectly valid and this claim would pass on a determinism bug. */
 {
   const SEED = 1337;
   const { b, tx, ty } = queueScene(SEED);
@@ -8346,11 +7240,10 @@ function digBudget(subId, n) {
        `from seed ${SEED} are all unreadable after newRun(), and none survives the first substep`);
 }
 
-/* --- CLAIM 4: A QUEUED TILE COSTS ITS STATED SECONDS AT ANY FRAMERATE
-   (invariant 10).
+/* --- CLAIM 4: A QUEUED TILE COSTS ITS STATED SECONDS AT ANY FRAMERATE.
 
-   Section 8e owns this for a HAND swing. The queue is a second route into the
-   same `swing`, so it gets the same sweep: the expected time is the substance
+   The depletion section owns this for a HAND swing. The queue is a second
+   route into the same `swing`, so it gets the same sweep: the expected time is the substance
    row's own `hard x charge` divided by the pick's power, and the tolerance is
    one frame of the rate under test plus one fixed substep -- the loop banks
    leftover dt, so a 20 fps frame can only resolve the break to 1/20 s. --- */
@@ -8466,7 +7359,7 @@ const saveSnap = () => JSON.stringify({
    in the ledger, a planted seed part-grown, a loose item mid-flight, two hubs
    with a buffer and a spent charge, a linked segment with its carrier off the
    anchor, a stack in the pockets, a heart gone, a live timed boon, and 57
-   `rand()` draws behind the cursor. A round trip that restored eleven of
+   `rand` draws behind the cursor. A round trip that restored eleven of
    twelve would pass a thinner scene. */
 const SAVE_BOON = Object.keys(D_boon.BOON)[0];
 function richRun(seed) {
@@ -8498,7 +7391,7 @@ function richRun(seed) {
   return { b, seg: !!sg };
 }
 
-/* --- CLAIM 1: THE ROUND TRIP IS EXACT, INCLUDING THE `rand()` CURSOR. --- */
+/* --- CLAIM 1: THE ROUND TRIP IS EXACT, INCLUDING THE `rand` CURSOR. --- */
 {
   installStore();
   const { seg } = richRun(4242);
@@ -8507,7 +7400,7 @@ function richRun(seed) {
   const afterSave = [rng.rand(), rng.rand(), rng.rand()];
 
   boot.newRun(999999);
-  /* A throw out of the middle of `load()` is the failure 6h-2 repaired, so it
+  /* A throw out of the middle of `load` is the failure 6h-2 repaired, so it
      is reported as one rather than crashing the checker before the refusal
      matrix below ever runs. */
   let loaded = false, threw = null;
@@ -8543,18 +7436,10 @@ function richRun(seed) {
        `survive save/load exactly (${saveStore.get(SAVE_BODY).length} byte body)`);
 }
 
-/* --- CLAIM 2: A MALFORMED PAYLOAD IS REFUSED BY FIELD PATH, AND CHANGES
-   NOTHING.
-
+/* CLAIM 2: A MALFORMED PAYLOAD IS REFUSED BY FIELD PATH, AND CHANGES NOTHING.
    The failure this closes is 6h-2's second defect: a `seen` string of `'!!!!'`
-   reached `atob` and threw out of the middle of the restore, with band 0's tile
-   edits already written and no way back. So each case asserts four things --
-   `load()` returned false, it did not throw, `loadError.reason` names the
-   field, the header went with the body, and the run is byte-identical to what
-   it was before the attempt.
-
-   The good payload is built ONCE and mutated per case, because `bodyFault`
-   refuses every one of these before `newRun()` is reached. --- */
+   reached `atob` and threw out of the middle of the restore, with band 0's
+   tile edits already written and no way back. */
 {
   installStore();
   richRun(77);
@@ -8690,10 +7575,9 @@ function richRun(seed) {
 
 /* --- CLAIM 4: THE FOUR VERSION HASHES EACH REFUSE, AND ONLY `gen` DISCARDS.
 
-   docs/SPEC.md section 27 versions four things. `v`, `world` and `content` are
-   in the header, so `hasSave()` can answer without parsing a body and a stale
+   Four things carry a version. `v`, `world` and `content` are in the header, so `hasSave` can answer without parsing a body and a stale
    slot is not offered at all. `gen` is per band in the body and can only be
-   checked once a world exists, so `load()` tests it after `newRun()` and then
+   checked once a world exists, so `load` tests it after `newRun` and then
    discards -- the player keeps a clean run of the same seed instead of edits
    replayed onto ground that moved. --- */
 {
@@ -8752,9 +7636,9 @@ function richRun(seed) {
 
 /* --- CLAIM 5: A CALLER'S WRONG SEED DOES NOT EAT THE SLOT.
 
-   6h-2's first defect, and it was the expensive one: `load()` used to reach the
+   6h-2's first defect, and it was the expensive one: `load` used to reach the
    `gen` check with a world the caller had generated from another seed, fail it,
-   and `clearSave()` the player's only save for a programming error. --- */
+   and `clearSave` the player's only save for a programming error. --- */
 {
   installStore();
   boot.newRun(77);
@@ -8789,9 +7673,9 @@ function richRun(seed) {
 /* --- CLAIM 6: A SAVE THAT FAILS HALF WAY LEAVES NO SLOT AT ALL.
 
    6h-2's third defect. The header is the claim that a complete body exists, so
-   `save()` removes it first and writes it last. A store that refuses the header
+   `save` removes it first and writes it last. A store that refuses the header
    write used to leave the PREVIOUS header over an overwritten body, and
-   `hasSave()` then promised a CONTINUE that `load()` refused forever. --- */
+   `hasSave` then promised a CONTINUE that `load` refused forever. --- */
 {
   const m = installStore();
   boot.newRun(77);
@@ -8880,17 +7764,12 @@ function richRun(seed) {
   if (!bad) ok(`SAVE GUARDS: ${notes.join(', ')}, and the loop steps in all five`);
 }
 
-/* --- CLAIM 8: `run.inv` IS POSITION-SIGNIFICANT, AND NO VERSION HASH COVERS
-   THE TUNABLE THAT SETS ITS SHAPE.
-
-   The reviewer's unrepaired 6h-6. `applyRun` restores the pockets BY INDEX and
-   `run.mainSlots` is `Math.round(eff('invSlots'))` at reset, so raising that
-   tunable lands a saved quickbar stack in a main slot -- and validation cannot
-   see it, because the payload stays internally consistent and only the number
-   moved. This pins both halves of the gap: the index really is what carries the
-   stack, and the header really does claim nothing about the slot count. The
-   `slots` field the repair would add makes the second half go red on purpose.
-   --- */
+/* CLAIM 8: `run.inv` IS POSITION-SIGNIFICANT, AND NO VERSION HASH COVERS THE
+   TUNABLE THAT SETS ITS SHAPE. The reviewer's unrepaired 6h-6. `applyRun`
+   restores the pockets BY INDEX and `run.mainSlots` is
+   `Math.round(eff('invSlots'))` at reset, so raising that tunable lands a
+   saved quickbar stack in a main slot -- and validation cannot see it, because
+   the payload stays internally consistent and only the number moved. */
 {
   installStore();
   boot.newRun(77);
@@ -8929,13 +7808,12 @@ globalThis.localStorage = defaultStore();
 
 console.log('\n8s. THE BAND EDGE (Phase 6g, docs/PLAN-horizontal-chunks-SCOPE.md 3.5/3.6/3.12)');
 
-/* NOTHING TESTED A BAND EDGE BEFORE THIS SECTION. The scoping document says so
-   in 3.12, and phase 6e then widened all three bands from 128 tiles to 1,024
-   with the edges measured by hand and no gate written. Every expected value
+/* NOTHING TESTED A BAND EDGE BEFORE THIS SECTION, and all three bands then
+   widened from 128 tiles to 1,024 with the edges measured by hand and no gate
+   written. Every expected value
    below comes off the live band record -- `b.origin.x`, `widthPx(b)`, `b.tw`,
    `b.tile` -- and off `VIEW.w`. A literal column number is what broke
-   `tools/worldgen-check.mjs#keyOf` at the same width (docs/FINDINGS.md, phase
-   6e-2), so there is not one here. */
+   `tools/worldgen-check.mjs#keyOf` at the same width, so there is not one here. */
 
 /* A row deep inside a band, in world px. Every band is at least 40 rows tall,
    so the middle row is always interior. */
@@ -8985,18 +7863,10 @@ function edgeStand(scene) {
    has to stop. */
 const edgeFrames = (b, dt) => Math.ceil((EDGE_RUN + 4) * b.tile / mods.eff('walk') / dt) * 3;
 
-/* --- CLAIM 1: `bandAt` ANSWERS FOR EVERY COLUMN OF A BAND AND FOR NO PIXEL
-   OUTSIDE IT.
-
-   `model/world.js#bandAt` tests x as well as y (scoping document 3.6), and it
-   is the function `model/segments.js#sweepSpan` turns into 'OUTSIDE THE
-   WORLD'. Phase 10b's astral widening existed to close two 16-column dead
-   strips that were an artefact of exactly this test, and 6e measured 0 dead
-   columns over all 3,072 band-columns without gating it.
-
-   The two halves prove each other is not vacuous. A `bandAt` that answered
-   `b` for everything fails the outside half; one that answered null for
-   everything fails the column half. --- */
+/* CLAIM 1: `bandAt` ANSWERS FOR EVERY COLUMN OF A BAND AND FOR NO PIXEL
+   OUTSIDE IT. `model/world.js#bandAt` tests x as well as y, and it is the function
+   `model/segments.js#sweepSpan` turns into
+   'OUTSIDE THE WORLD'. */
 {
   boot.newRun(1337);
   let bad = 0;
@@ -9035,22 +7905,11 @@ const edgeFrames = (b, dt) => Math.ceil((EDGE_RUN + 4) * b.tile / mods.eff('walk
        `band and one pixel past either edge resolves to none (${notes.join(', ')})`);
 }
 
-/* --- CLAIM 2: THE PLAYER STOPS DEAD AT EITHER EDGE OF EVERY BAND, AT FOUR
-   FRAMERATES.
-
-   `rules/player.js` clamps `player.x` to
-   `origin.x .. origin.x + widthPx(b) - PW` unconditionally every substep, and
-   that clamp is the only thing between a walking player and the far side of
-   the typed arrays.
-
-   THE PER-SUBSTEP COUNT IS THE HALF THAT MEASURES THE CLAMP, and the resting
-   x is the weaker half. Out of bounds reads as BEDROCK
-   (`model/tiles.js#tileAt`), so `boxSolid` stops the body on the last column
-   whether the clamp exists or not -- deleting the clamp leaves the same
-   resting 8186 and shows up only as substeps spent OUTSIDE the bound.
-   Measured with the clamp removed: 190 of 480 substeps outside at 120 fps and
-   305 of 576 at 144, and none at all at 30 or 60, which is why four rates and
-   not one. --- */
+/* CLAIM 2: THE PLAYER STOPS DEAD AT EITHER EDGE OF EVERY BAND, AT FOUR
+   FRAMERATES. `rules/player.js` clamps `player.x` to `origin.x` through
+   `origin.x + widthPx(b) - PW` unconditionally every substep, and that clamp is the
+   only
+   thing between a walking player and the far side of the typed arrays. */
 {
   const RATES = [30, 60, 120, 144];
   let bad = 0;
@@ -9098,19 +7957,12 @@ const edgeFrames = (b, dt) => Math.ceil((EDGE_RUN + 4) * b.tile / mods.eff('walk
        `${RATES.join('/')} fps, and never crosses either (${notes.join(', ')})`);
 }
 
-/* --- CLAIM 3: THE CAMERA WINDOW NEVER LEAVES THE BAND, AND ENDS FLUSH WITH
-   ITS EDGE.
-
-   `shell/main.js#clampCam`'s one x line IS the world's right-hand edge as far
-   as the camera is concerned (scoping document 3.5). Asserted as the property
-   rather than as a copy of the expression -- the window `cam.x .. cam.x +
-   VIEW.w` stays inside `origin.x .. origin.x + widthPx(b)` on every substep,
-   and at rest against an edge one side of it is exactly flush.
-
-   A band narrower than the viewport centres instead of clamping, so flushness
-   would be impossible and those bands are skipped. The count of skips is
-   reported, and all three being skipped is a failure -- that is the shape the
-   claim goes vacuous in. --- */
+/* CLAIM 3: THE CAMERA WINDOW NEVER LEAVES THE BAND, AND ENDS FLUSH WITH ITS
+   EDGE. `shell/main.js#clampCam`'s one x line IS the world's right-hand edge as
+   far as the camera is concerned. Asserted as the property rather than as a
+   copy of the expression -- the window stays inside the band's own x range on
+   every substep,
+   and at rest against an edge one side of it is exactly flush. */
 {
   let bad = 0, tested = 0, skipped = 0;
   const notes = [];
@@ -9156,14 +8008,13 @@ const edgeFrames = (b, dt) => Math.ceil((EDGE_RUN + 4) * b.tile / mods.eff('walk
        (skipped ? `, ${skipped / 2} centred and skipped` : '') + ` (${notes.join(', ')})`);
 }
 
-/* --- CLAIM 4: A RESIZE AT THE EDGE MOVES THE CAMERA AND NOTHING ELSE
-   (invariant 2).
+/* --- CLAIM 4: A RESIZE AT THE EDGE MOVES THE CAMERA AND NOTHING ELSE.
 
    The edge is where a resize can do damage, because `VIEW.w` is a term in the
    camera's own bound and in nothing else. Three viewports, including
-   `core/canvas.js#BASE_W_MIN`'s 200 px floor -- the width CLAUDE.md names as
-   reachable by resizing a desktop window, and the reason a hardcoded click
-   coordinate is banned. `player.y` is deliberately not asserted: the body
+   `core/canvas.js#BASE_W_MIN`'s 200 px floor, which is reachable by resizing
+   a desktop window and is the reason a hardcoded click coordinate is banned.
+   `player.y` is deliberately not asserted: the body
    settles on its floor by a fraction of a pixel per substep, which a resize
    has nothing to do with. --- */
 {
@@ -9202,17 +8053,11 @@ const edgeFrames = (b, dt) => Math.ceil((EDGE_RUN + 4) * b.tile / mods.eff('walk
 }
 
 
-/* --- CLAIM 5: A VIEWPORT WIDER THAN THE BAND CENTRES IT.
-
-   `clampCam`'s x line has two branches and claim 3 exercises one. The other
-   is what a band narrower than the viewport needs, and it had no test at all
-   -- 16,400 px of window is nobody's monitor, but the branch is reached by a
-   96-tile platform just as well and that is the case the line was written
-   for. Asserted as equal margins with the whole band inside the window,
-   which is the property rather than a copy of the expression.
-
-   Restores the harness viewport on the way out, because 8t runs after this
-   and `VIEW` is module state. --- */
+/* CLAIM 5: A VIEWPORT WIDER THAN THE BAND CENTRES IT. `clampCam`'s x line has
+   two branches and claim 3 exercises one. The other is what a band narrower
+   than the viewport needs, and it had no test at all. 16,400 px of window is
+   nobody's monitor, but the branch is reached by a 96-tile platform just as
+   well and that is the case the line was written for. */
 {
   const { b } = edgeScene('topsoil', +1);
   for (let f = 0; f < edgeFrames(b, main.STEP); f++) stepReal(main.STEP, { right: true });
@@ -9246,18 +8091,10 @@ const edgeFrames = (b, dt) => Math.ceil((EDGE_RUN + 4) * b.tile / mods.eff('walk
 console.log('\n8t. THE KEYBOARD AIM REACHES WHAT THE BODY OCCUPIES (Phase 6y, docs/SPEC.md section 2.1)');
 
 /* NOTHING PROBED THE KEYBOARD AIM BEFORE THIS SECTION, AND A TOTAL NO-OP
-   SURVIVED THE WHOLE LIFE OF THE PROJECT. `rules/mining.js#aimAtKeys`
-   resolved one tile at the player's centre row while the body fills two, so
-   holding right + dig moved the player exactly as far as right alone, to the
-   pixel, on all 12 seeds (docs/FINDINGS.md, phases 6e-2 and 6y). Every other
-   mining probe in this file drives the mouse aim, the model, or the dig queue,
-   so all of them passed.
-
-   The shape that matters is an obstacle TWO TILES TALL, which is the height a
-   body occupies and the height of both a trunk and a rock face. Timing is
-   asserted against the substance row's own `tile.hard x tile.charge` over
-   `eff('pickPower')` and the held tool's power, never against a measured
-   constant. */
+   SURVIVED THE WHOLE LIFE OF THE PROJECT. `rules/mining.js#aimAtKeys` resolved
+   one tile at the player's centre row while the body fills two, so holding
+   right + dig moved the player exactly as far as right alone, to the pixel, on
+   all 12 seeds. */
 
 /* A CORRIDOR IN `topsoil`, well away from spawn, with four rows of headroom
    over a stone floor. The stock pick goes in the pockets deliberately --
@@ -9283,7 +8120,7 @@ function aimScene(seed = 1461) {
 }
 
 /* Seconds one tile of `subId` costs the held pick, from the rows that set the
-   price. The same expression section 8q's framerate claim uses. */
+   price. The same expression the framerate claim below uses. */
 function digSecs(subId, n = 1) {
   const row = D_sub.SUB[D_sub.S[subId]].tile;
   return n * row.hard * (row.charge ?? 1) /
@@ -9356,21 +8193,11 @@ function digSecs(subId, n = 1) {
        `player then walks through to x ${player.player.x}`);
 }
 
-/* --- CLAIM 2: A HELD `up` + `dig` BREAKS THE CEILING, AND A HELD `down` + `dig`
-   BREAKS THE FLOOR.
-
-   Both directions in one claim, because the DOWN half is what proves the UP
-   half is not vacuous -- the scene, the pick, the loop and the hardness
-   arithmetic are shared, so a red UP with a green DOWN can only be the aim.
-   `cmd.up` had the same single-probe defect the sideways aim had and it was
-   worse: it resolved `centre.y - tile`, which is `player.y` exactly, always
-   the topmost row the body itself fills. That row is air, so up + dig under
-   rock broke nothing at all (docs/FINDINGS.md, phase 6y).
-
-   THE WHOLE ROW IS STONE, ACROSS THE COLUMNS THE HITBOX STRADDLES, so the
-   claim is about reaching the row and not about which of the two columns an
-   aim picks. The player is placed tile-aligned, so the ceiling row is
-   unambiguous. --- */
+/* CLAIM 2: A HELD `up` + `dig` BREAKS THE CEILING, AND A HELD `down` + `dig`
+   BREAKS THE FLOOR. Both directions in one claim, because the DOWN half is
+   what proves the UP half is not vacuous -- the scene, the pick, the loop and
+   the hardness arithmetic are shared, so a red UP with a green DOWN can only
+   be the aim. */
 {
   const want = digSecs('stone');
   const tol = main.STEP * 4;
