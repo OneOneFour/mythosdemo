@@ -1,0 +1,36 @@
+name: Verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # Whole-tree, not just the changed files: the caps and the citation
+      # rules are properties of the tree, and a file nobody edited can still
+      # be over the line after a rule changes.
+      - run: npm run lint:comments
+
+      - run: npm run lint
+      - run: npm run check
+      - run: npm run check:content
+      - run: npm run check:worldgen
+      - run: npm run build
+
+      # The visual suite is deliberately absent: it needs a browser download
+      # and its baselines are UNREVIEWED, so a red job here would mean
+      # "the pixels moved", not "the change is wrong". Run it locally.
