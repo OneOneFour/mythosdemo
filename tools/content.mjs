@@ -1197,8 +1197,7 @@ export function checkContent({ quiet = false } = {}) {
         if (len > reach)
           fail(`scenario "${sc.id}": segment ${JSON.stringify(pair)} spans ${len.toFixed(1)} px ` +
                `between anchors, past the smaller hub's own reach of ${reach} -- linkCheck answers ` +
-               `'TOO FAR APART'. Reaching further is another hub and another segment ` +
-               `(CLAUDE.md invariant 4)`);
+               `'TOO FAR APART'. Reaching further is another hub and another segment`);
       }
 
       for (const kind of ['items', 'give']) {

@@ -547,7 +547,7 @@ console.log('\n2. rendering is pure');
   for (let i = 0; i < 3; i++) { main.draw(); main.draw(); got.push(rng.rand()); }
   if (got.join() !== expected.join())
     fail('render() consumed randomness — the seeded stream diverged across draws');
-  else ok('render() consumes no randomness (invariant 7)');
+  else ok('render() consumes no randomness');
 }
 
 
@@ -594,7 +594,7 @@ console.log('\n3. behaviour');
     const got = player.fallHearts(v);
     if (got !== want) { fail(`${tilesDown}-tile fall -> ${got} hearts, spec ${want}`); bad++; }
   }
-  if (!bad) ok('fall-damage table matches docs/SPEC.md at all 7 rows');
+  if (!bad) ok('fall-damage table matches the spec at all 7 rows');
 }
 
 /* --- the player moves, and stays out of solid rock --- */
@@ -660,7 +660,7 @@ console.log('\n3. behaviour');
   else if (!heavyRefusals)
     fail(`BURDEN: the fuzz never triggered a single TOO HEAVY refusal, so it never pressed against ` +
          `eff('burden') = ${CAP} T and the assertion proved nothing -- the probe has gone hollow ` +
-         `(docs/PLAN-phase13.md §4.4). Check that the fuzz still holds \`collect\`, still credits a ` +
+         `Check that the fuzz still holds \`collect\`, still credits a ` +
          `pickaxe, and still tops the pockets up to within one ore of the cap.`);
   else ok(`BURDEN: 7,200-frame fuzz with collect held never carried more than eff('burden') = ${CAP} T, ` +
           `and refused ${heavyRefusals} over-cap pickup(s) at the boundary`);
@@ -745,7 +745,7 @@ console.log('\n3. behaviour');
   }
 }
 
-console.log('\n4. Phase 6 probes');
+console.log('\n4. determinism, reset and purity probes');
 
 /* --- DETERMINISM: same seed + same scripted intents -> identical state hash
    after 10,000 substeps. Twice in this process, once in a genuinely fresh
@@ -911,7 +911,7 @@ console.log('\n4. Phase 6 probes');
      `torque`/`turn` survives when a machine record does. */
   if (segs.segments.length !== 0) {
     fail(`newRun() RESET: ${segs.segments.length} segment(s) survived newRun() -- a cable outliving its ` +
-         `run is invariant 8's determinism bug, and shell/boot.js must call segments' write.clear()`);
+         `run is a determinism bug, and shell/boot.js must call segments' write.clear()`);
   } else {
     const stale = machs.machines.filter(m => m.torque !== 0 || m.turn !== 0);
     if (stale.length)
@@ -939,9 +939,9 @@ console.log('\n4. Phase 6 probes');
   boot.newRun(4242);
   if (shellUi.ui.autoCollect !== false)
     fail('newRun() RESET: ui.autoCollect survived a restart. AUTO COLLECT gates what enters run.inv, ' +
-         'so a sticky toggle makes two runs from the same seed diverge -- invariant 8. ' +
-         'shell/boot.js#newRun must call setAutoCollect(false) in its teardown block (D13-A).');
-  else ok('newRun() RESET: ui.autoCollect is false after a restart that began with it ON (D13-A)');
+         'so a sticky toggle makes two runs from the same seed diverge. ' +
+         'shell/boot.js#newRun must call setAutoCollect(false) in its teardown block.');
+  else ok('newRun() RESET: ui.autoCollect is false after a restart that began with it ON');
 }
 
 /* --- AND SO DOES AUTO FEED. Everything the probe above
@@ -961,9 +961,8 @@ console.log('\n4. Phase 6 probes');
   if (shellUi.ui.autoFeed !== false)
     fail('newRun() RESET: ui.autoFeed survived a restart. AUTO FEED gates whether standing beside a ' +
          'machine spends run.inv into it, so a sticky toggle makes two runs from the same seed diverge ' +
-         '-- invariant 8. shell/boot.js#newRun must call setAutoFeed(false) in its teardown block ' +
-         '(D16-C, matching D13-A exactly).');
-  else ok('newRun() RESET: ui.autoFeed is false after a restart that began with it ON (D16-C = D13-A)');
+         '-- a determinism bug. shell/boot.js#newRun must call setAutoFeed(false) in its teardown block.');
+  else ok('newRun() RESET: ui.autoFeed is false after a restart that began with it ON');
 }
 
 /* CONSERVATION: over a 10,000-substep random-intent fuzz, mass ADDED to any of
@@ -1069,7 +1068,7 @@ console.log('\n4. Phase 6 probes');
   else if (!collectCalls)
     fail('CONSERVATION: the fuzz never invoked run.write.collect through the real pickup path, so the ' +
          'ground-to-pockets transfer went unwatched and the probe proved less than it claims ' +
-         '(docs/PLAN-phase13.md §4.4). Check that the fuzz still holds `collect` and still credits a pickaxe.');
+         'Check that the fuzz still holds `collect` and still credits a pickaxe.');
   else ok(`CONSERVATION: 10,000-substep fuzz -- reconstructed mass matches actual held mass throughout ` +
           `(${actualHeldMass().toFixed(2)} T, ${collectCalls} real pickups)`);
 }
@@ -1136,7 +1135,7 @@ console.log('\n4. Phase 6 probes');
     const machWork = mining.workAt(band, txB, tyB);
     if (Math.abs(handWork - machWork) > 1e-9)
       fail(`T2=T3: hand-equivalent work ${handWork} vs. placed Talos Head work ${machWork} over ${(N * dt).toFixed(2)}s -- ` +
-           `docs/DESIGN.md's "T3 mines at exactly the T2 hand rate" does not hold`);
+           `the design's "T3 mines at exactly the T2 hand rate" does not hold`);
     else ok(`T2=T3: hand and machine accumulate IDENTICAL mining work (${handWork.toFixed(4)}) over ${(N * dt).toFixed(2)}s -- ` +
             `same model/mining.js#write.add call, same eff('pickPower'), same tool power, structurally not coincidentally`);
   }
@@ -1399,7 +1398,7 @@ const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate
   for (let i = 0; i < 3; i++) { main.draw(); main.draw(); got.push(rng.rand()); }
   if (got.join() !== expected.join())
     fail('render() with the main panel open consumed randomness -- the seeded stream diverged across draws');
-  else ok('render() with the main panel open consumes no randomness (invariant 7)');
+  else ok('render() with the main panel open consumes no randomness');
 
   shellUi.close('main');
 }
@@ -1414,7 +1413,7 @@ const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate
    a DELIBERATE second implementation, so that a change to `rules/drive.js`
    has to disagree with something rather than silently redefine the
    mechanic. */
-console.log('\n5. segment transport (Phase 8g)');
+console.log('\n5. segment transport');
 
 /* `topsoil` and not `surface`: 320 rows of solid rock with nothing in it but
    what this rig puts there, so no relief, no tree and no vein can wander into
@@ -1686,7 +1685,7 @@ function predictV(supply, mass, slope, demand = null) {
            `${ORE_T} T copper ores -- the tunables it is derived from cannot be expressed as cargo`);
       bad++;
     }
-  console.log('  ..  the motion expression (docs/SPEC.md 17.8), 1 s per row, measured px/s along the cable:');
+  console.log('  ..  the motion expression, 1 s per row, measured px/s along the cable:');
   for (const [geomId, mass, cranks, why] of TABLE) {
     const g = GEOM[geomId];
     const spec = { ...g.spec, seed: 8100 + bad, carriers: [[0, 0.5]] };
@@ -1704,7 +1703,7 @@ function predictV(supply, mass, slope, demand = null) {
                 `${cranks} crank(s)  supply ${supply.toFixed(2)}  want ${want.toFixed(4).padStart(9)}  ` +
                 `got ${got.toFixed(4).padStart(9)}${flag}   ${why}`);
     if (flag) {
-      fail(`MOTION: ${geomId} segment, ${mass} T aboard, ${cranks} crank(s) -- docs/SPEC.md 17.8 gives ` +
+      fail(`MOTION: ${geomId} segment, ${mass} T aboard, ${cranks} crank(s) -- the motion expression gives ` +
            `${want.toFixed(4)} px/s along the cable, the simulation produced ${got.toFixed(4)} (${why})`);
       bad++;
     }
@@ -1712,7 +1711,7 @@ function predictV(supply, mass, slope, demand = null) {
        half a reader of this table cares about: does weight reverse it. */
     if (Math.sign(got) !== Math.sign(want)) bad++;
   }
-  if (!bad) ok(`MOTION: all ${TABLE.length} rows of the motion expression match docs/SPEC.md 17.8 ` +
+  if (!bad) ok(`MOTION: all ${TABLE.length} rows of the motion table match the expression ` +
                `exactly (three geometries x load x supply, including the surplus == 0 boundary)`);
 }
 
@@ -1780,7 +1779,7 @@ function predictV(supply, mass, slope, demand = null) {
       bad++;
     }
     if (Math.abs(v1 - want) > 1e-6) {
-      fail(`WEIGHT: rider mass ${mass} T on one crank -- docs/SPEC.md 17.8 gives ${want.toFixed(4)} px/s, ` +
+      fail(`WEIGHT: rider mass ${mass} T on one crank -- the motion expression gives ${want.toFixed(4)} px/s, ` +
            `the first powered substep produced ${v1.toFixed(4)}`);
       bad++;
     }
@@ -1923,9 +1922,9 @@ function predictV(supply, mass, slope, demand = null) {
   else ok(`ASCENT: no unpowered segment ever ascends, over ${tried} triples (half of them unpowered, ` +
           `plus every zero-torque one)`);
 
-  if (mismatch) fail(`ASCENT: ${mismatch}/${tried} triples disagreed with docs/SPEC.md 17.8's expression ` +
+  if (mismatch) fail(`ASCENT: ${mismatch}/${tried} triples disagreed with the motion expression ` +
                      `-- the sweep found a combination the motion table above does not cover`);
-  else ok(`ASCENT: all ${tried} triples also match docs/SPEC.md 17.8 exactly, not merely the bound`);
+  else ok(`ASCENT: all ${tried} triples also match the motion expression exactly, not merely the bound`);
 }
 
 /* N ROWS OF HUBS, ONE COMPONENT. Bottom hubs are footprint-adjacent along the
@@ -1969,7 +1968,7 @@ function predictV(supply, mass, slope, demand = null) {
     }
     if (Math.abs(drive - wantDrive) > 1e-9) {
       fail(`TORQUE CONSERVATION: ${N} segment(s) on one crank -- m.torque is ${drive.toFixed(6)}, ` +
-           `docs/SPEC.md 17.9's min(1, supply/demand) is ${wantDrive.toFixed(6)}`);
+           `the drive expression's min(1, supply/demand) is ${wantDrive.toFixed(6)}`);
       bad++;
     }
     if (vs.some(v => Math.abs(v - wantV) > 1e-6)) {
@@ -2270,7 +2269,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
       const tooFar = len > REACH * mods.eff('segReach', 'hub') + 1e-9;
       if (tooFar && verdict.why !== 'TOO FAR APART') {
         fail(`LINK LEGALITY: ${fam.id} trial ${i} -- a ${len.toFixed(1)} px span against a ${REACH} px ` +
-             `reach was answered '${verdict.why ?? 'ok'}', not 'TOO FAR APART' (docs/SPEC.md 17.6 puts ` +
+             `reach was answered '${verdict.why ?? 'ok'}', not 'TOO FAR APART' (the reach rule puts ` +
              `the structural refusal first)`);
         bad++;
       }
@@ -2609,7 +2608,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
 
     if (worst > 1) {
       fail(`RIDER EXEMPTION: a rider descending from t = 1 drifted ${worst.toFixed(2)} px off the deck ` +
-           `-- before Phase 10b they stopped 10 px down and the carrier left without them`);
+           `-- they used to stop 10 px down and the carrier left without them`);
       bad++;
     }
     if (!(player.player.y > footingTop)) {
@@ -2681,8 +2680,8 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     rows.push({ tier, mass, v, want, k, be: (RATIOS[tier] * oreSecs) / k });
     if (Math.abs(v - want) > 1e-6) {
       fail(`BREAK-EVEN MEASURED: one copper ${tier} (${mass} T) aboard a vertical segment on one crank ` +
-           `climbs at ${v.toFixed(4)} px/s; docs/SPEC.md 17.8 gives ${want.toFixed(4)} -- section 3 is ` +
-           `pricing a formula the game no longer runs`);
+           `climbs at ${v.toFixed(4)} px/s; the motion expression gives ${want.toFixed(4)} -- the ` +
+           `arithmetic above is pricing a formula the game no longer runs`);
       bad++;
     }
   }
@@ -2714,7 +2713,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     ok(`BREAK-EVEN MEASURED: on a real carrier, k rises with mass ` +
        `(${rows.map(r => r.k.toFixed(2)).join(' < ')} s/tile/item-slot) and the break-even depth still ` +
        `orders ore ${rows[0].be.toFixed(2)} < ingot ${rows[1].be.toFixed(2)} < plate ` +
-       `${rows[2].be.toFixed(2)} tiles -- section 3's price is the one the game charges`);
+       `${rows[2].be.toFixed(2)} tiles -- the arithmetic's price is the one the game charges`);
 }
 
 /* --- RENDER PURITY OVER THE DRIVETRAIN'S OWN DRAW PATHS. The purity probes
@@ -2739,7 +2738,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     main.draw();
     if (epoch.epoch.n !== before) {
       fail(`RENDER PURITY (drivetrain): drawing ${label} performed ${epoch.epoch.n - before} model ` +
-           `write(s) -- view may never mutate model (invariant 9)`);
+           `write(s) -- view may never mutate model`);
       return false;
     }
     return true;
@@ -2831,8 +2830,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
   shellUi.clearLink();
   if (got.join() !== expected.join()) {
     fail('RENDER PURITY (drivetrain): drawing a moving carrier, a bucket chain, a turning gear and the ' +
-         'cable ghost CONSUMED RANDOMNESS -- a screenshot now depends on how many times you have drawn ' +
-         '(invariant 7)');
+         'cable ghost CONSUMED RANDOMNESS -- a screenshot now depends on how many times you have drawn');
     bad++;
   }
 
@@ -2868,7 +2866,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     segs.write.load(seg, 30);
     if (matSum() !== before) {
       fail('NO SECOND COLLISION MODEL: linking a cable, moving its carrier and loading it CHANGED a ' +
-           'band\'s mat array -- transport must never write terrain (invariant 1)');
+           'band\'s mat array -- transport must never write terrain');
       bad++;
     }
   }
@@ -2919,7 +2917,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
   }
   if (solidUnderRider) {
     fail(`NO SECOND COLLISION MODEL: ${solidUnderRider} solid tile(s) found under a rider's feet -- a ` +
-         `carrier is holding the player up by WRITING TERRAIN, which is invariant 1 exactly`);
+         `carrier is holding the player up by WRITING TERRAIN, which no carrier may ever do`);
     bad++;
   }
   if (solidInCarrier) {
@@ -3097,11 +3095,11 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     bad++;
   } else if (hurt !== want) {
     fail(`STEP OFF THE CARRIER: a ${fell.toFixed(1)}-tile fall at ${vLand.toFixed(1)} px/s cost ${hurt} ` +
-         `heart(s); model/player.js#fallHearts (pinned to docs/SPEC.md section 3 in section 3 above) says ` +
+         `heart(s); model/player.js#fallHearts says ` +
          `${want} -- stepping off a carrier must cost exactly what stepping off a ledge costs`);
     bad++;
   } else if (want < 5 || !run.run.dead) {
-    fail(`STEP OFF THE CARRIER: a 40-tile drop should be lethal (docs/SPEC.md section 3: 20 tiles is five ` +
+    fail(`STEP OFF THE CARRIER: a 40-tile drop should be lethal (the fall table: 20 tiles is five ` +
          `hearts) -- got ${want} heart(s) and dead=${run.run.dead}`);
     bad++;
   }
@@ -3115,7 +3113,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
 /* 6. THE TRIBUTE LOOP: THE TWO RECEIVERS AND THE DIRECTOR. The receivers
    first, because a director draining a receiver that never fills looks
    finished and is not. */
-console.log('\n6. the tribute loop (Phase 10b)');
+console.log('\n6. the tribute loop');
 
 /* WHERE A RELEASED HAUL ACTUALLY COMES TO REST, AND WHETHER THE DOCK'S MOUTH
    REACHES IT. */
@@ -3343,8 +3341,7 @@ console.log('\n6. the tribute loop (Phase 10b)');
     const moved = feedByHand(m, D_sub.S.copper, D_form.F.ore, 10);
     if (moved !== 10) {
       fail(`ALTAR HAND FEED: ten real cmd.feed presses ${Math.round(m.box.x - player.player.x)} px from ` +
-           `the altar moved ${moved} unit(s), not 10 -- the SETUP failed, so nothing below is proven ` +
-           `(one press must hand over exactly one unit, docs/SPEC.md section 23.3)`);
+           `the altar moved ${moved} unit(s), not 10 -- the SETUP failed, so nothing below is proven`);
       bad++;
     }
     runReal(2, 1 / 120, { hasMouse: false });    // let the director see the last unit
@@ -3376,7 +3373,7 @@ console.log('\n6. the tribute loop (Phase 10b)');
        'when granted -- and a player standing beside one pays cycle 1 with ten real feed presses');
 }
 
-console.log('\n7. tutorial beats 5 and 6 (Phase 10b, D-E/E1)');
+console.log('\n7. tutorial beats 5 and 6');
 {
   /* Beats 1-4 are somebody else's test; jumped past the same way
      `tests/visual.spec.js`'s `driveScene` already does
@@ -3444,7 +3441,7 @@ console.log('\n7. tutorial beats 5 and 6 (Phase 10b, D-E/E1)');
    why the last claim does not stop at "an altar exists" but pays the trial
    through the real feed verb, in a run that never dug, never walked and never
    fired a beat. */
-console.log('\n7a. the altar arrives: the beat, and the grace (D17-G)');
+console.log('\n7a. the altar arrives: the beat, and the grace');
 {
   let bad = 0;
   const GRACE = mods.eff('altarGraceSecs');
@@ -3562,7 +3559,7 @@ console.log('\n7a. the altar arrives: the beat, and the grace (D17-G)');
 /* 8. HARNESS GAPS FOUND BY A READ-ONLY AUDIT: five invariants this file
    never asserted, plus three claims about the Heavens ledger, the last of
    them that cargo delivered to the dock credits it exactly once. */
-console.log('\n8. Phase 11 TIER 2 harness gaps');
+console.log('\n8. harness gaps found by audit');
 
 /* CHUNK SEAM. A decoration wider than one tile paints into a NEIGHBOUR
    chunk, and `view/paint.js#DECO_MARGIN` states the claim: a chunk's pixels
@@ -3732,7 +3729,7 @@ console.log('\n8. Phase 11 TIER 2 harness gaps');
   if (litDropped.length) {
     fail(`GLOW IS NOT LIGHT: a dropped pick/relic (and a dropped hub/rig) lit ${litDropped.length} tile(s) ` +
          `of a sealed unlit chamber [${litDropped.slice(0, 4).join(' ')}] -- a free torch off a dropped ` +
-         `pickaxe is exactly the brand-economy leak docs/BUILD_PLAN.md's Phase 11 names`);
+         `pickaxe is exactly the brand-economy leak the harness plan names`);
     bad++;
   }
 
@@ -3857,7 +3854,7 @@ console.log('\n8. Phase 11 TIER 2 harness gaps');
     main.draw();
     if (epoch.epoch.n !== before) {
       fail(`RENDER PURITY (${label}): drawing it twice performed ${epoch.epoch.n - before} model write(s) ` +
-           `-- view may never mutate model (invariant 9)`);
+           `-- view may never mutate model`);
       return false;
     }
     return true;
@@ -3870,7 +3867,7 @@ console.log('\n8. Phase 11 TIER 2 harness gaps');
     for (let i = 0; i < 3; i++) { main.draw(); main.draw(); got.push(rng.rand()); }
     if (got.join() !== expected.join()) {
       fail(`RENDER PURITY (${label}): drawing it consumed randomness -- a screenshot now depends on how ` +
-           `many times you have drawn (invariant 7)`);
+           `many times you have drawn`);
       return false;
     }
     return true;
@@ -4246,7 +4243,7 @@ console.log('\n8d. HEAVENS LEDGER: two misses ends the run');
    `rules/mining.js` and `rules/machines.js#mine` through `stepReal` rather
    than re-implementing their arithmetic, which is the point: the arithmetic
    is the thing under test. */
-console.log('\n8e. DEPLETION (Phase 14e)');
+console.log('\n8e. DEPLETION');
 
 /* ONE NATIVE TILE, MINED BY HAND UNTIL IT IS GONE, at an arbitrary framerate. */
 function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } = {}) {
@@ -4485,7 +4482,7 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
   else if (handAt !== machAt)
     fail(`MINER PARITY: hand exhausted its copper tile at ${(handAt * dt).toFixed(4)}s and the fuelled ` +
          `Talos Head exhausted an identical one at ${(machAt * dt).toFixed(4)}s -- a difference of ` +
-         `${Math.abs(handAt - machAt) * dt} s, and docs/SPEC.md section 12 says 0.0000`);
+         `${Math.abs(handAt - machAt) * dt} s, and the parity claim says 0.0000`);
   else if (handOut !== charge || machOut !== charge)
     fail(`MINER PARITY: same time, different yield -- hand dropped ${handOut} copper/ore and the Talos ` +
          `Head ${machOut}, against tile.charge ${charge}`);
@@ -4517,18 +4514,18 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
   const staleA = mining.workAt(band, tx, ty);
 
   let bad = 0;
-  if (!(staleA > 0)) { fail('D14-E setup: no work accumulated to clear'); bad++; }
+  if (!(staleA > 0)) { fail(' setup: no work accumulated to clear'); bad++; }
 
   /* THE CHASM. A real held phial, spent by the real `use`, applied at the
      aimed tile the same way a dig is -- radius 1 collapse
      (`data/miracles.js`), so it takes the neighbours with it. */
   run.write.collect(D_sub.S.chasm, D_form.F.phial, 1);
   const used = sched.miracles.use(band, tx, ty);
-  if (!used) { fail('D14-E: rules/miracles.js#use refused a held chasm phial -- nothing was tested'); bad++; }
+  if (!used) { fail('rules/miracles.js#use refused a held chasm phial -- nothing was tested'); bad++; }
   else if (tiles.tileAt(band, tx, ty) !== D_form.AIR) {
-    fail('D14-E: the chasm did not clear its centre tile'); bad++;
+    fail('the chasm did not clear its centre tile'); bad++;
   } else if (mining.workAt(band, tx, ty) !== 0) {
-    fail(`D14-E: the chasm cleared the tile at (${tx},${ty}) but left ${mining.workAt(band, tx, ty).toFixed(4)}s ` +
+    fail(`the chasm cleared the tile at (${tx},${ty}) but left ${mining.workAt(band, tx, ty).toFixed(4)}s ` +
          `of accumulated work behind -- anything placed there next inherits it and breaks early ` +
          `(model/tiles.js#write.setByte)`);
     bad++;
@@ -4546,17 +4543,17 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
      control tile at the end of this probe is what proves that. */
   tiles.write.set(band, tx - 1, ty, D_sub.S.stone);
   const placed = R_place.placeTile(band, tx, ty, D_sub.S.soil, D_form.F.block);
-  if (!placed) { fail('D14-E: placeTile refused a backed soil/block on cleared ground -- scene is wrong'); bad++; }
+  if (!placed) { fail('placeTile refused a backed soil/block on cleared ground -- scene is wrong'); bad++; }
   else {
     const left = mining.workAt(band, tx, ty);
     const blockHard = tiles.baseHardAt(band, tx, ty);
     if (left !== 0) {
-      fail(`D14-E: a soil/block placed where a part-depleted copper tile stood inherited ${left.toFixed(4)}s ` +
+      fail(`a soil/block placed where a part-depleted copper tile stood inherited ${left.toFixed(4)}s ` +
            `of work against its own ${blockHard.toFixed(2)}s hardness -- it would break ` +
            `${left >= blockHard ? 'INSTANTLY' : 'early'}`);
       bad++;
     } else if (!(blockHard > 0) || !Number.isFinite(blockHard)) {
-      fail(`D14-E: the placed soil/block reads hardness ${blockHard}`); bad++;
+      fail(`the placed soil/block reads hardness ${blockHard}`); bad++;
     }
   }
 
@@ -4564,7 +4561,7 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
      collapse keeps its progress. A `setByte` that cleared the whole Map, or a
      `clearAll` in the wrong place, would pass every assertion above. */
   if (mining.workAt(band, tx + 3, ty) !== hard * 2) {
-    fail(`D14-E: the control tile at (${tx + 3},${ty}) lost its accumulated work ` +
+    fail(`the control tile at (${tx + 3},${ty}) lost its accumulated work ` +
          `(${mining.workAt(band, tx + 3, ty).toFixed(4)}s of ${(hard * 2).toFixed(4)}s) without its byte ` +
          `changing -- progress is being dropped too eagerly, and a vein you walked away from is a ` +
          `vein you have to start over`);
@@ -4572,7 +4569,7 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
   }
 
   if (!bad)
-    ok('D14-E: the real chasm miracle and the real placeTile each clear the tile\'s accumulated work ' +
+    ok('the real chasm miracle and the real placeTile each clear the tile\'s accumulated work ' +
        '(so a block placed on a part-depleted deposit takes its own full hardness), and an untouched ' +
        'neighbour keeps its own');
 }
@@ -4629,7 +4626,7 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
          `without the AIR half the assertion below passes vacuously, for the reason written above it`);
   else if (afterWork.n !== 0 || afterWork.sum !== 0)
     fail(`DEPLETION RESET: ${afterWork.n} tile(s) still carry ${afterWork.sum.toFixed(4)}s of mining work ` +
-         `after newRun(${seed}) -- depletion surviving a restart is invariant 8's determinism bug, and ` +
+         `after newRun(${seed}) -- depletion surviving a restart is a determinism bug, and ` +
          `shell/boot.js must call model/mining.js#write.clearAll()`);
   else if (JSON.stringify(fresh) !== JSON.stringify(after)) {
     const key = Object.keys(fresh).find(k => JSON.stringify(fresh[k]) !== JSON.stringify(after[k]));
@@ -4698,7 +4695,7 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
    trial paid sets `run.won`, pushes a `win` row, and draws a restart button
    the pointer can actually find. 4. a reward grant reaches `run.granted` AND
    pushes a `grant` journal row the bridge, not `rw.grant` direct. */
-console.log('\n8f. THE CLOSED LOOP (Phase 13d)');
+console.log('\n8f. THE CLOSED LOOP');
 
 /* CLAIM 1: cycle 2 cannot be paid at cycle 1's altar. Driven through the real
    feed verb, with the altar and the dock BOTH in reach at once -- which is the
@@ -4779,7 +4776,7 @@ console.log('\n8f. THE CLOSED LOOP (Phase 13d)');
   const DOCK = D_mach.MACH[D_mach.M.cloud_dock];
   if (DOCK.band !== 'astral') {
     fail(`DOCK BAND GATE: data/machines.js#cloud_dock declares band ${JSON.stringify(DOCK.band)}, not ` +
-         `'astral' -- docs/SPEC.md 20.1 locks the key and its value`);
+         `'astral' -- the reward row locks the key and its value`);
     bad++;
   }
   /* Everything else a placement needs, so the ONLY thing the check can refuse
@@ -4807,7 +4804,7 @@ console.log('\n8f. THE CLOSED LOOP (Phase 13d)');
     if (chk.ok || chk.why !== wantWhy) {
       fail(`DOCK BAND GATE: placementCheck in ${where} says ${JSON.stringify(chk)} -- want refused with ` +
            `${JSON.stringify(wantWhy)}. Placeable at the surface is the whole "ascend to the Heavens is ` +
-           `optional" bug (docs/PLAN-phase13.md 5.2 #2)`);
+           `optional" bug`);
       bad++;
     }
   }
@@ -4960,7 +4957,7 @@ console.log('\n8f. THE CLOSED LOOP (Phase 13d)');
   for (const i of [6, 7, 8, 9]) {
     if (typeof C[i] !== 'string' || !C[i].length) {
       fail(`CALLOUTS: index ${i} is ${JSON.stringify(C[i])} -- beats 7-10 are cycle 2's four ` +
-           `first-time asks (docs/SPEC.md 20.4) and each needs a line`);
+           `first-time asks and each needs a line`);
       bad++;
     }
   }
@@ -4979,7 +4976,7 @@ console.log('\n8f. THE CLOSED LOOP (Phase 13d)');
    properties, and every one of them is a class of bug this project has already
    been bitten by once: A TIMED TRANSITION IS THE CLASSIC FRAMERATE-DEPENDENT
    BUG. */
-console.log('\n8g. GROWTH (Phase 15)');
+console.log('\n8g. GROWTH');
 
 /* A FLAT SHELF WITH SOIL UNDER IT, cleared by hand rather than found,
    because the seed's whole placement legality is "a solid tile directly below
@@ -5033,7 +5030,7 @@ function trunkHeight(band, tx, ty) {
     const { band, tx, ty } = growScene(9600 + fps);
     if (!plantSeed(band, tx, ty)) {
       fail(`GROWTH: placeTile refused a timber/seed on a bare soil floor at ${fps} fps -- the ` +
-           `tile.roots clause (D15-C) is what makes planting on flat ground legal`);
+           `tile.roots clause is what makes planting on flat ground legal`);
       bad++; continue;
     }
 
@@ -5131,7 +5128,7 @@ function trunkHeight(band, tx, ty) {
     fail(`GROWTH HEIGHT: the same tile (${tx}, ${ty}) in seed ${SEED} grew ${hA} tiles tall when ` +
          `planted immediately and ${hB} tiles tall when planted after a dig that moved the rand() ` +
          `stream. Height must come from hash2(tx, ty) -- a positional hash consumes nothing and is ` +
-         `independent of WHEN the seed resolves (D15-D)`);
+         `independent of WHEN the seed resolves`);
     bad++;
   }
   const [lo, hi] = [3, 5];
@@ -5305,7 +5302,7 @@ function trunkHeight(band, tx, ty) {
   if (seeds !== wantSeeds) {
     fail(`FELLING: a 3-tile trunk felled completely dropped ${seeds} seed(s), want exactly ` +
          `${wantSeeds} -- that is eff('seedYield'), and the condition is "no NATIVE timber above ` +
-         `or below the tile just cleared" (D15-A)`);
+         `or below the tile just cleared"`);
     bad++;
   }
   if (seedsAfter[0] !== 0 || seedsAfter[1] !== 0) {
@@ -5355,7 +5352,7 @@ function trunkHeight(band, tx, ty) {
     }
     if (rungSeeds !== 0) {
       fail(`FELLING: mining out a PLACED timber/rung dropped ${rungSeeds} seed(s) -- the ` +
-           `formOf(byte) === NATIVE half of D15-A's test is what stops a player pegging rungs into a ` +
+           `formOf(byte) === NATIVE half of this test is what stops a player pegging rungs into a ` +
            `wall and farming them for seeds, since a rung's byte reads timber through subOf too`);
       bad++;
     }
@@ -5433,7 +5430,7 @@ function trunkHeight(band, tx, ty) {
                `${want ? 'ACCEPTED' : 'REFUSED'}. ` +
                (row.roots
                  ? `A \`roots\` form is backed by a solid tile directly below IN ADDITION to the ` +
-                   `four existing satisfiers (D15-C)`
+                   `four existing satisfiers`
                  : `${D_form.FORM[row.form].id} carries no \`roots\` key, so its placement must be ` +
                    `BIT-IDENTICAL to the pre-Phase-15 rule -- solid-below must not have leaked into ` +
                    `the shared predicate`));
@@ -5453,7 +5450,7 @@ function trunkHeight(band, tx, ty) {
   run.write.collect(D_sub.S.timber, D_form.F.rung, 1);
   if (R_place.placeTile(band, tx, ty, D_sub.S.timber, D_form.F.rung)) {
     fail(`ROOTS: a timber/rung with nothing but a floor beneath it was ACCEPTED -- that is a real ` +
-         `change to how a ladder is built and the whole reason D15-C gated solid-below on the form's ` +
+         `change to how a ladder is built and the whole reason solid-below is gated on the form's ` +
          `own key instead of adding it to the predicate`);
     bad++;
   }
@@ -5464,7 +5461,7 @@ function trunkHeight(band, tx, ty) {
   put(tx - 1, ty, 'solid');
   tiles.write.clear(band, tx, ty);
   if (R_place.placeTile(band, tx, ty, D_sub.S.timber, D_form.F.log)) {
-    fail(`ROOTS: timber/log placed as a tile -- Phase 14a's D14-H deleted its \`tile\` block, so ` +
+    fail(`ROOTS: timber/log placed as a tile -- its \`tile\` block is gone, so ` +
          `placeTile's form gate must refuse it before the backing predicate is reached`);
     bad++;
   }
@@ -5507,8 +5504,8 @@ function trunkHeight(band, tx, ty) {
          `the failure CLAUDE.md records twice`);
   else if (growth.activeCount() !== 0)
     fail(`GROWTH RESET: ${growth.activeCount()} growth entr(ies) survived newRun(${seed}) -- a seed ` +
-         `outliving a restart is invariant 8's determinism bug, and shell/boot.js#newRun must call ` +
-         `growthw.clearAll() in its teardown block (D15-B)`);
+         `outliving a restart is a determinism bug, and shell/boot.js#newRun must call ` +
+         `growthw.clearAll() in its teardown block`);
   else if (fresh !== again) {
     const a = JSON.parse(fresh), b2 = JSON.parse(again);
     const key = Object.keys(a).find(k => JSON.stringify(a[k]) !== JSON.stringify(b2[k]));
@@ -5799,7 +5796,7 @@ const climbSteps = dist => Math.ceil(((dist + 8) / mods.eff('climb')) * 120);
        `${up.y.toFixed(0)}, down to y ${down.y.toFixed(0)}, 1 handoff each, 0 px against travel`);
 }
 
-console.log('\n8i. THE FEED VERB (Phase 16a, docs/SPEC.md section 23)');
+console.log('\n8i. THE FEED VERB');
 {
   /* ONE PRESS, ONE UNIT -- and the measurement is a DIFFERENCE, which is the
      single most important thing to understand about this probe. BEFORE THE
@@ -5849,7 +5846,7 @@ console.log('\n8i. THE FEED VERB (Phase 16a, docs/SPEC.md section 23)');
     fail(`FEED VERB: one cmd.feed press ${gap(fed.m)} px from a 2x2 altar with 3 copper/ore held and ` +
          `the pair armed moved ${total} unit(s) out of the pockets, against ${drained} in the ` +
          `identical frame with no press -- the verb's own contribution is ${total - drained}, want ` +
-         `exactly 1 (docs/SPEC.md section 23.3, one unit per press)`);
+         `exactly 1`);
     bad++;
   } else {
     console.log(`  ..  one press ${gap(fed.m)} px from the altar moved exactly 1 unit ` +
@@ -5857,11 +5854,11 @@ console.log('\n8i. THE FEED VERB (Phase 16a, docs/SPEC.md section 23)');
   }
   if (!armedAfter || armedAfter.sub !== D_sub.S.copper || armedAfter.form !== D_form.F.ore) {
     fail(`FEED VERB: the armed pair after a SUCCESSFUL feed is ${JSON.stringify(armedAfter)} -- it must ` +
-         `survive, so ten ore into an altar is one continuous action (docs/SPEC.md section 23.3); the ` +
+         `survive, so ten ore into an altar is one continuous action; the ` +
          `staleness sweep in shell/main.js#applyIntents is what clears it when the last unit is gone`);
     bad++;
   } else {
-    console.log('  ..  the arm survived a successful feed, as section 23.3 requires');
+    console.log('  ..  the arm survived a successful feed, as one-unit-per-press requires');
   }
 
   /* REFUSAL 1 -- wrong material. Driven through the same `cmd.feed` the shell
@@ -5880,7 +5877,7 @@ console.log('\n8i. THE FEED VERB (Phase 16a, docs/SPEC.md section 23)');
   if (!wrongWhy.includes('IT DOES NOT WANT THAT') || rungsLeft !== 2) {
     fail(`FEED VERB (wrong material): feeding a timber/rung to an altar (which takes ore, refined and ` +
          `gravel) pushed refusals ${JSON.stringify(wrongWhy)} and left ${rungsLeft} rung(s) held -- want ` +
-         `'IT DOES NOT WANT THAT' and 2 (docs/SPEC.md section 23.4)`);
+         `'IT DOES NOT WANT THAT' and 2`);
     bad++;
   } else {
     console.log(`  ..  a rung at the ${D_mach.MACH[wrong.m.def].id}: 'IT DOES NOT WANT THAT', nothing spent`);
@@ -5903,8 +5900,7 @@ console.log('\n8i. THE FEED VERB (Phase 16a, docs/SPEC.md section 23)');
   const cap = machs.capOf(D_mach.MACH[D_mach.M.furnace], '*/#ore');
   if (!fullWhy.includes('IT IS FULL') || oreLeft !== 3) {
     fail(`FEED VERB (full): feeding copper/ore to a furnace already holding ${cap}/${cap} ore pushed ` +
-         `refusals ${JSON.stringify(fullWhy)} and left ${oreLeft} ore held -- want 'IT IS FULL' and 3 ` +
-         `(docs/SPEC.md section 23.4)`);
+         `refusals ${JSON.stringify(fullWhy)} and left ${oreLeft} ore held -- want 'IT IS FULL' and 3 `);
     bad++;
   } else {
     console.log(`  ..  ore at a ${cap}/${cap} furnace: 'IT IS FULL', nothing spent`);
@@ -5923,7 +5919,7 @@ console.log('\n8i. THE FEED VERB (Phase 16a, docs/SPEC.md section 23)');
     .filter(r => r.kind === 'refused').map(r => r.data?.why);
   if (!bothWhy.includes('IT DOES NOT WANT THAT') || bothWhy.includes('IT IS FULL')) {
     fail(`FEED VERB (precedence): a rung at a full furnace pushed ${JSON.stringify(bothWhy)} -- want ` +
-         `'IT DOES NOT WANT THAT' and NOT 'IT IS FULL' (docs/SPEC.md section 23.4's order)`);
+         `'IT DOES NOT WANT THAT' and NOT 'IT IS FULL', in that order`);
     bad++;
   } else {
     console.log('  ..  a rung at a full furnace says the material, not the room -- the locked order');
@@ -5938,14 +5934,14 @@ console.log('\n8i. THE FEED VERB (Phase 16a, docs/SPEC.md section 23)');
   if (drained !== 0) {
     fail(`FEED VERB (baseline): a player standing ${gap(base.m)} px from an altar with 3 copper/ore and ` +
          `NO press lost ${drained} unit(s) in one substep, not 0 -- rules/machines.js#handFeed must run ` +
-         `ONLY when cmd.autoFeed is set, and shell/ui.js#ui.autoFeed defaults to false (Phase 16b)`);
+         `ONLY when cmd.autoFeed is set, and shell/ui.js#ui.autoFeed defaults to false`);
     bad++;
   }
 
   if (!bad)
     ok('FEED VERB: one cmd.feed press hands over exactly ONE unit (measured as a difference against a ' +
        'now-zero proximity baseline), the arm survives it, and the two refusal strings fire in ' +
-       'docs/SPEC.md section 23.4\'s locked order');
+       'the locked refusal order');
 }
 
 /* 8j. STANDING STILL COSTS NOTHING, the headline BEHAVIOUR CHANGE OF THE WHOLE
@@ -5955,7 +5951,7 @@ console.log('\n8i. THE FEED VERB (Phase 16a, docs/SPEC.md section 23)');
    NO input at all: the pockets must still read ten. 4 px, not the 6 the
    section above uses, deliberately: `handFeed.reach` is 10 px, so this is
    comfortably inside the reach of the very thing being asserted not to fire. */
-console.log('\n8j. STANDING STILL COSTS NOTHING (Phase 16b)');
+console.log('\n8j. STANDING STILL COSTS NOTHING');
 {
   let bad = 0;
   const N = 240;                                  // substeps; two seconds at 1/120
@@ -6009,13 +6005,13 @@ console.log('\n8j. STANDING STILL COSTS NOTHING (Phase 16b)');
   if (!bad)
     ok(`STANDING STILL COSTS NOTHING: ${N} substeps ${offGap} px from a feed-capable altar with 10 ore ` +
        `held and no input leaves all 10 held and its buffer empty -- and the same scene with AUTO FEED ` +
-       `ON loses every one of them, so the claim has teeth (Phase 16b, D16-C)`);
+       `ON loses every one of them, so the claim has teeth`);
 }
 
 /* 8k. THE QUICKBAR FILLS FIRST. `model/run.js#write.collect` allocates a
    brand-new pair into the quickbar's tail before the main grid, so the order the
    strip fills in is a behavioural contract and not a display detail. */
-console.log('\n8k. THE QUICKBAR FILLS FIRST (Phase 17i)');
+console.log('\n8k. THE QUICKBAR FILLS FIRST');
 {
   let bad = 0;
   const QUICK = run.run.inv.length - run.run.mainSlots;
@@ -6075,7 +6071,7 @@ console.log('\n8k. THE QUICKBAR FILLS FIRST (Phase 17i)');
     } else if (landed.join() !== wantSlots.join()) {
       fail(`QUICKBAR FILL: ${want} distinct pairs picked up one at a time landed in slots ` +
            `[${landed}], want [${wantSlots}] -- the first ${QUICK} fill the quickbar's tail left to ` +
-           `right and only the next one reaches the main grid (docs/SPEC.md section 24)`);
+           `right and only the next one reaches the main grid`);
       bad++;
     } else if (!mainStillEmpty) {
       fail(`QUICKBAR FILL: the main grid already held something after ${QUICK} pickups -- every one of ` +
@@ -6128,7 +6124,7 @@ console.log('\n8k. THE QUICKBAR FILLS FIRST (Phase 17i)');
     } else if (at !== -1 || !onGround || !rows.length) {
       fail(`INVENTORY FULL: with all ${cap} slots taken, a ${D_form.labelOf(sub, form)} under the player landed in slot ` +
            `${at} (want -1), left on the ground ${onGround} (want true), 'INVENTORY FULL' rows ${rows.length} ` +
-           `(want at least 1) -- a refused pickup must survive as an item, per invariant 5`);
+           `(want at least 1) -- a refused pickup must survive as an item`);
       bad++;
     } else {
       ok(`INVENTORY FULL: all ${cap} slots taken, the next pickup is refused through rules/items.js#step ` +
@@ -6144,7 +6140,7 @@ console.log('\n8k. THE QUICKBAR FILLS FIRST (Phase 17i)');
    before this section took a card purely so the win-state probe could get past
    cycle 2's reward. THE WHOLE SECTION GOES THROUGH `main.step` AND
    `main.applyIntents`. */
-console.log('\n8l. THE DRAFT: the offer, the pause and the price (Phase 17c, D17-A/B/F)');
+console.log('\n8l. THE DRAFT: the offer, the pause and the price');
 {
   let bad = 0;
   const SIZE = Math.max(0, Math.round(mods.eff('offerSize')));
@@ -6197,7 +6193,7 @@ console.log('\n8l. THE DRAFT: the offer, the pause and the price (Phase 17c, D17
       bad++;
     } else if (first !== again) {
       fail(`DRAFT OFFER: seed 9760 laid out [${first}] and then [${again}] -- an offer is drawn from ` +
-           `the run's own stream and two runs of one seed must agree (invariant 7)`);
+           `the run's own stream and two runs of one seed must agree`);
       bad++;
     } else if (offers.size < 2) {
       fail(`DRAFT OFFER: all 40 seeds laid out the same [${first}] -- the selection is not reading ` +
@@ -6256,7 +6252,7 @@ console.log('\n8l. THE DRAFT: the offer, the pause and the price (Phase 17c, D17
       fail(`DRAFT PAUSE: ${HELD} real frames with the modal up moved the ore ` +
            `${(held.y - at.y).toFixed(3)} px, its vy by ${(held.vy - at.vy).toFixed(3)}, run.t by ` +
            `${(held.runT - at.runT).toFixed(4)} s and clock.frame by ${held.frame - at.frame} -- a ` +
-           `draft freezes the run outright (D17-A)`);
+           `draft freezes the run outright`);
       bad++;
     } else if (!closed) {
       fail(`DRAFT PAUSE: taking card 0 left run.offer = ${JSON.stringify(run.run.offer)} and the ` +
@@ -6352,7 +6348,7 @@ console.log('\n8l. THE DRAFT: the offer, the pause and the price (Phase 17c, D17
       bad++;
     } else if (spent !== PRICE) {
       fail(`DRAFT REROLL (price): one reroll moved athena's favour ${fav0} -> ${fav1}, spending ` +
-           `${spent} -- want exactly eff('rerollCost') = ${PRICE} (D17-B)`);
+           `${spent} -- want exactly eff('rerollCost') = ${PRICE}`);
       bad++;
     } else if (still?.tier !== 'boon' || still.god !== 'athena' || still.pool !== bOffer.pool ||
                still.ids.length !== SIZE || new Set(still.ids).size !== SIZE) {
@@ -6414,7 +6410,7 @@ console.log('\n8l. THE DRAFT: the offer, the pause and the price (Phase 17c, D17
 
 /* 8m. THE BATCH CLAUSE -- a rolling window on simulated time. A cycle's
    `batch:{ sub, form, n, secs }` had no assertion anywhere. */
-console.log('\n8m. THE BATCH CLAUSE: a rolling window on simulated time (Phase 17d, D17-C)');
+console.log('\n8m. THE BATCH CLAUSE: a rolling window on simulated time');
 {
   const RATES = [20, 30, 60, 90, 107, 120, 144, 240];
   const ROW = D_cycles.CYCLES.find(c => c.batch);
@@ -6424,7 +6420,7 @@ console.log('\n8m. THE BATCH CLAUSE: a rolling window on simulated time (Phase 1
 
   if (!ROW) {
     fail('BATCH WINDOW: no shipped cycle carries a batch clause -- data/cycles.js and ' +
-         'docs/SPEC.md §18.10 disagree, and this section is testing nothing');
+         'the batch rule disagree, and this section is testing nothing');
     bad++;
   }
 
@@ -6616,7 +6612,7 @@ console.log('\n8n. EVERY CALLOUT FITS THE NARROWEST BUFFER (view/hud.js#bottomLi
        `overflow it unwrapped -- so the wrap is load-bearing`);
 }
 
-console.log('\n8o. DAYLIGHT STOPS AT A SEAM (docs/AUDIT-seam-light.md)');
+console.log('\n8o. DAYLIGHT STOPS AT A SEAM');
 
 /* Every seam in the world, as the two tile rows that touch across it, derived
    from `model/world.js#bandAbove` rather than from band ids -- a fourth band
@@ -6844,7 +6840,7 @@ const seamCols = (a, b, tx) => {
   }
 }
 
-console.log('\n8p. A CATCH BOX CATCHES WHAT FALLS THROUGH ITS MOUTH (Phase 6q, docs/SPEC.md section 18)');
+console.log('\n8p. A CATCH BOX CATCHES WHAT FALLS THROUGH ITS MOUTH');
 
 /* Every machine row that declares a catch box, with the pair its OWN ports
    accept -- read through `expand` (the validator `data/forms.js` exports for
@@ -7033,7 +7029,7 @@ function catchScene(tx, ty, up, down) {
   }
 }
 
-console.log('\n8q. THE DIG QUEUE DIGS WITH NO BUTTON HELD (Phase 6i, docs/SPEC.md section 28)');
+console.log('\n8q. THE DIG QUEUE DIGS WITH NO BUTTON HELD');
 
 /* Written against BEHAVIOUR and never against the selection policy. Which
    mark the pick works next is `rules/mining.js`'s to change; that a mark
@@ -7124,10 +7120,10 @@ function digBudget(subId, n) {
     fail(`DIG QUEUE (hands-free): ${digqueue.activeCount()} mark(s) outlived the tiles they named`);
   else if (!gained)
     fail('DIG QUEUE (hands-free): every tile broke and nothing fell, so the queue is destroying ' +
-         'material rather than dropping it (invariant 5)');
+         'material rather than dropping it');
   else if (invGrew)
     fail(`DIG QUEUE (hands-free): ${invGrew} inventory slot(s) filled without a pickup -- a queued ` +
-         `swing is crediting the pockets directly (invariant 5)`);
+         `swing is crediting the pockets directly`);
   else
     ok(`DIG QUEUE (hands-free): ${cells.length} marked copper tiles broke in ` +
        `${(f * main.STEP).toFixed(2)} s with cmd empty on every substep, yielding ${gained} falling ` +
@@ -7229,7 +7225,7 @@ function digBudget(subId, n) {
   else if (visible)
     fail(`DIG QUEUE (restart): ${visible} of ${cells.length} marks are still readable through ` +
          `markedAt() after newRun(${SEED}), and the terrain under them is byte-identical. A mark ` +
-         `of the previous run is being worked in this one (invariant 8)`);
+         `of the previous run is being worked in this one`);
   else if (nearest)
     fail(`DIG QUEUE (restart): nearestWithin() still answers ${nearest.tx},${nearest.ty} after ` +
          `newRun(${SEED}), so the queue would hand rules/mining.js a dead mark`);
@@ -7309,7 +7305,7 @@ function digBudget(subId, n) {
   digqueue.write.clearAll();
 }
 
-console.log('\n8r. THE SAVE SLOT (Phase 6h/6h-2, docs/SPEC.md section 27)');
+console.log('\n8r. THE SAVE SLOT');
 
 /* A STUB `localStorage` AND NOT A BROWSER, AND HERE IS WHAT IT CANNOT SEE.
    `src/shell/save.js` touches storage through `getItem`/`setItem`/`removeItem`
@@ -7429,7 +7425,7 @@ function richRun(seed) {
     fail(`SAVE ROUND TRIP: the loaded run differs from the saved one. ${diff}`);
   else if (afterSave.join() !== afterLoad.join())
     fail('SAVE ROUND TRIP: every field came back and the rand() cursor did not, so the loaded ' +
-         'run draws a different future from the same world (docs/SPEC.md section 27.2)');
+         'run draws a different future from the same world');
   else
     ok(`SAVE ROUND TRIP: tile edits, the dig ledger, a part-grown seed, a loose item, two hubs, ` +
        `a segment and its carrier, the pockets, hearts, a live boon and the rand() cursor all ` +
@@ -7790,7 +7786,7 @@ function richRun(seed) {
          `${derived}, so this claim is no longer about the tunable it names`);
   else if (at < derived)
     fail(`SAVE SLOT SHAPE: the collected stack landed in main slot ${at}, not the quickbar. ` +
-         `docs/SPEC.md section 24 fills the quickbar first, so the index this claim is about is ` +
+         `the fill order puts a new pair in the quickbar first, so the index this claim is about is ` +
          `not being exercised`);
   else if (!loaded || back !== at)
     fail(`SAVE SLOT SHAPE: a stack saved in inventory index ${at} of ${total} came back at ` +
@@ -7799,14 +7795,14 @@ function richRun(seed) {
     ok(`SAVE SLOT SHAPE: a stack in quickbar index ${at} of ${total} round-trips by index, and the ` +
        `header versions {${fields}}` + (head.slots === undefined
          ? ` -- no slot count, so raising eff('invSlots') (${derived}) still mis-restores an old ` +
-           `save silently (docs/FINDINGS.md 6h-2, item 2)`
-         : ` -- including a slot count, so that gap is closed and docs/SPEC.md section 27.3 ` +
+           `save silently`
+         : ` -- including a slot count, so that gap is closed and the payload ` +
            `should list the fifth version`));
 }
 
 globalThis.localStorage = defaultStore();
 
-console.log('\n8s. THE BAND EDGE (Phase 6g, docs/PLAN-horizontal-chunks-SCOPE.md 3.5/3.6/3.12)');
+console.log('\n8s. THE BAND EDGE');
 
 /* NOTHING TESTED A BAND EDGE BEFORE THIS SECTION, and all three bands then
    widened from 128 tiles to 1,024 with the edges measured by hand and no gate
@@ -8088,7 +8084,7 @@ const edgeFrames = (b, dt) => Math.ceil((EDGE_RUN + 4) * b.tile / mods.eff('walk
        `of margin on each side, and the player does not move`);
 }
 
-console.log('\n8t. THE KEYBOARD AIM REACHES WHAT THE BODY OCCUPIES (Phase 6y, docs/SPEC.md section 2.1)');
+console.log('\n8t. THE KEYBOARD AIM REACHES WHAT THE BODY OCCUPIES');
 
 /* NOTHING PROBED THE KEYBOARD AIM BEFORE THIS SECTION, AND A TOTAL NO-OP
    SURVIVED THE WHOLE LIFE OF THE PROJECT. `rules/mining.js#aimAtKeys` resolved
@@ -8177,8 +8173,7 @@ function digSecs(subId, n = 1) {
   else if (standing().length)
     fail(`KEY AIM (sideways): ${standing().length} of ${rows.length} rows of a two-tile wall are ` +
          `still standing after ${took.toFixed(2)} s of held right + dig, against a derived ` +
-         `${want.toFixed(2)} s. The aim resolves one row and never retargets the other ` +
-         `(docs/FINDINGS.md, phase 6y)`);
+         `${want.toFixed(2)} s. The aim resolves one row and never retargets the other `);
   else if (Math.abs(took - want) > tol)
     fail(`KEY AIM (sideways): a two-tile stone wall took ${took.toFixed(4)} s against a derived ` +
          `${want.toFixed(4)} s (tile.hard x charge / power, twice), outside ${tol.toFixed(4)} s. ` +
