@@ -15,7 +15,7 @@ import { write as iw } from '../model/items.js';
 import { machineAt, write as mw } from '../model/machines.js';
 import { eff } from '../model/mods.js';
 import { invCount, machineHeldSub, placementCheck, write as rw } from '../model/run.js';
-import { linkCheck, write as segw } from '../model/segments.js';
+import { linkCheck, nearestRailT, segments, write as segw } from '../model/segments.js';
 import { climbAt, solidAt, tileAt, write as tw } from '../model/tiles.js';
 import { inBounds, worldX, worldY } from '../model/world.js';
 
@@ -103,6 +103,29 @@ export function unlinkSegment(seg) {
    block, or a machine's own `rig` pair — in HUD order.
    `shell/main.js#applyIntents` places the first and dispatches on which kind
    it is. */
+/* Hangs a held carrier on whichever rope passes nearest the aim. Installed
+   on the ascending strand: the loop turns, so which strand it starts on is
+   only where it is this second. Returns the carrier record, or null with a
+   reason on the journal. */
+export function attachCarrier(x, y, sub) {
+  const at = { x, y };
+  const no = why => { push('refused', at, { why }); return null; };
+  if (invCount(sub, F.rig) < 1) return no('NOTHING BUILT YET');
+
+  let best = null, bestD = eff('attachR');
+  for (const seg of segments) {
+    const hit = nearestRailT(seg, x, y);
+    if (hit.d <= bestD) { bestD = hit.d; best = { seg, t: hit.t }; }
+  }
+  if (!best) return no('NO ROPE HERE');
+  if (best.seg.carriers.length >= Math.round(eff('ropeBuckets')))
+    return no('THIS ROPE IS FULL');
+
+  const c = segw.attach(best.seg, best.t / 2);
+  rw.spend(sub, F.rig, 1);
+  return c;
+}
+
 export function placeableFromPockets(rows) {
   return rows.filter(r => r.n > 0 && (FORM[r.form]?.tile || r.form === F.rig));
 }

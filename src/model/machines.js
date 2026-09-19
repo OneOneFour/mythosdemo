@@ -1,9 +1,9 @@
 /* model layer — placed machines: storage and queries.
 
    `def` is an index into `data/machines.js`, so the row is the definition and
-   the record holds only what changes: buffer, progress, charges, fire, torque,
-   turn. Buffers are keyed by the `sub/form` string from `model/items.js`, not
-   by tile byte. */
+   the record holds only what changes: buffer, progress, charges, fire, fuel
+   bank, torque, speed, turn, slip. Buffers are keyed by the `sub/form` string
+   from `model/items.js`, not by tile byte. */
 
 import { overlaps, rect } from '../core/math.js';
 import { MACH } from '../data/machines.js';
@@ -34,10 +34,16 @@ export const write = {
         right:  rect(x + def.tw * t - 2, y, 4, def.th * t)
       },
       buf: {}, prog: 0, made: 0, charges: 0, fire: 0, running: false,
-      /* `torque` is the 0..1 drive delivered this frame, `turn` the accumulated
-         rotation for the sprite. On every machine rather than only a crank,
-         gear or hub, so `view` needs no key test. */
-      torque: 0, turn: 0
+      /* Raw fuel energy drawn from the buffer and not yet spent. A lump is
+         worth more than one run, so the remainder has to live somewhere. */
+      bank: 0,
+      /* `torque` is the 0..1 drive delivered this frame, `speed` the shaft
+         speed at this node, `turn` the accumulated rotation for the sprite.
+         On every machine rather than only a crank, gear or hub, so `view`
+         needs no key test. */
+      torque: 0, speed: 0, turn: 0,
+      /* A belt on a run too steep to grip. Items on it run back downhill. */
+      slip: false
     };
     machines.push(m);
     bump();
@@ -61,12 +67,15 @@ export const write = {
   charge(m, n)      { m.charges += n; m.made += n; bump(); },
   spendCharge(m, n) { m.charges = Math.max(0, m.charges - n); bump(); },
   fire(m, v)        { m.fire = v; bump(); },
+  bank(m, v)        { m.bank = v; bump(); },
   running(m, v)     { m.running = v; bump(); },
 
   /* `turn` accumulates from `dt` alone and never from `rand()`, so a gear
      sprite is reproducible from the seed and the frame count. */
   torque(m, v)      { m.torque = v; bump(); },
+  speed(m, v)       { m.speed = v; bump(); },
   turn(m, phase)    { m.turn = phase; bump(); },
+  slip(m, v)        { m.slip = v; bump(); },
 
   remove(m) {
     const i = machines.indexOf(m);

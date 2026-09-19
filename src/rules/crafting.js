@@ -9,6 +9,7 @@ import { HAND_RECIPES } from '../data/recipes.js';
 import { S } from '../data/substances.js';
 import { push } from '../model/journal.js';
 import { write as iw } from '../model/items.js';
+import { eff } from '../model/mods.js';
 import { player, playerCentre } from '../model/player.js';
 import { pocketedPair, run, write as rw } from '../model/run.js';
 
@@ -78,11 +79,15 @@ export function step(dt, cmd) {
     if (sub === undefined || sub === null) continue;
     const form = F[clause.form];
     if (firstSub === undefined) { firstSub = sub; firstForm = form; }
+    /* The same expression `rules/machines.js` applies, so one recipe run by
+       hand and run in a machine produce the same count. Unscoped: `yield`
+       narrows to a machine, and a hand craft has none. Floored at one. */
+    const units = Math.max(1, Math.floor(clause.n * eff('yield')));
     /* A full inventory falls back to a ground drop, so output is never lost. */
-    if (!rw.collect(sub, form, clause.n)) {
-      for (let k = 0; k < clause.n; k++) iw.spawn(player.band, c.x, c.y, sub, form, 0, -50);
+    if (!rw.collect(sub, form, units)) {
+      for (let k = 0; k < units; k++) iw.spawn(player.band, c.x, c.y, sub, form, 0, -50);
     }
-    made += clause.n;
+    made += units;
   }
   if (made) push('produce', { x: c.x, y: c.y }, { sub: firstSub, form: firstForm, made });
 }

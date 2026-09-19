@@ -3,8 +3,15 @@
 
    A segment has no footprint, buffer or recipe: it is created by an action
    between two hub machines rather than placed. One segment joins exactly two
-   hubs and carries exactly one carrier, and nothing here describes a route
-   longer than one segment -- a route is `chains()`, derived and never stored.
+   hubs, and nothing here describes a route longer than one segment -- a route
+   is `chains()`, derived and never stored.
+
+   A rope is a LOOP. `u` is its phase in [0,1), and a bucket rides at
+   `u + off` wrapped: phase 0 is the low anchor, 0.5 the high anchor, and the
+   rest of the turn is the descending strand back to the low anchor. So
+   buckets circulate rather than stopping at the top, and a descending one
+   hangs against an ascending one -- which is why `rules/drive.js` weighs the
+   NET load and not the total.
 
    `a` and `b` are the machine records, never ids or indices, so
    `write.unlinkAll(m)` is an identity test rather than a search.
@@ -26,9 +33,16 @@ export const segments = [];
 const CARRIER_GRAB = 3;
 
 /* Carrier size in px. Not a tunable: this is the size of a drawn object, the
-   same class of number as `model/player.js`'s PW/PH. */
-export const CARRIER_W = 10;
+   same class of number as `model/player.js`'s PW/PH. 8 wide so two decks side
+   by side span exactly the 2-tile shaft the scenarios carve, and still take
+   the 6 px player. */
+export const CARRIER_W = 8;
 export const CARRIER_H = 4;
+
+/* How far apart the loop's two strands sit, across the rope. Equal to
+   `CARRIER_W`, so an ascending bucket and a descending one at the same height
+   touch without overlapping. */
+export const STRAND_GAP = 8;
 
 export const write = {
   /* The caller is trusted to have called `linkCheck` first;
@@ -61,13 +75,35 @@ export const write = {
     return n;
   },
 
-  carrier(seg, t, dir) {
-    seg.t = t < 0 ? 0 : t > 1 ? 1 : t;
-    seg.dir = dir;
+  /* Advance the loop by `du` turns, positive being the ascending strand
+     going up. `spin` is the sign of that, for `view`. */
+  spin(seg, du, spin) {
+    seg.u = wrap(seg.u + du);
+    seg.spin = spin;
+    bump();
+  },
+
+  /* A bucket on this rope, at the phase the loop currently presents at
+     `phase`. Returns the record so a caller can position cargo against it. */
+  attach(seg, phase = 0) {
+    const c = { off: wrap(phase - seg.u), load: 0 };
+    seg.carriers.push(c);
+    bump();
+    return c;
+  },
+
+  detach(seg, c) {
+    const i = seg.carriers.indexOf(c);
+    if (i >= 0) seg.carriers.splice(i, 1);
     bump();
   },
 
   load(seg, talents) { seg.load = talents; bump(); },
+
+  /* What one bucket is carrying, in talents. `rules/drive.js` writes it every
+     substep; `view` draws the fill from it, so an empty bucket coming down
+     past a full one going up is visible. */
+  carrierLoad(c, talents) { c.load = talents; bump(); },
   band(seg, band)    { seg.band = band; bump(); },
 
   clear() { segments.length = 0; bump(); }
@@ -93,33 +129,80 @@ function geometryOf(a, b) {
        expression needs no horizontal special case. */
     slope: len > 0 ? Math.abs(dy) / len : 0,
     hi,
-    t: 0, dir: 0, load: 0,
+    u: 0, spin: 0, load: 0,
+    carriers: [],
     band: null
   };
-  seg.band = bandAt(...posOf(seg));
+  seg.band = bandAt(...railPos(seg, 0));
   return seg;
 }
 
-/* World px of the carrier, as a two-element tuple shared with the `bandAt`
-   call above. `t = 0` is the low end. */
-function posOf(seg) {
+/* Loop phase, wrapped into [0,1). */
+export const wrap = u => ((u % 1) + 1) % 1;
+
+/* Where along the rope a loop phase sits: 0 at the low anchor, 1 at the high
+   one, and back down again over the second half of the turn. */
+export const railT = phase => (phase < 0.5 ? phase * 2 : 2 - phase * 2);
+
+/* Is this phase on the strand that rises when the loop runs forward? */
+export const ascending = phase => phase < 0.5;
+
+export const phaseOf = (seg, c) => wrap(seg.u + c.off);
+
+/* World px at a rope parameter, as a two-element tuple shared with the
+   `bandAt` call above. `t = 0` is the low end. */
+function railPos(seg, t) {
   const lo = seg.hi === 'a' ? { x: seg.bx, y: seg.by } : { x: seg.ax, y: seg.ay };
   const hiP = seg.hi === 'a' ? { x: seg.ax, y: seg.ay } : { x: seg.bx, y: seg.by };
-  return [lerp(lo.x, hiP.x, seg.t), lerp(lo.y, hiP.y, seg.t)];
+  return [lerp(lo.x, hiP.x, t), lerp(lo.y, hiP.y, t)];
 }
 
-export function carrierPos(seg) {
-  const [x, y] = posOf(seg);
-  return { x, y };
+/* Unit normal to the rope, lo -> hi turned a quarter. The loop's two strands
+   sit `STRAND_GAP` apart along it, so an ascending bucket and a descending one
+   at the same height are in different places rather than on top of each
+   other. */
+function normalOf(seg) {
+  const lo = seg.hi === 'a' ? { x: seg.bx, y: seg.by } : { x: seg.ax, y: seg.ay };
+  const hiP = seg.hi === 'a' ? { x: seg.ax, y: seg.ay } : { x: seg.bx, y: seg.by };
+  const dx = hiP.x - lo.x, dy = hiP.y - lo.y;
+  const len = Math.hypot(dx, dy) || 1;
+  return { x: -dy / len, y: dx / len };
+}
+
+/* Which side of the rope a phase rides on, in px across it. */
+export function strandOffset(seg, phase) {
+  const n = normalOf(seg);
+  const k = (ascending(phase) ? -1 : 1) * STRAND_GAP / 2;
+  return { x: n.x * k, y: n.y * k };
+}
+
+export function carrierPos(seg, c) {
+  const phase = phaseOf(seg, c);
+  const [x, y] = railPos(seg, railT(phase));
+  const o = strandOffset(seg, phase);
+  return { x: x + o.x, y: y + o.y };
 }
 
 /* The catch/stand box: centred on the carrier point, with `CARRIER_GRAB` of
    vertical slack each side so material resting a pixel high still counts as
    aboard. */
-export function carrierBox(seg) {
-  const { x, y } = carrierPos(seg);
+export function carrierBox(seg, c) {
+  const { x, y } = carrierPos(seg, c);
   return rect(x - CARRIER_W / 2, y - CARRIER_H / 2 - CARRIER_GRAB,
               CARRIER_W, CARRIER_H + CARRIER_GRAB * 2);
+}
+
+/* The rope parameter nearest a world point, and its distance in px. `t` is
+   clamped to the span, so a point past an anchor answers that anchor. */
+export function nearestRailT(seg, x, y) {
+  const lo = seg.hi === 'a' ? { x: seg.bx, y: seg.by } : { x: seg.ax, y: seg.ay };
+  const hiP = seg.hi === 'a' ? { x: seg.ax, y: seg.ay } : { x: seg.bx, y: seg.by };
+  const dx = hiP.x - lo.x, dy = hiP.y - lo.y;
+  const l2 = dx * dx + dy * dy;
+  const t = l2 > 0
+    ? Math.max(0, Math.min(1, ((x - lo.x) * dx + (y - lo.y) * dy) / l2))
+    : 0;
+  return { t, d: Math.hypot(lo.x + dx * t - x, lo.y + dy * t - y) };
 }
 
 /* Every segment anchored to this machine. */
@@ -277,7 +360,7 @@ export function carries(seg, what) {
 /* The deck line in world px: the top edge of the drawn carrier, so what looks
    standable and what `rules/player.js` stands a rider on are the same
    pixels. */
-export const carrierTop = seg => carrierPos(seg).y - CARRIER_H / 2;
+export const carrierTop = (seg, c) => carrierPos(seg, c).y - CARRIER_H / 2;
 
 /* The segment whose carrier is under this box, or null: horizontal overlap
    plus the box's feet inside the carrier's grab band, which is three times a
@@ -286,10 +369,12 @@ export function carrierUnder(band, box) {
   const feet = box.y + box.h;
   for (const seg of segments) {
     if (seg.band !== band) continue;
-    const cb = carrierBox(seg);
-    if (box.x >= cb.x + cb.w || box.x + box.w <= cb.x) continue;
-    if (feet < cb.y || feet > cb.y + cb.h) continue;
-    return seg;
+    for (const c of seg.carriers) {
+      const cb = carrierBox(seg, c);
+      if (box.x >= cb.x + cb.w || box.x + box.w <= cb.x) continue;
+      if (feet < cb.y || feet > cb.y + cb.h) continue;
+      return { seg, c };
+    }
   }
   return null;
 }
@@ -298,8 +383,8 @@ export function carrierUnder(band, box) {
    which treats a carrier top as ground, and `rules/drive.js`, which translates
    the rider and counts their mass. `vy < 0` makes it a one-way platform:
    rising is not riding, falling or at rest means the deck catches you. */
-export function riddenSegment() {
+export function riddenCarrier() {
   if (!player.band || player.vy < 0) return null;
-  const seg = carrierUnder(player.band, playerBox());
-  return seg && carries(seg, 'player') ? seg : null;
+  const hit = carrierUnder(player.band, playerBox());
+  return hit && carries(hit.seg, 'player') ? hit : null;
 }

@@ -12,7 +12,7 @@ export const BOONS = [
 
   { id:'hephaestus-forge', name:'FORGE OF HEPHAESTUS', short:'FORGE', god:'hephaestus', secs:60,
     text:'THE FORGE BURNS HOT',
-    mods:[ { key:'rate.furnace', mul:1.5 } ] },
+    mods:[ { key:'rate.kiln', mul:1.5 } ] },
 
   { id:'poseidon-flood', name:"POSEIDON'S FLOOD", short:'FLOOD', god:'poseidon', secs:60,
     text:'THE DEEP RISES; THE FORGE GUTTERS',

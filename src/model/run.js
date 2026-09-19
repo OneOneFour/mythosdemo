@@ -63,9 +63,10 @@ export const RUN_SCHEMA = Object.freeze({
      derived, and `pool` lets `canReroll` refuse a transposition. */
   offer: null,
 
-  /* A fixed-length selection over `run.inv`, not a second inventory:
-     substance ordinals, or `null` for an empty slot, capped by
-     `eff('trinketSlots')`. Built fresh in `write.reset()`. */
+  /* Where every `relic` pair lives: substance ordinals, or `null` for an
+     empty slot, capped by `eff('trinketSlots')`. A relic is worn rather than
+     pocketed, so this is the only record that the player has one, and it
+     still weighs against `eff('burden')`. Built fresh in `write.reset()`. */
   equipped: null,
 
   /* The hand-craft bar; one pair of hands means one craft in flight.
@@ -122,6 +123,18 @@ function prunedCredits(t) {
   return i === 0 ? cs : cs.slice(i);
 }
 
+/* One relic per equipment slot, and never two of the same: a refused pickup
+   leaves it on the ground rather than stacking it somewhere it cannot be
+   worn. `write.collect` routes every `relic` pair here. */
+function wear(sub, n) {
+  if (n !== 1 || run.equipped.includes(sub)) return false;
+  const free = run.equipped.indexOf(null);
+  if (free === -1) return false;
+  run.equipped[free] = sub;
+  bump();
+  return true;
+}
+
 export const write = {
   /* Called by `shell/boot.js` alongside the `clear()` on every other model
      module. */
@@ -170,6 +183,7 @@ export const write = {
      the quickbar tail left to right and only then the main grid. Returns false
      with no stack and no free slot. */
   collect(sub, form, n) {
+    if (form === F.relic) return wear(sub, n);
     const i = run.inv.findIndex(s => s && s.sub === sub && s.form === form);
     if (i !== -1) { run.inv[i].n += n; bump(); return true; }
     const q = run.inv.findIndex((s, idx) => s === null && idx >= run.mainSlots);
@@ -181,6 +195,13 @@ export const write = {
   },
 
   spend(sub, form, n) {
+    if (form === F.relic) {
+      const slot = run.equipped.indexOf(sub);
+      if (slot === -1 || n !== 1) return false;
+      run.equipped[slot] = null;
+      bump();
+      return true;
+    }
     const i = run.inv.findIndex(s => s && s.sub === sub && s.form === form);
     if (i === -1 || run.inv[i].n < n) return false;
     run.inv[i].n -= n;
@@ -272,6 +293,7 @@ export const write = {
 
 
 export const invCount = (sub, form) => {
+  if (form === F.relic) return run.equipped.includes(sub) ? 1 : 0;
   const s = run.inv.find(s => s && s.sub === sub && s.form === form);
   return s ? s.n : 0;
 };
@@ -279,15 +301,15 @@ export const hearts   = () => run.hearts;
 export const canPlace = machineId => run.granted.includes(machineId);
 
 /* Mirrored machine pairs share one substance: each mirror is a `variantOf`
-   row overriding only `belt`/`mine`'s facing key, so these two maps derive
-   from that shape rather than a hand-kept list. */
+   row overriding only the facing key in `belt`, `mine` or `ratio`, so these
+   two maps derive from that shape rather than a hand-kept list. */
 const MIRROR_TO_BASE = Object.freeze(Object.fromEntries(
-  MACHINES.filter(m => m.variantOf && (m.belt || m.mine)).map(m => [m.id, m.variantOf])));
+  MACHINES.filter(m => m.variantOf && (m.belt || m.mine || m.ratio)).map(m => [m.id, m.variantOf])));
 const BASE_TO_MIRROR = Object.freeze(Object.fromEntries(
   Object.entries(MIRROR_TO_BASE).map(([mirror, base]) => [base, mirror])));
 
 /* This machine's mirrored twin, or `undefined`. A gift is of a pair: granting
-   `talos_head` alone would refuse every left-facing placement, since
+   one side alone would refuse every placement facing the other way, since
    `placementCheck` is asked about the id `machineIdFor` resolves off
    `player.face`. */
 export const mirrorOf = machineId => BASE_TO_MIRROR[machineId];
@@ -363,6 +385,9 @@ export function placementCheck(band, machineId, tx, ty) {
 export function burdenOf() {
   let mass = 0;
   for (const slot of run.inv) if (slot) mass += massOfPair(slot.sub, slot.form) * slot.n;
+  /* A relic is carried whether or not it is in a pocket, so moving it to the
+     character tab must not quietly widen the cap. */
+  for (const sub of run.equipped) if (sub !== null) mass += massOfPair(sub, F.relic);
   return mass;
 }
 
@@ -470,15 +495,15 @@ export function isKnown(id) {
   return machineId === null || canPlace(machineId);
 }
 
-/* The highest-tier `item.tool` relic held, or null. A tool is an ordinary
+/* The highest-tier `item.tool` relic worn, or null. A tool is an ordinary
    `data/substances.js` row tagged `relic` carrying `item.tool:{tier, power}`.
-   A scan rather than a cached field, so it cannot disagree with the pockets;
+   A scan rather than a cached field, so it cannot disagree with the slots;
    ties keep the first found. */
 export function bestTool() {
   let best = null;
-  for (const slot of run.inv) {
-    if (!slot || slot.form !== F.relic) continue;
-    const tool = SUB[slot.sub]?.item?.tool;
+  for (const sub of run.equipped) {
+    if (sub === null) continue;
+    const tool = SUB[sub]?.item?.tool;
     if (tool && (!best || tool.tier > best.tier)) best = tool;
   }
   return best;

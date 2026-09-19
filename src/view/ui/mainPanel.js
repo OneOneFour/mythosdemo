@@ -177,7 +177,7 @@ function drawCharacterTab(g, f, body) {
     if (sub == null) return null;
     return { sub, form: F.relic, n: 1, mass: massOfPair(sub, F.relic), colour: swatchOf(sub), glyph: glyphOf(sub) };
   });
-  drawText(g, 'TRINKETS', x, ry, INK, 1, 1);
+  drawText(g, 'EQUIPMENT', x, ry, INK, 1, 1);
   ry += 8;
   const eqGrid = drawGrid(g, { id: 'equip', x, y: ry, h: SLOT_SIZE, vw, vh, cols: slots, items: equipItems });
   frameUniqueSlots(g, eqGrid);
@@ -204,7 +204,8 @@ function drawCharacterTab(g, f, body) {
 const STAT_ROWS = [
   { id: 'walk', label: 'WALK' }, { id: 'climb', label: 'CLIMB' },
   { id: 'pickPower', label: 'PICK POWER' },
-  { id: 'rate', scope: 'furnace', label: 'FURNACE RATE' }
+  { id: 'burden', label: 'BURDEN CAP' },
+  { id: 'rate', scope: 'kiln', label: 'KILN RATE' }
 ];
 
 const STAT_LINE_H = 8;
@@ -250,7 +251,7 @@ function statList(g, f, { x, y, w, bottom, lines }) {
 /* `data/tuning.js` may only be imported by `model/mods.js`, so a tunable's own
    `unit` is out of reach here; the handful of ids this readout names carry
    their units as presentation text instead. */
-const UNITS = { walk: ' PX/S', climb: ' PX/S', pickPower: 'X', rate: 'X' };
+const UNITS = { walk: ' PX/S', climb: ' PX/S', pickPower: 'X', rate: 'X', burden: ' T' };
 const unitOf = id => UNITS[id] || '';
 
 function fmtNum(n) {

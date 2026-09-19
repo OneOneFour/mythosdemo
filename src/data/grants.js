@@ -6,25 +6,20 @@
      trap    for the HUD: this grant has a cost the text does not state.
 
    `isKnown` gates a machine-build recipe on `canPlace`, so an ungranted
-   machine draws as a locked silhouette in the crafting tab. */
+   machine draws as a locked silhouette in the crafting tab.
 
-export const GRANTS = [
+   Empty: every machine is either known from the start or granted by a cycle
+   reward, so `rules/draft.js` has no `grant` tier to offer and no cycle names
+   one. */
 
-  { id:'gift-talos', name:'THE HEAD OF TALOS', god:'hephaestus',
-    text:'THE BRONZE MAN STILL BITES',
-    grants:'talos_head' },
-
-  { id:'gift-maw', name:'THE CYCLOPS MAW', god:'poseidon',
-    text:'HIS SON EATS STONE',
-    grants:'cyclops_maw' }
-];
+export const GRANTS = [];
 
 export const GRANT = Object.freeze(Object.fromEntries(
   GRANTS.map(g => [g.id, Object.freeze(g)])));
 
-/* The machines a run may place before any grant is drafted;
-   `rules/placement.js` reads this and nothing else. `furnace` and
-   `cloud_dock` arrive when the first trial pays. */
+/* The machines a run may place before any cycle pays. `winch` and
+   `cloud_dock` arrive when the first trial does. Read by `model/run.js` and
+   the content lint. */
 export const STARTING_MACHINES = Object.freeze(
-  ['press', 'belt_r', 'belt_l', 'brazier', 'hearth',
-   'hub', 'crank', 'gear', 'axle']);
+  ['kiln', 'brazier', 'hearth', 'contraption', 'belt_r', 'belt_l',
+   'hub', 'drive_wheel', 'transformer', 'transformer_l']);

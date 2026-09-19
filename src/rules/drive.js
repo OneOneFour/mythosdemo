@@ -1,80 +1,110 @@
-/* rules layer — the drivetrain and the carriers. Cranks make torque, gears
-   carry it, segments move, and the player may ride one. Motion is per segment;
-   a chain is a derived query nothing here reads. The only power source is a
-   crank the player is standing at and holding down.
+/* rules layer — the drivetrain and the buckets. Winches make power, gears and
+   ropes carry it, transformers trade one half of it for the other, and the
+   player may ride. Motion is per rope; a chain is a derived query nothing here
+   reads.
 
-   The motion law:
-     need    = segBase + segLoad * mass * slope
-     supply  = the component's torque, gear loss per hop
-     demand  = the component's total `need`
+   Power is torque times speed, and a transformer conserves it less its loss.
+   A shaft has one angular speed and torque is the divisible budget, so a
+   transformer multiplies torque and divides speed along the path past it.
+
+   A rope is a loop, so what resists it is the NET load: each bucket costs
+   `segBase` to lift and `segLoad * mass * slope` for what it holds, and a
+   bucket on the descending strand gives both back.
+
+   The motion law, per rope:
+     w(c)    = segBase + segLoad * mass(c) * slope
+     net     = sum of w over ascending buckets, minus the same descending
+     tau     = torque reaching this rope's anchor, through the ratios on the
+               path from every turning winch
+     omega   = shaft speed there, the slowest any path delivers
      drive   = demand > 0 ? min(1, supply / demand) : 0
-     surplus = supply - need
-     surplus > 0 -> ascend at segUp * min(1, surplus/segBase) * drive
-     surplus = 0 -> hold still
-     surplus < 0 -> descend at segDown * min(1, -surplus/segBase) * slope
+     push    = tau - net
+     push >  segFric -> run forward  at segUp x min(1, (push - segFric)/segBase)
+     push < -segFric -> run backward at segDown x min(1, (-push - segFric)/segBase) x slope
+     otherwise       -> hold still
 
-   `surplus` is over the whole component supply, unapportioned, and decides the
-   direction; `drive` decides how much capacity an ascending segment gets.
-   Apportioning `supply` per segment would make `surplus`'s sign uniform across
-   a component, so two segments sharing one crank would stop rather than halve.
+   Forward is the ascending strand rising. It is scaled by `drive * omega`
+   only while a winch is turning: a loop running on its own counterweight is
+   not being paced by a drivetrain.
 
-   At zero supply `surplus` is `-need`, at least `segBase`, so an unpowered
-   vertical segment descends at full `segDown`; a horizontal one multiplies
-   that by `slope = 0` and sits still, with no horizontal special case.
+   With one bucket and nothing opposite, `net` is exactly the old `need` and
+   the whole expression reduces to what it was before the loop existed, less
+   the `segFric` dead band that stops a balanced loop creeping.
+
+   `supply` is the raw torque of every turning winch in the component and
+   `demand` what its ropes actually ask of it, so `drive` asks whether the
+   whole drivetrain is oversubscribed while `push` asks whether this rope in
+   particular moves.
+
+   Power reaches a node three ways: orthogonal footprint adjacency inside one
+   band, a rope between two rows carrying `wheel`, and a belt to whatever its
+   tile touches. The rope is why a component can span bands.
 
    Consumes no `rand()`: iteration is link order and placement order, and
    `m.turn` accumulates from `dt` alone. */
 
-import { clamp, overlaps } from '../core/math.js';
+import { overlaps } from '../core/math.js';
 import { push } from '../model/journal.js';
 import { itemsIn, massOf, write as iw } from '../model/items.js';
 import { defOf, machines, write as mw } from '../model/machines.js';
 import { eff } from '../model/mods.js';
 import { PH, PW, player, playerBox, write as pw } from '../model/player.js';
 import { burdenOf, run } from '../model/run.js';
-import { carrierBox, carrierPos, carries, headframe, inHeadframe, riddenSegment, segments, segmentsAt, write as segw } from '../model/segments.js';
+import { ascending, carrierBox, carrierPos, carries, headframe, inHeadframe, linkedTo, phaseOf, riddenCarrier, segments, segmentsAt, write as segw } from '../model/segments.js';
 import { solidAt } from '../model/tiles.js';
-import { bandAt, bands, tileX, tileY } from '../model/world.js';
+import { bandAt, tileX, tileY } from '../model/world.js';
 
-/* Radians per second a fully-driven wheel turns. Presentation only: `m.turn`
-   is read solely by `view/treatments.js` to pick a rotation phase. ~0.8
-   revolutions per second, a tooth every sixth of a second at `teeth:8`, which
-   reads as turning without aliasing into a blur. */
+/* Radians per second a fully-driven wheel turns at shaft speed 1, before
+   `eff('spinRate')`. `m.turn` is read solely by `view/treatments.js` to pick a
+   rotation phase. ~0.8 revolutions per second, a tooth every sixth of a second
+   at `teeth:8`, which reads as turning without aliasing into a blur. */
 const TURN_RATE = 5.0;
 const TAU = Math.PI * 2;
 
 export function step(dt, cmd) {
-  /* The component records are reused across frames, so the per-frame scratch
-     is zeroed on the way past rather than assumed fresh. */
-  const comps = [];
-  const compOf = new Map();
-  for (const b of bands)
-    for (const c of partitionFor(b).comps) {
-      c.supply = 0; c.demand = 0; c.drive = 0; c.spin = 0; c.turning = false;
-      comps.push(c);
-      for (const m of c.nodes) compOf.set(m, c);
-    }
+  const comps = partition();
+  const turning = !!(cmd && cmd.action) && !run.dead && !!player.band;
+  const box = turning ? playerBox() : null;
 
-  supplyOf(comps, cmd);
+  /* Torque and speed at every node, from every winch the player is standing
+     at. Complete before any rope is asked what it has. */
+  for (const c of comps) solve(c, box);
 
-  /* Per segment: what is aboard, what it therefore needs, and which component
+  /* Per rope: what rides it, what that nets out to, and which component
      drives it. One pass, so `demand` is complete before any `drive` is
-     computed — a segment must not move on a demand still being summed. */
+     computed — a rope must not move on a demand still being summed. */
+  const ridden = riddenCarrier();
+  const base = eff('segBase'), load = eff('segLoad'), cap = eff('bucketCap');
   const state = [];
   for (const seg of segments) {
-    const cargo = carries(seg, 'material') ? itemsIn(carrierBox(seg)) : [];
-    const rider = carries(seg, 'player') && riddenSegment() === seg;
-    let mass = 0;
-    for (const it of cargo) mass += massOf(it);
-    if (rider) mass += eff('riderMass') + burdenOf();
+    const cars = [];
+    let net = 0;
+    for (const c of seg.carriers) {
+      const up = ascending(phaseOf(seg, c));
+      const cargo = carries(seg, 'material') ? upTo(itemsIn(carrierBox(seg, c)), cap) : [];
+      let mass = 0;
+      for (const it of cargo) mass += massOf(it);
+      const rider = !!ridden && ridden.seg === seg && ridden.c === c;
+      if (rider) mass += eff('riderMass') + burdenOf();
+      net += (up ? 1 : -1) * (base + load * mass * seg.slope);
+      cars.push({ c, up, cargo, rider, mass });
+    }
 
-    const need = eff('segBase') + eff('segLoad') * mass * seg.slope;
+    /* Only a rope the drivetrain has to fight asks anything of it. A loop its
+       own counterweight is already turning asks for nothing. */
+    const asks = Math.max(0, net) + (seg.carriers.length ? eff('segFric') : 0);
     const ca = compOf.get(seg.a) || null;
     const cb = compOf.get(seg.b) || null;
-    if (ca) ca.demand += need;
-    if (cb && cb !== ca) cb.demand += need;
-    state.push({ seg, need, mass, cargo, rider, ca, cb });
+    if (ca) ca.demand += asks;
+    if (cb && cb !== ca) cb.demand += asks;
+    state.push({ seg, net, cars, ca, cb });
   }
+
+  /* Every belt tile costs its drivetrain the same torque whether anything
+     rests on it, so a long run competes with a bucket for one winch. */
+  const drag = eff('beltDrag');
+  for (const c of comps)
+    for (const m of c.nodes) if (defOf(m).belt) c.demand += drag;
 
   for (const c of comps) {
     c.drive = c.demand > 0 ? Math.min(1, c.supply / c.demand) : 0;
@@ -92,108 +122,172 @@ export function step(dt, cmd) {
   for (const c of comps)
     for (const m of c.nodes) {
       if (m.torque !== c.drive) mw.torque(m, c.drive);
-      if (c.spin > 0) mw.turn(m, (m.turn + c.spin * TURN_RATE * dt) % TAU);
+      const w = c.omega.get(m) || 0;
+      /* `rules/belts.js` runs before this one and reads the previous substep's
+         answer, 1/120 s stale, so a belt keeps dragging into a catch box on
+         the substep the item lands. */
+      if (m.speed !== w) mw.speed(m, w);
+      const rate = TURN_RATE * eff('spinRate', defOf(m).id) * w;
+      if (c.spin > 0 && rate > 0) mw.turn(m, (m.turn + c.spin * rate * dt) % TAU);
     }
 }
 
-/* `cmd.action` is a hold rather than an edge, in the shape `cmd.craft` has.
-   `overlaps` with `def.crank.reach` is the same call
-   `rules/machines.js#handFeed` makes, so turning reach and feeding reach
-   cannot disagree. Every crank within reach turns, each on its own torque. */
-function supplyOf(comps, cmd) {
-  const turning = !!(cmd && cmd.action) && !run.dead && !!player.band;
-  if (!turning) return;
-  const box = playerBox();
+/* Torque and speed at each node, summed over every winch the player is
+   turning. A BFS per source carries the cumulative ratio outward, multiplying
+   torque and dividing speed. Speed takes the slowest path. */
+function solve(c, box) {
+  c.supply = 0; c.demand = 0; c.drive = 0; c.spin = 0; c.turning = false;
+  c.tau = new Map(); c.omega = new Map();
 
-  for (const c of comps)
-    for (const cr of c.cranks) {
-      const def = defOf(cr.m);
-      if (cr.path === null) continue;          // no hub in this component to feed
-      if (!overlaps(box, cr.m.box, def.crank.reach)) continue;
-      c.turning = true;
-      /* Gear loss per hop along the cached path to the nearest hub.
-         `torqueLoss` is read here rather than baked into the path, so only the
-         graph is cached. A node with no `gear` block conducts without loss. */
-      let retain = 1;
-      for (const nd of cr.path) {
-        const g = defOf(nd).gear;
-        if (g) retain *= Math.max(0, 1 - g.loss * eff('torqueLoss', defOf(nd).id));
+  if (!box) return;
+
+  for (const src of c.sources) {
+    const def = defOf(src);
+    /* `overlaps` with `drive.reach` is the same call `rules/machines.js`
+       makes for hand feeding, so turning reach and feeding reach cannot
+       disagree. */
+    if (!overlaps(box, src.box, def.drive.reach)) continue;
+    c.turning = true;
+
+    const torque = def.drive.torque * eff('driveTorque', def.id);
+    const speed  = def.drive.speed  * eff('driveSpeed',  def.id);
+    c.supply += torque;
+
+    const seen = new Map([[src, { r: 1, keep: 1 }]]);
+    const queue = [src];
+    while (queue.length) {
+      const m = queue.shift();
+      const st = seen.get(m);
+      c.tau.set(m, (c.tau.get(m) || 0) + torque * st.r * st.keep);
+      const w = speed / st.r;
+      const had = c.omega.get(m);
+      c.omega.set(m, had === undefined ? w : Math.min(had, w));
+
+      for (const other of c.nodes) {
+        if (seen.has(other) || !conducts(m, other)) continue;
+        const d = defOf(other);
+        let r = st.r, keep = st.keep;
+        if (d.ratio) {
+          const mul = Math.max(1e-6, d.ratio.mul * eff('gearRatio', d.id));
+          r *= d.ratio.facing >= 0 ? mul : 1 / mul;
+          keep *= Math.max(0, 1 - d.ratio.loss * eff('gearLoss', d.id));
+        }
+        seen.set(other, { r, keep });
+        queue.push(other);
       }
-      c.supply += def.crank.torque * eff('crankTorque', def.id) * retain;
     }
+  }
 }
 
-/* One segment, one substep. */
+/* Cargo up to a bucket's capacity, in the order the item index returns it.
+   What does not fit is simply not carried, and stays where it was. */
+function upTo(cargo, cap) {
+  const out = [];
+  let held = 0;
+  for (const it of cargo) {
+    const m = massOf(it);
+    if (held + m > cap) continue;
+    held += m;
+    out.push(it);
+  }
+  return out;
+}
+
+/* One rope, one substep. */
 function drive(s, dt) {
   const seg = s.seg;
+  if (!seg.carriers.length || seg.len <= 0) return;
 
-  /* A cross-component segment is driven by whichever component supplies more
-     torque, `seg.a`'s on a tie — its two hubs can sit in different bands and
-     so in different components. The greater rather than the sum: two half-fed
-     drivetrains do not add up to a free ride. */
-  const c = pick(s.ca, s.cb);
-  const supply = c ? c.supply : 0;
+  /* A rope spanning two components is driven by whichever anchor has more
+     torque, `seg.a`'s on a tie — its two ends can sit in different bands. The
+     greater rather than the sum: two half-fed drivetrains do not add up to a
+     free ride. */
+  const ta = s.ca ? (s.ca.tau.get(seg.a) || 0) : 0;
+  const tb = s.cb ? (s.cb.tau.get(seg.b) || 0) : 0;
+  const useA = !s.cb || ta >= tb;
+  const c = useA ? s.ca : s.cb;
+  const tau = useA ? ta : tb;
+  const omega = c ? (c.omega.get(useA ? seg.a : seg.b) || 0) : 0;
   const throttle = c ? c.drive : 0;
 
   const base = eff('segBase');
-  const surplus = supply - s.need;
-  let v = 0;                                    // px/s along the cable, + is up
-  if (surplus > 0) v = eff('segUp') * Math.min(1, surplus / base) * throttle;
-  else if (surplus < 0) v = -eff('segDown') * Math.min(1, -surplus / base) * seg.slope;
+  const fric = eff('segFric');
+  const force = tau - s.net;
 
-  /* Said only when a crank is being turned and the carrier is going down
-     anyway. Keyed by the segment record, since more than one can be losing. */
+  let v = 0;                            // px/s of rope, + is the up strand rising
+  if (force > fric) {
+    /* Paced by the drivetrain only while a winch is turning it. A loop its own
+       counterweight is running is not waiting on a shaft. */
+    const gate = tau > 0 ? throttle * omega : 1;
+    v = eff('segUp') * Math.min(1, (force - fric) / base) * gate;
+  } else if (force < -fric) {
+    v = -eff('segDown') * Math.min(1, (-force - fric) / base) * seg.slope;
+  }
+
+  /* Said only when a winch is being turned and the loop is going the wrong
+     way anyway. Keyed by the rope record, since more than one can be losing. */
   if (c && c.turning && v < 0 && refusalDue(seg))
-    push('refused', carrierPos(seg), { why: 'TOO HEAVY TO LIFT' });
+    sayAtLowest(seg, 'TOO HEAVY TO LIFT');
 
-  const before = carrierPos(seg);
-  const t0 = seg.t;
-  const nt = clamp(t0 + (seg.len > 0 ? (v * dt) / seg.len : 0), 0, 1);
-  /* `dir` is for `view` only, in world-y terms: -1 rising, +1 sinking. */
-  const dir = nt > t0 ? -1 : nt < t0 ? 1 : 0;
-  const arrived = nt >= 1 && t0 < 1;
-  segw.carrier(seg, nt, dir);
+  /* The loop is two strands, so one turn is twice the span. */
+  const before = s.cars.map(car => carrierPos(seg, car.c));
+  const wasUp = s.cars.map(car => car.up);
+  segw.spin(seg, (v * dt) / (2 * seg.len), Math.sign(v));
 
-  const after = carrierPos(seg);
-  const dx = after.x - before.x, dy = after.y - before.y;
+  let load = 0;
+  for (let i = 0; i < s.cars.length; i++) {
+    const car = s.cars[i];
+    const after = carrierPos(seg, car.c);
+    const dx = after.x - before[i].x, dy = after.y - before[i].y;
 
-  const band = bandAt(after.x, after.y);
+    const aboard = haul(seg, car.cargo, dx, dy);
+    if (car.rider) ride(seg, dx, dy);
+    if (car.c.load !== car.mass) segw.carrierLoad(car.c, car.mass);
+    load += car.mass;
+
+    /* Over the top: the strand it is on has flipped, so it is now coming back
+       down and whatever it held is left at the high anchor. */
+    if (!aboard.length || wasUp[i] === ascending(phaseOf(seg, car.c))) continue;
+    if (!wasUp[i]) continue;                  // rounded the bottom, not the top
+    for (const it of aboard) it.rest = 0;
+    push('winch', { x: after.x, y: after.y },
+         { to: (bandAt(after.x, after.y) || player.band)?.id, units: aboard.length });
+
+    /* A haul arriving at a hub that is neither a receiver (`tribute` or
+       `ports`) nor anchors another segment is stranded rather than delivered,
+       which the 'winch' row above cannot distinguish. */
+    const topHub = seg.hi === 'a' ? seg.a : seg.b;
+    const topDef = defOf(topHub);
+    if (!topDef.tribute && !topDef.ports && segmentsAt(topHub).every(other => other === seg))
+      push('refused', { x: after.x, y: after.y },
+           { why: 'THE CHAIN ENDS HERE -- NOTHING WAITS TO CARRY IT ON' });
+  }
+
+  const mid = carrierPos(seg, seg.carriers[0]);
+  const band = bandAt(mid.x, mid.y);
   if (band && band !== seg.band) segw.band(seg, band);
-
-  const aboard = haul(s, dx, dy);
-  ride(s, dx, dy);
-  segw.load(seg, s.mass);
-
-  /* Arrived at the top: the haul is released with `it.rest = 0` so it falls
-     the last pixel onto whatever the upper hub stands on. Only the high end is
-     an arrival — the low end is where a carrier lives. */
-  if (!arrived || !aboard.length) return;
-  for (const it of aboard) it.rest = 0;
-  push('winch', { x: after.x, y: after.y },
-       { to: (seg.band || player.band)?.id, units: aboard.length });
-
-  /* A haul arriving at a hub that is neither a receiver (`tribute` or `ports`)
-     nor anchors another segment is stranded rather than delivered, which the
-     'winch' row above cannot distinguish. Fires once, on the same
-     edge-triggered `arrived` this block is already gated on. */
-  const topHub = seg.hi === 'a' ? seg.a : seg.b;
-  const topDef = defOf(topHub);
-  if (!topDef.tribute && !topDef.ports && segmentsAt(topHub).every(other => other === seg))
-    push('refused', { x: after.x, y: after.y }, { why: 'THE CHAIN ENDS HERE -- NOTHING WAITS TO CARRY IT ON' });
+  segw.load(seg, load);
 }
 
-const pick = (a, b) => (!a ? b : !b ? a : (b.supply > a.supply ? b : a));
+/* A refusal positioned at whichever bucket hangs lowest, so the message
+   appears where the player is standing rather than at an arbitrary one. */
+function sayAtLowest(seg, why) {
+  let low = seg.carriers[0];
+  for (const c of seg.carriers)
+    if (carrierPos(seg, c).y > carrierPos(seg, low).y) low = c;
+  push('refused', carrierPos(seg, low), { why });
+}
 
 /* Items are world-positioned, so a haul at any angle is two additions each. A
    band handoff is a respawn at the same world pixel, done the moment the
    carrier's band changes rather than on arrival, because `it.band` is which
    band's tiles the item collides against. */
-function haul(s, dx, dy) {
-  const dest = s.seg.band;
+function haul(seg, cargo, dx, dy) {
+  const dest = seg.band;
   const out = [];
   let rehomed = false;
 
-  for (const it of s.cargo) {
+  for (const it of cargo) {
     it.x += dx;
     it.y += dy;
     it.vy = 0;
@@ -219,8 +313,8 @@ function haul(s, dx, dy) {
    ride decision is `model/segments.js#riddenSegment`, one query both modules
    call, since siblings may not import each other. Nothing here writes to any
    band's `mat`. */
-function ride(s, dx, dy) {
-  if (!s.rider || (!dx && !dy)) return;
+function ride(seg, dx, dy) {
+  if (!dx && !dy) return;
   const b = player.band;
   const nx = player.x + dx, ny = player.y + dy;
   /* A translation is not a move, so it asks the tile grid directly: pushing an
@@ -229,7 +323,7 @@ function ride(s, dx, dy) {
   /* This segment's own two headframes are exempt, so the rider passes exactly
      the tiles the cable does; `footing:1` otherwise puts a solid tile inside
      the box of anyone approaching the top, stopping a rider 34 px short. */
-  const exempt = [headframe(s.seg.a), headframe(s.seg.b)];
+  const exempt = [headframe(seg.a), headframe(seg.b)];
   if (b && boxSolid(b, nx, ny, exempt)) return;
   pw.move(nx, ny);
 }
@@ -257,10 +351,25 @@ function refusalDue(seg) {
   return true;
 }
 
-/* Drivetrain nodes are placed machines whose row carries `crank`, `gear` or
-   `hub`; edges are orthogonal footprint adjacency within one band, two
-   footprints sharing an edge. Diagonals do not conduct — a corner needs a gear
-   in it. */
+/* Drivetrain nodes are placed machines whose row carries `drive`, `hub`,
+   `ratio` or `belt`. Power conducts three ways: orthogonal footprint adjacency
+   inside one band, a rope between two anchors, and a belt to whatever it
+   touches including at a corner. */
+export const conducts = (a, b) =>
+  adjacent(a, b) || beltAdjacent(a, b) || !!linkedTo(a, b);
+
+/* A belt steps up a row at a time, so a stepped run touches only at its
+   corners. Chebyshev adjacency over the two footprints, and only where a belt
+   is one of them. */
+function beltAdjacent(a, b) {
+  if (a.band !== b.band) return false;
+  const A = defOf(a), B = defOf(b);
+  if (!A.belt && !B.belt) return false;
+  const gapX = Math.max(0, a.tx - (b.tx + B.tw - 1), b.tx - (a.tx + A.tw - 1));
+  const gapY = Math.max(0, a.ty - (b.ty + B.th - 1), b.ty - (a.ty + A.th - 1));
+  return gapX <= 1 && gapY <= 1;
+}
+
 function adjacent(a, b) {
   if (a.band !== b.band) return false;
   const A = defOf(a), B = defOf(b);
@@ -272,34 +381,39 @@ function adjacent(a, b) {
       || (overY && (ax1 === b.tx || bx1 === a.tx));
 }
 
-/* Keyed by the band object rather than `b.ord` and invalidated by a signature
-   recomputed every frame, so a stale entry cannot be read back into a live run
-   and there is no reset call to forget. */
-/* Topology only: every number is still read through `eff()` per frame, and a
-   crank's activity is not cached at all. Node counts are in the tens, so the
-   flood is O(n^2) and the path search a plain BFS. */
-const bandState = new WeakMap();
+/* Which component each node belongs to, rebuilt with the partition and read
+   by `step` while summing demand. */
+const compOf = new Map();
 
-function partitionFor(b) {
+/* One partition for the world, not one per band: a rope conducts power across
+   a seam. Keyed on node identity, because a rig rebuilt at the same tiles
+   after `newRun()` hashes the same and holds different records. Topology
+   only; every number is still read through `eff()` per frame. */
+let cached = { nodes: [], links: 0, sig: null, comps: [] };
+
+function partition() {
   const nodes = [];
   for (const m of machines) {
-    if (m.band !== b) continue;
     const def = defOf(m);
-    if (def.crank || def.gear || def.hub) nodes.push(m);
+    if (def.drive || def.hub || def.ratio || def.belt) nodes.push(m);
   }
-  const sig = signatureOf(nodes);
-  const prev = bandState.get(b);
-  if (prev && prev.sig === sig) return prev.part;
-  const part = componentsOf(nodes);
-  bandState.set(b, { sig, part });
-  return part;
+  const sig = linkSignature(nodes);
+  if (!sameNodes(cached.nodes, nodes) || cached.sig !== sig)
+    cached = { nodes, sig, comps: componentsOf(nodes) };
+
+  compOf.clear();
+  for (const c of cached.comps) for (const m of c.nodes) compOf.set(m, c);
+  return cached.comps;
 }
 
-/* Rolling hash of the node set: count, position and definition all fold in,
-   so placing, removing or moving one is caught. */
-function signatureOf(nodes) {
-  let sig = nodes.length;
-  for (const m of nodes) sig = (sig * 131 + m.tx * 977 + m.ty * 37 + m.def) | 0;
+const sameNodes = (a, b) => a.length === b.length && a.every((m, i) => m === b[i]);
+
+/* Rolling hash of the ropes between the nodes, so linking or cutting one
+   repartitions even though the node set is untouched. */
+function linkSignature(nodes) {
+  let sig = segments.length;
+  for (const seg of segments)
+    sig = (sig * 131 + nodes.indexOf(seg.a) * 17 + nodes.indexOf(seg.b) * 5) | 0;
   return sig;
 }
 
@@ -315,7 +429,7 @@ function componentsOf(nodes) {
       const m = queue.shift();
       group.push(m);
       for (const other of nodes) {
-        if (seen.has(other) || !adjacent(m, other)) continue;
+        if (seen.has(other) || !conducts(m, other)) continue;
         seen.add(other);
         queue.push(other);
       }
@@ -326,32 +440,10 @@ function componentsOf(nodes) {
     comps.push({
       nodes: group,
       hubs: group.filter(m => defOf(m).hub),
-      cranks: group.filter(m => defOf(m).crank).map(m => ({ m, path: pathToHub(m, group) })),
-      supply: 0, demand: 0, drive: 0, spin: 0, turning: false
+      sources: group.filter(m => defOf(m).drive),
+      supply: 0, demand: 0, drive: 0, spin: 0, turning: false,
+      tau: new Map(), omega: new Map()
     });
   }
-  return { comps };
-}
-
-/* The nodes strictly between this crank and the nearest hub, or null when the
-   component holds no hub. BFS visiting neighbours in `nodes` order, so
-   "nearest" is fewest nodes and deterministic; a crank against a hub returns
-   an empty path and loses nothing. */
-function pathToHub(from, nodes) {
-  const prev = new Map([[from, null]]);
-  const queue = [from];
-  while (queue.length) {
-    const m = queue.shift();
-    if (m !== from && defOf(m).hub) {
-      const out = [];
-      for (let p = prev.get(m); p && p !== from; p = prev.get(p)) out.push(p);
-      return out.reverse();
-    }
-    for (const other of nodes) {
-      if (prev.has(other) || !adjacent(m, other)) continue;
-      prev.set(other, m);
-      queue.push(other);
-    }
-  }
-  return null;
+  return comps;
 }

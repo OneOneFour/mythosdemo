@@ -11,6 +11,7 @@
 import { rect } from '../core/math.js';
 import { FORM, crossable } from '../data/forms.js';
 import { SUB } from '../data/substances.js';
+import { eff } from './mods.js';
 import { bump } from './epoch.js';
 import { clearGrid, insert, makeGrid, query } from './space.js';
 
@@ -31,6 +32,11 @@ export const keyOfItem = it => keyOf(it.sub, it.form);
 export const massOf = it => it.mod?.mass ?? SUB[it.sub].item.mass * FORM[it.form].massK;
 export const sizeOf = it => it.mod?.size ?? FORM[it.form].size;
 export const massOfPair = (sub, form) => SUB[sub].item.mass * FORM[form].massK;
+
+/* Raw fuel energy one unit of this pair holds, before a burner's own
+   efficiency. Zero for anything with no `fuel` block. */
+export const energyOfPair = (sub, form) =>
+  (FORM[form].fuel?.energy || 0) * eff('fuelEnergy', SUB[sub].id);
 
 /* Can this pair exist as a carried item? The element must be carryable (an
    `item` block) and the crossing must be legal (`crossable`, i.e. the form's

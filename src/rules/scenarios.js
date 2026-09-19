@@ -43,7 +43,7 @@ export function apply(id) {
 
   const placed = (row.machines || []).map(spec => place(row, spec));
 
-  for (const [i, j] of row.segments || []) link(placed[i], placed[j]);
+  for (const [i, j, n] of row.segments || []) link(placed[i], placed[j], n ?? 1);
 
   for (const it of row.items || []) {
     const b = bandFor(row, it);
@@ -101,8 +101,6 @@ function place(row, spec) {
   const m = mw.place(b, M[spec.id], tx, ty);
 
   for (const e of spec.buf || []) mw.take(m, S[e.sub], F[e.form], e.n);
-  /* A belt spends one charge per item delivered off its end, so a scenario
-     that filled only the fuel buffer would sit still until the first burned. */
   if (spec.charges) mw.charge(m, spec.charges);
 
   /* The footprint and one row past it, so a machine standing in fresh carve
@@ -115,12 +113,15 @@ function place(row, spec) {
 
 /* `linkCheck`'s reach half is proved at build time, so a refusal here is
    always about the live path between the two hubs. */
-function link(a, b) {
+function link(a, b, n) {
   if (!a || !b) return;
   const check = linkCheck(a, b);
   if (!check.ok) {
     push('refused', check.at || { x: a.box.x, y: a.box.y }, { why: check.why });
     return;
   }
-  segw.link(a, b);
+  const seg = segw.link(a, b);
+  /* Spread around the loop, so two buckets sit opposite and counterweight
+     each other rather than hanging together. */
+  for (let k = 0; k < n; k++) segw.attach(seg, k / n);
 }

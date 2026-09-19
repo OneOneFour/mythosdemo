@@ -2,7 +2,7 @@
 
      god   a `data/gods.js` id.
      key   a `data/tuning.js` id, optionally scoped with a dot: 'walk',
-           'hard.stone', 'rate.furnace'. The unscoped form applies to every
+           'hard.stone', 'rate.kiln'. The unscoped form applies to every
            scope, and the two stack.
      mul   multiplied in, stacking by product across every active trinket.
      add   summed in before the multipliers, stacking by sum.
@@ -14,7 +14,7 @@ export const TRINKETS = [
 
   { id:'bellows', name:'BELLOWS OF THE FORGE', short:'BELLOWS', god:'hephaestus',
     text:'THE FIRE ANSWERS FASTER',
-    mods:[ { key:'rate.furnace', mul:1.25 } ] },
+    mods:[ { key:'rate.kiln', mul:1.25 } ] },
 
   { id:'owl', name:'OWL OF ATHENA', short:'OWL', god:'athena',
     text:'THE DARK GIVES UP ITS SHAPE',

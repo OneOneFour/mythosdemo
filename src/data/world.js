@@ -60,9 +60,16 @@ export const BANDS = [
          band width cannot dilute it. 16.0 is solved against a 200-seed
          measurement rather than derived. */
       { kind:'blobs', sub:'copper', fromTy:26, toTy:56, dens:16.0, r:[1.6, 3.4], line:true },
+      /* Granite is the bulk gravel source and is tier 1, so a kiln is
+         reachable from the surface band alone. */
+      { kind:'blobs', sub:'granite', fromTy:30, toTy:56, dens:9.0, r:[1.4, 3.0], line:true },
+      { kind:'blobs', sub:'coal',   fromTy:36, toTy:56, dens:7.0, r:[1.4, 3.0], line:true },
+      /* A taste of iron in the lowest surface rows; the bodies are in the
+         topsoil. */
+      { kind:'blobs', sub:'iron',   fromTy:46, toTy:56, dens:6.0, r:[1.4, 2.8], line:true },
       /* The guaranteed first vein. `near:'spawn'` is resolved by worldgen,
          not here. `r:2.4, n:1` is one 6-cell star topping out at row 25,
-         which is 24 copper units at copper's charge of 4. */
+         which is 1,440 copper units at copper's charge of 240. */
       { kind:'vein',  sub:'copper', near:'spawn', dy:6, r:2.4, n:1 }
     ],
     look:{ sky:'skyLo', tint:'soilA', ambient:0.95 } },
@@ -84,9 +91,10 @@ export const BANDS = [
       /* `line:true` opts a row into hollow-wall lining, and the deepest such
          row whose window holds a hollow claims it. Lining is opted in by the
          flag and not by `dens`, so a row lines at any density. */
-      { kind:'blobs', sub:'copper', fromTy:4,  toTy:180, dens:15.1, r:[1.6, 3.8], line:true },
-      { kind:'blobs', sub:'tin',    fromTy:60, toTy:320, dens:7.81, r:[1.6, 3.8], line:true },
-      { kind:'blobs', sub:'granite', fromTy:120, toTy:320, dens:7.42, r:[1.4, 3.0], line:true },
+      { kind:'blobs', sub:'copper',  fromTy:4,  toTy:180, dens:15.1, r:[1.6, 3.8], line:true },
+      { kind:'blobs', sub:'coal',    fromTy:4,  toTy:320, dens:11.0, r:[1.6, 3.8], line:true },
+      { kind:'blobs', sub:'iron',    fromTy:10, toTy:320, dens:12.0, r:[1.6, 3.8], line:true },
+      { kind:'blobs', sub:'granite', fromTy:4,  toTy:320, dens:8.0,  r:[1.4, 3.0], line:true },
       { kind:'blobs', sub:'adamant', fromTy:220, toTy:320, dens:11.72, r:[1.2, 2.4], line:true }
     ],
     look:{ sky:'abyB', tint:'irD', ambient:0.6 } }

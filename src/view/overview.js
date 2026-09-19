@@ -551,8 +551,10 @@ function drawChain(g, v) {
       if (driven) lineTo(g, x0, y0, x1, y1, INK.mark);
       else dashTo(g, x0, y0, x1, y1, mix(INK.back, INK.ui, 0.7));
 
-      const c = carrierPos(seg);
-      R(g, sxOf(v, c.x) - 1, syOf(v, c.y) - 1, 3, 3, driven ? INK.good : INK.ui);
+      for (const car of seg.carriers) {
+        const c = carrierPos(seg, car);
+        R(g, sxOf(v, c.x) - 1, syOf(v, c.y) - 1, 3, 3, driven ? INK.good : INK.ui);
+      }
     }
     bracket(g, v, chain);
   }

@@ -23,7 +23,7 @@ import { fill, machines, statusOf } from '../model/machines.js';
 import { unitProgressAt } from '../model/mining.js';
 import { sizeOf } from '../model/items.js';
 import { eff } from '../model/mods.js';
-import { CARRIER_H, CARRIER_W, carrierPos, segmentsAt } from '../model/segments.js';
+import { CARRIER_H, CARRIER_W, carrierPos, segmentsAt, strandOffset } from '../model/segments.js';
 import { baseChargeAt, baseHardAt, formAt, formRowOf, rowAt, skyExposedAt, solidAt, subAt, tileAt } from '../model/tiles.js';
 import { bands, chunkPx, chunkVer, heightPx } from '../model/world.js';
 import { EXTENT, TREAT, seedAt, treat } from './treatments.js';
@@ -540,68 +540,31 @@ const aFirst = seg => machines.indexOf(seg.a) <= machines.indexOf(seg.b);
 const firstHub = seg => (aFirst(seg) ? seg.a : seg.b);
 const lastHub  = seg => (aFirst(seg) ? seg.b : seg.a);
 
-/* The low end of a span, where `t = 0` is and the bucket chain's phase is
-   measured from. Read off `seg.hi` rather than re-derived from y, or a
-   horizontal span would disagree with the model's own tie-break. */
-function ends(seg) {
-  const up = seg.hi === 'a';
-  return { lox: up ? seg.bx : seg.ax, loy: up ? seg.by : seg.ay,
-           hix: up ? seg.ax : seg.bx, hiy: up ? seg.ay : seg.by };
-}
-
-/* Both strands are the same Bresenham run translated one whole pixel along the
-   axis the line varies least in, which keeps them stair-step for stair-step
-   parallel; a rounded true perpendicular moires. 45 degrees costs 1.41 px. */
-function strandNormal(dx, dy) {
-  return Math.abs(dx) >= Math.abs(dy) ? { nx: 0, ny: 1 } : { nx: 1, ny: 0 };
-}
-
 function paintCables(g, m, px, py, l) {
   const { ox, oy } = screenOffset(m, px, py);
   const p = l.cable;
   const hi = colour(p.hi ?? p.body), lo = colour(p.lo ?? p.body);
-  const bucketA = colour(p.col ?? p.body);            // the lit rim
-  const bucketB = colour(p.low ?? p.col ?? p.body);   // the stave body
-  const bucketC = colour(p.dark ?? p.lo ?? p.body);   // the shaded foot and link
 
   for (const seg of segmentsAt(m)) {
     if (firstHub(seg) !== m) continue;
 
     const x0 = (seg.ax + ox) | 0, y0 = (seg.ay + oy) | 0;
     const x1 = (seg.bx + ox) | 0, y1 = (seg.by + oy) | 0;
-    const { nx, ny } = strandNormal(x1 - x0, y1 - y0);
 
-        /* Two tones so it reads as a loop rather than a wire: the lit strand
-           comes up out of the shaft, the shaded one goes back down, and the two
-           sit adjacent as one two-pixel cable with a lit and a shaded edge. */
-    lineTo(g, x0, y0, x1, y1, hi);
-    lineTo(g, x0 + nx, y0 + ny, x1 + nx, y1 + ny, lo);
+    /* The two strands of the loop, `STRAND_GAP` apart across the rope: the lit
+       one carries buckets up and the shaded one brings them back down. Their
+       offsets come from the model, so a strand is drawn where a bucket on it
+       is actually stood on. */
+    const up = strandOffset(seg, 0), down = strandOffset(seg, 0.75);
+    lineTo(g, (x0 + up.x) | 0, (y0 + up.y) | 0, (x1 + up.x) | 0, (y1 + up.y) | 0, hi);
+    lineTo(g, (x0 + down.x) | 0, (y0 + down.y) | 0, (x1 + down.x) | 0, (y1 + down.y) | 0, lo);
 
-        /* The bucket chain, evenly spaced and phase-locked to the carrier: the
-           offset of the whole ladder is `t * len` reduced modulo the spacing,
-           off a model number rather than a frame counter. */
-    const { lox, loy, hix, hiy } = ends(seg);
-    const gap = Math.max(4, p.spacing ?? 11);
-    const phase = ((seg.t * seg.len) % gap + gap) % gap;
-    for (let d = phase; d <= seg.len; d += gap) {
-      const f = seg.len > 0 ? d / seg.len : 0;
-      const bx = (lerpPx(lox, hix, f) + ox) | 0;
-      const by = (lerpPx(loy, hiy, f) + oy) | 0;
-          /* A bucket hangs off the shaded strand on a one-pixel link, clear of
-             the cable. Taller than wide, 4 by 5 and open at the top: a wider
-             shape, or a 3 px link, reads as a rung beside the cable. */
-      const lx = bx + nx * 3, ly = by + ny * 3;
-      R(g, bx + nx, by + ny, 1, 1, bucketC);
-      R(g, bx + nx * 2, by + ny * 2, 1, 1, bucketC);
-      R(g, lx - 1, ly, 4, 1, bucketA);
-      R(g, lx - 1, ly + 1, 4, 1, bucketC);
-      R(g, lx - 1, ly + 2, 4, 2, bucketB);
-      R(g, lx, ly + 4, 2, 1, bucketC);
-    }
+    /* The two turns, so the strands read as one belt round a wheel rather than
+       two unrelated wires. */
+    lineTo(g, (x0 + up.x) | 0, (y0 + up.y) | 0, (x0 + down.x) | 0, (y0 + down.y) | 0, lo);
+    lineTo(g, (x1 + up.x) | 0, (y1 + up.y) | 0, (x1 + down.x) | 0, (y1 + down.y) | 0, lo);
   }
 }
-
-const lerpPx = (a, b, f) => a + (b - a) * f;
 
 /* The carrier reads as standable: a lit deck plank, a dark body under it, and two
    hangers to the cable. The deck line is the top of
@@ -614,7 +577,11 @@ function paintCarriers(g, m, px, py, l) {
 
   for (const seg of segmentsAt(m)) {
     if (lastHub(seg) !== m) continue;
-    const c = carrierPos(seg);
+    for (const car of seg.carriers) paintOne(seg, car);
+  }
+
+  function paintOne(seg, car) {
+    const c = carrierPos(seg, car);
     const x = (c.x + ox - CARRIER_W / 2) | 0;
     const y = (c.y + oy - CARRIER_H / 2) | 0;
 
@@ -634,8 +601,10 @@ function paintCarriers(g, m, px, py, l) {
 
         /* How full the bucket looks, filling from the floor up, inset a pixel
            each side so the staves still read as staves with a brimming load. */
-    const full = Math.max(1, p.full ?? 40);
-    const frac = Math.max(0, Math.min(1, seg.load / full));
+    /* Brim-full is a bucket's own capacity, read rather than restated, so the
+       picture cannot disagree with what the drivetrain is weighing. */
+    const full = Math.max(1, eff('bucketCap'));
+    const frac = Math.max(0, Math.min(1, car.load / full));
     const fillH = Math.round(frac * (depth - 3));
     if (fillH > 0) R(g, x + 1, y + depth - 2 - fillH, CARRIER_W - 2, fillH, cargo);
 

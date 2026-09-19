@@ -15,7 +15,7 @@ import { push } from '../model/journal.js';
 import { eff } from '../model/mods.js';
 import { PH, PW, fallHearts, player, write as pw } from '../model/player.js';
 import { burdenFrac, run, write as rw } from '../model/run.js';
-import { carrierTop, riddenSegment } from '../model/segments.js';
+import { carrierTop, riddenCarrier } from '../model/segments.js';
 import { climbAt, formAt, solidAt } from '../model/tiles.js';
 import { bandAt, bands, heightPx, tileX, tileY, widthPx, worldX, worldY } from '../model/world.js';
 
@@ -42,9 +42,9 @@ export function step(dt, cmd) {
   pw.set('onLadder', onLadder);
 
   /* A carrier is not terrain: it holds the player up the way a ladder does,
-     through `model/segments.js#riddenSegment` — the one predicate
+     through `model/segments.js#riddenCarrier` — the one predicate
      `rules/drive.js` reads too. A ladder wins, and burden is not consulted. */
-  const riding = onLadder ? null : riddenSegment();
+  const riding = onLadder ? null : riddenCarrier();
 
   /* `frac` is the fraction of the hard cap carried; `overCap` refuses
      ladder-up and hop through a journal row. Level walking and every downward
@@ -88,7 +88,7 @@ export function step(dt, cmd) {
        snaps to a tile boundary, so `rules/drive.js`'s translation lands the
        rider on the deck. Refused into solid, which would wedge the player. */
     vy = 0;
-    const ny = carrierTop(riding) - PH;
+    const ny = carrierTop(riding.seg, riding.c) - PH;
     if (ny !== player.y && !boxSolid(b, player.x, ny)) pw.move(player.x, ny);
   } else {
     if ((player.onGround || player.coyote > 0 || riding) && cmd.hop) {
@@ -114,7 +114,8 @@ export function step(dt, cmd) {
      tile grid. `onGround` pins `fallFrom`, so no fall damage accrues aboard,
      though `land()` still fires on arrival. Re-queried rather than trusted
      from the top of the substep, since `moveX` may have walked off the edge. */
-  const landed = !!riding && !cmd.hop && riddenSegment() === riding;
+  const still = riding && !cmd.hop ? riddenCarrier() : null;
+  const landed = !!still && still.c === riding.c;
   if (landed) pw.set('onGround', true);
 
   pw.set('coyote', player.onGround ? eff('coyote') : Math.max(0, player.coyote - dt));

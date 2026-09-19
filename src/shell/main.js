@@ -8,17 +8,17 @@ import { M, MACH } from '../data/machines.js';
 import { RECIPES } from '../data/recipes.js';
 import { aim } from '../model/aim.js';
 import { activeCount as digCount, isFull as digFull, queued as digMarks } from '../model/digqueue.js';
-import { items } from '../model/items.js';
+import { items, write as itemsw } from '../model/items.js';
 import { peek as journalPeek, push as journalPush } from '../model/journal.js';
 import { machineAt, machines } from '../model/machines.js';
-import { PH, PW, player, write as playerw } from '../model/player.js';
+import { PH, PW, player, playerCentre, write as playerw } from '../model/player.js';
 import { canCraft, canReroll, invCount, isKnown, machineIdFor, offerGod, pocketRows, rerollPrice, run, write as runw } from '../model/run.js';
 import { linkedTo, segments } from '../model/segments.js';
-import { bands, heightPx, widthPx, write as worldw } from '../model/world.js';
+import { bands, heightPx, widthPx, worldX, worldY, write as worldw } from '../model/world.js';
 import * as draft from '../rules/draft.js';
 import { dropHeaviest } from '../rules/items.js';
 import { handOne } from '../rules/machines.js';
-import { deconstruct, linkSegment, placeMachine, placeTile, placeableFromPockets, unlinkSegment } from '../rules/placement.js';
+import { attachCarrier, deconstruct, linkSegment, placeMachine, placeTile, placeableFromPockets, unlinkSegment } from '../rules/placement.js';
 import { apply as applyScenario } from '../rules/scenarios.js';
 import { step as stepFx } from '../view/fx.js';
 import { render } from '../view/scene.js';
@@ -119,10 +119,13 @@ export function applyIntents() {
       let placed = false;
       if (p && p.form === F.rig) {
         /* `machineIdFor` resolves a mirrored pair off the facing. The bottom
-           row is anchored at the aimed tile, not the top-left corner. */
+           row is anchored at the aimed tile, not the top-left corner. A rig
+           naming no machine is a carrier, and hangs on a rope instead. */
         const id = machineIdFor(p.sub);
         const def = id && MACH[M[id]];
         if (def) placed = !!placeMachine(aim.band, id, aim.tx, aim.ty - def.th + 1);
+        else placed = !!attachCarrier(worldX(aim.band, aim.tx) + aim.band.tile / 2,
+                                      worldY(aim.band, aim.ty) + aim.band.tile / 2, p.sub);
       } else if (p) {
         placed = !!placeTile(aim.band, aim.tx, aim.ty, p.sub, p.form);
       }
@@ -473,19 +476,19 @@ function applyUiIntents() {
          reorder, cross-grid move and swap-with-occupied are all this call. */
       runw.moveSlot(absIndex(ui.drag.from, ui.drag.index), absIndex(hit.gridId, hit.slot.index));
     } else if (hit && hit.gridId === 'equip') {
-      /* `write.equip` trusts the caller, hence the three tests.
-         `form === F.relic` is how `data/forms.js` says a pair is a trinket. */
-      if (ui.drag.from === 'inv' && ui.drag.form === F.relic &&
-          invCount(ui.drag.sub, F.relic) > 0 && !run.equipped.includes(ui.drag.sub)) {
-        runw.equip(hit.slot.index, ui.drag.sub);
-      } else if (ui.drag.from === 'equip' && ui.drag.index !== hit.slot.index) {
+      /* Slot to slot only: a relic has nowhere else to be, so the swap is the
+         whole of rearranging one. `write.equip` trusts the caller. */
+      if (ui.drag.from === 'equip' && ui.drag.index !== hit.slot.index) {
         const other = run.equipped[hit.slot.index];
         runw.equip(hit.slot.index, ui.drag.sub);
         runw.equip(ui.drag.index, other ?? null);
       }
     } else if (ui.drag.from === 'equip') {
-      /* Dropped anywhere that is not another equip slot clears it. */
-      runw.equip(ui.drag.index, null);
+      /* Dropped anywhere else puts the relic on the ground as an item, since
+         the slot is the only place it was. Clearing it would destroy it. */
+      const c = playerCentre();
+      if (itemsw.spawn(player.band, c.x, c.y, ui.drag.sub, F.relic, 0, -50))
+        runw.equip(ui.drag.index, null);
     }
     clearDrag();
     dragStart = null;

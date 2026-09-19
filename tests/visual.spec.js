@@ -395,7 +395,7 @@ test('the topsoil band', async ({ page }) => {
   await shot(page, 'topsoil.png');
 });
 
-test('a placed furnace', async ({ page }) => {
+test('a placed kiln', async ({ page }) => {
   await boot(page);
   await settle(page);
   /* Keyboard aim, not a hardcoded click. No direction held, because `aimAtKeys`
@@ -403,7 +403,7 @@ test('a placed furnace', async ({ page }) => {
      where a 2-tall machine fits; down is the solid spawn-shelf floor. */
   await page.evaluate(() => { __mf.cmd.hasMouse = false; });
   /* `reach` is 3.2 tiles against the 1-tile fog radius the player's presence
-     earns, so a furnace at reach's edge would sit under fog. */
+     earns, so a kiln at reach's edge would sit under fog. */
   await page.evaluate(async () => {
     const { bandOf } = await import('/src/model/world.js');
     __mf.revealAll(bandOf('surface'));
@@ -411,10 +411,10 @@ test('a placed furnace', async ({ page }) => {
   /* '1' arms quickbar slot 0, per `view/ui/quickbar.js#slotForDigit`. */
   await page.evaluate(async () => {
     const { write } = await import('/src/model/run.js');
-    /* The furnace is cycle 1's reward, granted here rather than earned. */
-    write.grant('furnace');
+    /* Known from the start, granted here so the fixture states it. */
+    write.grant('kiln');
   });
-  await putInQuickbar(page, 0, 'furnace', 'rig');
+  await putInQuickbar(page, 0, 'kiln', 'rig');
   await page.keyboard.press('1');
   /* Placement is LMB only; this pokes the same edge flag a real click sets. */
   await page.evaluate(() => { __mf.cmd.place = true; });
@@ -425,7 +425,7 @@ test('a placed furnace', async ({ page }) => {
     const { M } = await import('/src/data/machines.js');
     return __mf.machines.filter(m => m.def !== M.altar).length;
   })).toBe(1);
-  await shot(page, 'furnace.png');
+  await shot(page, 'kiln.png');
 });
 
 test('REAL DRAG: dragging a held item from the inventory grid onto an empty quickbar slot moves it there, and the move survives closing the panel', async ({ page }) => {
@@ -435,13 +435,13 @@ test('REAL DRAG: dragging a held item from the inventory grid onto an empty quic
     const { bandOf } = await import('/src/model/world.js');
     __mf.revealAll(bandOf('surface'));
   });
-  await putInMain(page, 'furnace', 'rig');
+  await putInMain(page, 'kiln', 'rig');
   const { S, F } = await page.evaluate(async () => {
     const { write } = await import('/src/model/run.js');
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { open, setTab } = await import('/src/shell/ui.js');
-    write.grant('furnace');
+    write.grant('kiln');
     open('main');
     setTab('main', 'char');
     __mf.cmd.hasMouse = false;
@@ -452,7 +452,7 @@ test('REAL DRAG: dragging a held item from the inventory grid onto an empty quic
   const { invSlot, qSlot } = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
-    const inv = __mf.ui.grids.find(g => g.id === 'inv').slots.find(s => s.sub === S.furnace && s.form === F.rig);
+    const inv = __mf.ui.grids.find(g => g.id === 'inv').slots.find(s => s.sub === S.kiln && s.form === F.rig);
     const qb = __mf.ui.grids.find(g => g.id === 'quickbar').slots[0];
     return { invSlot: inv, qSlot: qb };
   });
@@ -461,18 +461,18 @@ test('REAL DRAG: dragging a held item from the inventory grid onto an empty quic
   expect(qSlot.sub).toBeNull();     // the quickbar starts empty -- nothing to swap with
 
   await realDrag(page, invSlot.x + invSlot.w / 2, invSlot.y + invSlot.h / 2, qSlot.x + qSlot.w / 2, qSlot.y + qSlot.h / 2);
-  expect(await page.evaluate(() => __mf.ui.quickbar[0])).toEqual({ sub: S.furnace, form: F.rig, n: 1 });
+  expect(await page.evaluate(() => __mf.ui.quickbar[0])).toEqual({ sub: S.kiln, form: F.rig, n: 1 });
 
   /* Escape rather than `closeTop`, so the move is proved to live in `run.inv`
      and outlive the window. */
   await page.keyboard.press('Escape');
   await page.evaluate(() => __mf.frames(1));
   expect(await page.evaluate(() => __mf.ui.open)).toEqual([]);
-  expect(await page.evaluate(() => __mf.ui.quickbar[0])).toEqual({ sub: S.furnace, form: F.rig, n: 1 });
+  expect(await page.evaluate(() => __mf.ui.quickbar[0])).toEqual({ sub: S.kiln, form: F.rig, n: 1 });
 
   await page.keyboard.press('1');
   await page.evaluate(() => __mf.frames(1));
-  expect(await page.evaluate(() => __mf.ui.armedPlace)).toEqual({ sub: S.furnace, form: F.rig });
+  expect(await page.evaluate(() => __mf.ui.armedPlace)).toEqual({ sub: S.kiln, form: F.rig });
 
   await page.evaluate(() => { __mf.cmd.hasMouse = false; __mf.frames(1); });
   /* Placement is LMB only; this pokes the same edge flag a real click sets. */
@@ -484,7 +484,7 @@ test('REAL DRAG: dragging a held item from the inventory grid onto an empty quic
     const { M } = await import('/src/data/machines.js');
     return __mf.machines.filter(m => m.def !== M.altar).length;
   })).toBe(1);
-  /* Placing spent the one furnace in the slot, so it reads empty rather than
+  /* Placing spent the one kiln in the slot, so it reads empty rather than
      showing a stale `n`. */
   expect(await page.evaluate(() => __mf.ui.quickbar[0])).toBeNull();
 });
@@ -511,19 +511,19 @@ test('a digit key arms the matching quickbar slot, not just any held item', asyn
   expect(afterEmptyDigit.armedPlace).toBeNull();
   expect(afterEmptyDigit.journalLen).toBe(beforeAnything.journalLen);
 
-  /* Furnace in slot 0 (digit '1'), press in slot 2 (digit '3'), per
+  /* A kiln in slot 0 (digit '1'), a brazier in slot 2 (digit '3'), per
      `view/ui/quickbar.js#slotForDigit`'s digit-to-slot mapping. */
-  await putInQuickbar(page, 0, 'furnace', 'rig');
-  await putInQuickbar(page, 2, 'press', 'rig');
+  await putInQuickbar(page, 0, 'kiln', 'rig');
+  await putInQuickbar(page, 2, 'brazier', 'rig');
 
   await page.keyboard.press('3');
   const armed = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
-    return { armedPlace: __mf.ui.armedPlace, press: S.press, furnace: S.furnace, rig: F.rig };
+    return { armedPlace: __mf.ui.armedPlace, brazier: S.brazier, kiln: S.kiln, rig: F.rig };
   });
-  expect(armed.armedPlace).toEqual({ sub: armed.press, form: armed.rig });
-  expect(armed.armedPlace.sub).not.toBe(armed.furnace);
+  expect(armed.armedPlace).toEqual({ sub: armed.brazier, form: armed.rig });
+  expect(armed.armedPlace.sub).not.toBe(armed.kiln);
 
   /* Placement is LMB only; this pokes the same edge flag a real click sets. */
   await page.evaluate(() => { __mf.cmd.place = true; });
@@ -537,35 +537,36 @@ test('a digit key arms the matching quickbar slot, not just any held item', asyn
        test placed. */
     const placed = __mf.machines.filter(m => m.def !== M.altar);
     return {
-      count: placed.length, def: placed[0]?.def, press: M.press, furnace: M.furnace,
-      armedAfter: __mf.ui.armedPlace, pressRig: invCount(S.press, F.rig), furnaceRig: invCount(S.furnace, F.rig)
+      count: placed.length, def: placed[0]?.def, brazier: M.brazier, kiln: M.kiln,
+      armedAfter: __mf.ui.armedPlace, brazierRig: invCount(S.brazier, F.rig), kilnRig: invCount(S.kiln, F.rig)
     };
   });
   expect(info.count).toBe(1);
-  expect(info.def).toBe(info.press);
-  expect(info.def).not.toBe(info.furnace);
+  expect(info.def).toBe(info.brazier);
+  expect(info.def).not.toBe(info.kiln);
   expect(info.armedAfter).toBeNull();       // cleared on a successful placement
-  expect(info.pressRig).toBe(0);            // the held item was spent...
-  expect(info.furnaceRig).toBe(1);          // ...and the other one was untouched
+  expect(info.brazierRig).toBe(0);          // the held item was spent...
+  expect(info.kilnRig).toBe(1);          // ...and the other one was untouched
 });
 
 /* A state read-back, not a screenshot: the craft bar is a scalar on `run` and
-   is not drawn. `smelt`'s `secs` is 4.0, so 500 substeps at the fixed 1/120 s
-   step is past completion, and the extra 120 frames let the falling output
-   clear the 0.35 s pickup-magnet delay in `rules/items.js`. */
-test('holding the hand-craft key smelts ore into an ingot, spending exactly its inputs', async ({ page }) => {
+   is not drawn. Smelting is `smelt:true` and carries no `hand`, so it is not
+   in `HAND_RECIPES` at all and a held craft key cannot reach it -- the ore and
+   the fuel are still there afterwards, and a ladder gets made instead. */
+test('the hand-craft key cannot smelt: ore stays ore, and a standard craft runs instead', async ({ page }) => {
   await boot(page);
   await settle(page);
   const info = await page.evaluate(async () => {
     const { write, invCount } = await import('/src/model/run.js');
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
+    const { HAND_RECIPES } = await import('/src/data/recipes.js');
 
     write.collect(S.copper, F.ore, 4);
-    write.collect(S.timber, F.log, 1);
+    write.collect(S.timber, F.log, 3);
     const before = {
       ore: invCount(S.copper, F.ore),
-      fuel: invCount(S.timber, F.log),
+      log: invCount(S.timber, F.log),
       ingot: invCount(S.copper, F.ingot)
     };
 
@@ -576,157 +577,154 @@ test('holding the hand-craft key smelts ore into an ingot, spending exactly its 
 
     const after = {
       ore: invCount(S.copper, F.ore),
-      fuel: invCount(S.timber, F.log),
+      log: invCount(S.timber, F.log),
       ingot: invCount(S.copper, F.ingot)
     };
-    return { before, after };
+    return { before, after, smeltIsHand: HAND_RECIPES.some(r => r.id === 'smelt') };
   });
 
-  expect(info.before).toEqual({ ore: 4, fuel: 1, ingot: 0 });
-  expect(info.after).toEqual({ ore: 0, fuel: 0, ingot: 1 });
+  expect(info.smeltIsHand).toBe(false);
+  expect(info.before).toEqual({ ore: 4, log: 3, ingot: 0 });
+  /* The ore is untouched and no ingot exists; the logs went into a ladder. */
+  expect(info.after.ore).toBe(4);
+  expect(info.after.ingot).toBe(0);
+  expect(info.after.log).toBeLessThan(3);
 });
 
-/* A belt drags a resting item along its footprint for as long as its machine
-   record holds a fuel-bought charge. A screenshot cannot tell "moved" from
+/* A belt is one tile, and a row of them turns as one off the winch at its end
+   for as long as the player holds it. A screenshot cannot tell "moved" from
    "always looked like this", so these three read item and machine state. */
 
-/* `tx0..tx0+3` at `ty0` is the belt's footprint, cleared to air or
-   `placeMachine` refuses it as occupied; `ty0+1` under the whole span is solid,
-   the floor `footing:4` demands; the rest stays air to fall into. */
-async function carveBeltFloor(page, tx0, ty0) {
-  await page.evaluate(async ({ tx0, ty0 }) => {
-    const { write: tw } = await import('/src/model/tiles.js');
+/* `tx0..tx0+3` at `ty0` takes the four belts and `tx0-1` the winch, all cleared
+   to air or `placeMachine` refuses them as occupied. `ty0+1` under all five is
+   the floor their `footing` demands, and the player stands on it in reach of
+   the winch. The rest stays air to fall into. */
+async function buildBeltRun(page, tx0, ty0) {
+  return page.evaluate(async ({ tx0, ty0 }) => {
     const { S } = await import('/src/data/substances.js');
-    const { bandOf } = await import('/src/model/world.js');
+    const { F } = await import('/src/data/forms.js');
+    const { write: tw } = await import('/src/model/tiles.js');
+    const { PH, write: pw } = await import('/src/model/player.js');
+    const { write: rw } = await import('/src/model/run.js');
+    const { bandOf, worldX, worldY } = await import('/src/model/world.js');
+    const { placeMachine } = await import('/src/rules/placement.js');
+
     const band = bandOf('surface');
-    for (let x = tx0 - 2; x <= tx0 + 12; x++)
+    for (let x = tx0 - 4; x <= tx0 + 12; x++)
       for (let y = ty0 - 6; y <= ty0 + 10; y++) tw.clear(band, x, y);
-    for (let x = tx0; x <= tx0 + 3; x++) tw.set(band, x, ty0 + 1, S.stone);
+    for (let x = tx0 - 4; x <= tx0 + 3; x++) tw.set(band, x, ty0 + 1, S.stone);
+
+    /* The winch is granted by the first trial, not known from the start. */
+    rw.grant('winch');
+    rw.collect(S.winch, F.rig, 1);
+    const winch = placeMachine(band, 'winch', tx0 - 1, ty0 - 1);
+
+    rw.collect(S.belt_r, F.rig, 4);
+    const belts = [];
+    for (let i = 0; i < 4; i++) belts.push(placeMachine(band, 'belt_r', tx0 + i, ty0));
+
+    pw.band(band);
+    pw.move(worldX(band, tx0 - 2) + 1, worldY(band, ty0 + 1) - PH);
+    pw.vel(0, 0);
+
+    return { built: !!winch && belts.every(Boolean), right: belts[3].box.x + belts[3].box.w };
   }, { tx0, ty0 });
 }
 
-test('a fuelled belt drags a resting item across its footprint and releases it off the end', async ({ page }) => {
+test('a driven belt run carries a resting item along it and releases it off the end', async ({ page }) => {
   await boot(page);
   await settle(page);
-  await carveBeltFloor(page, 10, 15);
+  const rig = await buildBeltRun(page, 10, 15);
+  expect(rig.built).toBe(true);
 
   const info = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
-    const { write: rw } = await import('/src/model/run.js');
     const { write: iw } = await import('/src/model/items.js');
-    const { write: mw } = await import('/src/model/machines.js');
     const { bandOf, worldX, worldY } = await import('/src/model/world.js');
-    const { placeMachine } = await import('/src/rules/placement.js');
 
     const band = bandOf('surface');
     const tx0 = 10, ty0 = 15;
 
-    /* `placeMachine` spends the held `belt_r/rig`, given directly here. */
-    rw.collect(S.belt_r, F.rig, 1);
-    const belt = placeMachine(band, 'belt_r', tx0, ty0);
-
-    /* The item lands on an unfuelled belt first, so the resting state is
-       observable: `beltSpeed` (50 px/s) crosses these 4 tiles in about the
-       half-second the fall takes, so a charged belt would race it. */
+    /* It lands on an unturned run first, so the resting state is observable:
+       nothing drives a belt until someone holds the winch. */
     const it = iw.spawn(band, worldX(band, tx0) + 4, worldY(band, ty0 - 3), S.copper, F.ore, 0, 0);
-    __mf.frames(120);                    // time to fall 4 tiles and settle
+    __mf.frames(120);                    // time to fall and settle
     const landed = { x: it.x, y: it.y, rest: it.rest };
 
-    /* Straight into the buffer, as hand-feeding in reach would. One fuel unit
-       is one 6-second run of the fuel recipe, which banks exactly one charge. */
-    mw.take(belt, S.timber, F.log, 1);
-    __mf.frames(760);                    // past 6 s at the fixed 1/120 s step
-    const charged = belt.charges;
-
-    __mf.frames(420);                    // cross the belt, release, refall
+    __mf.hold({ action: true }, 200);    // cross the run and be released
     const settled = { x: it.x, y: it.y, rest: it.rest };
 
-    return {
-      charged, landed, settled,
-      chargesAfter: belt.charges,
-      boxRight: belt.box.x + belt.box.w
-    };
+    __mf.frames(180);                    // and fall the rest of the way
+    return { landed, settled, after: { x: it.x, y: it.y, rest: it.rest } };
   });
 
-  expect(info.charged).toBe(1);
-  expect(info.landed.rest).toBe(1);                    // it landed and came to rest
-  /* Delivered off the end: past the belt's right edge and, the far side being
-     open air, resting lower than it landed rather than stopping at the lip. */
-  expect(info.settled.x).toBeGreaterThanOrEqual(info.boxRight);
-  expect(info.settled.y).toBeGreaterThan(info.landed.y + 8);
-  expect(info.settled.rest).toBe(1);                   // and came to rest again
-  expect(info.chargesAfter).toBe(0);                   // exactly the one charge it had
+  expect(info.landed.rest).toBe(1);                   // it landed and came to rest
+  /* Delivered off the end: past the last belt's right edge and, the far side
+     being open air, resting lower than it landed rather than at the lip. */
+  expect(info.settled.x).toBeGreaterThanOrEqual(rig.right);
+  expect(info.after.y).toBeGreaterThan(info.landed.y + 8);
+  expect(info.after.rest).toBe(1);                    // and came to rest again
 });
 
-test('a belt with no fuel charge does not drag a resting item', async ({ page }) => {
+test('a belt run nobody is turning does not drag a resting item', async ({ page }) => {
   await boot(page);
   await settle(page);
-  await carveBeltFloor(page, 10, 15);
+  const rig = await buildBeltRun(page, 10, 15);
+  expect(rig.built).toBe(true);
 
   const info = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
-    const { write: rw } = await import('/src/model/run.js');
     const { write: iw } = await import('/src/model/items.js');
+    const { machines } = await import('/src/model/machines.js');
     const { bandOf, worldX, worldY } = await import('/src/model/world.js');
-    const { placeMachine } = await import('/src/rules/placement.js');
 
     const band = bandOf('surface');
     const tx0 = 10, ty0 = 15;
-
-    rw.collect(S.belt_r, F.rig, 1);
-    const belt = placeMachine(band, 'belt_r', tx0, ty0);
-    /* No fuel goes in this time. `belt.charges` starts, and stays, 0. */
 
     const it = iw.spawn(band, worldX(band, tx0) + 4, worldY(band, ty0 - 3), S.copper, F.ore, 0, 0);
     __mf.frames(120);
     const landed = { x: it.x, y: it.y, rest: it.rest };
 
-    __mf.frames(420);                    // same window the fuelled test drags across
-    const after = { x: it.x, y: it.y, rest: it.rest };
-
-    return { charges: belt.charges, landed, after };
+    __mf.frames(200);                    // the same window the held test drags across
+    return {
+      landed,
+      after: { x: it.x, y: it.y, rest: it.rest },
+      torque: Math.max(...machines.map(m => m.torque))
+    };
   });
 
-  expect(info.charges).toBe(0);
+  expect(info.torque).toBe(0);                        // nothing is turning
   expect(info.landed.rest).toBe(1);
-  /* Same footprint and same window as the fuelled belt, minus the fuel. */
   expect(info.after.x).toBe(info.landed.x);
   expect(info.after.y).toBe(info.landed.y);
   expect(info.after.rest).toBe(1);
 });
 
 /* `rules/items.js#MAX_ITEMS` caps the global item list at 400, so a belt
-   mid-drag has to survive the cap trimming items out from under it. Charges
-   are set directly, skipping the fuel economy the two tests above cover. */
+   mid-drag has to survive the cap trimming items out from under it. */
 test('a belt dragging far more items than the cap allows stays finite and within it', async ({ page }) => {
   await boot(page);
   await settle(page);
-  await carveBeltFloor(page, 10, 15);
+  const rig = await buildBeltRun(page, 10, 15);
+  expect(rig.built).toBe(true);
 
   const info = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
-    const { write: rw } = await import('/src/model/run.js');
-    const { write: iw, items } = await import('/src/model/items.js');
-    const { write: mw } = await import('/src/model/machines.js');
+    const { items, write: iw } = await import('/src/model/items.js');
     const { bandOf, worldX, worldY } = await import('/src/model/world.js');
-    const { placeMachine } = await import('/src/rules/placement.js');
 
     const band = bandOf('surface');
     const tx0 = 10, ty0 = 15;
-
-    rw.collect(S.belt_r, F.rig, 1);
-    const belt = placeMachine(band, 'belt_r', tx0, ty0);
-    mw.charge(belt, 1e6);                // never runs dry for the length of this probe
 
     const before = items.length;
     for (let i = 0; i < 450; i++)
       iw.spawn(band, worldX(band, tx0) + (i % 32), worldY(band, ty0 - 3), S.copper, F.ore, 0, 0);
     const spawned = items.length - before;
 
-    __mf.frames(600);
+    __mf.hold({ action: true }, 600);
 
     return {
       spawned,
@@ -1287,11 +1285,12 @@ test('the quickbar draws exactly eff(quickbarSlots) cells, fully populated, with
   });
   expect(qslots).toBe(8);
   /* Eight distinct pairs: `write.collect` merges first, so the same pair twice
-     tops up one slot rather than filling a second. */
+     tops up one slot rather than filling a second. No relic: one is worn
+     rather than pocketed, so it never reaches the strip. */
   const pairs = [
-    ['copper', 'ore'], ['tin', 'ore'], ['timber', 'log'], ['stone', 'gravel'],
+    ['copper', 'ore'], ['iron', 'ore'], ['timber', 'log'], ['stone', 'gravel'],
     ['soil', 'gravel'], ['granite', 'gravel'], ['adamant', 'gravel'],
-    ['pick', 'relic']
+    ['coal', 'lump']
   ];
   for (let i = 0; i < pairs.length; i++) await putInQuickbar(page, i, pairs[i][0], pairs[i][1]);
   await page.evaluate(async () => {
@@ -1433,9 +1432,9 @@ test('the ALL category lists every hand recipe exactly once, and exactly what th
   /* `every` comes from `data/recipes.js`, not from the draw, so the equality
      above cannot be two empty lists agreeing. The counts are stated because
      DIVINE draws nothing today: no hand recipe outputs a relic or a miracle. */
-  expect(all.length).toBe(19);
+  expect(all.length).toBe(16);
   const counts = Object.fromEntries(Object.entries(cats).map(([c, ids]) => [c, ids.length]));
-  expect(counts).toEqual({ raw: 13, refined: 2, tools: 1, placeables: 3, divine: 0 });
+  expect(counts).toEqual({ raw: 13, refined: 0, tools: 1, placeables: 2, divine: 0 });
 });
 
 test('the boon stack with active boons', async ({ page }) => {
@@ -1457,7 +1456,7 @@ test('the boon stack with active boons', async ({ page }) => {
   await shot(page, 'ui-boon-stack.png');
 });
 
-test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smelts', async ({ page }) => {
+test('cold start -> gather gravel -> craft a kiln -> place it -> it smelts', async ({ page }) => {
   await boot(page);
   await settle(page);
   const crafted = await page.evaluate(async () => {
@@ -1474,29 +1473,30 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
        twelve pointer presses here, and what follows is about a crafted rig
        placing, being spent, and smelting. */
     setAutoFeed(true);
-    /* `give` stands in for the mining. `data/recipes.js#furnace` bills 12
-       copper/ore + 6 timber/log over 8.0 s into a held `furnace/rig`, so the
-       surplus on top is what is left to smelt once it is built. */
-    __mf.give(S.copper, F.ore, 12 + 8);
-    __mf.give(S.timber, F.log, 6 + 2);
+    /* `give` stands in for the mining. `data/recipes.js#kiln` bills 15
+       stone/gravel over 8.0 s into a held `kiln/rig`; the ore and coal on top
+       are what it smelts once it is built. */
+    __mf.give(S.stone, F.gravel, 15);
+    __mf.give(S.copper, F.ore, 8);
+    __mf.give(S.coal, F.lump, 4);
     __mf.cmd.hasMouse = false;
-    __mf.hold({ craft: 1 }, 1000);      // past the furnace recipe's own 8.0 s
+    __mf.hold({ craft: 1, craftId: 'kiln' }, 1000);  // past the kiln recipe's own 8.0 s
     __mf.cmd.craft = false;             // release the key -- `hold` only auto-releases hop/place
     __mf.frames(150);                   // let the crafted item fall and clear the pickup-magnet delay
-    return { rig: invCount(S.furnace, F.rig), oreLeft: invCount(S.copper, F.ore), logLeft: invCount(S.timber, F.log) };
+    return { rig: invCount(S.kiln, F.rig), gravelLeft: invCount(S.stone, F.gravel), oreLeft: invCount(S.copper, F.ore) };
   });
   expect(crafted.rig).toBe(1);          // the recipe fired exactly once and spent its bill
+  expect(crafted.gravelLeft).toBe(0);
   expect(crafted.oreLeft).toBe(8);
-  expect(crafted.logLeft).toBe(2);
 
   /* Placed through the quickbar's own digit keys, the one placement path. */
   await page.evaluate(async () => {
     const { write } = await import('/src/model/run.js');
-    /* The furnace is cycle 1's reward, granted here rather than earned. */
-    write.grant('furnace');
+    /* Known from the start, granted here so the fixture states it. */
+    write.grant('kiln');
   });
-  await moveHeldToQuickbar(page, 0, 'furnace', 'rig');
-  await page.keyboard.press('1');        // arms slot 0's furnace (`view/ui/quickbar.js#slotForDigit`)
+  await moveHeldToQuickbar(page, 0, 'kiln', 'rig');
+  await page.keyboard.press('1');        // arms slot 0's kiln (`view/ui/quickbar.js#slotForDigit`)
   /* Placement is LMB only; this pokes the same edge flag a real click sets. */
   await page.evaluate(() => { __mf.cmd.place = true; });
   const result = await page.evaluate(async () => {
@@ -1506,21 +1506,21 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
     const { write: pw, PW } = await import('/src/model/player.js');
     const { M } = await import('/src/data/machines.js');
 
-    /* The ingot ejects from the furnace's top mouth and rests near the
+    /* The ingot ejects from the kiln's top mouth and rests near the
        machine's centre, past `eff('pickupR')` (10 px) from where the player
        stood to place it, so the player is moved under that centre below. */
     __mf.frames(1);                      // let the keypress above place it
-    /* Excludes the director's own altar, so `placed[0]` is the furnace this
+    /* Excludes the director's own altar, so `placed[0]` is the kiln this
        test placed. */
     const placed = __mf.machines.filter(m => m.def !== M.altar);
     const m = placed[0];
     pw.move(m.box.x + m.box.w / 2 - PW / 2, __mf.player.y);
 
-    __mf.frames(1500);                   // several 4.0 s smelt cycles, plus fall and pickup
+    __mf.frames(1500);                   // several 3.0 s smelt cycles, plus fall and pickup
     return {
       machines: placed.length,
       ingot: invCount(S.copper, F.ingot),
-      rigLeft: invCount(S.furnace, F.rig)
+      rigLeft: invCount(S.kiln, F.rig)
     };
   });
 
@@ -1529,7 +1529,7 @@ test('cold start -> mine 12 copper ore -> craft a furnace -> place it -> it smel
   expect(result.rigLeft).toBe(0);        // the held item was spent
 });
 
-test('craft peg rungs by hand, place a brazier in a dark room, and the strata become visible where they were not', async ({ page }) => {
+test('craft a ladder by hand, place a brazier in a dark room, and the strata become visible where they were not', async ({ page }) => {
   await boot(page);
   await settle(page);
   const result = await page.evaluate(async () => {
@@ -1541,10 +1541,12 @@ test('craft peg rungs by hand, place a brazier in a dark room, and the strata be
     const { write: tw } = await import('/src/model/tiles.js');
     const { placeMachine } = await import('/src/rules/placement.js');
 
-    /* Peg rungs through the real hand-craft key, not a grant; `collect` held
-       alongside covers the wait below. */
-    __mf.give(S.timber, F.log, 2);
-    __mf.hold({ craft: 1, collect: 1 }, 300);
+    /* A ladder through the real hand-craft key, not a grant; `collect` held
+       alongside covers the wait below. Named, because `kindle`'s single log is
+       a subset of this bill and `choose` would reach it first on a short
+       hold. */
+    __mf.give(S.timber, F.log, 3);
+    __mf.hold({ craft: 1, craftId: 'ladder', collect: 1 }, 300);
     __mf.cmd.craft = false;             // release the key -- `hold` only auto-releases hop/place
     __mf.frames(60);
     const rungsHeld = invCount(S.timber, F.rung);
@@ -1660,7 +1662,7 @@ test('opening the GUI, shift-clicking a recipe queues 5, and ticking drains them
     /* Auto-collect on for the wait below, so the collect gate is not part of
        the queue draining. */
     setAutoCollect(true);
-    __mf.give(S.timber, F.log, 20);      // 5 runs of peg_rungs (2 logs each)
+    __mf.give(S.timber, F.log, 20);      // 5 runs of `ladder` (3 logs each)
     open('main');
     setTab('main', 'craft');
     __mf.frames(1);                       // draw once so __mf.ui() reflects the open panel
@@ -1685,7 +1687,7 @@ test('opening the GUI, shift-clicking a recipe queues 5, and ticking drains them
 
   expect(result.index).toBeGreaterThanOrEqual(0);
   expect(result.queueAfterClick).toBe(5);
-  expect(result.rungs).toBe(20);          // 5 completions x 4 rungs each
+  expect(result.rungs).toBe(10);          // 5 completions x 2 rungs each
 });
 
 test('granting a boon in debug activates it, and it expires back to the base eff() value', async ({ page }) => {
@@ -1983,47 +1985,60 @@ test('REAL CLICK: clicking an unaffordable recipe refuses instead of queuing for
   expect(after.toast).toContain('CANNOT AFFORD');
 });
 
-test('REAL DRAG: dragging a trinket onto an equip slot equips it, dragging it out unequips it (Bug 1)', async ({ page }) => {
+test('REAL DRAG: a relic is worn on pickup, swaps between equipment slots, and drops to the ground when dragged out (Bug 1)', async ({ page }) => {
   await boot(page);
   await settle(page);
-  await putInMain(page, 'bellows', 'relic');
   await page.evaluate(async () => {
+    const { write } = await import('/src/model/run.js');
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
     const { open, setTab } = await import('/src/shell/ui.js');
+    write.collect(S.bellows, F.relic, 1);
     open('main');
     setTab('main', 'char');
     __mf.cmd.hasMouse = false;
     __mf.frames(1);
   });
 
-  const slots = () => page.evaluate(async () => {
-    const { S } = await import('/src/data/substances.js');
-    const inv = __mf.ui.grids.find(g => g.id === 'inv');
-    const eq = __mf.ui.grids.find(g => g.id === 'equip');
-    return { invSlot: inv.slots.find(s => s.sub === S.bellows), eqSlot: eq.slots[0] };
-  });
-
-  let { invSlot, eqSlot } = await slots();
-  expect(invSlot).toBeTruthy();
-  expect(eqSlot).toBeTruthy();
-  await realDrag(page, invSlot.x + invSlot.w / 2, invSlot.y + invSlot.h / 2,
-                        eqSlot.x + eqSlot.w / 2, eqSlot.y + eqSlot.h / 2);
-
-  let equipped = await page.evaluate(async () => {
+  /* A relic is worn, never pocketed: `write.collect` routes it to a slot. */
+  const worn = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { run } = await import('/src/model/run.js');
-    return run.equipped[0] === S.bellows;
+    return { slot0: run.equipped[0] === S.bellows,
+             pocketed: run.inv.some(sl => sl && sl.sub === S.bellows) };
   });
-  expect(equipped).toBe(true);
+  expect(worn.slot0).toBe(true);
+  expect(worn.pocketed).toBe(false);
 
-  /* Dragged back out onto empty canvas, where there is no grid at all. */
-  ({ invSlot, eqSlot } = await slots());
-  await realDrag(page, eqSlot.x + eqSlot.w / 2, eqSlot.y + eqSlot.h / 2, 4, 4);
+  const cells = () => page.evaluate(() =>
+    __mf.ui.grids.find(g => g.id === 'equip').slots.map(s => ({ x: s.x, y: s.y, w: s.w, h: s.h })));
 
-  equipped = await page.evaluate(async () => {
+  const mid = c => [c.x + c.w / 2, c.y + c.h / 2];
+  let eq = await cells();
+  await realDrag(page, ...mid(eq[0]), ...mid(eq[1]));
+
+  const moved = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
     const { run } = await import('/src/model/run.js');
-    return run.equipped[0] === null;
+    return run.equipped[1] === S.bellows && run.equipped[0] === null;
   });
-  expect(equipped).toBe(true);
+  expect(moved).toBe(true);
+
+  /* Dragged out onto empty canvas, where there is no grid at all. The slot was
+     the only place it was, so it has to survive as an item. */
+  eq = await cells();
+  await realDrag(page, ...mid(eq[1]), 4, 4);
+
+  const dropped = await page.evaluate(async () => {
+    const { S } = await import('/src/data/substances.js');
+    const { F } = await import('/src/data/forms.js');
+    const { items } = await import('/src/model/items.js');
+    const { run } = await import('/src/model/run.js');
+    return { empty: run.equipped[1] === null,
+             onGround: items.some(it => it.sub === S.bellows && it.form === F.relic) };
+  });
+  expect(dropped.empty).toBe(true);
+  expect(dropped.onGround).toBe(true);
 });
 
 test('fog of war: hovering an unseen tile shows nothing; the same tile shows its name once revealed (Bug 3)', async ({ page }) => {
@@ -2033,8 +2048,15 @@ test('fog of war: hovering an unseen tile shows nothing; the same tile shows its
     const { bandOf, worldX, worldY, seenAt } = await import('/src/model/world.js');
     const { banner } = await import('/src/view/fx.js');
 
+    const { tileAt } = await import('/src/model/tiles.js');
+    const { AIR } = await import('/src/data/forms.js');
     const band = bandOf('topsoil');
-    const tx = 60, ty = 60;         // far from spawn and from `settle()`'s own reveal
+    /* The first solid tile on row 60 at or right of column 60: far from spawn
+       and from `settle()`'s own reveal, and searched for rather than named
+       because worldgen carves hollows wherever it likes. */
+    let tx = 60;
+    const ty = 60;
+    while (tx < 200 && tileAt(band, tx, ty) === AIR) tx++;
     const seenBefore = seenAt(band, tx, ty);
 
     banner.fade = 0;
@@ -2125,7 +2147,7 @@ test('opening the panel then placing closes it, and the placement still succeeds
 /* A real click has a frame between down and up and the dispatch resolves its
    aim inside that frame, which is what `realClick` reproduces. */
 
-test('click-to-arm: placing a furnace fails with nothing armed, then succeeds once one is armed and built', async ({ page }) => {
+test('click-to-arm: placing a kiln fails with nothing armed, then succeeds once one is armed and built', async ({ page }) => {
   await boot(page);
   await settle(page);
 
@@ -2150,25 +2172,24 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
   const afterRefusal = await countExAltar();
   expect(afterRefusal).toBe(0);
 
-  /* The recipe's exact bill, hand-crafted into a `furnace/rig`, then armed by
+  /* The recipe's exact bill, hand-crafted into a `kiln/rig`, then armed by
      clicking its Character-tab slot: the mouse-driven half of click-to-arm. */
   const crafted = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { invCount, write } = await import('/src/model/run.js');
     /* Crafting the rig does not need the grant; placing it below does. */
-    write.grant('furnace');
-    __mf.give(S.copper, F.ore, 12);
-    __mf.give(S.timber, F.log, 6);
+    write.grant('kiln');
+    __mf.give(S.stone, F.gravel, 15);
     /* `collect` held alongside `craft` covers the wait below. */
-    __mf.hold({ craft: 1, collect: 1 }, 1000);      // past `data/recipes.js#furnace`'s own 8.0 s
+    __mf.hold({ craft: 1, craftId: 'kiln', collect: 1 }, 1000);  // past `data/recipes.js#kiln`'s own 8.0 s
     __mf.cmd.craft = false;             // release the key -- `hold` only auto-releases hop/place
     __mf.frames(150);                   // let the crafted item fall and clear the pickup-magnet delay
-    return { rig: invCount(S.furnace, F.rig) };
+    return { rig: invCount(S.kiln, F.rig) };
   });
   expect(crafted.rig).toBe(1);
 
-  await moveHeldToMain(page, 'furnace', 'rig');
+  await moveHeldToMain(page, 'kiln', 'rig');
   await page.evaluate(async () => {
     const { open, setTab } = await import('/src/shell/ui.js');
     open('main');
@@ -2180,7 +2201,7 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const grid = __mf.ui.grids.find(g => g.id === 'inv');
-    return grid.slots.find(s => s.sub === S.furnace && s.form === F.rig);
+    return grid.slots.find(s => s.sub === S.kiln && s.form === F.rig);
   });
   expect(invSlot).toBeTruthy();
   await realClick(page, invSlot.x + invSlot.w / 2, invSlot.y + invSlot.h / 2);
@@ -2188,7 +2209,7 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
   const armed = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
-    return { armedPlace: __mf.ui.armedPlace, expectSub: S.furnace, expectForm: F.rig };
+    return { armedPlace: __mf.ui.armedPlace, expectSub: S.kiln, expectForm: F.rig };
   });
   expect(armed.armedPlace).toEqual({ sub: armed.expectSub, form: armed.expectForm });
 
@@ -2205,11 +2226,11 @@ test('click-to-arm: placing a furnace fails with nothing armed, then succeeds on
     const { F } = await import('/src/data/forms.js');
     const { M } = await import('/src/data/machines.js');
     const { invCount } = await import('/src/model/run.js');
-    /* Excludes the director's own altar, so this counts the furnace just
+    /* Excludes the director's own altar, so this counts the kiln just
        placed. */
     return {
       machines: __mf.machines.filter(m => m.def !== M.altar).length,
-      rig: invCount(S.furnace, F.rig), armedAfter: __mf.ui.armedPlace
+      rig: invCount(S.kiln, F.rig), armedAfter: __mf.ui.armedPlace
     };
   });
   expect(result.machines).toBe(1);
@@ -2350,16 +2371,16 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
     __mf.frames(1);
   });
 
-  /* `data/recipes.js#pack` wants 5 gravel of one bulk element and is declared
-     last, so with nothing else affordable it is the row
-     `rules/crafting.js#choose` picks. Its output is a falling item. */
+  /* `data/recipes.js#stone_block` wants 10 gravel of one bulk element, and
+     with nothing else affordable it is the row `rules/crafting.js#choose`
+     picks. Its output is a falling item. */
   await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const { invCount } = await import('/src/model/run.js');
-    __mf.give(S.soil, F.gravel, 5 - invCount(S.soil, F.gravel));
+    __mf.give(S.soil, F.gravel, 10 - invCount(S.soil, F.gravel));
   });
-  await page.evaluate(() => __mf.hold({ craft: 1, collect: 1 }, 400));   // pack secs 2.5
+  await page.evaluate(() => __mf.hold({ craft: 1, collect: 1 }, 400));   // stone_block secs 2.5
   await page.evaluate(() => { __mf.cmd.craft = false; });
   await page.evaluate(() => __mf.frames(150));       // let the block fall and be picked up
 
@@ -2369,7 +2390,7 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
     const { invCount } = await import('/src/model/run.js');
     return { gravel: invCount(S.soil, F.gravel), block: invCount(S.soil, F.block) };
   });
-  expect(packed.block).toBe(1);      // 5 -> 1, and exactly one
+  expect(packed.block).toBe(1);      // 10 -> 1, and exactly one
   expect(packed.gravel).toBe(0);     // all five spent
 
   /* The block armed by a click, then placed back at the tile just mined,
@@ -2423,9 +2444,9 @@ test('click-to-arm: dig down, pack the rubble, then place the block back into th
    sets the flag, and the armed slot's lit border is a pixel claim -- neither
    of which a harness with no pointer and no canvas can make. */
 
-const FEED = { tx: 22, ty: 117, farTx: 18 };   // the furnace, and a spot well out of its reach
+const FEED = { tx: 22, ty: 117, farTx: 18 };   // the kiln, and a spot well out of its reach
 
-test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on a furnace in reach feeds exactly one unit per press', async ({ page }) => {
+test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on a kiln in reach feeds exactly one unit per press', async ({ page }) => {
   await boot(page);
   await settle(page);
 
@@ -2447,7 +2468,7 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
     for (let x = tx - 8; x <= tx + 6; x++) tw.set(band, x, ty + 2, S.stone);
     __mf.revealAll(band);
 
-    mw.place(band, M.furnace, tx, ty);
+    mw.place(band, M.kiln, tx, ty);
     pw.band(band);
     pw.move(worldX(band, farTx), worldY(band, ty));
     pw.vel(0, 0);
@@ -2529,7 +2550,7 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
   expect(border.readout).toBeGreaterThan(0);       // ...so is the IN HAND readout...
   expect(border.total).toBe(border.inside + border.readout);   // ...and nothing else moved
 
-  /* LMB on the furnace feeds it. The panel closes first, or `shell/input.js`
+  /* LMB on the kiln feeds it. The panel closes first, or `shell/input.js`
      routes the click to the widget layer instead of the world. */
   await page.evaluate(async ({ tx, ty }) => {
     const { closeTop } = await import('/src/shell/ui.js');
@@ -2558,12 +2579,12 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
     return { pockets: p0 - invCount(S.copper, F.ore), buffer: count(m, '*/#ore') - b0 };
   }, FEED);
 
-  /* A real pointer over the furnace, with a frame after the move so
+  /* A real pointer over the kiln, with a frame after the move so
      `model/aim.js` catches up before `pointerdown` reads it. */
   const seen = await page.evaluate(async ({ tx, ty }) => {
     const { bandOf, worldX, worldY } = await import('/src/model/world.js');
     const band = bandOf('topsoil');
-    /* The centre of the furnace's left column in screen px, nearest the
+    /* The centre of the kiln's left column in screen px, nearest the
        player so `eff('reach')`'s clamp in `rules/mining.js#aimAtWorld` stays
        out of it, derived from the band's geometry rather than typed. */
     return { sx: worldX(band, tx) + 4 - __mf.cam.x, sy: worldY(band, ty) + 8 - __mf.cam.y };
@@ -2580,7 +2601,7 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
     };
   }, FEED);
   expect(aimed.valid).toBe(true);
-  expect(aimed.onMachine).toBe(true);         // the reticle is over the furnace
+  expect(aimed.onMachine).toBe(true);         // the reticle is over the kiln
 
   await page.mouse.down();
 
@@ -2617,7 +2638,7 @@ test('REAL CLICK: clicking an ore slot arms it and lights its border, and LMB on
   expect(press.feedFlag).toBe(false);
   expect(press.armedAfter).toEqual({ sub: armed.sub, form: armed.form });
 
-  /* A wrong pair at the same reachable furnace, through the same real
+  /* A wrong pair at the same reachable kiln, through the same real
      `pointerdown` path: the press still resolves as a feed and refuses, rather
      than falling through to a placement inside the footprint. */
   await page.evaluate(async () => {
@@ -2701,7 +2722,7 @@ const feedLap = page => page.evaluate(async ({ tx, endTx, startTx }) => {
   };
 }, LAP);
 
-test('AUTO FEED off (the default): a real lap past a hungry furnace costs nothing; one real click on the Character tab row brings the magnet back', async ({ page }) => {
+test('AUTO FEED off (the default): a real lap past a hungry kiln costs nothing; one real click on the Character tab row brings the magnet back', async ({ page }) => {
   await boot(page);
   await settle(page);
 
@@ -2714,7 +2735,7 @@ test('AUTO FEED off (the default): a real lap past a hungry furnace costs nothin
     const { write: pw } = await import('/src/model/player.js');
     const { write: mw } = await import('/src/model/machines.js');
 
-    /* A carved corridor with a floor and a furnace standing on it, rather than
+    /* A carved corridor with a floor and a kiln standing on it, rather than
        a walkable flat trusted to worldgen. */
     const band = bandOf('topsoil');
     for (let y = ty - 6; y <= ty + 2; y++)
@@ -2722,7 +2743,7 @@ test('AUTO FEED off (the default): a real lap past a hungry furnace costs nothin
     for (let x = tx - 8; x <= tx + 8; x++) tw.set(band, x, ty + 2, S.stone);
     __mf.revealAll(band);
 
-    mw.place(band, M.furnace, tx, ty);
+    mw.place(band, M.kiln, tx, ty);
     pw.band(band);
     pw.move(worldX(band, startTx), worldY(band, ty));
     pw.vel(0, 0);
@@ -2772,7 +2793,7 @@ test('AUTO FEED off (the default): a real lap past a hungry furnace costs nothin
 
   const on = await feedLap(page);
   expect(on.minGap).toBeLessThan(0);
-  /* The furnace's ore cap is 8 and the pockets hold exactly 8, and with no
+  /* The kiln's ore cap fills exactly, and with no
      fuel given nothing consumes what went in, so the lot is countable. */
   expect(on.spent).toBe(LAP.ore);
   expect(on.buffered).toBe(LAP.ore);
@@ -2782,13 +2803,13 @@ test('AUTO FEED off (the default): a real lap past a hungry furnace costs nothin
   expect(await page.evaluate(() => __mf.ui.autoFeed)).toBe(false);
 });
 
-/* The furnace, the player beside it, and the tile the reticle sits on. `aimTx`
-   is the furnace's own left column, so the ghost is over the machine and not
+/* The kiln, the player beside it, and the tile the reticle sits on. `aimTx`
+   is the kiln's own left column, so the ghost is over the machine and not
    over the air beside it. */
 const HAND = { tx: 22, ty: 117, playerTx: 20, aimed: true, aimTx: 22, aimTy: 117 };
 
 /* One scene, four states. `arm` names the pair that goes into the hand
-   ('ore' | 'rung' | 'phial' | null), `buffer` pre-loads the furnace's ore
+   ('ore' | 'rung' | 'phial' | null), `buffer` pre-loads the kiln's ore
    clause so `feedCheck` has a `have`/`cap` other than 0/8, and `aimed:false`
    leaves the reticle invalid so nothing draws a ghost. */
 async function handScene(page, spec) {
@@ -2813,7 +2834,7 @@ async function handScene(page, spec) {
     for (let x = tx - 8; x <= tx + 6; x++) tw.set(band, x, ty + 2, S.stone);
     __mf.revealAll(band);
 
-    const m = mw.place(band, M.furnace, tx, ty);
+    const m = mw.place(band, M.kiln, tx, ty);
 
     /* Two fuelled braziers: the room is 117 rows down and sealed, so
        `rules/light.js` leaves it at the floor value and the shot would
@@ -2953,7 +2974,7 @@ test('16c: the IN HAND line is not vacuous -- it exists only while something is 
   expect(on.total).toBe(off.total);
 });
 
-test('16c: the feed preview says a furnace WILL take the armed ore, and how full its clause is', async ({ page }) => {
+test('16c: the feed preview says a kiln WILL take the armed ore, and how full its clause is', async ({ page }) => {
   await boot(page);
   await settle(page);
   const r = await handScene(page, { arm: 'ore', buffer: 3 });
@@ -2961,7 +2982,7 @@ test('16c: the feed preview says a furnace WILL take the armed ore, and how full
   /* The numbers the ghost prints, read back through the same model queries, so
      this asserts 3 of 8 rather than a remembered string. */
   expect(r.buffered).toBe(3);
-  expect(r.cap).toBe(8);
+  expect(r.cap).toBe(12);
   expect(await page.evaluate(async ({ tx }) => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
@@ -2972,7 +2993,7 @@ test('16c: the feed preview says a furnace WILL take the armed ore, and how full
   await shot(page, 'feed-ghost-ok.png');
 });
 
-test('16c: the same furnace at the same reticle REFUSES a rung, and says why before the click', async ({ page }) => {
+test('16c: the same kiln at the same reticle REFUSES a rung, and says why before the click', async ({ page }) => {
   await boot(page);
   await settle(page);
   const r = await handScene(page, { arm: 'rung', buffer: 3 });
@@ -3055,7 +3076,7 @@ async function realRightClick(page, sx, sy) {
   await page.evaluate(() => __mf.frames(1));
 }
 
-test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running, deconstruct', async ({ page }) => {
+test('the kiln build lifecycle: crafting UI, ghost, no-fuel, fuelled, running, deconstruct', async ({ page }) => {
   await boot(page);
   await settle(page);
 
@@ -3064,7 +3085,7 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
      so it would win every hover check below. */
   await page.evaluate(async () => {
     /* Auto-collect for the walk-over below and for the deconstruct refund at
-       the end; auto-feed because stages 4 and 5 give the furnace its fuel and
+       the end; auto-feed because stages 4 and 5 give the kiln its fuel and
        ore by putting them in the pockets and waiting. */
     const { setAutoCollect, setAutoFeed } = await import('/src/shell/ui.js');
     setAutoCollect(true);
@@ -3096,25 +3117,25 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
 
   ui = await page.evaluate(() => __mf.ui);
   expect(ui.tab.main).toBe('craft');
-  await shot(page, 'furnace-lifecycle-1-crafting-ui.png');
+  await shot(page, 'kiln-lifecycle-1-crafting-ui.png');
 
-  /* stage 2: arm a furnace/rig by clicking its Character-tab slot, aim it, and
+  /* stage 2: arm a kiln/rig by clicking its Character-tab slot, aim it, and
      shoot the ghost before the placement is confirmed. */
   await page.evaluate(async () => {
     const { write } = await import('/src/model/run.js');
     const { setTab } = await import('/src/shell/ui.js');
-    /* The furnace is cycle 1's reward, granted here rather than earned. */
-    write.grant('furnace');
+    /* Known from the start, granted here so the fixture states it. */
+    write.grant('kiln');
     setTab('main', 'char');
   });
-  await putInMain(page, 'furnace', 'rig');
+  await putInMain(page, 'kiln', 'rig');
   await page.evaluate(() => __mf.frames(1));
 
   const invSlot = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
     const grid = __mf.ui.grids.find(g => g.id === 'inv');
-    return grid.slots.find(s => s.sub === S.furnace && s.form === F.rig);
+    return grid.slots.find(s => s.sub === S.kiln && s.form === F.rig);
   });
   expect(invSlot).toBeTruthy();
   await realClick(page, invSlot.x + invSlot.w / 2, invSlot.y + invSlot.h / 2);
@@ -3122,7 +3143,7 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
   const armed = await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
-    return { armedPlace: __mf.ui.armedPlace, sub: S.furnace, form: F.rig };
+    return { armedPlace: __mf.ui.armedPlace, sub: S.kiln, form: F.rig };
   });
   expect(armed.armedPlace).toEqual({ sub: armed.sub, form: armed.form });
 
@@ -3138,7 +3159,7 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
   const armedStillSet = await page.evaluate(() => __mf.ui.armedPlace);
   expect(armedStillSet).toBeTruthy();
 
-  await shot(page, 'furnace-lifecycle-2-ghost.png');
+  await shot(page, 'kiln-lifecycle-2-ghost.png');
 
   /* stage 3: confirm the placement -- placed, no fuel. */
   /* Placement is LMB only; this pokes the same edge flag a real click sets. */
@@ -3150,25 +3171,25 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
     const { F } = await import('/src/data/forms.js');
     const { M } = await import('/src/data/machines.js');
     const { invCount } = await import('/src/model/run.js');
-    /* Excludes the director's own altar, so this counts the furnace just
+    /* Excludes the director's own altar, so this counts the kiln just
        placed. */
     return {
       machines: __mf.machines.filter(m => m.def !== M.altar).length,
-      rig: invCount(S.furnace, F.rig), armedAfter: __mf.ui.armedPlace
+      rig: invCount(S.kiln, F.rig), armedAfter: __mf.ui.armedPlace
     };
   });
   expect(placed.machines).toBe(1);
   expect(placed.rig).toBe(0);
   expect(placed.armedAfter).toBeNull();
 
-  await shot(page, 'furnace-lifecycle-3-no-fuel.png');
+  await shot(page, 'kiln-lifecycle-3-no-fuel.png');
 
   /* Hovers the machine's centre, world px converted to screen by subtracting
      the current camera, in one round trip so the camera read and the hover read
      describe the same frame. Looked up by def: the altar is in the array too. */
   const hoverMachine = () => page.evaluate(async () => {
     const { M } = await import('/src/data/machines.js');
-    const m = __mf.machines.find(mm => mm.def === M.furnace);
+    const m = __mf.machines.find(mm => mm.def === M.kiln);
     __mf.mouseAt(m.box.x + m.box.w / 2 - __mf.cam.x, m.box.y + m.box.h / 2 - __mf.cam.y);
     __mf.draw();
     return { ...__mf.hover };
@@ -3176,7 +3197,7 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
 
   let hover = await hoverMachine();
   expect(hover.active).toBe(true);
-  expect(hover.lines[0]).toBe('CRUDE FURNACE');
+  expect(hover.lines[0]).toBe('BASIC KILN');
   expect(hover.lines[1]).toBe('NO FUEL');
 
   /* stage 4: fuelled, no resources -- idle. Exactly `data/recipes.js#smelt`'s
@@ -3189,29 +3210,30 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
     __mf.cmd.hasMouse = false;
     __mf.frames(30);                     // let hand-feed pull it into the buffer
   });
-  await shot(page, 'furnace-lifecycle-4-fuelled-idle.png');
+  await shot(page, 'kiln-lifecycle-4-fuelled-idle.png');
 
   hover = await hoverMachine();
   expect(hover.lines[1]).toBe('IDLE');
   expect(hover.lines.some(l => l.startsWith('MAKING'))).toBe(false);
 
-  /* stage 5: fuelled and resourced -- producing. Exactly the smelt recipe's
-     4 ore, so one cycle fires and the buffer empties with nothing left to
-     refill it, which is the state the deconstruct below needs. */
+  /* stage 5: fuelled and resourced -- producing. One ore against the one log
+     already banked, so a single cycle fires and the buffer empties with
+     nothing left to refill it, which is the state the deconstruct below
+     needs: in a kiln one log is exactly one smelt. */
   await page.evaluate(async () => {
     const { S } = await import('/src/data/substances.js');
     const { F } = await import('/src/data/forms.js');
-    __mf.give(S.copper, F.ore, 4);
+    __mf.give(S.copper, F.ore, 1);
     __mf.frames(60);                     // let hand-feed pull it in and the recipe start
   });
 
   const running = await page.evaluate(async () => {
     const { M } = await import('/src/data/machines.js');
-    return __mf.machines.find(m => m.def === M.furnace).running;
+    return __mf.machines.find(m => m.def === M.kiln).running;
   });
   expect(running).toBe(true);
 
-  await shot(page, 'furnace-lifecycle-5-running.png');
+  await shot(page, 'kiln-lifecycle-5-running.png');
 
   hover = await hoverMachine();
   expect(hover.lines[1]).toBe('RUNNING');
@@ -3219,11 +3241,11 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
 
   /* The smelt cycle finishes and the buffer drains first:
      `rules/placement.js#deconstruct` refuses while anything is buffered. */
-  await page.evaluate(() => __mf.frames(600));   // several 4.0 s smelt cycles' worth of margin
+  await page.evaluate(() => __mf.frames(600));   // several 3.0 s smelt cycles' worth of margin
 
   const drained = await page.evaluate(async () => {
     const { M } = await import('/src/data/machines.js');
-    const m = __mf.machines.find(mm => mm.def === M.furnace);
+    const m = __mf.machines.find(mm => mm.def === M.kiln);
     return { bufKeys: Object.keys(m.buf).length, charges: m.charges };
   });
   expect(drained.bufKeys).toBe(0);
@@ -3231,7 +3253,7 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
 
   const target = await page.evaluate(async () => {
     const { M } = await import('/src/data/machines.js');
-    const m = __mf.machines.find(mm => mm.def === M.furnace);
+    const m = __mf.machines.find(mm => mm.def === M.kiln);
     return { sx: m.box.x + m.box.w / 2 - __mf.cam.x, sy: m.box.y + m.box.h / 2 - __mf.cam.y };
   });
   await realRightClick(page, target.sx, target.sy);
@@ -3248,15 +3270,15 @@ test('the furnace build lifecycle: crafting UI, ghost, no-fuel, fuelled, running
        within `eff('pickupR')` (10 px) of the player, and the toss is
        randomised sideways, so the player is moved onto where it landed. */
     __mf.frames(30);                     // let it fall and come to rest
-    const dropped = items.find(it => it.sub === S.furnace && it.form === F.rig);
+    const dropped = items.find(it => it.sub === S.kiln && it.form === F.rig);
     if (dropped) pw.move(dropped.x - PW / 2, __mf.player.y);
     __mf.frames(200);
 
-    /* Excludes the director's own altar: the furnace's own count is what
+    /* Excludes the director's own altar: the kiln's own count is what
        reads 0. */
     return {
       machines: __mf.machines.filter(m => m.def !== M.altar).length,
-      rigBack: invCount(S.furnace, F.rig), droppedFound: !!dropped
+      rigBack: invCount(S.kiln, F.rig), droppedFound: !!dropped
     };
   });
   expect(after.machines).toBe(0);
@@ -3308,7 +3330,9 @@ async function winchScene(page, spec) {
     const { write: mw } = await import('/src/model/machines.js');
     const { write: tw } = await import('/src/model/tiles.js');
     const { write: pw } = await import('/src/model/player.js');
-    const { write: segw, linkCheck, segments } = await import('/src/model/segments.js');
+    const { ascending, write: segw, linkCheck, phaseOf, railT, segments } =
+      await import('/src/model/segments.js');
+    const car0 = seg => seg.carriers[0];
     const { write: aimw } = await import('/src/model/aim.js');
     const { bandOf, worldX, worldY, write: ww } = await import('/src/model/world.js');
     const { armLink, clearLink } = await import('/src/shell/ui.js');
@@ -3347,8 +3371,28 @@ async function winchScene(page, spec) {
        `rules/drive.js` owns all three and overwrites anything written before
        `frames`. These shots are deliberately static. */
     for (const [i, t, load] of spec.carriers || []) {
-      segw.carrier(segments[i], t, 0);
-      segw.load(segments[i], load || 0);
+      /* One bucket per rope at rail parameter `t` going up. A rope is a loop
+         and a fresh one carries nothing, so the bucket is hung here. */
+      const seg = segments[i];
+      segw.spin(seg, -seg.u, 0);
+      while (seg.carriers.length) segw.detach(seg, seg.carriers[0]);
+      const c = segw.attach(seg, t / 2);
+      segw.load(seg, load || 0);
+      segw.carrierLoad(c, load || 0);
+    }
+
+    /* `n` buckets spread evenly round the loop, which is what a player builds
+       and the only arrangement that shows both strands at once. `load` fills
+       the ascending half, so the counterweight reads in the picture. */
+    for (const [i, n, load] of spec.chain || []) {
+      const seg = segments[i];
+      segw.spin(seg, -seg.u, 0);
+      while (seg.carriers.length) segw.detach(seg, seg.carriers[0]);
+      for (let k = 0; k < n; k++) {
+        const c = segw.attach(seg, k / n);
+        segw.carrierLoad(c, k / n < 0.5 ? (load || 0) : 0);
+      }
+      segw.load(seg, (load || 0) * Math.ceil(n / 2));
     }
     for (const [i, phase] of spec.turns || []) mw.turn(placed[i], phase);
 
@@ -3371,8 +3415,16 @@ async function winchScene(page, spec) {
 
     return {
       machines: placed.length, segments: segments.length, refusals,
+      carriers: segments.map(s => s.carriers.length),
+      strands: segments.map(s => ({
+        up: s.carriers.filter(c => ascending(phaseOf(s, c))).length,
+        down: s.carriers.filter(c => !ascending(phaseOf(s, c))).length
+      })),
+      /* `t` is the first bucket's rail parameter: 0 at the low anchor, 1 at
+         the high one, whichever strand of the loop it is on. */
       seg: segments.map(s => ({
-        t: s.t, load: s.load, len: Math.round(s.len), slope: +s.slope.toFixed(2)
+        t: railT(phaseOf(s, car0(s))), load: s.load,
+        len: Math.round(s.len), slope: +s.slope.toFixed(2)
       }))
     };
   }, spec);
@@ -3424,6 +3476,18 @@ for (const [name, t] of [['bottom', 0], ['middle', 0.5], ['top', 1]]) {
   });
 }
 
+/* Four buckets spread round the loop put two on each strand, loaded going up
+   and empty coming down. One bucket cannot show either strand. */
+test('winch: a bucket chain, loaded up one strand and empty down the other', async ({ page }) => {
+  await boot(page);
+  await settle(page);
+  const r = await winchScene(page, { ...VERTICAL, chain: [[0, 4, 14]] });
+  expect(r.segments).toBe(1);
+  expect(r.carriers).toEqual([4]);
+  expect(r.strands).toEqual([{ up: 2, down: 2 }]);
+  await shot(page, 'winch-bucket-chain.png');
+});
+
 test('winch: a loaded carrier', async ({ page }) => {
   await boot(page);
   await settle(page);
@@ -3460,7 +3524,7 @@ test('winch: a crank alone', async ({ page }) => {
   await boot(page);
   await settle(page);
   const r = await winchScene(page, {
-    room: ROOM, machines: [['crank', 44, 43]], player: [41, 43]
+    room: ROOM, machines: [['winch', 44, 43]], player: [41, 43]
   });
   expect(r.machines).toBe(1);
   await shot(page, 'winch-crank.png');
@@ -3474,7 +3538,7 @@ test('winch: a crank, a two-gear train and a hub', async ({ page }) => {
   await settle(page);
   const r = await winchScene(page, {
     room: ROOM,
-    machines: [['crank', 44, 43], ['gear', 45, 44], ['gear', 46, 44], ['hub', 47, 43]],
+    machines: [['winch', 44, 43], ['transformer', 45, 44], ['drive_wheel', 46, 44], ['hub', 47, 43]],
     player: [41, 43]
   });
   expect(r.machines).toBe(4);
@@ -3490,8 +3554,8 @@ test('winch: a diagonal gear pair does not mesh, and a cornered one does', async
   const r = await winchScene(page, {
     room: ROOM,
     rock: [[44, 43], [46, 44], [50, 43], [52, 43]],
-    machines: [['gear', 44, 42], ['gear', 45, 43],
-               ['gear', 50, 42], ['gear', 51, 42], ['gear', 51, 43], ['gear', 52, 42]],
+    machines: [['drive_wheel', 44, 42], ['drive_wheel', 45, 43],
+               ['drive_wheel', 50, 42], ['drive_wheel', 51, 42], ['drive_wheel', 51, 43], ['drive_wheel', 52, 42]],
     player: [41, 43]
   });
   expect(r.machines).toBe(6);
@@ -3538,7 +3602,7 @@ test('winch: a gear train at a nonzero rotation phase', async ({ page }) => {
   await settle(page);
   const r = await winchScene(page, {
     room: ROOM,
-    machines: [['crank', 44, 43], ['gear', 45, 44], ['axle', 46, 44], ['hub', 49, 43]],
+    machines: [['winch', 44, 43], ['transformer', 45, 44], ['drive_wheel', 46, 44], ['hub', 49, 43]],
     turns: [[0, 0.9], [1, 0.9], [2, 0.9], [3, 0.9]],
     player: [41, 43]
   });
@@ -3654,8 +3718,8 @@ test('winch: drawing the whole family writes nothing to the model', async ({ pag
   await settle(page);
   await winchScene(page, {
     room: TALL,
-    machines: [['hub', 44, 43], ['hub', 44, 35], ['crank', 46, 43],
-               ['gear', 47, 44], ['axle', 48, 44]],
+    machines: [['hub', 44, 43], ['hub', 44, 35], ['winch', 46, 43],
+               ['transformer', 47, 44], ['drive_wheel', 48, 44]],
     links: [[0, 1]], carriers: [[0, 0.4, 25]],
     turns: [[2, 0.7], [3, 0.7], [4, 0.7]],
     arm: 0, aimAt: [44, 35], player: [42, 43]
@@ -3679,7 +3743,7 @@ test('winch: drawing the whole family writes nothing to the model', async ({ pag
    therefore all one drivetrain component. */
 const CRANKS = (tx, tyTop, tyBottom) => {
   const out = [];
-  for (let ty = tyBottom; ty >= tyTop; ty -= 2) out.push(['crank', tx, ty]);
+  for (let ty = tyBottom; ty >= tyTop; ty -= 2) out.push(['winch', tx, ty]);
   return out;
 };
 
@@ -3693,8 +3757,12 @@ async function driveScene(page, spec) {
     const { write: tw } = await import('/src/model/tiles.js');
     const { write: pw, PW, PH } = await import('/src/model/player.js');
     const { write: rw, run } = await import('/src/model/run.js');
-    const { write: segw, linkCheck, segments, carrierPos, carrierTop } =
+    const { ascending, write: segw, linkCheck, phaseOf, railT, segments, carrierPos, carrierTop } =
       await import('/src/model/segments.js');
+    const car0 = seg => seg.carriers[0];
+    /* World-y direction of the first bucket: -1 rising, +1 sinking. The loop's
+       own `spin` is forward/back, which is rising only on the up strand. */
+    const dirOf = s => (ascending(phaseOf(s, car0(s))) ? -s.spin : s.spin);
     const { bandOf, worldX, worldY, write: ww } = await import('/src/model/world.js');
     const { eff } = await import('/src/model/mods.js');
     const { clearLink, setAutoCollect } = await import('/src/shell/ui.js');
@@ -3749,10 +3817,17 @@ async function driveScene(page, spec) {
     if (spec.preFrames) __mf.frames(spec.preFrames);
 
     /* The start state, parked after the pre-roll and before the motion. */
-    for (const [i, t] of spec.start || []) segw.carrier(segments[i], t, 0);
+    /* Every rope gets a bucket: a loop with none carries nothing at all. */
+    for (const seg of segments) segw.attach(seg, 0);
+    for (const [i, t] of spec.start || []) {
+      const seg = segments[i];
+      segw.spin(seg, -seg.u, 0);
+      while (seg.carriers.length) segw.detach(seg, seg.carriers[0]);
+      segw.attach(seg, t / 2);
+    }
     if (spec.burden) rw.collect(S.copper, F.ore, spec.burden);
     for (const [i, sub, form, n] of spec.cargo || []) {
-      const p = carrierPos(segments[i]);
+      const p = carrierPos(segments[i], car0(segments[i]));
       for (let k = 0; k < n; k++) {
         const it = iw.spawn(segments[i].band, p.x, p.y, S[sub], F[form], 0, 0);
         if (it) it.rest = 1;
@@ -3760,10 +3835,10 @@ async function driveScene(page, spec) {
     }
     if (spec.ride !== undefined) {
       const seg = segments[spec.ride];
-      pw.move(carrierPos(seg).x - PW / 2, carrierTop(seg) - PH);
+      pw.move(carrierPos(seg, car0(seg)).x - PW / 2, carrierTop(seg, car0(seg)) - PH);
       pw.vel(0, 0);
       pw.set('onGround', true);
-      pw.set('fallFrom', carrierTop(seg) - PH);
+      pw.set('fallFrom', carrierTop(seg, car0(seg)) - PH);
     }
 
     /* Nothing is written after the motion. `cmd.action` is the crank hold;
@@ -3773,13 +3848,15 @@ async function driveScene(page, spec) {
        moves, and `riseTo` only holds on a drivetrain saturated enough to run
        at the full `segUp`. */
     const frames = spec.frames ?? Math.round(
-      ((spec.riseTo - segments[0].t) * segments[0].len / eff('segUp')) * 120);
+      ((spec.riseTo - railT(phaseOf(segments[0], car0(segments[0]))))
+        * segments[0].len / eff('segUp')) * 120);
     __mf.cmd.action = !!spec.turn;
     __mf.frames(frames);
     __mf.cmd.action = false;
 
     const centre = spec.centreOn
-      ? { x: carrierPos(segments[spec.centreOn]).x, y: carrierPos(segments[spec.centreOn]).y }
+      ? { x: carrierPos(segments[spec.centreOn], car0(segments[spec.centreOn])).x,
+          y: carrierPos(segments[spec.centreOn], car0(segments[spec.centreOn])).y }
       : { x: worldX(main, rooms[0].tx0) + rooms[0].w * main.tile / 2,
           y: worldY(main, rooms[0].ty0) + rooms[0].h * main.tile / 2 };
     __mf.cam.x = Math.round(centre.x - VIEW.w / 2) + (spec.offset?.[0] ?? 0);
@@ -3790,7 +3867,7 @@ async function driveScene(page, spec) {
       machines: placed.length, segments: segments.length, refusals,
       hearts: run.hearts, beat: run.tutorialBeat,
       seg: segments.map(s => ({
-        t: +s.t.toFixed(4), dir: s.dir, load: +s.load.toFixed(2),
+        t: +railT(phaseOf(s, car0(s))).toFixed(4), dir: dirOf(s), load: +s.load.toFixed(2),
         len: Math.round(s.len), slope: +s.slope.toFixed(2), band: s.band?.id ?? null
       })),
       /* Every drivetrain node that actually turned, so a scene can prove its
@@ -3842,20 +3919,22 @@ test('drive: a carrier mid-descent under weight', async ({ page }) => {
   await shot(page, 'drive-descending-loaded.png');
 });
 
-/* The crank is turning and the drivetrain is delivering torque, and the
-   carrier still goes down, because the rider carries more than it can lift.
+/* The winch is turning and the drivetrain is delivering torque, and the
+   bucket still goes down, because the rider carries more than it can lift.
    The 'TOO HEAVY TO LIFT' toast is in the frame on purpose. */
 test('drive: a reversing carrier under an over-cap rider', async ({ page }) => {
   await boot(page);
   await settle(page);
   const r = await driveScene(page, {
     rooms: [MOTION_SHAFT],
-    machines: [['hub', 44, 43], ['hub', 44, 37], ['crank', 43, 41], ['gear', 43, 43]],
+    machines: [['hub', 44, 43], ['hub', 44, 37], ['winch', 43, 41], ['drive_wheel', 43, 43]],
     links: [[0, 1]], start: [[0, 0.4]], ride: 0, burden: 45, turn: true,
     frames: 40, player: [47, 43], centreOn: 0
   });
   expect(r.segments).toBe(1);
-  expect(r.driven).toBe(3);                            // hub, crank and the bridging gear
+  /* Four, not three: the rope conducts power, so the far hub is in the same
+     component as the winch and reads the same delivered drive. */
+  expect(r.driven).toBe(4);
   expect(r.seg[0].dir).toBe(1);                        // and it is going down
   expect(r.seg[0].t).toBeGreaterThan(0.15);
   expect(r.seg[0].t).toBeLessThan(0.4);
@@ -3866,25 +3945,25 @@ test('drive: a reversing carrier under an over-cap rider', async ({ page }) => {
 });
 
 /* The key is held and the drivetrain arrives at its own phase, rather than a
-   phase written into the model, which is what can catch a gear that has
+   phase written into the model, which is what can catch a wheel that has
    stopped meshing. */
-test('drive: a crank and a gear train being turned', async ({ page }) => {
+test('drive: a winch and a gear train being turned', async ({ page }) => {
   await boot(page);
   await settle(page);
   const r = await driveScene(page, {
     rooms: [{ tx0: 40, ty0: 28, w: 15, h: 18, band: 'surface', sky: true }],
-    machines: [['hub', 44, 43], ['hub', 44, 35], ['crank', 46, 43],
-               ['gear', 47, 44], ['axle', 48, 44]],
+    machines: [['hub', 44, 43], ['hub', 44, 35], ['winch', 46, 43],
+               ['transformer', 47, 44], ['drive_wheel', 48, 44]],
     links: [[0, 1]], start: [[0, 0.5]], turn: true, frames: 90, player: [47, 41]
   });
   expect(r.segments).toBe(1);
-  /* Four nodes turn, not five: the crank, the gear, the axle and the hub they
-     are adjacent to. The far hub eight tiles up is its own component with no
-     crank in it, so it delivers nothing and does not spin. */
-  expect(r.turning).toBe(4);
-  expect(r.driven).toBe(4);
+  /* All five turn: the winch, the transformer, the drive wheel, the hub they
+     are adjacent to, and the far hub eight tiles up -- the rope between the
+     two hubs carries power as well as the bucket. */
+  expect(r.turning).toBe(5);
+  expect(r.driven).toBe(5);
   expect(r.seg[0].dir).toBe(-1);
-  await shot(page, 'drive-crank-train-turning.png');
+  await shot(page, 'drive-winch-train-turning.png');
 });
 
 test('drive: a three-segment chain in motion', async ({ page }) => {
@@ -4056,9 +4135,11 @@ async function ratedCycle(page, { credits = [], left = 200 } = {}) {
     rw.cycle(4);
     rw.favour('hephaestus', 3);
     rw.favour('athena', 2);
+    /* Both demand piles filled from the row itself, so retuning the counts
+       keeps the aggregate at the 80% this test is about. */
+    const { CYCLE } = await import('/src/data/cycles.js');
     const have = {};
-    have[keyOf(S.copper, F.plate)] = 8;
-    have[keyOf(S.granite, F.gravel)] = 8;
+    for (const d of CYCLE['salt-tribute'].demand) have[keyOf(S[d.sub], F[d.form])] = d.n;
     rw.tribute({ id: 'salt-tribute', have, left, credits: credits.map(n => ({ t: run.t, n })) });
     /* The opening title card is still up two substeps in, and stepping past it
        with cycle 4 armed and paid would let `rules/cycles.js` complete the
@@ -4076,55 +4157,65 @@ const tributeBars = page => page.evaluate(async () => {
 });
 
 /* The batch row, and an aggregate that cannot read 100% while the trial is
-   unpaid: both demand piles full with an empty batch window is 80%. */
+   unpaid: both demand piles full with an empty batch window is 77%. */
 test('17e: a rated cycle 4 reads honestly at every stage of its batch window', async ({ page }) => {
   await boot(page);
   await settle(page);
+
+  /* Read off the cycle table, so retuning the batch retunes the fixture. */
+  const N = await page.evaluate(async () => {
+    const { CYCLES } = await import('/src/data/cycles.js');
+    return CYCLES[3].batch.n;
+  });
 
   await ratedCycle(page, { credits: [] });
   const empty = await tributeBars(page);
   expect(empty.met).toBe(false);
   expect(Object.keys(empty.bars)).toContain('tribute-batch');
-  expect(empty.bars['tribute-batch'].valueText).toBe('0 / 4');
-  expect(empty.bars['tribute-batch'].label).toBe('COPPER PLATE IN 2:00');
+  expect(empty.bars['tribute-batch'].valueText).toBe(`0 / ${N}`);
+  expect(empty.bars['tribute-batch'].label).toBe('COPPER INGOT IN 2:00');
   /* The same row abbreviates rather than running under FAVOUR when the column
      cannot hold the full name. */
   await narrowFloor(page);
   const floor = await tributeBars(page);
-  expect(floor.bars['tribute-batch'].label).toBe('CU PLT IN 2:00');
+  expect(floor.bars['tribute-batch'].label).toBe('CU ING IN 2:00');
   await page.evaluate(() => { __mf.resize(1280, 800); __mf.draw(); });
   expect(empty.bars['tribute-progress'].valueText).not.toBe('100%');
-  expect(empty.bars['tribute-progress'].valueText).toBe('80%');
+  expect(empty.bars['tribute-progress'].valueText).toBe('77%');
   await shot(page, 'tribute-cycle4-batch-empty.png');
 
-  await ratedCycle(page, { credits: [1, 2] });
+  await ratedCycle(page, { credits: [1, N - 2] });
   const part = await tributeBars(page);
   expect(part.met).toBe(false);
-  expect(part.bars['tribute-batch'].valueText).toBe('3 / 4');
+  expect(part.bars['tribute-batch'].valueText).toBe(`${N - 1} / ${N}`);
   expect(part.bars['tribute-progress'].valueText).not.toBe('100%');
 
-  await ratedCycle(page, { credits: [4] });
+  await ratedCycle(page, { credits: [N] });
   const full = await tributeBars(page);
   expect(full.met).toBe(true);
-  expect(full.bars['tribute-batch'].valueText).toBe('4 / 4');
+  expect(full.bars['tribute-batch'].valueText).toBe(`${N} / ${N}`);
   expect(full.bars['tribute-progress'].valueText).toBe('100%');
   await shot(page, 'tribute-cycle4-batch-full.png');
 });
 
-/* A single credit of six proves the bar is clamped rather than reading the
-   query: `prunedCredits` keeps that entry whole, so `batchHave` answers 6
-   against a demand for 4. */
+/* One credit two over the demand proves the bar is clamped rather than reading
+   the query: `prunedCredits` keeps that entry whole, so `batchHave` answers
+   the raw count. */
 test('17e: the batch bar is clamped at batch.n, not a raw delivery count', async ({ page }) => {
   await boot(page);
   await settle(page);
-  await ratedCycle(page, { credits: [6] });
+  const N = await page.evaluate(async () => {
+    const { CYCLES } = await import('/src/data/cycles.js');
+    return CYCLES[3].batch.n;
+  });
+  await ratedCycle(page, { credits: [N + 2] });
   const over = await tributeBars(page);
   const raw = await page.evaluate(async () => {
     const { batchHave } = await import('/src/model/run.js');
     return batchHave();
   });
-  expect(raw).toBe(6);
-  expect(over.bars['tribute-batch'].valueText).toBe('4 / 4');
+  expect(raw).toBe(N + 2);
+  expect(over.bars['tribute-batch'].valueText).toBe(`${N} / ${N}`);
   expect(over.bars['tribute-batch'].frac).toBe(1);
   expect(over.bars['tribute-progress'].valueText).toBe('100%');
 });
@@ -4230,7 +4321,7 @@ test('17e: the death screen carries the same tally the win screen does', async (
 /* A real wheel over the stat region, reading back the lines actually drawn: a
    rect recorded with the right `rows` but drawing the wrong slice would pass a
    count assertion and fail this one. */
-const STAT_LABELS = ['WALK', 'CLIMB', 'PICK POWER', 'FURNACE RATE'];
+const STAT_LABELS = ['WALK', 'CLIMB', 'PICK POWER', 'BURDEN CAP', 'KILN RATE'];
 
 /* Puts away what the HUD draws over the main panel -- the title card, the last
    toast, and the world tooltip the pointer left behind. `pointerleave` is the
@@ -4279,7 +4370,7 @@ async function statLinesSeen(page, notches) {
   return { region, seen: [...seen] };
 }
 
-test('17e: all four stat rows are reachable in the Character tab, at the desktop buffer and at the 200 px floor', async ({ page }) => {
+test('17e: every stat row is reachable in the Character tab, at the desktop buffer and at the 200 px floor', async ({ page }) => {
   await boot(page);
   await settle(page);
   /* Beat 4 is the one index `data/callouts.js` leaves null. A callout, a toast
@@ -4423,7 +4514,7 @@ test('an ore blob against pale stone', async ({ page }) => {
     const isCu = is(S.copper), isGr = is(S.granite);
 
     let found = null;
-    for (let ty = 133; ty <= 175 && !found; ty++)
+    for (let ty = 20; ty <= 300 && !found; ty++)
       for (let c = 45; c < band.tw - 45 && !found; c++) {
         if (!(isCu(c, ty - 1) && isCu(c, ty) && isCu(c, ty + 1))) continue;
         /* Widest gap first: a 4-column room puts both walls deep in
@@ -5608,22 +5699,26 @@ const offerOf = page => page.evaluate(() => __mf.ui.offer);
 const draftPanels = page => page.evaluate(() =>
   __mf.ui.panels.filter(p => p.id.startsWith('draft-')).map(p => ({ id: p.id, x: p.x, y: p.y, w: p.w, h: p.h })));
 
-test('17c2: cycle 2 raises a two-card grant draft over a frozen world, and its reroll is refused as spent', async ({ page }) => {
+test('17c2: cycle 2 raises its draft over a frozen world, with a card per offered id', async ({ page }) => {
   await boot(page);
   await settle(page);
   await payTrial(page, 2);
 
-  /* The grant tier ships two rows against an `offerSize` of 3, so two cards is
-     the answer and the layout must not reserve a third. */
+  /* One panel per offered id and exactly one reroll row: the layout follows
+     the offer rather than reserving a fixed number of cards. */
   const offer = await offerOf(page);
-  expect(offer.tier).toBe('grant');
-  expect(offer.ids.length).toBe(2);
+  const want2 = await page.evaluate(async () => {
+    const { CYCLES } = await import('/src/data/cycles.js');
+    return CYCLES[1].reward.draft;
+  });
+  expect(offer.tier).toBe(want2);
   expect(offer.god).toBe('hephaestus');
-  expect(offer.pool).toBe(2);
-  expect(offer.canReroll).toBe(false);      // pool <= ids: 'THIS IS ALL THERE IS'
+  expect(offer.ids.length).toBe(Math.min(offer.pool, 3));   // eff('offerSize')
+  expect(offer.canReroll).toBe(offer.pool > offer.ids.length);
 
   const drawn = await draftPanels(page);
-  expect(drawn.map(p => p.id).sort()).toEqual(['draft-card-0', 'draft-card-1', 'draft-reroll']);
+  expect(drawn.map(p => p.id).sort())
+    .toEqual([...offer.ids.map((_, i) => `draft-card-${i}`), 'draft-reroll'].sort());
 
   /* The world is frozen behind it: 120 substeps change no simulated time and
      move no body. `stepFx` is not part of the claim; it runs outside `step`. */
@@ -5636,7 +5731,7 @@ test('17c2: cycle 2 raises a two-card grant draft over a frozen world, and its r
   });
   expect(frozen.after).toEqual(frozen.before);
 
-  await shot(page, 'draft-grant-two-cards.png');
+  await shot(page, 'draft-cycle2-cards.png');
 });
 
 test('17c2: the modal is not vacuous -- the same frame with the panel closed is a different picture', async ({ page }) => {
@@ -5691,20 +5786,16 @@ test('17c2: clicking a card takes that card and ends the freeze', async ({ page 
     const { run } = await import('/src/model/run.js');
     const t0 = run.t;
     __mf.frames(60);
-    return { offer: __mf.ui.offer, open: __mf.ui.open, granted: run.granted.slice(), moved: run.t - t0 };
+    const { boons } = await import('/src/model/boons.js');
+    return { offer: __mf.ui.offer, open: __mf.ui.open,
+             active: boons.active.map(b => b.id), moved: run.t - t0 };
   });
-
-  /* `draft-card-0` is `run.offer.ids[0]`, and the grant row's `grants` key
-     names the machine it unlocks, read back through the table rather than
-     remembered. */
-  const expected = await page.evaluate(async (id) => {
-    const { GRANT } = await import('/src/data/grants.js');
-    return GRANT[id].grants;
-  }, before.ids[0]);
 
   expect(after.offer).toBe(null);
   expect(after.open).not.toContain('draft');
-  expect(after.granted).toContain(expected);
+  /* `draft-card-0` is `run.offer.ids[0]`, and taking it puts that boon on the
+     active stack, read back through the model rather than remembered. */
+  expect(after.active).toContain(before.ids[0]);
   expect(after.moved).toBeGreaterThan(0);        // the run is running again
 });
 
@@ -5877,7 +5968,7 @@ test('op stream: the recorder sees the scene, not an empty log', async ({ page }
   const before = await recordOps(page, () => page.evaluate(() => __mf.draw()));
 
   /* One second of simulated time. Everything derived from `clock.t` -- the
-     item bob, the halo pulse, the furnace flame -- has to move, so a recorder
+     item bob, the halo pulse, the kiln flame -- has to move, so a recorder
      that logged nothing of the world would come back identical here. */
   const after = await recordOps(page, () => page.evaluate(() => { __mf.clock.t += 1; __mf.draw(); }));
 
@@ -6458,26 +6549,27 @@ test('6m: a deposit tile says how many units are left, and a charge-1 tile says 
   const errors = await boot(page);
   await settle(page);
 
-  /* 2.2 units of work on a charge-4 tile: two units are out of the ground and
-     the third is 20% cut, so two remain to come. Floored with no epsilon, the
-     same way `view/scene.js` counts the notches beside this text. */
+  /* 2.2 units of work: two units are out of the ground and the third is 20%
+     cut, so the tile's whole charge less two remains. Floored with no epsilon,
+     the same way `view/scene.js` counts the notches beside this text. */
+  const CU = 240, FE = 200;
   const part = await hoverDeposit(page, { subKey: 'copper', work: 2.2 });
-  expect(part.charge).toBe(4);
+  expect(part.charge).toBe(CU);
   expect(part.work).toBeCloseTo(part.hard * 2.2, 6);
-  expect(part.lines).toEqual(['COPPER', 'MASS 1.0', 'HARD 0.95S', 'UNITS 2 / 4']);
+  expect(part.lines).toEqual(['COPPER', 'MASS 1.0', 'HARD 0.95S', `UNITS ${CU - 2} / ${CU}`]);
 
-  /* Untouched, the same tile is the full vein. */
-  const fresh = await hoverDeposit(page, { subKey: 'tin', work: 0 });
-  expect(fresh.charge).toBe(4);
-  expect(fresh.lines).toContain('UNITS 4 / 4');
+  /* Untouched, the tile is the full vein. */
+  const fresh = await hoverDeposit(page, { subKey: 'iron', work: 0 });
+  expect(fresh.charge).toBe(FE);
+  expect(fresh.lines).toContain(`UNITS ${FE} / ${FE}`);
 
-  /* One unit short of gone, never "0 / 4": the last unit is the break itself,
+  /* One unit short of gone, never "0 / n": the last unit is the break itself,
      so a tile that still exists still holds one. */
-  const nearly = await hoverDeposit(page, { subKey: 'copper', work: 3.9 });
-  expect(nearly.lines).toContain('UNITS 1 / 4');
+  const nearly = await hoverDeposit(page, { subKey: 'copper', work: CU - 0.1 });
+  expect(nearly.lines).toContain(`UNITS 1 / ${CU}`);
 
   /* And a charge-1 tile gains no line at all -- "1 / 1" on every rock in the
-     world is noise, not information. */
+     world is noise, not information. `stone` is bulk, so it has no charge. */
   const stone = await hoverDeposit(page, { subKey: 'stone', work: 0.5 });
   expect(stone.charge).toBe(1);
   expect(stone.lines.some(l => l.startsWith('UNITS'))).toBe(false);
@@ -6701,7 +6793,7 @@ test('6x: the First Trial announces both its rewards, in the order they were gra
   const errors = await boot(page);
   await settle(page);
 
-  /* `rules/grants.js#step` awards the furnace and the cloud dock in the same
+  /* `rules/grants.js#step` awards the kiln and the cloud dock in the same
      substep and `shell/notify.js` drains all three rows together. Driven
      through `model/run.js#write.award`, not a hand-written pair of toasts. */
   const paid = await page.evaluate(async () => {
@@ -6709,16 +6801,16 @@ test('6x: the First Trial announces both its rewards, in the order they were gra
     const { push } = await import('/src/model/journal.js');
     const { banner, toasts } = await import('/src/view/fx.js');
     push('cycle', null, { cycleId: run.tribute?.cycleId, god: 'hephaestus', reward: {} });
-    rw.award(['furnace', 'cloud_dock']);
+    rw.award(['winch', 'cloud_dock']);
     __mf.frames(1);
     __mf.draw();
     return { banner: { ...banner }, queue: toasts.map(t => t.text), front: toasts[0].text };
   });
 
-  /* Both facts are held, and the furnace, the First Trial's own reward, is the
+  /* Both facts are held, and the kiln, the First Trial's own reward, is the
      one on screen. */
-  expect(paid.queue).toEqual(['CRUDE FURNACE IS GRANTED', 'THE CLOUD DOCK IS GRANTED']);
-  expect(paid.front).toBe('CRUDE FURNACE IS GRANTED');
+  expect(paid.queue).toEqual(['WINCH IS GRANTED', 'THE CLOUD DOCK IS GRANTED']);
+  expect(paid.front).toBe('WINCH IS GRANTED');
   /* And the god's own line is the banner beside it, not a third thing
      competing for the same slot. */
   expect(paid.banner.text).toBe('HEPHAESTUS');

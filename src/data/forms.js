@@ -18,6 +18,9 @@
              one. Same `{ treatments:[{ fn, ... }] }` shape a substance's
              `look` uses.
    climbK    multiplies `eff('climb')`. Absent means 1.
+   fuel      `{ energy }` on a `fuel`-tagged form: raw energy one unit holds,
+             scaled per element by `eff('fuelEnergy', <substance>)`. A burner
+             converts what it draws at `eff('burnEff', <machine>)`.
 
    A form carrying a `tile` block may not be named by any recipe's `in:`, any
    machine's `handFeed.from`, or any tribute demand. */
@@ -31,78 +34,79 @@ export const FORMS = [
     tags:['ore', 'crushable'],
     subTags:['metal'] },
 
-  /* Feedstock only; `data/recipes.js#pack` is the route to a `block`. */
+  /* What coal drops. `combustible` is coal's tag alone, so no metal or rock
+     can be held as a lump. */
+  { id:'lump', label:'LUMP',
+    size:4, massK:1.0, hudOrder:2,
+    tags:['fuel'],
+    subTags:['combustible'],
+    fuel:{ energy:1.0 } },
+
+  /* Feedstock only; `data/recipes.js#stone_block` is the route to a `block`. */
   { id:'gravel', label:'GRAVEL', short:'GRVL',
-    size:3, massK:0.5, hudOrder:2,
+    size:3, massK:0.5, hudOrder:3,
     tags:['bakeable', 'spoil'],
     subTags:['metal', 'rock'] },
 
+  /* Smelting is 1:1, so `massK` must stay under `ore`'s 1.0 or the recipe
+     manufactures mass. The difference is slag. */
   { id:'ingot', label:'INGOT', short:'ING',
-    size:4, massK:1.6, hudOrder:3,
-    /* `refined` also covers `plate`, so `ingot` is the exact-form tag a
-       press selects on to avoid eating its own output. */
+    size:4, massK:0.95, hudOrder:4,
     tags:['refined', 'ingot'],
     subTags:['metal'] },
 
-  /* Feedstock only; `data/recipes.js#peg_rungs` is the route to a `rung`. */
-  { id:'log', label:'LOG',
-    size:4, massK:1.0, hudOrder:4,
-    tags:['fuel'],
-    subTags:['organic'] },
-
-  /* A trinket's only form. */
-  { id:'relic', label:'RELIC',
-    size:4, massK:1.0, hudOrder:5,
-    tags:['relic'],
-    subTags:['relic'] },
-
-  /* Three ingots, so 12 ore per plate at the 4:1 ingot ratio. */
-  { id:'plate', label:'PLATE', short:'PLT',
-    size:4, massK:2.4, hudOrder:6,
-    tags:['refined', 'plate'],
+  /* The drivetrain's intermediate: one ingot makes one, and every placed
+     part is priced in them. Under `ingot`'s `massK` for the same reason. */
+  { id:'gear', label:'GEAR',
+    size:3, massK:0.9, hudOrder:5,
+    tags:['part'],
     subTags:['metal'] },
 
+  /* Feedstock only; `data/recipes.js#ladder` is the route to a `rung`. */
+  { id:'log', label:'LOG',
+    size:4, massK:1.0, hudOrder:6,
+    tags:['fuel'],
+    subTags:['organic'],
+    fuel:{ energy:1.0 } },
+
   /* The carried light: held and burned down over `eff('brandSecs')`, never
-     placed. `kindle` splits one log into three, so 3 x 0.3 stays under 1.0. */
+     placed. `kindle` splits one log into two. */
   { id:'brand', label:'BRAND',
     size:3, massK:0.3, hudOrder:7,
     tags:['fuel', 'light'],
-    subTags:['organic'] },
+    subTags:['organic'],
+    fuel:{ energy:0.35 } },
+
+  /* A trinket's only form. */
+  { id:'relic', label:'RELIC',
+    size:4, massK:1.0, hudOrder:8,
+    tags:['relic'],
+    subTags:['relic'] },
 
   /* The one form a miracle may take, kept out of `#relic` selectors. */
   { id:'phial', label:'PHIAL',
-    size:3, massK:0.2, hudOrder:8,
+    size:3, massK:0.2, hudOrder:9,
     tags:['miracle'],
     subTags:['miracle'] },
 
   /* `every:3` in the `look` block counts band rows, not rows within the
      tile. `lo` is unused at `tread:1`. */
   { id:'rung', label:'LADDER',
-    size:3, massK:0.3, hudOrder:9,
+    size:3, massK:0.3, hudOrder:10,
     tags:[],
     subTags:['organic'],
     tile:{ solid:false, climb:true, hardK:0.20 },
     look:{ treatments:[{ fn:'ladder', body:'woodC', hi:'woodA', lo:'woodD',
                          inset:1, every:3, tread:1 }] } },
 
-  /* No `hardK`, so a stair recovers at its substance's own hardness. A form
-     `look` cannot see which substance it was crossed with, so `tin/stair`
-     draws in copper. */
-  { id:'stair', label:'STAIR',
-    size:4, massK:3.0, hudOrder:10, climbK:1.8,
-    tags:[],
-    subTags:['metal'],
-    tile:{ solid:false, climb:true },
-    look:{ treatments:[{ fn:'ladder', body:'cuC', hi:'cuA', lo:'cuD',
-                         inset:0, every:4, tread:2 }] } },
-
-  /* No `tile` block: a machine is placed as a multi-tile structure through
-     `rules/placement.js#placeMachine`, never as grid terrain. `massK:1.0`,
-     so the substance's own `item.mass` is the carried mass. */
+  /* A thing carried and then installed. No `tile` block: a machine is placed
+     as a multi-tile structure and a carrier onto a rope, never as grid
+     terrain. `massK:1.0`, so the substance's own `item.mass` is the carried
+     mass. */
   { id:'rig', label:'RIG', short:'RIG',
     size:4, massK:1.0, hudOrder:11,
     tags:['machine', 'placeable'],
-    subTags:['machine'] },
+    subTags:['machine', 'carrier'] },
 
   /* `subTags:['bulk']` makes `crossable(granite, block)` false, so no
      deposit pair can be built. */

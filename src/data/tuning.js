@@ -40,23 +40,49 @@ export const TUNABLES = [
   { id:'fallMax',   kind:'value', base:5,    unit:'hearts', note:'clamp; equals a full heart bar, so 20 tiles kills' },
 
   /* `rules/drive.js` is the only reader, and its motion expression is
-     `need = segBase + segLoad * mass * slope` against the drivetrain's
-     supply. Weighted descent is what that produces at zero supply, so there
-     is no separate descent number. */
-  { id:'segUp',     kind:'value', base:26,    unit:'px/s',       note:'carrier ascent at full surplus and full drive. Equal to segDown by construction -- a carrier never rises faster than it sinks.' },
-  { id:'segDown',   kind:'value', base:26,    unit:'px/s',       note:'free descent on a VERTICAL segment, scaled by slope. The ceiling segUp is held to, and free. Also the retired deck\'s own number.' },
-  { id:'segBase',   kind:'value', base:1.0,   unit:'drive',      note:'drive needed to raise an EMPTY carrier at full speed. The unit crank.torque is denominated in.' },
-  { id:'segLoad',   kind:'value', base:0.0125, unit:'drive/talent', note:'added drive per talent aboard, at full slope. 40 T -- the whole burden cap -- is exactly where one crank stalls.' },
-  { id:'riderMass', kind:'value', base:8,     unit:'talents',    note:"the player's own body on a carrier, before their pockets. Boarding is never refused; this is the load that makes it physics instead." },
+     `need = segBase + segLoad * mass * slope` against the drivetrain's torque.
+     Weighted descent is what that produces at zero supply, so there is no
+     separate descent number. */
+  { id:'segUp',     kind:'value', base:26,    unit:'px/s',       note:'bucket ascent at full surplus and full drive. Equal to segDown by construction -- a bucket never rises faster than it sinks.' },
+  { id:'segDown',   kind:'value', base:26,    unit:'px/s',       note:'free descent on a VERTICAL rope, scaled by slope. The ceiling segUp is held to, and free.' },
+  { id:'segBase',   kind:'value', base:1.0,   unit:'drive',      note:'torque needed to raise an EMPTY bucket at full speed. The unit drive.torque is denominated in.' },
+  { id:'segLoad',   kind:'value', base:0.0125, unit:'drive/talent', note:'added torque per talent aboard, at full slope. One winch stops rising at 36 T aboard and runs back above 44 T, under the 48 T a fully laden rider weighs.' },
+  { id:'segFric',   kind:'value', base:0.05,  unit:'drive',      note:'torque a rope costs to turn at all, whichever way it is going. Small against segBase, so a balanced loop does not creep and an unbalanced one still runs.' },
+  { id:'bucketCap', kind:'value', base:20,    unit:'talents',    note:'what one bucket hauls. Half the burden cap, so a full pocketload is two bucket loads.' },
+  { id:'ropeBuckets', kind:'value', base:4,   unit:'buckets',    note:'how many one rope takes. Four is two a side, so a loop can be balanced.' },
+  { id:'attachR',   kind:'value', base:12,    unit:'px',         note:'how near the aim must fall to a rope to hang a bucket on it. A tile and a half, so two ropes in one shaft stay apart.' },
+
+  { id:'riderMass', kind:'value', base:8,     unit:'talents',    note:"the player's own body in a bucket, before their pockets. Boarding is never refused; this is the load that makes it physics instead." },
 
   { id:'segReach',   kind:'scale', base:1.0, scope:'machine',
     note:'multiplies `hub.reach`. Where a range boon or a longer-reach hub tier goes. `segReach.hub` scopes it.' },
-  { id:'crankTorque', kind:'scale', base:1.0, scope:'machine',
-    note:'multiplies `crank.torque`. Where a strength boon goes.' },
-  { id:'torqueLoss', kind:'scale', base:1.0, scope:'machine',
-    note:'multiplies `gear.loss`. Lower is a tighter drivetrain.' },
 
-  { id:'beltSpeed', kind:'value', base:50,   unit:'px/s',   note:'drag speed while charged. See rules/belts.js.' },
+  /* Torque and speed are two quantities and power is their product. A
+     transformer multiplies one and divides the other along the path past it,
+     so `driveTorque` and `driveSpeed` bend a source and `gearRatio` bends
+     what the transformer does to both. */
+  { id:'driveTorque', kind:'scale', base:1.0, scope:'machine',
+    note:'multiplies `drive.torque`. Where a strength boon goes. `driveTorque.winch` scopes it.' },
+  { id:'driveSpeed', kind:'scale', base:1.0, scope:'machine',
+    note:'multiplies `drive.speed`, the rate an unloaded shaft turns at.' },
+  { id:'gearRatio', kind:'scale', base:1.0, scope:'machine',
+    note:'multiplies `ratio.mul`. Higher trades more speed for more torque.' },
+  { id:'gearLoss', kind:'scale', base:1.0, scope:'machine',
+    note:'multiplies `ratio.loss`. Lower is a tighter drivetrain.' },
+  { id:'spinRate', kind:'scale', base:1.0, scope:'machine',
+    note:'multiplies how fast a driven wheel is drawn turning, on top of shaft speed.' },
+
+  { id:'beltMaxSlope', kind:'value', base:0.5, unit:'sin',
+    note:'steepest belt that still grips, as |dy|/len. 0.5 is 30 degrees; above it items slide back.' },
+
+  { id:'beltDrag', kind:'value', base:0.08, unit:'drive',
+    note:'torque one belt tile costs its drivetrain, in the same unit as segBase. At 1.0 per bucket, one winch turns 19 tiles or a bucket and six.' },
+
+  { id:'beltSpeed', kind:'value', base:50,   unit:'px/s',
+    note:'drag speed at full drive and shaft speed 1, scaled down by both.' },
+
+  { id:'beltSlip', kind:'value', base:34,   unit:'px/s',
+    note:'how fast an item runs back down a belt steeper than beltMaxSlope. Above segDown, so a belt is a worse way down than a rope.' },
 
   /* `rules/fields.js` decays a field and does not diffuse it. */
   { id:'heatDecay', kind:'value', base:0.35, unit:'/s',     note:'fraction lost per second' },
@@ -70,11 +96,22 @@ export const TUNABLES = [
     note:'multiplies `tile.hard`. Lower is faster to mine. `hard.stone` scopes it.' },
 
   { id:'rate', kind:'scale', base:1.0, scope:'machine',
-    scoped:{ kiln_divine:2.0 },
-    note:'multiplies machine progress. Higher is faster. `rate.furnace` scopes it.' },
+    note:'multiplies machine progress. Higher is faster. `rate.kiln` scopes it.' },
 
   { id:'yield', kind:'scale', base:1.0, scope:'machine',
     note:'multiplies output counts, rounded down. Where a "doubling" boon goes.' },
+
+  /* A fuel unit's energy is `form.fuel.energy x eff('fuelEnergy', <sub>)`,
+     and a burner converts what it draws at `eff('burnEff', <machine>)`. A
+     smelt costs 0.5, so in a kiln one log is exactly one ore and one coal
+     lump is three. */
+  { id:'fuelEnergy', kind:'scale', base:1.0, scope:'substance',
+    scoped:{ coal:3.0 },
+    note:'multiplies a fuel form\'s own energy, per element. `fuelEnergy.coal` scopes it.' },
+
+  { id:'burnEff', kind:'scale', base:1.0, scope:'machine',
+    scoped:{ kiln:0.5 },
+    note:'fraction of drawn fuel energy a burner actually converts. `burnEff.kiln` scopes it.' },
 
   /* Climb speed falls linearly from 1.0 at `burdenSoft` of the cap to
      `burdenClimbFloor` at it; walking on level ground and every downward

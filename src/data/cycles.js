@@ -23,36 +23,38 @@
 
 export const CYCLES = [
 
-  /* Grants the two machines the next row's `at` and `demand` need. */
+  /* Grants the winch, which is the only source of mechanical power, and the
+     dock the next row's `at` needs. */
   { id:'first-trial', god:'hephaestus', at:'altar',
     demand:[ { sub:'copper', form:'ore', n:10 } ],
     deadlineSecs:null,
-    reward:{ favour:1, grants:['furnace', 'cloud_dock'], charts:['astral'] } },
+    reward:{ favour:1, grants:['winch', 'cloud_dock'], charts:['astral'] } },
 
-  /* Three plate is 36 ore and 12 fuel through two recipes. */
+  /* 40 ingots is 40 ore through one 1:1 smelt, and 38.0 T -- one trip inside
+     the 40 T cap, so the first delivery needs no second haul. */
   { id:'first-delivery', god:'hephaestus', at:'cloud_dock',
-    demand:[ { sub:'copper', form:'plate', n:3 } ],
+    demand:[ { sub:'copper', form:'ingot', n:40 } ],
     deadlineSecs:480,
-    reward:{ favour:2, charts:['topsoil'], draft:'grant' },
+    reward:{ favour:2, charts:['topsoil'], draft:'boon' },
     punishment:{ hearts:1, favour:-1 } },
 
-  /* `tin` has no vein above topsoil row 60 (`data/world.js`), so this row is
-     unpayable from the surface band. */
+  /* `iron` has no body above topsoil row 10 (`data/world.js`) beyond a thin
+     showing in the lowest surface rows, so this row pushes the player below
+     the seam. 61.75 T is two trips. */
   { id:'grey-eyed-tithe', god:'athena', at:'cloud_dock',
-    demand:[ { sub:'copper', form:'plate', n:6 },
-             { sub:'tin',    form:'ingot', n:4 } ],
+    demand:[ { sub:'copper', form:'ingot', n:40 },
+             { sub:'iron',   form:'ingot', n:25 } ],
     deadlineSecs:420,
     reward:{ favour:2, draft:'boon' },
     punishment:{ hearts:2, favour:-1 } },
 
-  /* `granite` is `tile.tier 2` (`data/substances.js`), which a stock pick
-     cannot break, so this row is unpayable until the auger is built. Eight
-     plates weigh 19.2 T, inside the 30 T soft cap, so the batch clause does
-     not bite a single-climb haul. */
+  /* `granite` is the bulk gravel source and takes 2.40 s a unit, so 40 gravel
+     is 96 seconds of standing at a face. 57.0 T of ingots is two climbs, and
+     the batch clause is what makes them two rather than one. */
   { id:'salt-tribute', god:'poseidon', at:'cloud_dock',
-    demand:[ { sub:'copper',  form:'plate',  n:8 },
-             { sub:'granite', form:'gravel', n:8 } ],
-    batch:{ sub:'copper', form:'plate', n:4, secs:120 },
+    demand:[ { sub:'copper',  form:'ingot',  n:60 },
+             { sub:'granite', form:'gravel', n:40 } ],
+    batch:{ sub:'copper', form:'ingot', n:30, secs:120 },
     deadlineSecs:360,
     reward:{ favour:3, draft:'trinket' },
     punishment:{ hearts:2, favour:-1 } }

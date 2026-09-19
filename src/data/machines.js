@@ -3,29 +3,28 @@
    tw, th      footprint in tiles.
    footing     solid tiles required under it to place it.
    ports       [{ side, mode, accepts }]. `accepts` takes forms.js selectors.
-   buffer.cap  { selector: units }, per-selector, so 8-ore/2-fuel needs no
-               second field.
+   buffer.cap  { selector: units }, per-selector.
    catchBox    { mouth, slack }, in px. What falls through the mouth is taken
                with no cost.
-   handFeed    { reach, from }. `reach` px is "standing beside it", read by
-               both the armed-click verb and the automatic drain.
+   handFeed    { reach, from }. `reach` px is "standing beside it".
    emit        [{ field, at, rate, whileRunning }], into a scalar field.
-   servo       { over, mult }, faster above `over` full. Bounds the buffer.
-   recipes     names from `data/recipes.js`, or inline rows. Tried in order;
-               the first satisfiable one runs.
-   hub         { reach, carries }, an endpoint a segment may anchor to.
-               `reach` px is the longest cable, scaled by `segReach`.
-   crank       { torque, reach }. Torque is denominated in `segBase` and is
-               supplied only while the player turns it.
-   gear        { loss } fraction of torque lost per drivetrain hop.
+   servo       { over, mult }, faster above `over` full.
+   recipes     names from `data/recipes.js`, or inline rows. Tried in order.
+   smelts      `{}`, a marker: a `smelt:true` recipe may run here.
+   hub         { reach, carries }, a rope anchor buckets may ride between.
+               `reach` px is the longest rope, scaled by `segReach`.
+   wheel       true if a drive wheel is built in, so a rope may tie here.
+   drive       { torque, speed, reach }. Torque is denominated in `segBase`
+               and speed in turns of an unloaded shaft; both are supplied
+               only while the player turns it.
+   ratio       { mul, loss, facing }. Multiplies torque and divides speed
+               downstream, or the reverse at `facing:-1`.
+   belt        { dir }: 1 toward increasing world x, -1 the other way.
    variantOf   copy another row and override these keys. SHALLOW merge.
    look        appearance only; `view/` is its only reader.
    glyph       one character, the overview mark. Top level, never inside
                `look`, because `variantOf` is a shallow merge.
-   light       { level, whileRunning }. `level:'max'` is a sentinel for
-               `eff('lightMax')` read at tick time.
-   mine        { facing, tier, tiles, secs }. `secs` is how long one fuel
-               unit of chewing lasts, not a break speed.
+   light       { level, whileRunning }. `level:'max'` reads `eff('lightMax')`.
    minDepth    tiles below the spawn datum this may not be placed above.
    band        a world.js band id this may be placed in and nowhere else.
    tribute     `{}`, a marker: a cycle may be paid here.
@@ -36,14 +35,18 @@ import { colour } from './palette.js';
 
 export const MACHINES = [
 
-  { id:'furnace', name:'CRUDE FURNACE', glyph:'F',
-    tw:3, th:2, footing:2,
+  /* The only smelter. `burnEff` is scoped to it in `data/tuning.js` at 0.5,
+     so half of what it burns is lost up the flue: one log smelts one ore and
+     one coal lump smelts three. */
+  { id:'kiln', name:'BASIC KILN', glyph:'K',
+    tw:2, th:2, footing:2,
+
+    smelts:{},
 
     ports:[ { side:'top', mode:'in', accepts:['*/#ore', '*/#fuel'] },
             { side:'top', mode:'out' } ],
 
-    /* Two runs of headroom on both clauses at `smelt`'s 4 ore, 1 fuel. */
-    buffer:{ cap:{ '*/#ore':8, '*/#fuel':2 } },
+    buffer:{ cap:{ '*/#ore':12, '*/#fuel':6 } },
 
     catchBox:{ mouth:'top', slack:2 },
     handFeed:{ reach:10, from:['*/#ore', '*/#fuel'] },
@@ -53,59 +56,9 @@ export const MACHINES = [
 
     recipes:['smelt'],
 
-    look:{ body:'irC', trim:'irB', base:'irD', fire:true,
+    look:{ body:'clayB', trim:'clayA', base:'clayC', fire:true,
            pips:[ { sel:'*/#ore', row:0 }, { sel:'*/#fuel', row:1 } ],
            sfx:{ accept:'ignite', produce:'ingot' } } },
-
-  { id:'kiln_divine', name:'DIVINE KILN', variantOf:'furnace',
-    look:{ body:'clayB', trim:'clayA', base:'clayC', fire:true, halo:'ichor',
-           pips:[ { sel:'*/#ore', row:0 }, { sel:'*/#fuel', row:1 } ],
-           sfx:{ accept:'ignite', produce:'divine' } } },
-
-  /* No `needs:{heat:{min}}`: heat does not diffuse, so a press above a
-     furnace reads the same heat as one in an empty field and the gate would
-     never open. */
-  { id:'press', name:'PRESS', glyph:'P',
-    tw:2, th:2, footing:2,
-
-    ports:[ { side:'top', mode:'in', accepts:['*/#ingot', '*/#fuel'] },
-            { side:'top', mode:'out' } ],
-
-    /* Two runs of headroom at `press`'s 3 ingot, 1 fuel. */
-    buffer:{ cap:{ '*/#ingot':6, '*/#fuel':2 } },
-
-    catchBox:{ mouth:'top', slack:2 },
-    handFeed:{ reach:10, from:['*/#ingot', '*/#fuel'] },
-
-    recipes:['press'],
-
-    look:{ body:'irB', trim:'irA', base:'irD', fire:true,
-           pips:[ { sel:'*/#ingot', row:0 }, { sel:'*/#fuel', row:1 } ],
-           sfx:{ accept:'ignite', produce:'ingot' } } },
-
-  /* `rules/belts.js` reads `belt.dir`: 1 toward increasing world x, -1 the
-     other way. `belt_l` has no recipe of its own -- an identical bill is a tie
-     `choose`'s first match cannot resolve -- so both share one substance. */
-  { id:'belt_r', name:'CONVEYOR (RIGHT)', glyph:'>',
-    tw:4, th:1, footing:4,
-
-    ports:[ { side:'top', mode:'in', accepts:['*/#fuel'] } ],
-
-    buffer:{ cap:{ '*/#fuel':2 } },
-
-    catchBox:{ mouth:'top', slack:2 },
-    handFeed:{ reach:10, from:['*/#fuel'] },
-
-    belt:{ dir:1 },
-
-    recipes:[ { in:{ '*/#fuel':1 }, out:[], secs:6.0 } ],
-
-    look:{ body:'woodB', trim:'irA', base:'irD', fire:true,
-           pips:[ { sel:'*/#fuel', row:0 } ],
-           sfx:{ accept:'ignite', produce:'winch' } } },
-
-  { id:'belt_l', name:'CONVEYOR (LEFT)', variantOf:'belt_r', glyph:'<',
-    belt:{ dir:-1 } },
 
   /* `whileRunning:true` is lit while fuelled: the frame the last charge is
      spent `m.running` goes false and `rules/light.js` recomputes off the
@@ -114,13 +67,11 @@ export const MACHINES = [
     tw:1, th:1, footing:1,
 
     ports:[ { side:'top', mode:'in', accepts:['*/#fuel'] } ],
-
     buffer:{ cap:{ '*/#fuel':2 } },
-
     catchBox:{ mouth:'top', slack:2 },
     handFeed:{ reach:10, from:['*/#fuel'] },
 
-    recipes:[ { in:{ '*/#fuel':1 }, out:[], secs:6.0 } ],
+    recipes:[ { in:{}, fuel:1.0, out:[], secs:6.0 } ],
 
     light:{ level:12, whileRunning:true },
 
@@ -128,106 +79,69 @@ export const MACHINES = [
            pips:[ { sel:'*/#fuel', row:0 } ],
            sfx:{ accept:'ignite', produce:'winch' } } },
 
-  /* Absent `whileRunning` means lit for as long as the machine exists. */
+  /* Absent `whileRunning` means lit for as long as the machine exists. An
+     `in:{}` recipe with no `fuel` is satisfied by construction, so `m.running`
+     goes true when this is placed and stays true. */
   { id:'hearth', name:'HEARTH', glyph:'H',
     tw:2, th:2, footing:2,
 
-    /* An `in:{}` recipe is satisfied by construction, so `m.running` goes
-       true when this is placed and stays true, while `m.prog` can never
-       reach `Infinity` and nothing is spent or produced. */
     recipes:[ { in:{}, out:[], secs:Infinity } ],
 
     light:{ level:'max' },
 
     look:{ body:'basB', trim:'basA', base:'basD', fire:true, halo:'ichor' } },
 
-  /* There is no rate key: `rules/machines.js#mine` reads
-     `eff('pickPower') x bestHandToolPower()`, the same two numbers a swinging
-     player reads. */
-  { id:'talos_head', name:'TALOS HEAD', glyph:'T',
+  /* Runs the repetitive standard-craft recipes so the player does not have to
+     hold the key for each one. Machine-build recipes stay hand-only: a chooser
+     taking the first affordable row would otherwise spend a fed pile on
+     whichever machine happened to be declared first. */
+  { id:'contraption', name:'CONTRAPTION', glyph:'C',
+    tw:2, th:2, footing:2,
+
+    ports:[ { side:'top', mode:'in', accepts:['iron/ingot', '#bulk/gravel', 'timber/log'] },
+            { side:'top', mode:'out' } ],
+
+    buffer:{ cap:{ 'iron/ingot':8, '#bulk/gravel':30, 'timber/log':12 } },
+
+    catchBox:{ mouth:'top', slack:2 },
+    handFeed:{ reach:10, from:['iron/ingot', '#bulk/gravel', 'timber/log'] },
+
+    recipes:['stone_block', 'iron_gear', 'ladder', 'kindle'],
+
+    look:{ body:'woodB', trim:'irA', base:'irD',
+           pips:[ { sel:'iron/ingot', row:0 }, { sel:'#bulk/gravel', row:1 } ],
+           sfx:{ accept:'ignite', produce:'winch' } } },
+
+  /* One tile. A run of belts conducts power tile to tile and to a gear hub at
+     either end, so the whole run turns together off one drive. Each tile adds
+     `beltDrag` to its drivetrain's demand. */
+  { id:'belt_r', name:'BELT (RIGHT)', glyph:'>',
     tw:1, th:1, footing:1,
 
-    ports:[ { side:'top',    mode:'in',  accepts:['*/#fuel'] },
-            { side:'bottom', mode:'out' } ],
+    belt:{ dir:1 },
 
-    buffer:{ cap:{ '*/#fuel':4 } },
+    look:{ body:'woodB', trim:'irA', base:'irD',
+           sfx:{ produce:'winch' } } },
 
-    catchBox:{ mouth:'top', slack:2 },
-    handFeed:{ reach:10, from:['*/#fuel'] },
+  { id:'belt_l', name:'BELT (LEFT)', variantOf:'belt_r', glyph:'<',
+    belt:{ dir:-1 } },
 
-    mine:{ facing:1, tier:2, tiles:1, secs:12.0 },
+  /* Power reaches a rope through orthogonal footprint adjacency, and along a
+     rope between two rows carrying `wheel`. `model/segments.js#linkCheck`
+     resolves the rope once both anchors are in reach over a clear span. */
 
-    look:{ body:'cuB', trim:'irA', base:'irD', fire:true,
-           pips:[ { sel:'*/#fuel', row:0 } ],
-           sfx:{ accept:'ignite' } } },
-
-  { id:'talos_head_l', name:'TALOS HEAD (LEFT)', variantOf:'talos_head',
-    mine:{ facing:-1, tier:2, tiles:1, secs:12.0 } },
-
-  /* `tiles:3` is width, not speed: the per-tile rate is the talos head's.
-     `minDepth:200` is tiles below the spawn datum, just above the adamant
-     blobs at topsoil row 220. */
-  { id:'cyclops_maw', name:'CYCLOPS MAW', glyph:'M',
-    tw:1, th:3, footing:1,
-
-    ports:[ { side:'top',    mode:'in',  accepts:['*/#fuel'] },
-            { side:'bottom', mode:'out' } ],
-
-    buffer:{ cap:{ '*/#fuel':6 } },
-
-    catchBox:{ mouth:'top', slack:2 },
-    handFeed:{ reach:10, from:['*/#fuel'] },
-
-    minDepth:200,
-
-    mine:{ facing:1, tier:3, tiles:3, secs:3.0 },
-
-    look:{ body:'adamantB', trim:'adamantD', base:'irD', fire:true,
-           pips:[ { sel:'*/#fuel', row:0 } ],
-           sfx:{ accept:'ignite' } } },
-
-  { id:'cyclops_maw_l', name:'CYCLOPS MAW (LEFT)', variantOf:'cyclops_maw',
-    mine:{ facing:-1, tier:3, tiles:3, secs:3.0 } },
-
-  /* Crank, gear, axle and hub conduct power only through orthogonal footprint
-     adjacency. The cable is auto-resolved: `model/segments.js#linkCheck` makes
-     a segment once both hubs are within reach over a clear span. */
-
-  /* `footing:1` rather than 2, so a headframe can straddle the shaft mouth
-     with one column on rock and one over the void. `reach:96` is 12 tiles at
-     an 8 px tile, and the smaller of two hubs governs a span. */
-  { id:'hub', name:'WINCH HUB', glyph:'O',
-    tw:2, th:2, footing:1,
-
-    hub:{ reach:96, carries:['material', 'player'] },
-
-    /* `parts` is ordered, and the order is the z-order. `cable` and
-       `carrier` describe something outside the footprint, so
-       `view/paint.js`'s segment pass reads them instead of dispatching them
-       as parts; only the hub carries them, so a span is painted once. */
-    look:{ body:'irC', trim:'irA', base:'irD',
-           parts:[
-             { fn:'frame', body:'woodC', hi:'woodB', lo:'woodD', post:2, beam:2 },
-             /* `dy`/`h` keep the drum clear of the gear wheel below it. */
-             { fn:'drum',  body:'woodA', hi:'ochreA', lo:'woodC', trim:'irB',
-               w:12, h:5, dx:2, dy:2 },
-             { fn:'gearWheel', d:9, teeth:8, rt:5, dy:4,
-               body:'irA', hi:'snA', lo:'irC', col:'irA', dark:'cuC' }
-           ],
-           cable:{ hi:'snB', lo:'irC', col:'ochreA', low:'woodB', dark:'woodD', spacing:12 },
-           carrier:{ body:'woodD', hi:'ochreA', lo:'irD', trim:'irA',
-                     col:'cuA', full:40, depth:7 } } },
-
-  /* `torque:1.5` must exceed `segBase`: at exactly 1.0 the surplus on an
-     empty vertical carrier is zero and nothing rises. At 1.5 one crank holds
-     about 20 T and runs backwards over it, and 40 T needs 2.0. */
-  { id:'crank', name:'HAND CRANK', glyph:'C',
+  /* The only source of power, and it turns only while the player holds the
+     key. `torque:1.55` against `segBase` and `segLoad` stalls a vertical rope
+     at 44 T, below the 48 T a player carrying the whole burden cap weighs, so
+     a laden rider still cannot be lifted. */
+  { id:'winch', name:'WINCH', glyph:'W',
     tw:1, th:2, footing:1,
 
-    crank:{ torque:1.5, reach:12 },
+    drive:{ torque:1.50, speed:1.0, reach:12 },
+    wheel:true,
 
-    /* `m.turn` sweeps the handle, and the gear at the foot reaches the
-       footprint edge so it meshes with an adjacent gear or hub. */
+    /* `m.turn` sweeps the handle, and the wheel at the foot reaches the
+       footprint edge so it meshes with an adjacent hub or transformer. */
     look:{ body:'woodC', trim:'irA', base:'irD',
            parts:[
              { fn:'shaft', body:'woodA', hi:'ochreA', lo:'woodC', trim:'irB',
@@ -240,39 +154,69 @@ export const MACHINES = [
                cx:2, cy:6, r:5, a0:-0.6 }
            ] } },
 
-  /* `loss` is the fraction of torque lost per hop. Diagonals do not conduct,
-     so a corner needs a gear in it. */
-  { id:'gear', name:'GEAR', glyph:'X',
+  /* `footing:1` rather than 2, so a headframe can straddle the shaft mouth
+     with one column on rock and one over the void. `reach:96` is 12 tiles at
+     an 8 px tile, and the smaller of two anchors governs a span. */
+  { id:'hub', name:'GEAR HUB', glyph:'O',
+    tw:2, th:2, footing:1,
+
+    hub:{ reach:96, carries:['material', 'player'] },
+    wheel:true,
+
+    /* `parts` is ordered, and the order is the z-order. `cable` and
+       `carrier` describe something outside the footprint, so
+       `view/paint.js`'s rope pass reads them instead of dispatching them as
+       parts; only a hub carries them, so a span is painted once. */
+    look:{ body:'irC', trim:'irA', base:'irD',
+           parts:[
+             { fn:'frame', body:'woodC', hi:'woodB', lo:'woodD', post:2, beam:2 },
+             /* `dy`/`h` keep the drum clear of the wheel below it. */
+             { fn:'drum',  body:'woodA', hi:'ochreA', lo:'woodC', trim:'irB',
+               w:12, h:5, dx:2, dy:2 },
+             { fn:'gearWheel', d:9, teeth:8, rt:5, dy:4,
+               body:'irA', hi:'snA', lo:'irC', col:'irA', dark:'cuC' }
+           ],
+           cable:{ hi:'snB', lo:'irC', col:'ochreA', low:'woodB', dark:'woodD', spacing:12 },
+           carrier:{ body:'woodD', hi:'ochreA', lo:'irD', trim:'irA',
+                     col:'cuA', depth:7 } } },
+
+  /* A rope anchor that carries power and nothing else: no `hub` block, so no
+     bucket may ride to it. Placed against whatever it is meant to turn. */
+  { id:'drive_wheel', name:'DRIVE WHEEL', glyph:'o',
     tw:1, th:1, footing:1,
 
-    gear:{ loss:0.06 },
+    /* `carries:[]` is the whole difference from a gear hub: a rope tied here
+       moves torque and never a bucket. */
+    hub:{ reach:96, carries:[] },
+    wheel:true,
 
-    /* `teeth:8` puts one tooth on each axis at rotational phase 0, so two
-       orthogonally adjacent gears read as meshed at rest. */
-    look:{ body:'cuB', trim:'cuA', base:'cuD',
+    look:{ body:'snC', trim:'snA', base:'irD',
            parts:[
              { fn:'gearWheel', d:8, teeth:8, rt:4,
-               body:'irA', hi:'snA', lo:'irC', col:'irA', dark:'cuC' }
-           ] } },
+               body:'snA', hi:'snB', lo:'snD', col:'snA', dark:'irC' }
+           ],
+           cable:{ hi:'snB', lo:'irC', col:'snC', low:'snD', dark:'irD', spacing:12 } } },
 
-  /* `footing:1` rather than 3, because an axle spans a gap. */
-  { id:'axle', name:'AXLE', variantOf:'gear', glyph:'-',
-    tw:3, th:1, footing:1,
+  /* Multiplies torque and divides speed downstream at `facing:1`, and the
+     reverse at -1, conserving power less `loss`. `rules/placement.js` resolves
+     the facing off `player.face`, so which side is which is chosen by where
+     the player stands. */
+  { id:'transformer', name:'GEAR TRANSFORMER', glyph:'X',
+    tw:1, th:2, footing:1,
 
-    gear:{ loss:0.02 },
+    ratio:{ mul:3.0, loss:0.10, facing:1 },
 
-    /* The end wheels use the gear's own `gearWheel` at the same tooth
-       radius, so a mixed train reads as continuous. Nothing meshes with the
-       bare middle of the span. */
-    look:{ body:'woodB', trim:'cuA', base:'woodD',
+    look:{ body:'cuB', trim:'cuA', base:'cuD',
            parts:[
-             { fn:'shaft', body:'woodB', hi:'woodA', lo:'woodD', trim:'irB',
-               thick:4, inset:3, collars:2 },
-             { fn:'gearWheel', d:8, teeth:8, rt:4, dx:-8,
-               body:'irA', hi:'snA', lo:'irC', col:'irA', dark:'cuC' },
-             { fn:'gearWheel', d:8, teeth:8, rt:4, dx:8,
-               body:'irA', hi:'snA', lo:'irC', col:'irA', dark:'cuC' }
+             { fn:'gearWheel', d:10, teeth:10, rt:5, dy:2,
+               body:'cuA', hi:'veinA', lo:'cuD', col:'cuA', dark:'cuC' },
+             { fn:'gearWheel', d:6, teeth:6, rt:3, dy:11,
+               body:'snA', hi:'snB', lo:'snD', col:'snA', dark:'irC' }
            ] } },
+
+  { id:'transformer_l', name:'GEAR TRANSFORMER (SPEED)', variantOf:'transformer',
+    glyph:'x',
+    ratio:{ mul:3.0, loss:0.10, facing:-1 } },
 
   /* Both receivers are the same block -- `ports`, `buffer.cap`, `catchBox`,
      `handFeed`, `tribute:{}`, no `recipes` -- and accept only what a cycle
@@ -288,6 +232,7 @@ export const MACHINES = [
     band:'astral',
 
     hub:{ reach:96, carries:['material', 'player'] },
+    wheel:true,
 
     ports:[ { side:'top', mode:'in', accepts:['*/#ore', '*/#refined', '*/gravel'] } ],
     buffer:{ cap:{ '*/#ore':64, '*/#refined':64, '*/gravel':64 } },
@@ -300,7 +245,7 @@ export const MACHINES = [
            cable:{ hi:'marbleA', lo:'marbleC', col:'ichor', low:'limeC',
                    dark:'limeD', spacing:12 },
            carrier:{ body:'limeD', hi:'ichor', lo:'marbleC', trim:'marbleA',
-                     col:'cuA', full:40, depth:7 } } },
+                     col:'cuA', depth:7 } } },
 
   /* The player can never hold this one: with no substance and no recipe,
      `machineHeldSub` resolves nothing through `S[...]` and the row never

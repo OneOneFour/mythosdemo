@@ -459,7 +459,7 @@ export function checkContent({ quiet = false } = {}) {
      `model/segments.js#carries` answer false for ever, and nothing throws. */
   const CARRIES = ['material', 'player'];
   const finitePos = v => typeof v === 'number' && Number.isFinite(v) && v > 0;
-  const seen = { hub: 0, crank: 0, gear: 0 };
+  const seen = { hub: 0, drive: 0, ratio: 0 };
   for (const m of MACH) {
     if (m.hub) {
       seen.hub++;
@@ -469,9 +469,11 @@ export function checkContent({ quiet = false } = {}) {
              `number of px -- model/segments.js#reachOf multiplies it by eff('segReach') and compares ` +
              `a length against it, so a link would be refused or accepted at every distance`);
       checks++;
-      if (!Array.isArray(m.hub.carries) || m.hub.carries.length === 0)
-        fail(`machine "${m.id}": hub.carries is ${JSON.stringify(m.hub.carries)}, not a non-empty ` +
-             `array -- a carrier that may bear nothing is a cable with no purpose`);
+      /* An empty `carries` is a power-only anchor: a rope tied to it moves
+         torque and never a bucket. */
+      if (!Array.isArray(m.hub.carries))
+        fail(`machine "${m.id}": hub.carries is ${JSON.stringify(m.hub.carries)}, not an array -- ` +
+             `model/segments.js#carries reads it per rope and would answer false for ever`);
       else for (const what of m.hub.carries) {
         checks++;
         if (!CARRIES.includes(what))
@@ -479,16 +481,25 @@ export function checkContent({ quiet = false } = {}) {
                `values rules/drive.js ever asks for are ${CARRIES.map(c => `"${c}"`).join(' and ')}, ` +
                `and an unknown one fails silently for the whole run`);
       }
+      checks++;
+      if (!m.wheel)
+        fail(`machine "${m.id}": carries a hub block but no \`wheel\` -- a rope ties to a drive ` +
+             `wheel, so an anchor without one can never be linked to anything`);
     }
-    if (m.crank) {
-      seen.crank++;
+    if (m.drive) {
+      seen.drive++;
       checks++;
-      if (!finitePos(m.crank.torque))
-        fail(`machine "${m.id}": crank.torque is ${JSON.stringify(m.crank.torque)}, not a finite ` +
-             `positive drive figure -- supply is denominated in these units`);
+      if (!finitePos(m.drive.torque))
+        fail(`machine "${m.id}": drive.torque is ${JSON.stringify(m.drive.torque)}, not a finite ` +
+             `positive figure -- supply is denominated in segBase units`);
       checks++;
-      if (!finitePos(m.crank.reach))
-        fail(`machine "${m.id}": crank.reach is ${JSON.stringify(m.crank.reach)}, not a finite ` +
+      if (!finitePos(m.drive.speed))
+        fail(`machine "${m.id}": drive.speed is ${JSON.stringify(m.drive.speed)}, not a finite ` +
+             `positive figure -- it is the rate an unloaded shaft turns at, and power is its ` +
+             `product with torque`);
+      checks++;
+      if (!finitePos(m.drive.reach))
+        fail(`machine "${m.id}": drive.reach is ${JSON.stringify(m.drive.reach)}, not a finite ` +
              `positive number of px -- it is the slack in the same overlaps() call handFeed uses`);
     }
     /* A `band` naming no real band makes `model/run.js#placementCheck` refuse
@@ -501,21 +512,35 @@ export function checkContent({ quiet = false } = {}) {
              `id (${BANDS.map(b => b.id).join(', ')}) -- placementCheck would refuse this machine in ` +
              `every band in the game and never say why`);
     }
-    if (m.gear) {
-      seen.gear++;
+    if (m.ratio) {
+      seen.ratio++;
       checks++;
-      const loss = m.gear.loss;
+      if (!finitePos(m.ratio.mul) || m.ratio.mul <= 1)
+        fail(`machine "${m.id}": ratio.mul is ${JSON.stringify(m.ratio.mul)}; it multiplies torque ` +
+             `and divides speed, so at 1 or below it trades nothing and the machine is a gear`);
+      checks++;
+      const loss = m.ratio.loss;
       if (typeof loss !== 'number' || !Number.isFinite(loss) || loss < 0 || loss >= 1)
-        fail(`machine "${m.id}": gear.loss is ${JSON.stringify(loss)}; it is a FRACTION lost per hop ` +
-             `and must be in [0, 1). At 0 a drivetrain sprawls for free, and at 1 or more it ` +
-             `delivers nothing or negates`);
+        fail(`machine "${m.id}": ratio.loss is ${JSON.stringify(loss)}; it is a FRACTION of power ` +
+             `lost across the transformer and must be in [0, 1). At 0 a drivetrain sprawls for ` +
+             `free, and at 1 or more it delivers nothing or negates`);
+      checks++;
+      if (m.ratio.facing !== 1 && m.ratio.facing !== -1)
+        fail(`machine "${m.id}": ratio.facing is ${JSON.stringify(m.ratio.facing)}, not 1 or -1 -- ` +
+             `it is which side gains torque, and model/run.js#machineIdFor resolves it off ` +
+             `player.face at placement`);
     }
   }
+  const MECHANIC = {
+    hub:   'a hub anchors every rope',
+    drive: 'a winch supplies all torque',
+    ratio: 'a transformer trades it for speed'
+  };
   for (const [key, n] of Object.entries(seen)) {
     checks++;
     if (n === 0)
       fail(`no machine row carries a \`${key}\` block -- that is a whole mechanic with no content ` +
-           `behind it (a hub anchors every cable, a crank supplies all torque, a gear carries it)`);
+           `behind it (${MECHANIC[key]})`);
   }
 
   /* 19. the cycle table is payable: `at` names a machine carrying `tribute:{}`
@@ -1018,7 +1043,12 @@ export function checkContent({ quiet = false } = {}) {
             fail(`scenario "${sc.id}": fills "${spec.id}" with ${JSON.stringify(e.n)} of ` +
                  `${e.sub}/${e.form}; a buffer count is a positive integer of units`);
           checks++;
-          if (!recipesOf(def).some(r => Object.keys(r.in || {}).some(sel => matches(sel, sub, form))))
+          /* A `fuel` clause names no selector, so a burner consumes any
+             `#fuel` pair without listing one in `in`. */
+          const consumes = r =>
+            Object.keys(r.in || {}).some(sel => matches(sel, sub, form))
+            || (r.fuel > 0 && matches('*/#fuel', sub, form));
+          if (!recipesOf(def).some(consumes))
             fail(`scenario "${sc.id}": fills "${spec.id}" with ${e.sub}/${e.form}, which no recipe on ` +
                  `that machine consumes -- the units would sit in the buffer for the whole run and the ` +
                  `machine would look fed and do nothing`);
@@ -1039,13 +1069,17 @@ export function checkContent({ quiet = false } = {}) {
 
       for (const pair of sc.segments || []) {
         checks++;
-        if (!Array.isArray(pair) || pair.length !== 2 ||
-            !pair.every(i => Number.isInteger(i) && i >= 0 && i < specs.length)) {
+        /* `[i, j]` or `[i, j, buckets]`: the third is how many hang on the
+           loop, and `rules/scenarios.js` defaults it to one. */
+        const ok3 = Array.isArray(pair) && pair.length === 3 &&
+          Number.isInteger(pair[2]) && pair[2] >= 1;
+        if (!Array.isArray(pair) || (pair.length !== 2 && !ok3) ||
+            !pair.slice(0, 2).every(i => Number.isInteger(i) && i >= 0 && i < specs.length)) {
           fail(`scenario "${sc.id}": segment ${JSON.stringify(pair)} is not a pair of indices into ` +
                `this row's own \`machines\` list (${specs.length} entries)`);
           continue;
         }
-        const ends = pair.map(i => {
+        const ends = pair.slice(0, 2).map(i => {
           const spec = specs[i];
           const cfg = bandOfSpec(spec);
           const def = MACH.find(m => m.id === spec.id);

@@ -258,3 +258,67 @@ exist. Every machine in `data/machines.js` is already reachable — Phase 17b's
 so there is nothing left to grant. Padding the tier to three is not a reason
 to invent a machine, and `rules/draft.js` already lays out fewer cards
 honestly rather than repeating one.
+
+---
+
+## Automated miners
+
+**Idea.** `talos_head` and `cyclops_maw`: fuel-burning machines that chew a
+tile in front of them at the same rate a hand tool does, dropping the units
+into whatever catches them.
+
+```
+talos_head    1x1, footing 1, tier 2, tiles 1, secs 12.0, fuel buffer 4
+cyclops_maw   1x3, footing 1, tier 3, tiles 3, secs  3.0, fuel buffer 6, minDepth 200
+```
+
+Both were mirrored pairs — `_l` variants overriding only `mine.facing` — and
+both read `eff('pickPower') x bestHandToolPower()` rather than carrying a rate
+of their own, so a placed miner and a swinging player could never disagree.
+
+**Why it's parked.** They were removed with the ore/ingot/plate economy. They
+are wanted back, and the retuning is the whole question: a deposit now holds a
+couple of hundred units instead of four, so a miner parked on a vein is a
+faucet that runs for six minutes rather than four seconds. That is a different
+machine and wants its own numbers — probably a much slower chew, a fuel cost
+per unit rather than per stint, or an output cap.
+
+Tier 3 has no member since `adamant` moved to tier 2, so a maw returning would
+either re-take tier 3 or drop to the auger's tier.
+
+---
+
+## A second metal
+
+**Idea.** `tin` was a `deposit` substance with a `blobs` row from topsoil row
+60 down, depth-graded below copper, at `hard` 1.10 and charge 4.
+
+**Why it's parked.** Deleted in the resource overhaul because no recipe ever
+consumed it — it existed only as a tribute demand. A second metal earns its
+row when there is an *alloy*: bronze from copper and tin is the obvious one,
+and it is the first recipe that would take two different elements and make a
+third, which nothing in the game does yet. Until then it is a colour.
+
+## Rope costs fibre, once something grows it
+
+Rope is free today: once two drive wheels are in reach of each other over a
+clear path, the rope between them resolves itself, and there is no rope item
+to hold or spend. That is deliberate for now, not an oversight.
+
+The intended cost is **fibre** — a grown material, not a mined one. That needs
+a farming mechanic the game does not have: something to plant, a growth clock
+(`rules/growth.js` already runs one for seeds), and a harvest. Until that
+exists, charging for rope would mean inventing a placement step purely to have
+somewhere to spend a material that has no source.
+
+Two things to keep true in the meantime, so the cost can be added without a
+rewrite:
+
+- **Nothing may assume rope is free.** A rope is already resolved rather than
+  placed, so the spend has one obvious home: `model/segments.js#linkCheck`
+  gains an affordability clause beside its reach and clear-path clauses, and
+  `write.link` spends. No other caller learns anything.
+- **Rope stays a runtime record, never a machine row.** The seven-noun
+  vocabulary has one word for it, and a `fibre/cord` pair in the pockets would
+  be the feedstock, not the rope itself — the same split `gravel` and `block`
+  already have.

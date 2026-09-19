@@ -13,7 +13,7 @@ import { SOURCES } from '../data/sources.js';
 import { SUB } from '../data/substances.js';
 import { hasField, write as fw, fieldAt } from '../model/fields.js';
 import { push } from '../model/journal.js';
-import { itemsIn, parseKey, write as iw } from '../model/items.js';
+import { energyOfPair, itemsIn, parseKey, write as iw } from '../model/items.js';
 import { acceptedBy, capOf, count, defOf, feedCheck, fill, firstMatching, machines, write as mw } from '../model/machines.js';
 import { unitsCrossed, write as digw, workAt } from '../model/mining.js';
 import { eff } from '../model/mods.js';
@@ -146,6 +146,7 @@ function produce(m, def, dt) {
   /* Spend every input through its declared source, keeping the pair each
      clause yielded so a derived output can name the same substance.
      Availability was already proved by `choose`. */
+  burn(m, def, rawNeeded(def, r));
   const src = SOURCES[r.from || 'buffer'];
   const took = {};
   for (const sel in r.in) took[sel] = src.spend(api, m, sel, r.in[sel]);
@@ -180,7 +181,9 @@ function produce(m, def, dt) {
    spends one per item delivered. */
 function choose(m, def) {
   for (const r of recipes(def, m.def)) {
+    if (r.smelt && !def.smelts) continue;
     if (!gated(m, r)) continue;
+    if (rawNeeded(def, r) > m.bank + bufferedEnergy(m)) continue;
     const src = SOURCES[r.from || 'buffer'];
     let ok = true;
     for (const sel in r.in) {
@@ -192,6 +195,39 @@ function choose(m, def) {
     if (ok) return r;
   }
   return null;
+}
+
+/* Raw fuel energy one run costs: what the recipe wants, divided by how much
+   of it this burner converts. A kiln at 0.4 draws two and a half times what
+   it uses. */
+function rawNeeded(def, r) {
+  if (!(r.fuel > 0)) return 0;
+  return r.fuel / Math.max(1e-6, eff('burnEff', def.id));
+}
+
+/* Raw energy still in the buffer, over every `#fuel` pair it holds. */
+function bufferedEnergy(m) {
+  let total = 0;
+  for (const k in m.buf) {
+    const { sub, form } = parseKey(k);
+    total += m.buf[k] * energyOfPair(sub, form);
+  }
+  return total;
+}
+
+/* Draw whole fuel units into the bank until it covers `need`, then spend it.
+   The remainder stays banked: one coal lump is worth several runs, and
+   throwing the rest away would make a lump and a log interchangeable again. */
+function burn(m, def, need) {
+  if (need <= 0) return;
+  let bank = m.bank;
+  while (bank < need) {
+    const pair = firstMatching(m, '*/#fuel', 1);
+    if (!pair) break;
+    mw.consume(m, pair.sub, pair.form, 1);
+    bank += energyOfPair(pair.sub, pair.form);
+  }
+  mw.bank(m, Math.max(0, bank - need));
 }
 
 /* Field gate — `needs:{ heat:{ min:30 } }` — read at the machine's own tile. A

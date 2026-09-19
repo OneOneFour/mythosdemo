@@ -133,6 +133,7 @@ export function render(g, f) {
   /* After `atmosphere`, or a shaft of light is dimmed by the tint and the
      vignette it is meant to cut through. */
   if (arriving) drawArrival(g, f, arriving);
+  drawSlip(g, f);
 
   if (f.flags.showGrid)   overlay(g, cam, W, H, player.band?.tile ?? 8, INK.grid, 0.16);
   if (f.flags.showChunks) overlay(g, cam, W, H, player.band ? chunkPx(player.band) : 128, INK.chunk, 0.5);
@@ -140,6 +141,19 @@ export function render(g, f) {
   /* The menu stands instead of the HUD, not over it, and owns
      `view/ui/state.js#drawn` for the frame: it calls `resetDrawn()` itself. */
   if (menu) drawMenu(g, f); else drawHUD(g, f);
+}
+
+/* A belt too steep to grip, marked over every tile of the run. After the fog
+   and the tint: a warning the player cannot read is not a warning. The bob is
+   derived from `f.t` and the tile, so the frame stays pure. */
+function drawSlip(g, f) {
+  const { cam } = f;
+  for (const m of machines) {
+    if (!m.slip || !seenAt(m.band, m.tx, m.ty)) continue;
+    const bob = Math.sin(f.t * 5 + hash2(m.tx, m.ty) * 6.283) > 0 ? 1 : 0;
+    drawText(g, '!', (m.box.x + m.box.w / 2 - 2 - cam.x) | 0,
+             (m.box.y - 9 - bob - cam.y) | 0, INK.hurt, 1, 1, INK.fog);
+  }
 }
 
 const visible = (b, cam, W, H) =>

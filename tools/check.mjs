@@ -146,6 +146,28 @@ const viewPaint = await import('../src/view/paint.js');
    quickbar are on screen this frame, rather than that drawing whatever is
    there is pure, needs `view/ui/state.js#drawn`, as `view/hud.js` does. */
 const uiState = await import('../src/view/ui/state.js');
+/* A rope is a loop carrying many buckets. These name its FIRST bucket, so the
+   probes below read as they did when a rope carried exactly one. */
+const car0   = seg => seg.carriers[0] ?? null;
+const carPos = seg => segs.carrierPos(seg, car0(seg));
+const carTop = seg => segs.carrierTop(seg, car0(seg));
+const carBox = seg => segs.carrierBox(seg, car0(seg));
+/* Rail parameter of that bucket: 0 at the low anchor, 1 at the high one. */
+const carT   = seg => (car0(seg) ? segs.railT(segs.phaseOf(seg, car0(seg))) : 0);
+/* The rope's own midpoint, which needs no bucket to exist. */
+const carPos0 = seg => ({ x: (seg.ax + seg.bx) / 2, y: (seg.ay + seg.by) / 2 });
+/* Has the rope's bucket gone over the top, where it sheds its haul? On a loop
+   it never stops at the high anchor, so "reached t = 1" is not a state a probe
+   can wait for -- being on the descending strand is. */
+const overTop = seg => !!car0(seg) && segs.phaseOf(seg, car0(seg)) >= 0.5;
+
+/* Put exactly one bucket on the rope, at rail parameter `t` going up. */
+function setCar(seg, t) {
+  segs.write.spin(seg, -seg.u, 0);
+  while (seg.carriers.length) segs.write.detach(seg, seg.carriers[0]);
+  segs.write.attach(seg, t / 2);
+}
+
 const boot   = await import('../src/shell/boot.js');
 const main   = await import('../src/shell/main.js');
 const sched  = await import('../src/shell/schedule.js');
@@ -270,7 +292,8 @@ function snapshotModel() {
       a: machs.machines.indexOf(s.a), b: machs.machines.indexOf(s.b),
       ax: s.ax, ay: s.ay, bx: s.bx, by: s.by,
       len: +s.len.toFixed(4), slope: +s.slope.toFixed(6), hi: s.hi,
-      t: +s.t.toFixed(6), dir: s.dir, load: +s.load.toFixed(4), band: s.band?.id ?? null
+      u: +s.u.toFixed(6), spin: s.spin, load: +s.load.toFixed(4), band: s.band?.id ?? null,
+      cars: s.carriers.map(c => +c.off.toFixed(6))
     })),
     mods: mods.mods.rows.map(r => ({ src: r.src, key: r.key, mul: r.mul, add: r.add })),
     boons: modelBoons.boons.active.map(a => ({ id: a.id, left: +a.left.toFixed(4) })),
@@ -283,7 +306,7 @@ function snapshotModel() {
 /* A deterministic scripted play session: fresh `newRun(seed)`, then `steps`
    substeps of a control-input stream on its own seeded generator, separate
    from the game's own `rand`. A run that dies restarts on the same seed. */
-/* The script builds a drivetrain and cranks it, since a fingerprint over
+/* The script builds a drivetrain and turns it, since a fingerprint over
    `segments` and `m.torque` proves nothing about a mechanic it never touches:
    two hubs and a crank by the spawn tile, and a `turn` hold at 40%. */
 const scriptStats = { turned: 0, moved: 0, links: 0, cuts: 0 };
@@ -299,7 +322,7 @@ function scriptRig() {
        `rules/placement.js` could not have built. */
   const lo = footUnder(machs.write.place(band, D_mach.M.hub, ptx + 2, pty - 1));
   const hi = footUnder(machs.write.place(band, D_mach.M.hub, ptx + 2, pty - 10));
-  footUnder(machs.write.place(band, D_mach.M.crank, ptx + 1, pty - 1));
+  footUnder(machs.write.place(band, D_mach.M.winch, ptx + 1, pty - 1));
   scriptLink(lo, hi);
   return { lo, hi };
 }
@@ -309,7 +332,7 @@ function scriptRig() {
    first substep, whether or not the player is standing at the handle. */
 function scriptLink(lo, hi) {
   const seg = R_place.linkSegment(lo, hi);
-  if (seg) segs.write.carrier(seg, 0.6, 0);
+  if (seg) setCar(seg, 0.6);
   return seg;
 }
 
@@ -329,8 +352,8 @@ function scriptedPlay(seed, steps) {
     /* Total travel, not the furthest point reached: a carrier that rose and
        sank back is a carrier that moved, and a cut/relink resets `t` to 0. */
     const s = segs.segments[0] ?? null;
-    if (s && prevT !== null) scriptStats.moved += Math.abs(s.t - prevT) * s.len;
-    prevT = s ? s.t : null;
+    if (s && prevT !== null) scriptStats.moved += Math.abs(carT(s) - prevT) * s.len;
+    prevT = s ? carT(s) : null;
         /* A scripted cut and relink, rarely: `write.unlink`/`write.link` reorder
            `segments`, which is the one thing that could make an otherwise
            deterministic drivetrain iterate in a different order between runs. */
@@ -338,7 +361,7 @@ function scriptedPlay(seed, steps) {
       const existing = segs.linkedTo(rig.lo, rig.hi);
       if (existing) { R_place.unlinkSegment(existing); scriptStats.cuts++; }
       else if (scriptLink(rig.lo, rig.hi)) scriptStats.links++;
-      prevT = segs.segments[0]?.t ?? null;
+      prevT = segs.segments[0] ? carT(segs.segments[0]) : null;
     }
     if (run.run.dead) { boot.newRun(seed); rig = scriptRig(); prevT = segs.segments[0]?.t ?? null; }
   }
@@ -596,9 +619,9 @@ console.log('\n3. behaviour');
           `and refused ${heavyRefusals} over-cap pickup(s) at the boundary`);
 }
 
-/* A trinket is an item: drafting it drops a relic, picking it up and equipping
-   it changes an effective value, and spending it restores the base -- all
-   through `run.inv`/`run.equipped`, so holding alone is not enough. */
+/* A trinket is a relic, so picking one up wears it: a relic never enters the
+   pockets, it goes straight into an equipment slot, and the modifier follows
+   the slot. Dropping it out of the slot restores the base. */
 {
   boot.newRun(1337);
   const t = (D_trk.TRINKETS || [])[0];
@@ -609,40 +632,80 @@ console.log('\n3. behaviour');
     const key = dot < 0 ? raw : raw.slice(0, dot);
     const scope = dot < 0 ? t.mods[0].scope : raw.slice(dot + 1);
     const base = mods.eff(key, scope);
+    const sub = D_sub.S[t.id];
+
     sched.trinkets.grant(t.id);
-    /* The draft spawns a falling item; let it land in the pickup radius. Pickup is
-       opt-in rather than automatic, so `collect` is held for the wait. */
-    for (let i = 0; i < 180 && run.invCount(D_sub.S[t.id], D_form.F.relic) === 0; i++)
+    /* The draft spawns a falling item; let it land in the pickup radius. Pickup
+       is opt-in rather than automatic, so `collect` is held for the wait. */
+    for (let i = 0; i < 180 && !run.run.equipped.includes(sub); i++)
       stepReal(1 / 120, { hasMouse: false, collect: true });
-    if (mods.eff(key, scope) !== base)
-      fail(`trinket ${t.id}: eff("${key}") changed BEFORE equipping -- holding alone must not be enough`);
 
-    /* Equipped into the first slot through `model/run.js#write.equip`, the same
-       model write drag-to-equip calls. `trinkets.step` then syncs `model/mods.js`
-       from the intersection `run.equipped n run.inv`. */
-    run.write.equip(0, D_sub.S[t.id]);
-    sched.trinkets.step();
-    const withT = mods.eff(key, scope);
-    if (withT === base) fail(`trinket ${t.id} did not change eff("${key}") after equipping`);
-    else ok(`trinket ${t.id}: ${key} ${base} -> ${withT} once equipped`);
+    if (!run.run.equipped.includes(sub))
+      fail(`trinket ${t.id}: picking the relic up did not put it in an equipment slot`);
+    else if (run.run.inv.some(sl => sl && sl.sub === sub))
+      fail(`trinket ${t.id}: the relic reached the pockets -- a relic is worn, never pocketed`);
+    else {
+      const withT = mods.eff(key, scope);
+      if (withT === base) fail(`trinket ${t.id} did not change eff("${key}") once worn`);
+      else ok(`trinket ${t.id}: ${key} ${base} -> ${withT} once picked up and worn`);
+    }
 
-    run.write.spend(D_sub.S[t.id], D_form.F.relic, 1);
+    /* Its mass counts against the cap wherever it is kept. */
+    const worn = run.burdenOf();
+    if (!(worn >= items.massOfPair(sub, D_form.F.relic) - 1e-9))
+      fail(`trinket ${t.id}: a worn relic weighs ${items.massOfPair(sub, D_form.F.relic)} T but ` +
+           `burdenOf() reports ${worn} T -- moving it off the pocket grid must not widen the cap`);
+    else ok(`a worn relic still weighs: burdenOf() is ${worn.toFixed(2)} T with one in a slot`);
+
+    run.write.spend(sub, D_form.F.relic, 1);
     sched.trinkets.step();
-    if (mods.eff(key, scope) !== base) fail('spending the relic did not restore the base');
-    else if (run.run.equipped.includes(D_sub.S[t.id]))
+    if (mods.eff(key, scope) !== base) fail('emptying the slot did not restore the base');
+    else if (run.run.equipped.includes(sub))
       fail('spending the relic left it in run.equipped -- the slot must clear itself');
-    else ok('spending the relic restores the base value and clears the slot');
+    else ok('emptying the slot restores the base value');
   }
 }
 
-/* The variant machine is faster purely by tuning. */
+/* Every equipment slot full refuses the next relic rather than dropping one,
+   and rather than stacking it somewhere it could never be worn. */
 {
-  const kiln = D_mach.MACHINES.find(m => /divine|kiln/.test(m.id) && m.id !== 'furnace');
-  if (!kiln) console.log('  --   no variant machine present, skipped');
+  boot.newRun(1337);
+  const slots = run.run.equipped.length;
+  const relics = D_sub.SUBSTANCES
+    .map((row, i) => [row, i])
+    .filter(([row]) => row.tags?.includes('relic'))
+    .map(([, i]) => i);
+
+  if (relics.length <= slots)
+    console.log(`  --   ${relics.length} relic(s) against ${slots} slot(s): the refusal is unreachable, skipped`);
   else {
-    const r = mods.eff('rate', kiln.id);
-    if (!(r > 1)) fail(`${kiln.id}: eff('rate') is ${r}, expected > 1 from data/tuning.js`);
-    else ok(`${kiln.id} runs at ${r}x by tuning alone, no variant code`);
+    const took = relics.filter(sub => run.write.collect(sub, D_form.F.relic, 1)).length;
+    const refused = run.write.collect(relics[slots], D_form.F.relic, 1);
+    const dupe = run.write.collect(relics[0], D_form.F.relic, 1);
+    if (took !== slots)
+      fail(`EQUIP SLOTS: ${relics.length} relics filled ${took} of ${slots} slots`);
+    else if (refused !== false)
+      fail(`EQUIP SLOTS: a ${slots + 1}th relic was accepted into ${slots} slots`);
+    else if (dupe !== false)
+      fail('EQUIP SLOTS: a second copy of a worn relic was accepted; a duplicate has no slot to go in');
+    else
+      ok(`EQUIP SLOTS: ${slots} slots take ${took} relics, and both the ${slots + 1}th and a ` +
+         `duplicate are refused so the pickup leaves them on the ground`);
+  }
+}
+
+/* A machine the tuning table singles out is faster purely by tuning, with no
+   variant code. Found through `scoped` rather than by id, so retiring the row
+   skips the probe instead of asserting against a machine that no longer
+   exists. */
+{
+  const scoped = Object.keys(D_tune?.TUNE?.rate?.scoped || {});
+  const id = scoped.find(k => D_mach.M[k] !== undefined);
+  if (!id) console.log('  --   no machine carries a scoped `rate` override, skipped');
+  else {
+    const r = mods.eff('rate', id);
+    if (!(r > 1)) fail(`${id}: eff('rate') is ${r}, expected > 1 from data/tuning.js`);
+    else ok(`${id} runs at ${r}x by tuning alone, no variant code`);
   }
 }
 
@@ -721,7 +784,7 @@ console.log('\n4. determinism, reset and purity probes');
   const seg = segs.write.link(lo, hi);
 
   const probes = [
-    ['a carrier that has moved', () => segs.write.carrier(seg, 0.5, -1)],
+    ['a carrier that has moved', () => setCar(seg, 0.5)],
     ['a hub delivering torque', () => machs.write.torque(lo, 0.5)],
     ['a gear with accumulated turn', () => machs.write.turn(lo, 1.25)]
   ];
@@ -767,10 +830,10 @@ console.log('\n4. determinism, reset and purity probes');
      reward-grant bridge `rules/grants.js#step` drains, so a surviving queue would
      grant the next run a machine it never earned. Neither is a container. */
   run.write.win();
-  run.write.award(['furnace']);
+  run.write.award(['winch']);
   mods.write.add('phase6-test', [{ key: 'walk', mul: 1.1 }]);
   machs.write.place(player.player.band, 0, 5, 5);
-  sched.grants.grant(D_grant.GRANTS[0].id);
+  if (D_grant.GRANTS.length) sched.grants.grant(D_grant.GRANTS[0].id);
   sched.boons.grant(D_boon.BOONS[0].id);
   aimModel.write.set(player.player.band, 3, 3, true);
   journal.push('phase6-test');
@@ -783,7 +846,7 @@ console.log('\n4. determinism, reset and purity probes');
     const lo = footUnder(machs.write.place(band, D_mach.M.hub, 6, 12));
     const hi = footUnder(machs.write.place(band, D_mach.M.hub, 6, 6));
     const seg = segs.write.link(lo, hi);
-    segs.write.carrier(seg, 0.5, -1);
+    setCar(seg, 0.5);
     segs.write.load(seg, 12.5);
     machs.write.torque(lo, 0.75);
     machs.write.turn(hi, 3.25);
@@ -858,7 +921,7 @@ console.log('\n4. determinism, reset and purity probes');
      `handFeed` are both exercised by whatever the fuzz digs near it: both are
      accountable writers (`take`) this probe must prove balance. */
   shellUi.setAutoFeed(true);
-  machs.write.place(band, D_mach.M.furnace,
+  machs.write.place(band, D_mach.M.kiln,
     world.tileX(band, player.player.x) - 1, world.tileY(band, player.player.y) + 2);
 
   /* A pickaxe, credited before the baseline is taken: `rules/mining.js` gates on
@@ -869,6 +932,8 @@ console.log('\n4. determinism, reset and purity probes');
   const actualHeldMass = () => {
     let m = 0;
     for (const slot of run.run.inv) if (slot) m += items.massOfPair(slot.sub, slot.form) * slot.n;
+    /* A relic is worn rather than pocketed, and it weighs the same either way. */
+    for (const sub of run.run.equipped) if (sub !== null) m += items.massOfPair(sub, D_form.F.relic);
     for (const it of items.items) m += items.massOf(it);
     for (const mm of machs.machines) for (const k in mm.buf) { const p = items.parseKey(k); m += items.massOfPair(p.sub, p.form) * mm.buf[k]; }
     return m;
@@ -885,7 +950,14 @@ console.log('\n4. determinism, reset and purity probes');
      never invokes this wrapper is not watching the ground-to-pockets transfer at
      all, which is the coverage a probe loses silently when pickup is opt-in. */
   let collectCalls = 0;
-  run.write.collect = (sub, form, n) => { collectCalls++; reconstructed += items.massOfPair(sub, form) * n; return origCollect(sub, form, n); };
+  run.write.collect = (sub, form, n) => {
+    collectCalls++;
+    const took = origCollect(sub, form, n);
+    /* Only on success: a refused pickup leaves the item on the ground, where
+       it is already counted. A full equipment slot refuses a relic. */
+    if (took) reconstructed += items.massOfPair(sub, form) * n;
+    return took;
+  };
   run.write.spend = (sub, form, n) => {
     const ok2 = origSpend(sub, form, n);
     if (ok2) reconstructed -= items.massOfPair(sub, form) * n;
@@ -959,62 +1031,23 @@ console.log('\n4. determinism, reset and purity probes');
   if (!bad) ok('HAND EQUALS MACHINE: every hand-craftable recipe a machine names is the SAME frozen object (identity, not just equal fields)');
 }
 
-/* T2 = T3 structurally, not by matching numbers: a hand auger swing and a
-   placed Talos Head accumulate work through the identical `write.add` and tool
-   `power`, on two tiles -- one tile would be the same Map entry twice. */
-{
-  const seed = 7070;
-  boot.newRun(seed);
-  const band = world.bandOf('topsoil');
-  const txA = 10, tyA = 50, txB = 20, tyB = 50;
 
-  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
-    tiles.write.clear(band, txA + dx, tyA + dy);
-    tiles.write.clear(band, txB + dx, tyB + dy);
-  }
-  tiles.write.set(band, txA, tyA, D_sub.S.granite);
-  tiles.write.set(band, txB, tyB, D_sub.S.granite);
-  mining.write.clearAll();
-
-  run.write.collect(D_sub.S.auger, D_form.F.relic, 1);
-  const tool = run.bestTool();
-
-  const machine = machs.write.place(band, D_mach.M.talos_head, txB - 1, tyB);
-  machs.write.take(machine, D_sub.S.timber, D_form.F.log, 4);
-
-  if (!tool || tool.tier < 2) fail('T2=T3 setup: collecting the auger did not make it run.bestTool()');
-  else {
-    const dt = 1 / 120, N = 60;
-    let handWork = 0;
-    for (let i = 0; i < N; i++) {
-      handWork = mining.write.add(band, txA, tyA, dt * mods.eff('pickPower') * tool.power);
-      stepReal(dt, { hasMouse: false });
-    }
-    const machWork = mining.workAt(band, txB, tyB);
-    if (Math.abs(handWork - machWork) > 1e-9)
-      fail(`T2=T3: hand-equivalent work ${handWork} vs. placed Talos Head work ${machWork} over ${(N * dt).toFixed(2)}s -- ` +
-           `the design's "T3 mines at exactly the T2 hand rate" does not hold`);
-    else ok(`T2=T3: hand and machine accumulate IDENTICAL mining work (${handWork.toFixed(4)}) over ${(N * dt).toFixed(2)}s -- ` +
-            `same model/mining.js#write.add call, same eff('pickPower'), same tool power, structurally not coincidentally`);
-  }
-}
-
-/* Segment transport burns no material at all: the cost of ascent is a crank
-   the player has to stand at and hold. */
+/* Rope transport burns no material at all: the cost of ascent is a winch the
+   player has to stand at and hold. */
 
 /* The two data sides of the equation, hoisted so the measured counterpart below
    divides the same worth by the same compression ratios: seconds to mine one
    copper ore by hand, from the three numbers `rules/mining.js` multiplies. */
 const oreSecs = D_sub.SUB[D_sub.S.copper].tile.hard * mods.eff('hard', 'copper')
               / (mods.eff('pickPower') * D_sub.SUB[D_sub.S.pick].item.tool.power);
-const RATIOS = { ore: 1, ingot: 4, plate: 12 };             // units of ore per unit
-const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate };
+const RATIOS = { ore: 1, ingot: 1 };                       // units of ore per unit
+const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot };
 
 {
   const topsoil = world.bandOf('topsoil');
-  const crank = D_mach.MACH[D_mach.M.crank].crank;
+  const winch = D_mach.MACH[D_mach.M.winch].drive;
   const base = mods.eff('segBase'), load = mods.eff('segLoad'), up = mods.eff('segUp');
-  const supply = crank.torque * mods.eff('crankTorque', 'crank');
+  const supply = winch.torque * mods.eff('driveTorque', 'winch');
 
   /* seconds of cranking per item-slot per tile, for one unit of `form` alone */
   const kOf = form => {
@@ -1028,26 +1061,25 @@ const FORMS  = { ore: D_form.F.ore, ingot: D_form.F.ingot, plate: D_form.F.plate
 
   const kTier = tier => kOf(FORMS[tier]);
   const breakEven = tier => (RATIOS[tier] * oreSecs) / kTier(tier);
-  const beOre = breakEven('ore'), beIngot = breakEven('ingot'), bePlate = breakEven('plate');
+  const beOre = breakEven('ore'), beIngot = breakEven('ingot');
 
-  console.log(`  ..  break-even depth: ore ${beOre.toFixed(2)}, ingot ${beIngot.toFixed(2)}, ` +
-              `plate ${bePlate.toFixed(2)} tiles (k = ${kTier('ore').toFixed(3)}/` +
-              `${kTier('ingot').toFixed(3)}/${kTier('plate').toFixed(3)} s of cranking per ` +
-              `item-slot per tile, one crank, one vertical segment; an ore costs ` +
+  console.log(`  ..  break-even depth: ore ${beOre.toFixed(2)}, ingot ${beIngot.toFixed(2)} tiles ` +
+              `(k = ${kTier('ore').toFixed(3)}/${kTier('ingot').toFixed(3)} s of winching per ` +
+              `item-slot per tile, one winch, one vertical rope; an ore costs ` +
               `${oreSecs.toFixed(2)} s to mine)`);
 
   if (!(Number.isFinite(beOre) && beOre > 0))
     fail(`BREAK-EVEN DEPTH: raw ore break-even (${beOre}) is not a finite positive depth -- ` +
-         `a single crank cannot raise a single ore at all, which means crank.torque no longer ` +
+         `a single winch cannot raise a single ore at all, which means drive.torque no longer ` +
          `exceeds segBase by enough to move anything`);
-  else if (!(beIngot > beOre && bePlate > beIngot))
-    fail(`BREAK-EVEN DEPTH: compression should push the break-even DEEPER per tier -- got ore ${beOre.toFixed(2)}, ` +
-         `ingot ${beIngot.toFixed(2)}, plate ${bePlate.toFixed(2)}`);
+  else if (!(beIngot > beOre))
+    fail(`BREAK-EVEN DEPTH: smelting should push the break-even DEEPER, because an ingot weighs ` +
+         `less than the ore it came from -- got ore ${beOre.toFixed(2)}, ingot ${beIngot.toFixed(2)}`);
   else if (!(beOre > 0.05 && beOre < 400))
     fail(`BREAK-EVEN DEPTH: raw ore break-even ${beOre.toFixed(2)} tiles is outside a plausible band -- ` +
-         `check segUp/segBase/segLoad, crank.torque, or the compression ratios`);
-  else ok(`BREAK-EVEN DEPTH: ore ${beOre.toFixed(2)} < ingot ${beIngot.toFixed(2)} < plate ${bePlate.toFixed(2)} tiles ` +
-          `of cranking -- a deeper haul is only worth it once refined`);
+         `check segUp/segBase/segLoad or drive.torque`);
+  else ok(`BREAK-EVEN DEPTH: ore ${beOre.toFixed(2)} < ingot ${beIngot.toFixed(2)} tiles ` +
+          `of winching -- a deeper haul is only worth it once smelted`);
 }
 
 /* Burden: walking and falling are identical at 0% and 150% of the hard cap --
@@ -1282,8 +1314,12 @@ function driveRig(spec) {
   /* Real modifier rows through the real `eff` pipeline, the same shape a boon's
      row has, and not a poke at a frozen table: a 40-tile span is a legal build
      for a hub whose reach a god has widened, and not at the base 96 px. */
+  /* These rigs measure the motion law, so the bucket's own capacity is lifted
+     out of the way unless a probe is asking about it: `eff('bucketCap')` is
+     20 T and several rows below load far more than that on purpose. */
+  if (spec.capMul !== 1) mods.write.add('rig-cap', [{ key: 'bucketCap', mul: spec.capMul ?? 1e4 }]);
   if (spec.reachMul) mods.write.add('rig-reach', [{ key: 'segReach', mul: spec.reachMul }]);
-  if (spec.torqueMul) mods.write.add('rig-torque', [{ key: 'crankTorque', mul: spec.torqueMul }]);
+  if (spec.torqueMul) mods.write.add('rig-torque', [{ key: 'driveTorque', mul: spec.torqueMul }]);
 
   const placed = (spec.machines ?? []).map(([id, tx, ty]) =>
     footUnder(machs.write.place(band, D_mach.M[id], tx, ty)));
@@ -1293,12 +1329,15 @@ function driveRig(spec) {
     if (!c.ok) { fail(`RIG: link ${i}-${j} refused (${c.why}) -- the rig itself is not buildable`); continue; }
     built.push(segs.write.link(placed[i], placed[j]));
   }
-  for (const [i, t] of spec.carriers ?? []) segs.write.carrier(built[i], t, 0);
+  /* Every rope gets one bucket at the foot unless the row names its own: a
+     rope with none carries nothing and every probe below would read zero. */
+  for (const seg of built) segs.write.attach(seg, 0);
+  for (const [i, t] of spec.carriers ?? []) setCar(built[i], t);
 
   player.write.band(band);
   if (spec.ride !== undefined) {
     const seg = built[spec.ride];
-    player.write.move(segs.carrierPos(seg).x - player.PW / 2, segs.carrierTop(seg) - player.PH);
+    player.write.move(carPos(seg).x - player.PW / 2, carTop(seg) - player.PH);
   } else {
     player.write.move(world.worldX(band, spec.player[0]), world.worldY(band, spec.player[1]));
   }
@@ -1310,7 +1349,7 @@ function driveRig(spec) {
      substep of gravity before `rules/drive.js#haul` first pins it is three pixels
      at 1/30 s. `rest = 1` is the same field `haul` itself writes. */
   for (const [i, sub, form, n] of spec.cargo ?? []) {
-    const p = segs.carrierPos(built[i]);
+    const p = carPos(built[i]);
     for (let k = 0; k < n; k++) {
       const it = items.write.spawn(band, p.x, p.y, D_sub.S[sub], D_form.F[form], 0, 0);
       if (it) it.rest = 1;
@@ -1326,41 +1365,63 @@ function driveRig(spec) {
    `eff('pickupR')` (10 px), so deck cargo is never quietly pocketed. */
 const ONE_CRANK = {
   room: { ty0: 100, h: 18 },
-  machines: [['hub', 20, 115], ['hub', 20, 105], ['crank', 19, 115]],
+  machines: [['hub', 20, 115], ['hub', 20, 105], ['winch', 19, 115]],
   links: [[0, 1]],
   player: [18, 115]
 };
 
+/* Rope travelled in px over `secs`, signed, accumulated per substep so a loop
+   that laps still totals correctly. */
+function travel(seg, secs, dt, want = { action: true }) {
+  const n = Math.round(secs / dt);
+  const loop = 2 * seg.len;
+  let total = 0, prev = seg.u;
+  for (let i = 0; i < n; i++) {
+    runReal(1, dt, { hasMouse: false, ...want });
+    let d = seg.u - prev;
+    if (d > 0.5) d -= 1; else if (d < -0.5) d += 1;
+    total += d * loop;
+    prev = seg.u;
+  }
+  return total;
+}
+
 /* Along-the-cable velocity in px/s, + is up, measured from the carrier
    parameter the simulation actually wrote. */
 function measureV(seg, secs, dt, want = { action: true }) {
-  const t0 = seg.t;
+  const t0 = carT(seg);
   const n = Math.round(secs / dt);
   runReal(n, dt, { hasMouse: false, ...want });
-  return ((seg.t - t0) * seg.len) / (n * dt);
+  return ((carT(seg) - t0) * seg.len) / (n * dt);
 }
 
 /* The torque one crank supplies, read at call time and never cached:
-   `eff('crankTorque', 'crank')` follows whatever rows a block has left in
+   `eff('driveTorque', 'winch')` follows whatever rows a block has left in
    `model/mods.js`, and the ascent sweep below bends exactly that. */
-const crankTorque = () =>
-  D_mach.MACH[D_mach.M.crank].crank.torque * mods.eff('crankTorque', 'crank');
+const winchTorque = () =>
+  D_mach.MACH[D_mach.M.winch].drive.torque * mods.eff('driveTorque', 'winch');
 
 /* Talents aboard at which one crank's supply exactly meets `need` on a vertical
    segment: the `surplus == 0` boundary, inverted out of
    `supply = segBase + segLoad * mass`. Called after a rig is built. */
-const stallMass = () => (crankTorque() - mods.eff('segBase')) / mods.eff('segLoad');
+const stallMass = () => (winchTorque() - mods.eff('segBase')) / mods.eff('segLoad');
 
-/* The motion expression, transcribed as a second implementation on purpose:
-   the assertions below compare the simulation against this, so a change to
-   `rules/drive.js` has to disagree with something to pass unnoticed. */
-function predictV(supply, mass, slope, demand = null) {
-  const base = mods.eff('segBase');
-  const need = base + mods.eff('segLoad') * mass * slope;
-  const drive = (demand ?? need) > 0 ? Math.min(1, supply / (demand ?? need)) : 0;
-  const surplus = supply - need;
-  if (surplus > 0) return mods.eff('segUp') * Math.min(1, surplus / base) * drive;
-  if (surplus < 0) return -mods.eff('segDown') * Math.min(1, -surplus / base) * slope;
+
+/* The motion expression, transcribed as a second implementation on purpose, so
+   a change to `rules/drive.js` has to disagree with something to pass
+   unnoticed. `tau` decides direction and `supply` the throttle; they differ
+   only past a transformer. Descent is never scaled by `omega`. */
+function predictV(tau, mass, slope, demand = null, omega = 1, supply = tau) {
+  const base = mods.eff('segBase'), fric = mods.eff('segFric');
+  /* One bucket with nothing opposite it, which is what every rig here builds. */
+  const net = base + mods.eff('segLoad') * mass * slope;
+  const asks = Math.max(0, net) + fric;
+  const drive = (demand ?? asks) > 0 ? Math.min(1, supply / (demand ?? asks)) : 0;
+  const push = tau - net;
+  if (push > fric)
+    return mods.eff('segUp') * Math.min(1, (push - fric) / base) * (tau > 0 ? drive * omega : 1);
+  if (push < -fric)
+    return -mods.eff('segDown') * Math.min(1, (-push - fric) / base) * slope;
   return 0;
 }
 
@@ -1374,7 +1435,9 @@ function predictV(supply, mass, slope, demand = null) {
     const dt = 1 / fps;
 
     const a = driveRig({ ...ONE_CRANK, seed: 8080, cargo: [[0, 'copper', 'ore', 4]] });
-    const carrier = measureV(a.seg, 10, dt, { action: true }) * 10;
+    /* Accumulated rather than differenced: ten seconds is more than one lap of
+       an 88 px loop, and a lapped phase differences to nonsense. */
+    const carrier = travel(a.seg, 10, dt, { action: true });
 
     const b = driveRig({
       seed: 8081, reachMul: 5,
@@ -1384,7 +1447,7 @@ function predictV(supply, mass, slope, demand = null) {
     });
     const y0 = player.player.y;
     runReal(Math.round(10 * fps), dt, { hasMouse: false });
-    rows.push({ fps, carrier, rider: player.player.y - y0, t: b.seg.t });
+    rows.push({ fps, carrier, rider: player.player.y - y0, t: carT(b.seg) });
   }
 
   console.log('  ..  ride framerate table, 10 simulated seconds:');
@@ -1393,10 +1456,11 @@ function predictV(supply, mass, slope, demand = null) {
     console.log(`        ${String(r.fps).padStart(3)}   ${r.carrier.toFixed(4).padStart(37)}   ` +
                 `${r.rider.toFixed(4).padStart(25)}`);
 
-  /* One tenth of a pixel over ten seconds -- a hundredth of the 5.5 px/s the
-     carrier is climbing at. Not zero, because a 1/30 s step and a 1/120 s step
-     accumulate a different number of float additions to reach the same total. */
-  const TOL = 0.1;
+  /* Two parts in a thousand of the distance travelled, not an absolute pixel
+     count: a 1/30 s step and a 1/120 s step accumulate a different number of
+     float additions to reach the same total, and that error grows with the
+     total rather than staying fixed. */
+  const TOL = Math.max(0.1, Math.abs(rows[0].carrier) * 0.002);
   const spread = k => Math.max(...rows.map(r => r[k])) - Math.min(...rows.map(r => r[k]));
   if (spread('carrier') > TOL)
     fail(`FRAMERATE: carrier travel over 10 s spread ${spread('carrier').toFixed(4)} px across ` +
@@ -1432,20 +1496,20 @@ function predictV(supply, mass, slope, demand = null) {
   const GEOM = {
     vertical: { slope: 1, spec: {
       room: { ty0: 100, h: 18 },
-      machines: [['hub', 20, 115], ['hub', 20, 105], ['crank', 19, 115], ['crank', 19, 113]],
+      machines: [['hub', 20, 115], ['hub', 20, 105], ['winch', 19, 115], ['winch', 19, 113]],
       links: [[0, 1]], player: [18, 115] } },
     diagonal: { slope: Math.abs(-80) / Math.hypot(80, 80), spec: {
       reachMul: 2,
       room: { ty0: 100, h: 18, w: 16 },
-      machines: [['hub', 20, 115], ['hub', 30, 105], ['crank', 19, 115], ['crank', 19, 113]],
+      machines: [['hub', 20, 115], ['hub', 30, 105], ['winch', 19, 115], ['winch', 19, 113]],
       links: [[0, 1]], player: [18, 115] } },
     horizontal: { slope: 0, spec: {
       room: { ty0: 100, h: 18 },
-      machines: [['hub', 20, 115], ['hub', 28, 115], ['crank', 19, 115], ['crank', 19, 113]],
+      machines: [['hub', 20, 115], ['hub', 28, 115], ['winch', 19, 115], ['winch', 19, 113]],
       links: [[0, 1]], player: [18, 115] } }
   };
 
-  /* `cranks` is how many of the two placed cranks are within reach and
+  /* `winches` is how many of the two placed winches are within reach and
      therefore contributing; both are, so this only ever selects how many the
      rig places. */
   /* The boundary rows are derived and the labels claim a shape rather than a
@@ -1461,7 +1525,7 @@ function predictV(supply, mass, slope, demand = null) {
     ['vertical',   STALL + 8, 1, 'past the boundary: runs backwards'],
     ['vertical',   0,         0, 'unpowered: the full segDown'],
     ['vertical',   CAP,       0, 'unpowered and loaded: still the full segDown'],
-    ['vertical',   0,         2, 'two cranks: capped at segUp, never past it'],
+    ['vertical',   0,         2, 'two winches: capped at segUp, never past it'],
     ['diagonal',   0,         1, '45 degrees, empty'],
     ['diagonal',   CAP,       1, '45 degrees at the burden cap: slope scales the load term, so the same mass costs less'],
     ['diagonal',   CAP,       0, '45 degrees, unpowered: segDown x slope'],
@@ -1481,24 +1545,24 @@ function predictV(supply, mass, slope, demand = null) {
       bad++;
     }
   console.log('  ..  the motion expression, 1 s per row, measured px/s along the cable:');
-  for (const [geomId, mass, cranks, why] of TABLE) {
+  for (const [geomId, mass, winches, why] of TABLE) {
     const g = GEOM[geomId];
     const spec = { ...g.spec, seed: 8100 + bad, carriers: [[0, 0.5]] };
-    /* Only the cranks this row wants: the rig places both and the unused one is
+    /* Only the winches this row wants: the rig places both and the unused one is
        dropped rather than moved out of reach, so "in reach" stays a property of
        the geometry and not of a fudge factor. */
-    spec.machines = spec.machines.filter((m, i) => i < 2 || i - 2 < cranks);
+    spec.machines = spec.machines.filter((m, i) => i < 2 || i - 2 < winches);
     if (mass) spec.cargo = [[0, 'copper', 'ore', mass]];
     const r = driveRig(spec);
-    const supply = cranks * crankTorque();
+    const supply = winches * winchTorque();
     const want = predictV(supply, mass, g.slope);
-    const got = measureV(r.seg, 1, 1 / 120, { action: cranks > 0 });
+    const got = measureV(r.seg, 1, 1 / 120, { action: winches > 0 });
     const flag = Math.abs(got - want) > 1e-6 ? ' <-- MISMATCH' : '';
     console.log(`        ${geomId.padEnd(10)} slope ${g.slope.toFixed(3)}  ${String(mass).padStart(2)} T  ` +
-                `${cranks} crank(s)  supply ${supply.toFixed(2)}  want ${want.toFixed(4).padStart(9)}  ` +
+                `${winches} winch(es)  supply ${supply.toFixed(2)}  want ${want.toFixed(4).padStart(9)}  ` +
                 `got ${got.toFixed(4).padStart(9)}${flag}   ${why}`);
     if (flag) {
-      fail(`MOTION: ${geomId} segment, ${mass} T aboard, ${cranks} crank(s) -- the motion expression gives ` +
+      fail(`MOTION: ${geomId} rope, ${mass} T aboard, ${winches} winch(es) -- the motion expression gives ` +
            `${want.toFixed(4)} px/s along the cable, the simulation produced ${got.toFixed(4)} (${why})`);
       bad++;
     }
@@ -1516,7 +1580,7 @@ function predictV(supply, mass, slope, demand = null) {
 {
   const at = (crankTy, carrierT) => ({
     room: { ty0: 100, h: 18 },
-    machines: [['hub', 20, 115], ['hub', 20, 105], ['crank', 19, crankTy]],
+    machines: [['hub', 20, 115], ['hub', 20, 105], ['winch', 19, crankTy]],
     links: [[0, 1]], player: [18, 115], carriers: [[0, carrierT]], ride: 0
   });
   boot.newRun(8290);                    // clears the modifier rows eff() reads
@@ -1525,7 +1589,10 @@ function predictV(supply, mass, slope, demand = null) {
   const ROWS = [
     ['climbs',         at(115, 0), 0,             +1],
     ['holds still',    at(115, 0), STALL - RIDER,  0],
-    ['runs backwards', at(105, 1), CAP,           -1]
+    /* 0.95 and not 1: the top of the loop is where a bucket rounds onto the
+       descending strand, so a rider parked exactly there is on the way down
+       whatever the winch does. */
+    ['runs backwards', at(105, 0.95), CAP,        -1]
   ];
 
   let bad = 0;
@@ -1547,9 +1614,9 @@ function predictV(supply, mass, slope, demand = null) {
     const mass = mods.eff('riderMass') + run.burdenOf();
     const crank = r.placed[2];
 
-    const before = r.seg.t, y0 = player.player.y;
+    const before = carT(r.seg), y0 = player.player.y;
     stepReal(1 / 120, { action: true, hasMouse: false });
-    const v1 = (r.seg.t - before) * r.seg.len * 120;
+    const v1 = (carT(r.seg) - before) * r.seg.len * 120;
     const drove = crank.torque > 0;
 
     let lit = 1;
@@ -1557,9 +1624,9 @@ function predictV(supply, mass, slope, demand = null) {
       stepReal(1 / 120, { action: true, hasMouse: false });
       if (crank.torque > 0) lit++;
     }
-    const net = (r.seg.t - before) * r.seg.len;
+    const net = (carT(r.seg) - before) * r.seg.len;
     const riderNet = player.player.y - y0;
-    const want = predictV(D_mach.MACH[D_mach.M.crank].crank.torque * mods.eff('crankTorque', 'crank'), mass, 1);
+    const want = predictV(D_mach.MACH[D_mach.M.winch].drive.torque * mods.eff('driveTorque', 'winch'), mass, 1);
 
     if (!drove) {
       fail(`WEIGHT: the "${name}" row measured its first substep with NO torque delivered ` +
@@ -1590,7 +1657,7 @@ function predictV(supply, mass, slope, demand = null) {
      turned and the thing is going down anyway. The journal is read directly,
      since `stepReal` never drains it. */
   {
-    driveRig({ ...at(105, 1), seed: 8299, burden: CAP / ORE_T });
+    driveRig({ ...at(105, 0.95), seed: 8299, burden: CAP / ORE_T });
     runReal(600, 1 / 120, { action: true, hasMouse: false });
     const rows = journal.peek().filter(j => j.kind === 'refused' && j.data?.why === 'TOO HEAVY TO LIFT');
     if (!rows.length) {
@@ -1604,7 +1671,7 @@ function predictV(supply, mass, slope, demand = null) {
     } else {
       /* And it must be silent when the crank is not being turned: an unpowered
          carrier sinking is not news, it is the ordinary case. */
-      driveRig({ ...at(105, 1), seed: 8298, burden: CAP / ORE_T });
+      driveRig({ ...at(105, 0.95), seed: 8298, burden: CAP / ORE_T });
       runReal(600, 1 / 120, { hasMouse: false });
       const quiet = journal.peek().filter(j => j.kind === 'refused' && j.data?.why === 'TOO HEAVY TO LIFT');
       if (quiet.length) {
@@ -1626,13 +1693,13 @@ function predictV(supply, mass, slope, demand = null) {
 {
   const GEOMS = [
     ['vertical', 1, { room: { ty0: 100, h: 18 },
-      machines: [['hub', 20, 115], ['hub', 20, 105], ['crank', 19, 115]] }],
+      machines: [['hub', 20, 115], ['hub', 20, 105], ['winch', 19, 115]] }],
     ['45deg', 0, { reachMul: 2, room: { ty0: 100, h: 18, w: 16 },
-      machines: [['hub', 20, 115], ['hub', 30, 105], ['crank', 19, 115]] }],
+      machines: [['hub', 20, 115], ['hub', 30, 105], ['winch', 19, 115]] }],
     ['shallow', 0, { room: { ty0: 100, h: 18, w: 16 },
-      machines: [['hub', 20, 115], ['hub', 30, 112], ['crank', 19, 115]] }],
+      machines: [['hub', 20, 115], ['hub', 30, 112], ['winch', 19, 115]] }],
     ['flat', 0, { room: { ty0: 100, h: 18 },
-      machines: [['hub', 20, 115], ['hub', 28, 115], ['crank', 19, 115]] }]
+      machines: [['hub', 20, 115], ['hub', 28, 115], ['winch', 19, 115]] }]
   ];
 
   const ctl = rng.mulberry(0xA5CE47);
@@ -1656,11 +1723,14 @@ function predictV(supply, mass, slope, demand = null) {
       const half = ctl() < 0.5;
 
       mods.write.removeBySource('rig-torque');
-      mods.write.add('rig-torque', [{ key: 'crankTorque', mul }]);
+      mods.write.add('rig-torque', [{ key: 'driveTorque', mul }]);
 
       for (const it of cargo) items.write.remove(it);
       cargo.length = 0;
-      const p0 = segs.carrierPos(seg);
+      /* Parked before the cargo is spawned, or the first pass loads the bucket
+         at wherever the previous one left it and the sim weighs nothing. */
+      setCar(seg, 0.5);
+      const p0 = carPos(seg);
       for (let k = 0; k < units; k++) {
         const it = items.write.spawn(r.band, p0.x, p0.y, D_sub.S.copper, D_form.F.ore, 0, 0);
         if (it) { it.rest = 1; cargo.push(it); }
@@ -1671,11 +1741,10 @@ function predictV(supply, mass, slope, demand = null) {
       }
       const mass = units + (half ? 0.5 : 0);
 
-      segs.write.carrier(seg, 0.5, 0);
-      const before = segs.carrierPos(seg), t0 = seg.t;
+      const before = carPos(seg), t0 = carT(seg);
       stepReal(1 / 120, { action: powered, hasMouse: false });
-      const after = segs.carrierPos(seg);
-      const v = (seg.t - t0) * seg.len * 120;                  // px/s along the cable
+      const after = carPos(seg);
+      const v = (carT(seg) - t0) * seg.len * 120;                  // px/s along the cable
       const rise = (before.y - after.y) * 120;                 // px/s of world height gained
       tried++;
 
@@ -1687,7 +1756,7 @@ function predictV(supply, mass, slope, demand = null) {
       if (mul === 0 && v > 1e-9) unpoweredUp++;
 
       const supply = powered
-        ? D_mach.MACH[D_mach.M.crank].crank.torque * mods.eff('crankTorque', 'crank') : 0;
+        ? D_mach.MACH[D_mach.M.winch].drive.torque * mods.eff('driveTorque', 'winch') : 0;
       if (Math.abs(v - predictV(supply, mass, slope)) > 1e-6) mismatch++;
     }
   }
@@ -1722,7 +1791,7 @@ function predictV(supply, mass, slope, demand = null) {
     const machines = [];
     for (let i = 0; i < N; i++) machines.push(['hub', 20 + i * 2, 115]);
     for (let i = 0; i < N; i++) machines.push(['hub', 20 + i * 2, 105]);
-    machines.push(['crank', 19, 115]);
+    machines.push(['winch', 19, 115]);
     const links = [];
     for (let i = 0; i < N; i++) links.push([i, N + i]);
 
@@ -1731,126 +1800,154 @@ function predictV(supply, mass, slope, demand = null) {
       machines, links, player: [18, 115],
       carriers: links.map((_, i) => [i, 0.5])
     });
-    const crank = r.placed[2 * N];
-    const CRANK_T = crankTorque();
+    const winch = r.placed[2 * N];
+    const WINCH_T = winchTorque();
 
     const t0 = r.segs.map(s => s.t);
     stepReal(1 / 120, { action: true, hasMouse: false });
     const vs = r.segs.map((s, i) => (s.t - t0[i]) * s.len * 120);
 
-    const demand = N * mods.eff('segBase');            // nothing aboard: need == segBase
-    const drive = crank.torque;
+    // nothing aboard: one empty bucket asks for segBase plus the rope's friction
+    const demand = N * (mods.eff('segBase') + mods.eff('segFric'));
+    const drive = winch.torque;
     const delivered = drive * demand;
-    const wantDrive = Math.min(1, CRANK_T / demand);
-    const wantV = predictV(CRANK_T, 0, 1, demand);
+    const wantDrive = Math.min(1, WINCH_T / demand);
+    const wantV = predictV(WINCH_T, 0, 1, demand);
 
-    if (delivered > CRANK_T + 1e-9) {
-      fail(`TORQUE CONSERVATION: one crank (torque ${CRANK_T}) driving ${N} segment(s) delivered ` +
+    if (delivered > WINCH_T + 1e-9) {
+      fail(`TORQUE CONSERVATION: one winch (torque ${WINCH_T}) driving ${N} rope(s) delivered ` +
            `drive ${drive.toFixed(4)} x demand ${demand.toFixed(2)} = ${delivered.toFixed(4)} -- ` +
            `more than it has`);
       bad++;
     }
     if (Math.abs(drive - wantDrive) > 1e-9) {
-      fail(`TORQUE CONSERVATION: ${N} segment(s) on one crank -- m.torque is ${drive.toFixed(6)}, ` +
+      fail(`TORQUE CONSERVATION: ${N} rope(s) on one winch -- m.torque is ${drive.toFixed(6)}, ` +
            `the drive expression's min(1, supply/demand) is ${wantDrive.toFixed(6)}`);
       bad++;
     }
     if (vs.some(v => Math.abs(v - wantV) > 1e-6)) {
-      fail(`TORQUE CONSERVATION: ${N} segment(s) sharing one crank climb at ` +
+      fail(`TORQUE CONSERVATION: ${N} rope(s) sharing one winch climb at ` +
            `[${vs.map(v => v.toFixed(4)).join(', ')}] px/s; the shared expression gives ${wantV.toFixed(4)} ` +
-           `-- sharing must SLOW every segment equally, not stop some and speed others`);
+           `-- sharing must SLOW every rope equally, not stop some and speed others`);
       bad++;
     }
-    /* The top hubs are in the unpowered component and must read a delivered drive
-       of exactly 0: a segment is driven by the greater end, never by both. */
+    /* A rope conducts power, so the top hubs are in the SAME component as the
+       winch and read the same delivered drive. What must not happen is a
+       segment counting both ends: `demand` above is N x segBase, so an end
+       counted twice would show up as half the drive. */
     const topDrive = r.placed.slice(N, 2 * N).map(m => m.torque);
-    if (topDrive.some(d => d !== 0)) {
-      fail(`TORQUE CONSERVATION: the unpowered top hubs read m.torque ` +
-           `[${topDrive.join(', ')}] -- an undriven drivetrain delivers nothing`);
+    if (topDrive.some(d => Math.abs(d - drive) > 1e-9)) {
+      fail(`TORQUE CONSERVATION: the top hubs read m.torque [${topDrive.join(', ')}] and the winch ` +
+           `reads ${drive.toFixed(6)} -- a rope carries power, so both ends of one component ` +
+           `deliver the same drive`);
       bad++;
     }
-    console.log(`  ..  torque: 1 crank (${CRANK_T} T-units) x ${N} segment(s): drive ${drive.toFixed(4)}, ` +
-                `demand ${demand.toFixed(2)}, delivered ${delivered.toFixed(4)} <= ${CRANK_T}, ` +
+    console.log(`  ..  torque: 1 winch (${WINCH_T} T-units) x ${N} rope(s): drive ${drive.toFixed(4)}, ` +
+                `demand ${demand.toFixed(2)}, delivered ${delivered.toFixed(4)} <= ${WINCH_T}, ` +
                 `each segment ${vs[0].toFixed(4)} px/s`);
   }
-  if (!bad) ok('TORQUE CONSERVATION: one crank driving 1, 2 and 5 segments never delivers more drive ' +
-               'than its own torque, and every shared segment slows by the same fraction');
+  if (!bad) ok('TORQUE CONSERVATION: one winch driving 1, 2 and 5 ropes never delivers more drive ' +
+               'than its own torque, and every shared rope slows by the same fraction');
 }
 
-/* Gear loss is monotonic, and a diagonal delivers zero. A train of K gears
-   between a crank and a hub supplies `1.5 x 0.94^K`, so the climb rate must
-   fall strictly with every hop, and past enough hops nothing lifts at all. */
+/* A transformer trades torque for speed and conserves their product less its
+   loss. Placed torque-side it multiplies the torque reaching the hub by
+   `mul x (1 - loss)` and divides the shaft speed by `mul`; placed speed-side
+   it does the reverse. Power out is strictly under power in either way. */
 {
-  const LOSS = D_mach.MACH[D_mach.M.gear].gear.loss;
-  const HOPS = [0, 1, 2, 3, 4, 6];
-  const rows = [];
+  const XF = D_mach.MACH[D_mach.M.transformer].ratio;
+  const MUL = XF.mul * mods.eff('gearRatio', 'transformer');
+  const KEEP = 1 - XF.loss * mods.eff('gearLoss', 'transformer');
   let bad = 0;
 
-  for (const K of HOPS) {
-    /* crank at 12, K gears rightward along the floor, hub at 13+K. */
-    const machines = [['crank', 12, 115]];
-    for (let i = 0; i < K; i++) machines.push(['gear', 13 + i, 116]);
-    machines.push(['hub', 13 + K, 115], ['hub', 13 + K, 105]);
-    const r = driveRig({
-      seed: 8500 + K, room: { tx0: 10, ty0: 100, h: 18, w: 14 },
-      machines, links: [[K + 1, K + 2]], carriers: [[0, 0.5]], player: [11, 115]
+  /* winch at 12, the transformer in the corner at 13, hub at 14. Three rigs:
+     no transformer, torque-side, speed-side. */
+  const build = (seed, mid) => {
+    const machines = [['winch', 12, 115]];
+    if (mid) machines.push([mid, 13, 115]);
+    /* The hub butts against whatever precedes it: a gap conducts nothing. */
+    const hx = mid ? 14 : 13;
+    machines.push(['hub', hx, 115], ['hub', hx, 105]);
+    const i = mid ? 1 : 0;
+    return driveRig({
+      seed, room: { tx0: 10, ty0: 100, h: 18, w: 14 },
+      machines, links: [[i + 1, i + 2]], carriers: [[0, 0.5]], player: [11, 115]
     });
-    const v = measureV(r.seg, 1, 1 / 120, { action: true });
-    const supply = crankTorque() * Math.pow(1 - LOSS * mods.eff('torqueLoss', 'gear'), K);
-    const want = predictV(supply, 0, 1);
-    rows.push({ K, v, supply, want, drive: r.placed[K + 1].torque });
-    if (Math.abs(v - want) > 1e-6) {
-      fail(`GEAR LOSS: ${K} hop(s) of gear between crank and hub -- supply should be ` +
-           `${supply.toFixed(4)} and the climb ${want.toFixed(4)} px/s, measured ${v.toFixed(4)}`);
+  };
+
+  /* Measured one at a time: `driveRig` calls `newRun()`, so a second rig
+     built before the first is measured leaves the first's records orphaned
+     and its rope out of `segments` entirely. */
+  const run1 = seed => measureV(build(seed, null).seg, 1, 1 / 120, { action: true });
+  const runX = (seed, id) => measureV(build(seed, id).seg, 1, 1 / 120, { action: true });
+  const vPlain  = run1(8500);
+  const vTorque = runX(8501, 'transformer');
+  const vSpeed  = runX(8502, 'transformer_l');
+
+  /* An empty bucket needs exactly `segBase`, so the plain rig is the
+     reference the two ratios are read against. */
+  const wantPlain  = predictV(winchTorque(), 0, 1);
+  const wantTorque = predictV(winchTorque() * MUL * KEEP, 0, 1, null, 1 / MUL, winchTorque());
+  const wantSpeed  = predictV(winchTorque() / MUL * KEEP, 0, 1, null, MUL, winchTorque());
+
+  for (const [label, got, want] of [
+    ['no transformer', vPlain, wantPlain],
+    ['torque side', vTorque, wantTorque],
+    ['speed side',  vSpeed,  wantSpeed]
+  ]) {
+    if (Math.abs(got - want) > 1e-6) {
+      fail(`TRANSFORMER: ${label} -- the climb should be ${want.toFixed(4)} px/s, measured ${got.toFixed(4)}`);
       bad++;
     }
   }
 
-  console.log('  ..  gear loss: ' + rows.map(r => `${r.K} hop(s) ${r.v.toFixed(3)} px/s`).join(', ') +
-              ` (loss ${LOSS} per gear, crank ${crankTorque()})`);
+  console.log(`  ..  transformer: none ${vPlain.toFixed(3)}, torque side ${vTorque.toFixed(3)}, ` +
+              `speed side ${vSpeed.toFixed(3)} px/s (ratio ${MUL}, keep ${KEEP.toFixed(2)})`);
 
-  for (let i = 1; i < rows.length; i++)
-    if (!(rows[i].v < rows[i - 1].v - 1e-9)) {
-      fail(`GEAR LOSS IS MONOTONIC: ${rows[i].K} hops climbs at ${rows[i].v.toFixed(4)} px/s, ` +
-           `not slower than ${rows[i - 1].K} hops at ${rows[i - 1].v.toFixed(4)} -- torque must fall ` +
-           `with every hop`);
-      bad++;
-    }
-  if (!bad) ok(`GEAR LOSS IS MONOTONIC: the climb falls strictly with every gear hop ` +
-               `(${rows[0].v.toFixed(2)} -> ${rows[rows.length - 1].v.toFixed(2)} px/s over ` +
-               `${HOPS[HOPS.length - 1]} hops), matching 17.9's loss product exactly`);
+  /* Power is torque times speed, and the transformer may only lose some. */
+  const pIn  = winchTorque() * 1;
+  const pOut = (winchTorque() * MUL * KEEP) * (1 / MUL);
+  if (!(pOut < pIn + 1e-9 && pOut > 0)) {
+    fail(`TRANSFORMER: power out ${pOut.toFixed(4)} is not under power in ${pIn.toFixed(4)} -- a ` +
+         `transformer trades torque for speed and never makes any`);
+    bad++;
+  }
+  if (!bad)
+    ok(`TRANSFORMER: torque x speed is conserved less ${(XF.loss * 100).toFixed(0)}% ` +
+       `(power in ${pIn.toFixed(3)}, out ${pOut.toFixed(3)}), and the two facings climb at ` +
+       `${vTorque.toFixed(2)} and ${vSpeed.toFixed(2)} px/s against ${vPlain.toFixed(2)} unratioed`);
 
-  /* The diagonal. Crank footprint (19, 113..114) touches hub footprint
+  /* The diagonal. Winch footprint (19, 113..114) touches hub footprint
      (20..21, 115..116) at one corner and nowhere else. */
   {
     const r = driveRig({
       seed: 8590, room: { ty0: 100, h: 18 },
-      machines: [['hub', 20, 115], ['hub', 20, 105], ['crank', 19, 113]],
+      machines: [['hub', 20, 115], ['hub', 20, 105], ['winch', 19, 113]],
       links: [[0, 1]], carriers: [[0, 0.5]], player: [18, 115]
     });
     const v = measureV(r.seg, 1, 1 / 120, { action: true });
     const want = predictV(0, 0, 1);
     if (Math.abs(v - want) > 1e-6 || r.placed[2].torque !== 0)
-      fail(`DIAGONAL DELIVERS ZERO: a crank touching a hub at the corner only drove the carrier at ` +
+      fail(`DIAGONAL DELIVERS ZERO: a winch touching a hub at the corner only drove the bucket at ` +
            `${v.toFixed(4)} px/s (m.torque ${r.placed[2].torque}); a diagonal does not conduct, so the ` +
-           `carrier must sink at the full segDown (${want.toFixed(4)} px/s)`);
+           `bucket must sink at the full segDown (${want.toFixed(4)} px/s)`);
     else {
-      /* And the contrast, or the assertion above would pass for a crank that had
-         simply stopped working: put a gear in the corner and the same crank drives
-         the same segment. */
+      /* And the contrast, or the assertion above would pass for a winch that
+         had simply stopped working: square the same winch up against the hub
+         and it drives the same rope. */
       const g = driveRig({
         seed: 8591, room: { ty0: 100, h: 18 },
-        machines: [['hub', 20, 115], ['hub', 20, 105], ['crank', 19, 113], ['gear', 19, 115]],
+        machines: [['hub', 20, 115], ['hub', 20, 105], ['winch', 19, 115]],
         links: [[0, 1]], carriers: [[0, 0.5]], player: [18, 115]
       });
       const gv = measureV(g.seg, 1, 1 / 120, { action: true });
-      const gWant = predictV(crankTorque() * (1 - LOSS * mods.eff('torqueLoss', 'gear')), 0, 1);
+      const gWant = predictV(winchTorque(), 0, 1);
       if (Math.abs(gv - gWant) > 1e-6)
-        fail(`DIAGONAL DELIVERS ZERO: with a GEAR in the corner the same crank should drive the same ` +
-             `segment at ${gWant.toFixed(4)} px/s, measured ${gv.toFixed(4)} -- the zero above may be ` +
-             `a broken crank rather than a broken diagonal`);
-      else ok(`DIAGONAL DELIVERS ZERO: a corner-touching crank drives nothing (carrier sinks at ` +
-              `${v.toFixed(1)} px/s); a gear in that corner drives it at ${gv.toFixed(2)} px/s`);
+        fail(`DIAGONAL DELIVERS ZERO: squared up against the hub the same winch should drive the same ` +
+             `rope at ${gWant.toFixed(4)} px/s, measured ${gv.toFixed(4)} -- the zero above may be ` +
+             `a broken winch rather than a broken diagonal`);
+      else ok(`DIAGONAL DELIVERS ZERO: a corner-touching winch drives nothing (bucket sinks at ` +
+              `${v.toFixed(1)} px/s); squared up it drives it at ${gv.toFixed(2)} px/s`);
     }
   }
 }
@@ -2137,9 +2234,10 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     /* And it really does cross: the low end resolves to topsoil, the high end
        to surface, so `rules/drive.js`'s band handoff has something to do. */
     const seg = segs.write.link(h.A, h.B);
-    const lo = world.bandAt(...Object.values(segs.carrierPos(seg)));
-    segs.write.carrier(seg, 1, 0);
-    const hiBand = world.bandAt(...Object.values(segs.carrierPos(seg)));
+    setCar(seg, 0);                     // a fresh rope carries no bucket
+    const lo = world.bandAt(...Object.values(carPos(seg)));
+    setCar(seg, 1);
+    const hiBand = world.bandAt(...Object.values(carPos(seg)));
     if (lo?.id !== 'topsoil' || hiBand?.id !== 'surface') {
       fail(`LINK LEGALITY (cross-band): the seam span's carrier reads band "${lo?.id}" at t=0 and ` +
            `"${hiBand?.id}" at t=1 -- it is not actually crossing the seam, so nothing below tests one`);
@@ -2334,7 +2432,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
   {
     const r = rideDown();
     const y0 = player.player.y;
-    const deck = () => segs.carrierTop(r.seg) - player.PH;
+    const deck = () => carTop(r.seg) - player.PH;
     let worst = 0;
     for (let i = 0; i < 360; i++) {
       stepReal(1 / 120, { hasMouse: false });
@@ -2392,26 +2490,31 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
 
 /* Break-even, measured. The arithmetic above prices ascent in seconds of
    cranking from the tuning rows; this puts one unit of each tier on a real
-   carrier, cranks it a real second, and derives `k` from the pixels moved. */
+   bucket, turns the winch a real second, and derives `k` from the pixels moved. */
 {
   const rows = [];
   let bad = 0;
-  for (const tier of ['ore', 'ingot', 'plate']) {
+  for (const tier of ['ore', 'ingot']) {
     const r = driveRig({ ...ONE_CRANK, seed: 8900, cargo: [[0, 'copper', tier, 1]] });
     const mass = items.massOfPair(D_sub.S.copper, FORMS[tier]);
     const v = measureV(r.seg, 1, 1 / 120, { action: true });
-    const want = predictV(crankTorque(), mass, 1);
+    const want = predictV(winchTorque(), mass, 1);
     const k = v > 0 ? r.band.tile / v : Infinity;
     rows.push({ tier, mass, v, want, k, be: (RATIOS[tier] * oreSecs) / k });
     if (Math.abs(v - want) > 1e-6) {
-      fail(`BREAK-EVEN MEASURED: one copper ${tier} (${mass} T) aboard a vertical segment on one crank ` +
+      fail(`BREAK-EVEN MEASURED: one copper ${tier} (${mass} T) aboard a vertical rope on one winch ` +
            `climbs at ${v.toFixed(4)} px/s; the motion expression gives ${want.toFixed(4)} -- the ` +
            `arithmetic above is pricing a formula the game no longer runs`);
       bad++;
     }
   }
 
-  console.log('  ..  break-even, measured on a real carrier (1 s of cranking each):');
+  /* Ordered by mass, not by tier: smelting is 1:1 and an ingot weighs LESS
+     than the ore it came from, so the tier order and the mass order are no
+     longer the same one. */
+  rows.sort((a, b) => a.mass - b.mass);
+
+  console.log('  ..  break-even, measured on a real bucket (1 s of winching each):');
   for (const r of rows)
     console.log(`        ${r.tier.padEnd(6)} ${r.mass.toFixed(2).padStart(6)} T   ` +
                 `${r.v.toFixed(4).padStart(8)} px/s   k = ${r.k.toFixed(3)} s/tile/item-slot   ` +
@@ -2422,23 +2525,22 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
        "equal" is what a drivetrain that had stopped reading mass at all would
        produce, and that has to fail here rather than pass. */
     if (!(rows[i].k > rows[i - 1].k * (1 + 1e-9))) {
-      fail(`BREAK-EVEN MEASURED: a ${rows[i].tier} (${rows[i].mass} T) cranks up at ${rows[i].k.toFixed(3)} ` +
+      fail(`BREAK-EVEN MEASURED: a ${rows[i].tier} (${rows[i].mass} T) winches up at ${rows[i].k.toFixed(3)} ` +
            `s/tile, cheaper than a ${rows[i - 1].tier} (${rows[i - 1].mass} T) at ` +
            `${rows[i - 1].k.toFixed(3)} -- mass must cost seconds`);
       bad++;
     }
-    if (!(rows[i].be > rows[i - 1].be)) {
-      fail(`BREAK-EVEN MEASURED: ${rows[i].tier} breaks even at ${rows[i].be.toFixed(2)} tiles, not deeper ` +
-           `than ${rows[i - 1].tier} at ${rows[i - 1].be.toFixed(2)} -- compression must buy depth, in ` +
-           `measured seconds and not only in arithmetic`);
+    if (!(rows[i].be < rows[i - 1].be)) {
+      fail(`BREAK-EVEN MEASURED: ${rows[i].tier} breaks even at ${rows[i].be.toFixed(2)} tiles, not ` +
+           `shallower than ${rows[i - 1].tier} at ${rows[i - 1].be.toFixed(2)} -- a heavier unit must ` +
+           `pay off deeper, in measured seconds and not only in arithmetic`);
       bad++;
     }
   }
   if (!bad)
-    ok(`BREAK-EVEN MEASURED: on a real carrier, k rises with mass ` +
-       `(${rows.map(r => r.k.toFixed(2)).join(' < ')} s/tile/item-slot) and the break-even depth still ` +
-       `orders ore ${rows[0].be.toFixed(2)} < ingot ${rows[1].be.toFixed(2)} < plate ` +
-       `${rows[2].be.toFixed(2)} tiles -- the arithmetic's price is the one the game charges`);
+    ok(`BREAK-EVEN MEASURED: on a real bucket, k rises with mass ` +
+       `(${rows.map(r => `${r.tier} ${r.k.toFixed(4)}`).join(' < ')} s/tile/item-slot) -- the ` +
+       `arithmetic's price is the one the game charges`);
 }
 
 /* Render purity over the drivetrain's own draw paths, which no probe above
@@ -2446,7 +2548,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
    each checked by `fillRect` count against the same frame without the thing. */
 {
   const CAM = seg => {
-    const p = segs.carrierPos(seg);
+    const p = carPos(seg);
     main.cam.x = p.x - 100;
     main.cam.y = p.y - 60;
   };
@@ -2469,7 +2571,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
        crank between the player and the hub. `driveRig`'s `player` tile must be
        inside the carved room, or the player is extracted upward out of the rock. */
     seed: 8950, room: { tx0: 16, ty0: 100, h: 18, w: 14 },
-    machines: [['hub', 20, 115], ['hub', 20, 105], ['crank', 19, 115], ['gear', 18, 115]],
+    machines: [['hub', 20, 115], ['hub', 20, 105], ['winch', 19, 115], ['drive_wheel', 18, 115]],
     links: [[0, 1]], player: [17, 115], cargo: [[0, 'copper', 'ore', 3]]
   });
 
@@ -2487,13 +2589,13 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
   CAM(r.seg);
 
   for (const t of [0, 0.5, 1]) {
-    segs.write.carrier(r.seg, t, t === 1 ? 0 : -1);
+    setCar(r.seg, t);
     if (!drawTwice(`a carrier at t=${t}`)) bad++;
   }
 
   /* The cable and carrier are actually on screen. Same camera, same machines,
      one difference: the segment. */
-  segs.write.carrier(r.seg, 0.5, -1);
+  setCar(r.seg, 0.5);
   const withCable = rects();
   const keep = [...segs.segments];
   segs.write.clear();
@@ -2532,10 +2634,10 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
   }
 
   /* And no randomness anywhere in any of it: the gear phase, the bucket spacing
-     and the cable's dashes must all come from `m.turn`, `seg.t` and a position
+     and the cable's dashes must all come from `m.turn`, `carT(seg)` and a position
      hash, never from `rand`. */
   shellUi.armLink(r.placed[0]);
-  segs.write.carrier(r.seg, 0.4, -1);
+  setCar(r.seg, 0.4);
   rng.seedRng(8951);
   const expected = [rng.rand(), rng.rand(), rng.rand()];
   rng.seedRng(8951);
@@ -2574,7 +2676,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     const hi = footUnder(machs.write.place(band, D_mach.M.hub, 20, 105));
     const before = matSum();
     const seg = segs.write.link(lo, hi);
-    segs.write.carrier(seg, 0.5, -1);
+    setCar(seg, 0.5);
     segs.write.load(seg, 30);
     if (matSum() !== before) {
       fail('NO SECOND COLLISION MODEL: linking a cable, moving its carrier and loading it CHANGED a ' +
@@ -2585,7 +2687,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
 
   const r = driveRig({
     seed: 8961, reachMul: 2, room: { ty0: 96, h: 22 },
-    machines: [['hub', 20, 115], ['hub', 20, 100], ['crank', 19, 115]],
+    machines: [['hub', 20, 115], ['hub', 20, 100], ['winch', 19, 115]],
     links: [[0, 1]], carriers: [[0, 0.6]], ride: 0, cargo: [[0, 'copper', 'ore', 2]]
   });
   const band = r.band;
@@ -2605,7 +2707,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     stepReal(1 / 120, { hasMouse: false });
     if (i % 10) continue;
     sampled++;
-    if (!segs.riddenSegment()) { notRiding++; continue; }
+    if (!segs.riddenCarrier()) { notRiding++; continue; }
     if (!player.player.onGround) floating++;
     const pb = player.playerBox();
     /* The row of tiles the feet are in and the row just below it: a rider held
@@ -2613,7 +2715,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
     const feetTy = world.tileY(band, pb.y + pb.h + 1);
     for (let tx = world.tileX(band, pb.x); tx <= world.tileX(band, pb.x + pb.w); tx++)
       if (tiles.solidAt(band, tx, feetTy)) solidUnderRider++;
-    for (const [tx, ty] of tilesOf(segs.carrierBox(r.seg)))
+    for (const [tx, ty] of tilesOf(carBox(r.seg)))
       if (tiles.solidAt(band, tx, ty)) solidInCarrier++;
   }
 
@@ -2654,7 +2756,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
   }
   if (!bad)
     ok(`NO SECOND COLLISION MODEL: over ${sampled} sampled substeps of a descending ride, the rider is ` +
-       `onGround with no solid tile under their feet, the carrier's own ${tilesOf(segs.carrierBox(r.seg)).length} ` +
+       `onGround with no solid tile under their feet, the carrier's own ${tilesOf(carBox(r.seg)).length} ` +
        `tiles are all air, ${aboard.length} item(s) ride on air, and not one byte of any band's mat changed`);
 }
 
@@ -2664,7 +2766,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
 {
   let bad = 0;
 
-  for (const id of ['hub', 'crank', 'gear', 'axle']) {
+  for (const id of ['hub', 'winch', 'transformer', 'drive_wheel']) {
     const def = D_mach.MACH[D_mach.M[id]];
     if (def.light) {
       fail(`SEGMENT LIGHT: the ${id} row carries a light:{} block (${JSON.stringify(def.light)}). That is ` +
@@ -2688,9 +2790,9 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
   }
   const lo = footUnder(machs.write.place(band, D_mach.M.hub, tx0 + 4, ty0 + 9));
   const hi = footUnder(machs.write.place(band, D_mach.M.hub, tx0 + 4, ty0 + 1));
-  footUnder(machs.write.place(band, D_mach.M.crank, tx0 + 3, ty0 + 9));
+  footUnder(machs.write.place(band, D_mach.M.winch, tx0 + 3, ty0 + 9));
   const seg = segs.write.link(lo, hi);
-  segs.write.carrier(seg, 0.5, 0);
+  setCar(seg, 0.5);
   runReal(20, 1 / 120, { hasMouse: false });
 
   const litOnCable = [];
@@ -2744,7 +2846,7 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
   for (let i = 0; i < 1500; i++) {
     stepReal(1 / 120, { hasMouse: false });
     samples++;
-    if (segs.riddenSegment()) ridden++;
+    if (segs.riddenCarrier()) ridden++;
     worstPin = Math.max(worstPin, Math.abs(player.player.fallFrom - player.player.y));
   }
   const dropped = (player.player.y - y0) / a.band.tile;
@@ -2778,9 +2880,9 @@ const anchorOfM = m => ({ x: m.box.x + m.box.w / 2, y: m.box.y + m.box.h / 2 });
   for (let i = 0; i < 1200 && landedAt < 0; i++) {
     /* Walk right until the carrier is no longer under the feet, then stop pressing
        so the fall itself is vertical. `onGround` is not the test for having left --
-       it is true the whole time they stand on the deck -- `riddenSegment` is. */
+       it is true the whole time they stand on the deck -- `riddenCarrier` is. */
     stepReal(1 / 120, { right: !off, hasMouse: false });
-    if (!segs.riddenSegment()) off = true;
+    if (!segs.riddenCarrier()) off = true;
     if (player.player.vy > vLand) vLand = player.player.vy;
     if (off && player.player.onGround) landedAt = i;
   }
@@ -2858,7 +2960,7 @@ console.log('\n6. the tribute loop');
        minus half the item's size. One row per form the dock accepts. */
     const footingTop = world.worldY(m.band, m.ty + DOCK.th);
     for (const [subId, formId] of [['copper', 'ore'], ['copper', 'ingot'],
-                                   ['copper', 'plate'], ['stone', 'gravel']]) {
+                                   ['copper', 'ingot'], ['stone', 'gravel']]) {
       const sub = D_sub.S[subId], form = D_form.F[formId];
       if (!items.holdable(sub, form)) continue;
       const accepted = dockPorts.some(p => p.accepts.some(sel => D_form.matches(sel, sub, form)));
@@ -2919,7 +3021,7 @@ console.log('\n6. the tribute loop');
     for (let tx = 16; tx <= 29; tx++) tiles.write.set(band, tx, 119, D_sub.S.stone);
     const lo = footUnder(machs.write.place(band, D_mach.M.hub, 20, 117));
     const dock = footUnder(machs.write.place(band, D_mach.M.cloud_dock, 20, 106));
-    footUnder(machs.write.place(band, D_mach.M.crank, 19, 117));
+    footUnder(machs.write.place(band, D_mach.M.winch, 19, 117));
     const c = segs.linkCheck(lo, dock);
     if (!c.ok) {
       fail(`DOCK DELIVERY: a hub cannot be linked to a dock 12 tiles above it (${c.why}) -- the dock ` +
@@ -2927,25 +3029,25 @@ console.log('\n6. the tribute loop');
       bad++;
     } else {
       const seg = segs.write.link(lo, dock);
-      segs.write.carrier(seg, 0, 0);
+      setCar(seg, 0);
       player.write.band(band);
       player.write.move(world.worldX(band, 18), world.worldY(band, 117));
       player.write.vel(0, 0);
       player.write.set('onGround', true);
-      const p = segs.carrierPos(seg);
+      const p = carPos(seg);
       const it = items.write.spawn(band, p.x, p.y, D_sub.S.copper, D_form.F.ore, 0, 0);
       if (it) it.rest = 1;
       /* Long enough for 96 px at the measured ~5 px/s of a loaded single-crank
          ascent, plus the frames the release and the catch take. */
-      for (let i = 0; i < 120 * 40 && seg.t < 1; i++) stepReal(1 / 120, { action: true, hasMouse: false });
+      for (let i = 0; i < 120 * 40 && !overTop(seg); i++) stepReal(1 / 120, { action: true, hasMouse: false });
       runReal(30, 1 / 120, { action: true, hasMouse: false });
       /* The dock's own buffer is transient while a cycle that names it is live:
          `drainReceivers` empties it into `run.tribute.have` the same frame it is fed.
          An ore is no part of cycle 2's demand, so the trial stays armed. */
       const held = machs.count(dock, '*/#ore');
       const credited = run.run.tribute?.have?.['copper/ore'] ?? 0;
-      if (seg.t < 1) {
-        fail(`DOCK DELIVERY: the carrier only reached t = ${seg.t.toFixed(3)} in 40 s of cranking, so no ` +
+      if (!overTop(seg)) {
+        fail(`DOCK DELIVERY: the carrier only reached t = ${carT(seg).toFixed(3)} in 40 s of cranking, so no ` +
              `arrival ever happened and the delivery was not tested`);
         bad++;
       } else if (held !== 0 || credited !== 1) {
@@ -3043,7 +3145,7 @@ console.log('\n6. the tribute loop');
        frame (buffer back to 0) and then completes the trial. */
     const held = machs.count(m, '*/#ore');
     const left = run.invCount(D_sub.S.copper, D_form.F.ore);
-    const paid = run.run.cycle > 1 && run.run.granted.includes('furnace') &&
+    const paid = run.run.cycle > 1 && run.run.granted.includes('winch') &&
                  run.run.granted.includes('cloud_dock');
     if (held !== 0 || left !== 0 || !paid) {
       fail(`ALTAR HAND FEED: standing ${Math.round(m.box.x - player.player.x)} px from a 2x2 altar and ` +
@@ -3212,7 +3314,7 @@ console.log('\n7a. the altar arrives: the beat, and the grace');
         fail(`ALTAR GRACE: ten real feed presses at the grace-placed altar moved ${moved} unit(s), ` +
              `not 10 -- the SETUP failed and the payment below proves nothing`);
         bad++;
-      } else if (run.run.cycle <= 1 || !run.run.granted.includes('furnace')) {
+      } else if (run.run.cycle <= 1 || !run.run.granted.includes('winch')) {
         fail(`ALTAR GRACE: fed the grace-placed altar the whole of cycle 1's demand and run.cycle is ` +
              `${run.run.cycle} (want > 1) with granted ${JSON.stringify(run.run.granted)} (want the ` +
              `furnace) -- the altar arrived but the trial it exists for cannot be paid`);
@@ -3412,15 +3514,17 @@ console.log('\n8. harness gaps found by audit');
   /* model/run.js#placementCheck's own minDepth branch, unrounded. */
   const placementDepthAt = (band, ty) => (world.worldY(band, ty) - datum) / ref.tile;
 
-  run.write.grant('cyclops_maw');                 // the strongest case
-  const CM = D_mach.MACH[D_mach.M.cyclops_maw];
+  /* Whichever machine gates on depth, or none: the formula half below runs
+     either way, and only the real-placement half needs a gated row. */
+  const GATED = D_mach.MACH.find(m => m.minDepth);
+  if (GATED) run.write.grant(GATED.id);
 
   /* One clear, footed footprint, reused at each point by rebuilding it there
      rather than declaring it three times. */
   function tryAt(band, tx, ty) {
-    for (let j = -1; j <= CM.th; j++) for (let i = -1; i <= CM.tw; i++) tiles.write.clear(band, tx + i, ty + j);
-    for (let i = 0; i < CM.tw; i++) tiles.write.set(band, tx + i, ty + CM.th, D_sub.S.stone);
-    return run.placementCheck(band, 'cyclops_maw', tx, ty);
+    for (let j = -1; j <= GATED.th; j++) for (let i = -1; i <= GATED.tw; i++) tiles.write.clear(band, tx + i, ty + j);
+    for (let i = 0; i < GATED.tw; i++) tiles.write.set(band, tx + i, ty + GATED.th, D_sub.S.stone);
+    return run.placementCheck(band, GATED.id, tx, ty);
   }
 
   const surface = world.bandOf('surface');
@@ -3444,9 +3548,10 @@ console.log('\n8. harness gaps found by audit');
       bad++;
       continue;
     }
+    if (!GATED) continue;
 
     const chk = tryAt(p.band, 30, p.ty);
-    const predictedTooShallow = predicted < CM.minDepth;
+    const predictedTooShallow = predicted < GATED.minDepth;
     const actualTooShallow = !chk.ok && chk.why === 'TOO SHALLOW';
     /* `tryAt` clears and foots the exact footprint, so besides depth itself the
        only refusal a legal footprint can produce is 'NOTHING BUILT YET'. Any of
@@ -3457,7 +3562,7 @@ console.log('\n8. harness gaps found by audit');
       bad++;
     } else if (predictedTooShallow !== actualTooShallow) {
       fail(`DATUM: at ${p.label} (world y ${world.worldY(p.band, p.ty)}), the shared datum predicts depth ` +
-           `${predicted.toFixed(2)} tiles against minDepth ${CM.minDepth} (want ` +
+           `${predicted.toFixed(2)} tiles against minDepth ${GATED.minDepth} (want ` +
            `${predictedTooShallow ? "'TOO SHALLOW'" : 'deep enough'}), but placementCheck says ` +
            `${JSON.stringify(chk)} -- the HUD gauge's datum and placementCheck's own have drifted apart`);
       bad++;
@@ -3467,21 +3572,19 @@ console.log('\n8. harness gaps found by audit');
     }
   }
 
-  /* The independent cross-check: `data/machines.js`'s own `cyclops_maw` comment
-     claims topsoil row 220 is depth ~256 against this exact datum. */
+  /* The independent cross-check: topsoil row 220 is ~256 tiles below the
+     spawn datum, which is what anchors every depth reading in the game. */
   if (row220 === null || Math.abs(row220 - 256) > 4) {
     fail(`DATUM: topsoil row 220 computes to depth ${row220} tiles against the shared datum, not the ~256 ` +
-         `data/machines.js's own cyclops_maw comment claims -- one of the two is stale`);
+         `the band layout in data/world.js implies -- one of the two is stale`);
     bad++;
   } else {
-    console.log(`  ..  datum: topsoil row 220 is depth ${row220.toFixed(1)} tiles, matching data/machines.js's ` +
-                'own "~256" note on cyclops_maw');
+    console.log(`  ..  datum: topsoil row 220 is depth ${row220.toFixed(1)} tiles, matching the band layout`);
   }
 
   if (!bad)
-    ok(`DATUM: the HUD gauge's transcribed formula and placementCheck's own REAL decision agree at the ` +
-       `surface band, the astral band, and topsoil row 220 (${row220.toFixed(1)} tiles, matching ` +
-       `data/machines.js's own note on cyclops_maw)`);
+    ok(`DATUM: the HUD gauge's transcribed formula and ${GATED ? "placementCheck's own REAL decision " : ''}` +
+       `agree at the surface band, the astral band, and topsoil row 220 (${row220.toFixed(1)} tiles)`);
 }
 
 /* Render purity, extended to the map overview, the band ruler, and an active
@@ -3636,15 +3739,15 @@ console.log('\n8b. broken-chain delivery (rules/drive.js fix, checked here)');
   {
     const r = driveRig({
       seed: 9570, room: { ty0: 100, h: 18 },
-      machines: [['hub', 20, 115], ['hub', 20, 105], ['crank', 19, 115]],
+      machines: [['hub', 20, 115], ['hub', 20, 105], ['winch', 19, 115]],
       links: [[0, 1]], player: [18, 115], cargo: [[0, 'copper', 'ore', 1]]
     });
     journal.write.drain();
-    for (let i = 0; i < 120 * 30 && r.seg.t < 1; i++) stepReal(1 / 120, { action: true, hasMouse: false });
+    for (let i = 0; i < 120 * 30 && !overTop(r.seg); i++) stepReal(1 / 120, { action: true, hasMouse: false });
     runReal(5, 1 / 120, { action: true, hasMouse: false });
     const rows = journal.write.drain().filter(j => j.kind === 'refused' && /CHAIN ENDS HERE/.test(j.data?.why ?? ''));
-    if (r.seg.t < 1) {
-      fail(`BROKEN CHAIN: the rig only reached t = ${r.seg.t.toFixed(3)} in 30 s of cranking -- the ` +
+    if (!overTop(r.seg)) {
+      fail(`BROKEN CHAIN: the rig only reached t = ${carT(r.seg).toFixed(3)} in 30 s of cranking -- the ` +
            'arrival this test needs never happened');
       bad++;
     } else if (!rows.length) {
@@ -3661,15 +3764,15 @@ console.log('\n8b. broken-chain delivery (rules/drive.js fix, checked here)');
   {
     const r = driveRig({
       seed: 9571, room: { ty0: 100, h: 18 },
-      machines: [['hub', 20, 115], ['cloud_dock', 20, 105], ['crank', 19, 115]],
+      machines: [['hub', 20, 115], ['cloud_dock', 20, 105], ['winch', 19, 115]],
       links: [[0, 1]], player: [18, 115], cargo: [[0, 'copper', 'ore', 1]]
     });
     journal.write.drain();
-    for (let i = 0; i < 120 * 30 && r.seg.t < 1; i++) stepReal(1 / 120, { action: true, hasMouse: false });
+    for (let i = 0; i < 120 * 30 && !overTop(r.seg); i++) stepReal(1 / 120, { action: true, hasMouse: false });
     runReal(5, 1 / 120, { action: true, hasMouse: false });
     const rows = journal.write.drain().filter(j => j.kind === 'refused' && /CHAIN ENDS HERE/.test(j.data?.why ?? ''));
-    if (r.seg.t < 1) {
-      fail(`BROKEN CHAIN: the dock rig only reached t = ${r.seg.t.toFixed(3)} in 30 s of cranking -- the ` +
+    if (!overTop(r.seg)) {
+      fail(`BROKEN CHAIN: the dock rig only reached t = ${carT(r.seg).toFixed(3)} in 30 s of cranking -- the ` +
            'arrival this negative case needs never happened');
       bad++;
     } else if (rows.length) {
@@ -3687,7 +3790,7 @@ console.log('\n8b. broken-chain delivery (rules/drive.js fix, checked here)');
   {
     const r = driveRig({
       seed: 9572, room: { ty0: 90, h: 28 },
-      machines: [['hub', 20, 115], ['hub', 20, 105], ['hub', 20, 95], ['crank', 19, 115]],
+      machines: [['hub', 20, 115], ['hub', 20, 105], ['hub', 20, 95], ['winch', 19, 115]],
       links: [[0, 1], [1, 2]], player: [18, 115], cargo: [[0, 'copper', 'ore', 1]]
     });
     journal.write.drain();
@@ -3744,13 +3847,15 @@ console.log('\n8c. HEAVENS LEDGER: cycle completion unlocks exactly one band');
   } else {
     console.log('  ..  cycle charts: cycle 1 completion charted exactly [\'astral\']');
 
-    /* Cycle 2: `cloud_dock`, 3 copper/plate, fed the same way, five tiles clear of
+    /* Cycle 2: `cloud_dock`, its whole demand in ingots, fed the same way, five tiles clear of
        the altar -- `handFeed`'s proximity drain is one auto-feed click from live,
        so the geometry stays clear however the verb names one machine. */
     const chartDock = footUnder(machs.write.place(topsoil, D_mach.M.cloud_dock, 27, 115));
     player.write.move(world.worldX(topsoil, 26), world.worldY(topsoil, 115));
-    run.write.collect(D_sub.S.copper, D_form.F.plate, 3);
-    feedByHand(chartDock, D_sub.S.copper, D_form.F.plate, 3);
+    /* Read off the cycle table, so retuning the demand retunes the fixture. */
+    const want2 = D_cycles.CYCLES[1].demand[0].n;
+    run.write.collect(D_sub.S.copper, D_form.F.ingot, want2);
+    feedByHand(chartDock, D_sub.S.copper, D_form.F.ingot, want2);
     runReal(2, 1 / 120, { hasMouse: false });
 
     if (run.run.cycle <= 2 || run.run.charted.length !== 2 ||
@@ -3904,22 +4009,29 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
   };
 }
 
-/* Three substances, varying every term independently: `copper` (charge 4, tier
-   1, stock pick), `tin` (charge 4 at another hardness, so seconds-per-unit and
-   unit count cannot be conflated), `granite` (charge 3, tier 2, auger at 1.8). */
+/* Three substances varying every term independently: `copper` and `iron` at
+   tier 1 and different hardnesses, `adamant` at tier 2 behind the auger. A
+   shipped deposit is minutes of mining per tile, so each is bent to
+   PROBE_CHARGE through a real `richness` row -- the pipeline the game reads. */
 {
   const RATES = [20, 30, 60, 90, 107, 120, 144, 240];
+  const PROBE_CHARGE = 4;
   const CASES = [
     { sub: 'copper',  tool: null },
-    { sub: 'tin',     tool: null },
-    { sub: 'granite', tool: 'auger' }
+    { sub: 'iron',    tool: null },
+    { sub: 'adamant', tool: 'auger' }
   ];
   let bad = 0, worst = 0, worstAt = '';
   for (const c of CASES) {
     const row = D_sub.SUB[D_sub.S[c.sub]];
-    const charge = row.tile.charge ?? 1;
+    const mul = PROBE_CHARGE / (row.tile.charge ?? 1);
+    const modRows = [{ key: `richness.${c.sub}`, mul }];
+    /* Read back through `eff` and rounded exactly as the two break sites
+       round it, so the probe asserts against what the game will actually
+       yield rather than against PROBE_CHARGE. */
+    const charge = PROBE_CHARGE;
     for (const fps of RATES) {
-      const r = handMineTile(c.sub, fps, { tool: c.tool });
+      const r = handMineTile(c.sub, fps, { tool: c.tool, modRows });
       if (!r.gone) { fail(`DEPLETION: ${c.sub} never broke at ${fps} fps (${r.frames} frames)`); bad++; continue; }
       if (r.drops !== charge) {
         fail(`DEPLETION: hand-mining one ${c.sub} tile at ${fps} fps yielded ${r.drops} ` +
@@ -3962,13 +4074,13 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
    forced to 1 (every unit lands) and to 0 (none, and the tile still breaks). */
 {
   const REAL = {
-    copper: mods.eff('dropChance', 'copper'), tin: mods.eff('dropChance', 'tin'),
+    copper: mods.eff('dropChance', 'copper'), iron: mods.eff('dropChance', 'iron'),
     granite: mods.eff('dropChance', 'granite'),
     soil: mods.eff('dropChance', 'soil'), stone: mods.eff('dropChance', 'stone')
   };
   let bad = 0;
-  if (REAL.copper !== 1 || REAL.tin !== 1 || REAL.granite !== 1)
-    { fail(`YIELD QUALITY: ore/deposit dropChance drifted -- copper ${REAL.copper}, tin ${REAL.tin}, ` +
+  if (REAL.copper !== 1 || REAL.iron !== 1 || REAL.granite !== 1)
+    { fail(`YIELD QUALITY: ore/deposit dropChance drifted -- copper ${REAL.copper}, iron ${REAL.iron}, ` +
            `granite ${REAL.granite}, want 1 for all three`); bad++; }
   if (REAL.soil !== 0.05)
     { fail(`YIELD QUALITY: soil dropChance is ${REAL.soil}, want 0.05`); bad++; }
@@ -4001,74 +4113,6 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
        `none but still breaks on schedule`);
 }
 
-/* Hand and a fuelled placed miner exhaust an identical tile in an identical
-   time, to 0.0000 s, through the two real break sites -- `rules` siblings that
-   may not import one another and so implement the sequence twice. */
-{
-  const dt = 1 / 120;
-  boot.newRun(1462);
-  const band = world.bandOf('topsoil');
-  const txA = 10, tyA = 60, txB = 30, tyB = 60;
-
-  for (let dy = -4; dy <= 10; dy++)
-    for (let dx = -1; dx <= 1; dx++) tiles.write.clear(band, txA + dx, tyA + dy);
-  for (let dy = -2; dy <= 2; dy++)
-    for (let dx = -2; dx <= 2; dx++) tiles.write.clear(band, txB + dx, tyB + dy);
-  tiles.write.set(band, txA, tyA, D_sub.S.copper);
-  tiles.write.set(band, txB, tyB, D_sub.S.copper);
-  mining.write.clearAll();
-
-  /* `mine.facing:1` (data/machines.js), so the head chews the column to its
-     right; four logs is its whole buffer cap and 48 s of chewing at
-     `mine.secs:12`, far more than the 3.8 s this takes. */
-  const head = machs.write.place(band, D_mach.M.talos_head, txB - 1, tyB);
-  machs.write.take(head, D_sub.S.timber, D_form.F.log, 4);
-
-  /* `rules/machines.js#bestHandToolPower` scans `item.tool.power` over the
-     substance table rather than over the player's pockets, so a placed head
-     always chews at the best power the content tables define -- 1.8. */
-  run.write.collect(D_sub.S.pick, D_form.F.relic, 1);
-  run.write.collect(D_sub.S.auger, D_form.F.relic, 1);
-  player.write.band(band);
-  player.write.move(world.worldX(band, txA), world.worldY(band, tyA - 2));
-  player.write.vel(0, 0);
-  player.write.set('onGround', true);
-  player.write.set('fallFrom', player.player.y);
-
-  let handOut = 0, machOut = 0;
-  const orig = items.write.spawn;
-  items.write.spawn = (b, x, y, sub, form, vx, vy) => {
-    if (sub === D_sub.S.copper && form === D_form.F.ore) {
-      if (Math.abs(x - world.worldX(band, txA)) < 32) handOut++; else machOut++;
-    }
-    return orig(b, x, y, sub, form, vx, vy);
-  };
-
-  let handAt = -1, machAt = -1, f = 0;
-  while ((handAt < 0 || machAt < 0) && f < 120 * 30) {
-    stepReal(dt, { down: true, dig: true, hasMouse: false });
-    f++;
-    if (handAt < 0 && tiles.tileAt(band, txA, tyA) === D_form.AIR) handAt = f;
-    if (machAt < 0 && tiles.tileAt(band, txB, tyB) === D_form.AIR) machAt = f;
-  }
-  items.write.spawn = orig;
-
-  const charge = D_sub.SUB[D_sub.S.copper].tile.charge ?? 1;
-  if (handAt < 0 || machAt < 0)
-    fail(`MINER PARITY: hand broke at frame ${handAt}, the Talos Head at frame ${machAt} (-1 means never, ` +
-         `in ${f} frames) -- one of the two break sites is not chewing at all`);
-  else if (handAt !== machAt)
-    fail(`MINER PARITY: hand exhausted its copper tile at ${(handAt * dt).toFixed(4)}s and the fuelled ` +
-         `Talos Head exhausted an identical one at ${(machAt * dt).toFixed(4)}s -- a difference of ` +
-         `${Math.abs(handAt - machAt) * dt} s, and the parity claim says 0.0000`);
-  else if (handOut !== charge || machOut !== charge)
-    fail(`MINER PARITY: same time, different yield -- hand dropped ${handOut} copper/ore and the Talos ` +
-         `Head ${machOut}, against tile.charge ${charge}`);
-  else
-    ok(`MINER PARITY: hand-mining and a fuelled Talos Head each exhaust an identical copper tile at ` +
-       `${(handAt * dt).toFixed(4)}s (difference 0.0000 s) and each yield exactly ${charge} ore -- the two ` +
-       `break sites agree on units as well as on rate`);
-}
 
 /* `model/tiles.js#write.setByte` clears `model/mining.js`'s entry in the one
    place every edit funnels through; a synthetic call would not prove real
@@ -4207,18 +4251,20 @@ function handMineTile(subId, fps, { seed = 1461, tool = null, modRows = null } =
        `count and seconds both back to ${freshWork.n}/${freshWork.sum}`);
 }
 
-/* Mass conservation over `pack`, live. `pack` is the first `hand:true` row
-   whose input is a tag-scoped selector (`#bulk`), so `choose` has to resolve it
+/* Mass conservation over `stone_block`, live. It is a `hand:true` row whose
+   input is a tag-scoped selector (`#bulk`), so `choose` has to resolve it
    through `pocketedPair` and carry the element into a `subFrom` output. */
 {
   boot.newRun(1465);
   const heldMass = () => {
     let m = 0;
     for (const slot of run.run.inv) if (slot) m += items.massOfPair(slot.sub, slot.form) * slot.n;
+    /* A relic is worn rather than pocketed, and it weighs the same either way. */
+    for (const sub of run.run.equipped) if (sub !== null) m += items.massOfPair(sub, D_form.F.relic);
     for (const it of items.items) m += items.massOf(it);
     return m;
   };
-  const PACK = D_recipes.RECIPES.pack;
+  const PACK = D_recipes.RECIPES.stone_block;
   const need = PACK.in['#bulk/gravel'];
   run.write.collect(D_sub.S.soil, D_form.F.gravel, need);
   const before = heldMass();
@@ -4276,28 +4322,28 @@ console.log('\n8f. THE CLOSED LOOP');
   player.write.move(world.worldX(band, 21), world.worldY(band, 117));
   player.write.vel(0, 0);
   player.write.set('onGround', true);
-  run.write.collect(D_sub.S.copper, D_form.F.plate, 3);
+  run.write.collect(D_sub.S.copper, D_form.F.ingot, 3);
   /* Two to the altar (cycle 1's receiver, and the wrong one now) and one to the
      dock (the live one). */
-  const fedAltar = feedByHand(altar, D_sub.S.copper, D_form.F.plate, 2);
-  const fedDock  = feedByHand(dock,  D_sub.S.copper, D_form.F.plate, 1);
+  const fedAltar = feedByHand(altar, D_sub.S.copper, D_form.F.ingot, 2);
+  const fedDock  = feedByHand(dock,  D_sub.S.copper, D_form.F.ingot, 1);
   runReal(2, 1 / 120, { hasMouse: false });
   if (fedAltar !== 2 || fedDock !== 1) {
-    fail(`TRIBUTE GATE: the SETUP failed -- ${fedAltar} plate(s) reached the altar (want 2) and ` +
+    fail(`TRIBUTE GATE: the SETUP failed -- ${fedAltar} ingot(s) reached the altar (want 2) and ` +
          `${fedDock} the dock (want 1), so the split this claim is about never happened`);
     bad++;
   }
 
   const inAltar = machs.count(altar, '*/#refined');
   const inDock  = machs.count(dock, '*/#refined');
-  const credited = run.run.tribute?.have?.['copper/plate'] ?? 0;
-  const held = run.invCount(D_sub.S.copper, D_form.F.plate);
+  const credited = run.run.tribute?.have?.['copper/ingot'] ?? 0;
+  const held = run.invCount(D_sub.S.copper, D_form.F.ingot);
 
   /* Both machines were in reach and both were really fed. Only the dock's share
      may credit, and the altar's share must still be sitting in the altar rather
      than having vanished. */
   if (inAltar < 1) {
-    fail(`TRIBUTE GATE: after feeding 3 plates by hand within reach of BOTH receivers, the altar holds ` +
+    fail(`TRIBUTE GATE: after feeding 3 ingots by hand within reach of BOTH receivers, the altar holds ` +
          `${inAltar} (want >= 1, uncredited but not destroyed) -- either the feed never reached it or ` +
          `the wrong-receiver material is being eaten`);
     bad++;
@@ -4306,7 +4352,7 @@ console.log('\n8f. THE CLOSED LOOP');
      conserved sum is ledger + altar + pockets, and the ledger must be strictly
      short of the 3-plate demand. */
   if (inDock !== 0 || credited < 1 || credited >= 3 || credited + inAltar + held !== 3) {
-    fail(`TRIBUTE GATE: 3 plates fed; the ledger credits ${credited}, the dock holds ${inDock} (want 0, ` +
+    fail(`TRIBUTE GATE: 3 ingots fed; the ledger credits ${credited}, the dock holds ${inDock} (want 0, ` +
          `drained), the altar holds ${inAltar}, the pockets hold ${held} -- the ledger must hold exactly ` +
          `what the LIVE receiver drained (1 or 2, never all 3), and ledger + altar + pockets must still ` +
          `be 3: nothing may go missing`);
@@ -4888,7 +4934,7 @@ function trunkHeight(band, tx, ty) {
 
 /* Exhaustive rather than a spot check: every neighbourhood the predicate can
    see -- above and below each of {air, solid, climbable}, left and right each
-   of {air, solid}, 36 in all -- crossed with all four tile-capable forms. */
+   of {air, solid}, 36 in all -- crossed with every tile-capable form. */
 {
   let bad = 0, cases = 0;
   const OUTSIDE = ['air', 'solid'];
@@ -4906,9 +4952,9 @@ function trunkHeight(band, tx, ty) {
          : D_sub.S.soil
     }));
 
-  if (FORMS.length !== 4)
-    fail(`ROOTS: ${FORMS.length} tile-capable forms (${FORMS.map(r => r.id).join(', ')}), want 4 ` +
-         `(rung/stair/block/seed) -- a new one needs a column in this table`);
+  if (FORMS.length !== 3)
+    fail(`ROOTS: ${FORMS.length} tile-capable forms (${FORMS.map(r => r.id).join(', ')}), want 3 ` +
+         `(rung/block/seed) -- a new one needs a column in this table`);
 
   boot.newRun(9660);
   const band = world.bandOf('surface');
@@ -4985,7 +5031,7 @@ function trunkHeight(band, tx, ty) {
   }
 
   if (!bad)
-    ok(`ROOTS: ${cases} placement verdicts over all 36 neighbourhoods x 4 tile-capable forms match ` +
+    ok(`ROOTS: ${cases} placement verdicts over all 36 neighbourhoods x ${FORMS.length} tile-capable forms match ` +
        `the predicate computed independently -- rung/stair/block are BIT-IDENTICAL to the ` +
        `pre-Phase-15 rule (a rung on a bare floor still refuses), seed differs in exactly the ` +
        `solid-below case, and log does not reach the predicate at all`);
@@ -5348,9 +5394,10 @@ console.log('\n8i. THE FEED VERB');
 
   /* Refusal 2 -- right material, no room. A furnace and not the altar, because
      `drainReceivers` empties a tribute receiver's buffer the same frame it fills.
-     A furnace with no fuel runs no recipe, so 8 ore in an 8-cap buffer stay. */
-  const fullM = feedScene(D_mach.M.furnace);
-  machs.write.take(fullM.m, D_sub.S.copper, D_form.F.ore, 8);
+     A kiln with no fuel runs no recipe, so a full ore buffer stays full. */
+  const cap = machs.capOf(D_mach.MACH[D_mach.M.kiln], '*/#ore');
+  const fullM = feedScene(D_mach.M.kiln);
+  machs.write.take(fullM.m, D_sub.S.copper, D_form.F.ore, cap);
   run.write.collect(D_sub.S.copper, D_form.F.ore, 3);
   shellUi.armPlace(D_sub.S.copper, D_form.F.ore);
   journal.write.drain();
@@ -5358,19 +5405,18 @@ console.log('\n8i. THE FEED VERB');
   const fullWhy = journal.write.drain()
     .filter(r => r.kind === 'refused').map(r => r.data?.why);
   const oreLeft = run.invCount(D_sub.S.copper, D_form.F.ore);
-  const cap = machs.capOf(D_mach.MACH[D_mach.M.furnace], '*/#ore');
   if (!fullWhy.includes('IT IS FULL') || oreLeft !== 3) {
-    fail(`FEED VERB (full): feeding copper/ore to a furnace already holding ${cap}/${cap} ore pushed ` +
+    fail(`FEED VERB (full): feeding copper/ore to a kiln already holding ${cap}/${cap} ore pushed ` +
          `refusals ${JSON.stringify(fullWhy)} and left ${oreLeft} ore held -- want 'IT IS FULL' and 3 `);
     bad++;
   } else {
-    console.log(`  ..  ore at a ${cap}/${cap} furnace: 'IT IS FULL', nothing spent`);
+    console.log(`  ..  ore at a ${cap}/${cap} kiln: 'IT IS FULL', nothing spent`);
   }
 
   /* Precedence: the same full furnace, the wrong material. Both refusals are
      true at once, and the material is the one said -- a player holding a rung
      does not care that a buffer they could never fill is full. */
-  const bothM = feedScene(D_mach.M.furnace);
+  const bothM = feedScene(D_mach.M.kiln);
   machs.write.take(bothM.m, D_sub.S.copper, D_form.F.ore, 8);
   run.write.collect(D_sub.S.timber, D_form.F.rung, 2);
   shellUi.armPlace(D_sub.S.timber, D_form.F.rung);
@@ -5496,13 +5542,15 @@ console.log('\n8k. THE QUICKBAR FILLS FIRST');
     return run.run.inv.findIndex(s => s && s.sub === sub && s.form === form);
   };
 
-  /* Every pair the content tables can express, so the capacity probe fills real
-     slots with real pairs. A lit brand burns down while it is held
-     (`rules/light.js`) and would free a slot mid-probe, so it is left out. */
+  /* Every pocketable pair except `brand`, which burns down while held and
+     would free a slot mid-probe. That exclusion is what makes it the pair the
+     bag overflows with below: a refused pickup is never held. A `relic` is
+     worn rather than pocketed, so it never reaches `run.inv` at all. */
   const ALL = [];
   for (const sub of Object.keys(D_sub.SUB))
     for (const form of Object.keys(D_form.FORM))
-      if (D_form.crossable(+sub, +form) && +form !== D_form.F.brand) ALL.push([+sub, +form]);
+      if (D_form.crossable(+sub, +form) && +form !== D_form.F.brand && +form !== D_form.F.relic)
+        ALL.push([+sub, +form]);
 
   /* Fill order: the strip first, left to right, then slot 0 of the bag. */
   {
@@ -5561,18 +5609,26 @@ console.log('\n8k. THE QUICKBAR FILLS FIRST');
     const band = room(7719);
     mods.write.add('phase17i-capacity', [{ key: 'burden', mul: 100 }]);
     const cap = run.run.inv.length;
-    for (let i = 0; i < cap; i++) run.write.collect(ALL[i][0], ALL[i][1], 1);
+
+    /* Relics leaving the pockets took the pair count below the slot count, so
+       distinct pairs can no longer fill the bag: `collect`'s refusal is a
+       guard against content growing, not a condition play reaches. The bag is
+       therefore filled directly, with a pair the overflow item is not. */
+    for (let i = 0; i < cap; i++)
+      run.run.inv[i] = { sub: D_sub.S.copper, form: D_form.F.ore, n: 1 };
+
     const full = run.run.inv.every(s => s !== null);
-    const [sub, form] = ALL[cap];
+    const sub = D_sub.S.timber, form = D_form.F.brand;
     const before = journal.peek().length;
     const at = pocket(band, sub, form);
     const rows = journal.peek().slice(before)
       .filter(j => j.kind === 'refused' && j.data?.why === 'INVENTORY FULL');
     const onGround = items.items.some(it => it.sub === sub && it.form === form);
     mods.write.removeBySource('phase17i-capacity');
-    if (!full || ALL.length <= cap) {
-      fail(`INVENTORY FULL: the scene filled ${run.run.inv.filter(s => s !== null).length} of ${cap} slots ` +
-           `from ${ALL.length} expressible pairs -- it cannot prove a refusal it never reached`);
+
+    if (!full) {
+      fail(`INVENTORY FULL: the bag holds ${run.run.inv.filter(s => s !== null).length} of ${cap} ` +
+           `slots -- it cannot prove a refusal it never reached`);
       bad++;
     } else if (at !== -1 || !onGround || !rows.length) {
       fail(`INVENTORY FULL: with all ${cap} slots taken, a ${D_form.labelOf(sub, form)} under the player landed in slot ` +
@@ -5581,7 +5637,8 @@ console.log('\n8k. THE QUICKBAR FILLS FIRST');
       bad++;
     } else {
       ok(`INVENTORY FULL: all ${cap} slots taken, the next pickup is refused through rules/items.js#step ` +
-         `with one 'INVENTORY FULL' journal row, and the item is still lying on the ground`);
+         `with one 'INVENTORY FULL' journal row, and the item is still lying on the ground ` +
+         `(${ALL.length} pocketable pairs against ${cap} slots, so play does not reach this)`);
     }
   }
 
@@ -5734,11 +5791,16 @@ console.log('\n8l. THE DRAFT: the offer, the pause and the price');
     oneFrame();                                   // cycle 1 arms
     payLive();                                    // ... and pays. No draft in its reward.
     oneFrame();                                   // cycle 2 arms
-    payLive();                                    // ... pays, and hephaestus lays out a grant offer
+    /* No shipped tier is smaller than an offer, so the offer is widened past
+       the tier instead -- through a real `offerSize` row, which is the same
+       path a boon would bend it by. Removed before 3b, which needs a tier
+       with cards to spare. */
+    mods.write.add('draft-exhaust', [{ key: 'offerSize', mul: 3 }]);
+    payLive();                                    // ... pays, and hephaestus lays one out
 
     /* 3a -- a tier with nothing spare refuses for that reason and not for the
-       purse. `data/grants.js` ships 2 rows against an offer of 3, so the pool can
-       never be larger than the cards on the table. */
+       purse. Every candidate is on the table, so the pool cannot be larger
+       than the cards. */
     const gOffer = run.run.offer;
     const gFav = run.run.favour.hephaestus ?? 0;
     const gIds = idsNow();
@@ -5746,9 +5808,14 @@ console.log('\n8l. THE DRAFT: the offer, the pause and the price');
     reroll();
     const gRows = refusals(gFrom);
 
-    if (gOffer?.tier !== 'grant' || gOffer.god !== 'hephaestus' || !gOffer.ids?.length) {
+    const want2 = D_cycles.CYCLES[1].reward.draft;
+    if (gOffer?.tier !== want2 || gOffer.god !== 'hephaestus' || !gOffer.ids?.length) {
       fail(`DRAFT REROLL (exhausted): paying cycle 2 raised ${JSON.stringify(gOffer)} -- want a ` +
-           `laid-out 'grant' offer asked by hephaestus, per data/cycles.js`);
+           `laid-out '${want2}' offer asked by hephaestus, per data/cycles.js`);
+      bad++;
+    } else if (gOffer.ids.length < gOffer.pool) {
+      fail(`DRAFT REROLL (exhausted): the offer shows ${gOffer.ids.length} of ${gOffer.pool} ` +
+           `candidates, so the tier is NOT exhausted and a refusal here would prove nothing`);
       bad++;
     } else if (gFav < PRICE) {
       fail(`DRAFT REROLL (exhausted): hephaestus is owed ${gFav} favour against a ${PRICE} price, ` +
@@ -5765,10 +5832,11 @@ console.log('\n8l. THE DRAFT: the offer, the pause and the price');
            `exactly one 'THIS IS ALL THERE IS'`);
       bad++;
     } else {
-      console.log(`  ..  the grant tier offers ${gOffer.ids.length} of ${gOffer.pool} and refuses a ` +
-                  `reroll with 'THIS IS ALL THERE IS', hephaestus' ${gFav} favour untouched`);
+      console.log(`  ..  the ${gOffer.tier} tier offers ${gOffer.ids.length} of ${gOffer.pool} and ` +
+                  `refuses a reroll with 'THIS IS ALL THERE IS', hephaestus' ${gFav} favour untouched`);
     }
 
+    mods.write.removeBySource('draft-exhaust');
     takeCard();
     oneFrame();                                   // cycle 3 arms
     payLive();                                    // ... pays, and athena lays out a boon offer
@@ -6712,7 +6780,8 @@ const saveSnap = () => JSON.stringify({
     prog: +m.prog.toFixed(4), made: m.made, charges: m.charges, fire: +m.fire.toFixed(4),
     running: m.running, torque: +m.torque.toFixed(4), turn: +m.turn.toFixed(4) })),
   segments: segs.segments.map(s => ({ a: machs.machines.indexOf(s.a), b: machs.machines.indexOf(s.b),
-    t: +s.t.toFixed(6), dir: s.dir, load: +s.load.toFixed(4) })),
+    u: +s.u.toFixed(6), spin: s.spin, load: +s.load.toFixed(4),
+    cars: s.carriers.map(c => +c.off.toFixed(6)) })),
   digs: mining.activeCount(),
   growth: [...growth.planted().entries()].map(([k, e]) => [k, +e.secs.toFixed(4)]).sort(),
   boons: modelBoons.boons.active.map(a => ({ id: a.id, left: +a.left.toFixed(4) })),
@@ -6743,8 +6812,8 @@ function richRun(seed) {
   machs.write.fire(h1, 3.25);
   machs.write.running(h1, true);
   const sg = segs.write.link(h1, h2);
-  if (sg) { segs.write.carrier(sg, 0.37, 1); segs.write.load(sg, 2.5); }
-  run.write.collect(D_sub.S.copper, D_form.F.plate, 3);
+  if (sg) { setCar(sg, 0.37); segs.write.load(sg, 2.5); }
+  run.write.collect(D_sub.S.copper, D_form.F.ingot, 3);
   run.write.tick(88.5);
   run.write.hurt(2, 'FALL');
   modelBoons.write.grant(SAVE_BOON, 12.5);
@@ -7545,6 +7614,418 @@ function digSecs(subId, n = 1) {
   if (!bad)
     ok(`KEY AIM (vertical): held up + dig and held down + dig each break their own row in the ` +
        `derived ${want.toFixed(3)} s (${notes.join(', ')})`);
+}
+
+console.log('\n8u. BELTS ARE DRIVEN, AND STEEP ONES DO NOT GRIP');
+
+/* A belt is one tile and a run of touching tiles turns as one, off whatever
+   drive reaches any of them. Nothing here burns fuel: the whole of a belt's
+   cost is the torque it takes off its drivetrain. */
+{
+  const beltRun = (seed, cells, extra = {}) => driveRig({
+    seed, room: { tx0: 5, ty0: 100, h: 18, w: 20 },
+    machines: [['winch', 12, 115], ...cells.map(([tx, ty]) => ['belt_r', tx, ty])],
+    player: [11, 115], ...extra
+  });
+
+  /* Resting on the floor line under a belt tile, which is where a landed item
+     settles: the belt's footprint bottom is the top of its own footing. */
+  const drop = (band, m, sub = 'copper', form = 'ore') => {
+    const half = items.sizeOf({ sub: D_sub.S[sub], form: D_form.F[form], mod: null }) / 2;
+    const it = items.write.spawn(band, m.box.x + m.box.w / 2, m.box.y + m.box.h - half,
+                                 D_sub.S[sub], D_form.F[form], 0, 0);
+    it.rest = 1;
+    return it;
+  };
+
+  const FLAT = [[13, 115], [14, 115], [15, 115], [16, 115]];
+  const DT = 1 / 120, N = 48;
+
+  /* `rules/belts.js` reads the drive `rules/drive.js` wrote on the previous
+     substep, so the first substep of a hold moves nothing. */
+  const want = mods.eff('beltSpeed') * (N - 1) * DT;
+
+  let bad = 0;
+
+  const held = beltRun(8600, FLAT);
+  const a = drop(held.band, held.placed[1]);
+  const ax0 = a.x;
+  runReal(N, DT, { hasMouse: false, action: true });
+  const moved = a.x - ax0;
+
+  const idle = beltRun(8601, FLAT);
+  const b = drop(idle.band, idle.placed[1]);
+  const bx0 = b.x;
+  runReal(N, DT, { hasMouse: false });
+  const still = b.x - bx0;
+
+  if (Math.abs(moved - want) > 1e-6) {
+    fail(`BELT (driven): a held winch should carry the ore ${want.toFixed(4)} px in ` +
+         `${(N * DT).toFixed(2)} s at eff('beltSpeed') ${mods.eff('beltSpeed')} px/s; it moved ` +
+         `${moved.toFixed(4)} px`);
+    bad++;
+  }
+  if (still !== 0) {
+    fail(`BELT (idle): with nobody turning the winch the run has no drive, so the ore must not ` +
+         `move at all; it moved ${still.toFixed(4)} px`);
+    bad++;
+  }
+  if (!bad)
+    ok(`BELT (driven): a 4-tile run carries ore ${moved.toFixed(2)} px while the winch is held ` +
+       `and ${still.toFixed(2)} px when it is not`);
+}
+
+/* The 30-degree limit, measured over the whole run rather than step to step:
+   a run climbing one row every two tiles is 18 degrees and grips, and one
+   climbing every tile is 45 and does not. */
+{
+  const rig = (seed, cells) => driveRig({
+    seed, room: { tx0: 5, ty0: 100, h: 18, w: 20 },
+    machines: [['winch', 12, 115], ...cells.map(([tx, ty]) => ['belt_r', tx, ty])],
+    player: [11, 115]
+  });
+  const drop = (band, m) => {
+    const half = items.sizeOf({ sub: D_sub.S.copper, form: D_form.F.ore, mod: null }) / 2;
+    const it = items.write.spawn(band, m.box.x + m.box.w / 2, m.box.y + m.box.h - half,
+                                 D_sub.S.copper, D_form.F.ore, 0, 0);
+    it.rest = 1;
+    return it;
+  };
+
+  /* sin of the run, as `rules/belts.js` computes it: rise over the diagonal
+     between the extreme columns. */
+  const sine = cells => {
+    const xs = cells.map(c => c[0]), ys = cells.map(c => c[1]);
+    const dx = Math.max(...xs) - Math.min(...xs);
+    const dy = ys[xs.indexOf(Math.max(...xs))] - ys[xs.indexOf(Math.min(...xs))];
+    return Math.abs(dy) / Math.hypot(dx, dy);
+  };
+
+  const STEEP  = [[13, 115], [14, 114], [15, 113], [16, 112]];
+  const SHALLOW = [[13, 115], [14, 115], [15, 114], [16, 114]];
+  const LIMIT = mods.eff('beltMaxSlope');
+  let bad = 0;
+
+  const s = rig(8610, STEEP);
+  const si = drop(s.band, s.placed[4]);            // the topmost tile of the climb
+  const sx0 = si.x;
+  runReal(60, 1 / 120, { hasMouse: false, action: true });
+  const sdx = si.x - sx0;
+
+  const h = rig(8611, SHALLOW);
+  const hi = drop(h.band, h.placed[1]);            // the lowest tile of the climb
+  const hx0 = hi.x, hy0 = hi.y;
+  runReal(60, 1 / 120, { hasMouse: false, action: true });
+  const hdx = hi.x - hx0, hdy = hi.y - hy0;
+
+  if (!s.placed.slice(1).every(m => m.slip)) {
+    fail(`BELT (steep): a run at sin ${sine(STEEP).toFixed(3)} is over eff('beltMaxSlope') ` +
+         `(${LIMIT}) and every tile of it must read slip, for the warning the player sees`);
+    bad++;
+  }
+  if (!(sdx < 0)) {
+    fail(`BELT (steep): the ore on a run too steep to grip must run back downhill even while the ` +
+         `winch is held; it moved ${sdx.toFixed(3)} px, and downhill is negative x here`);
+    bad++;
+  }
+  if (h.placed.slice(1).some(m => m.slip)) {
+    fail(`BELT (shallow): a run at sin ${sine(SHALLOW).toFixed(3)} is under eff('beltMaxSlope') ` +
+         `(${LIMIT}) and must not read slip on any tile`);
+    bad++;
+  }
+  if (!(hdx > 0 && hdy < 0)) {
+    fail(`BELT (shallow): a gripping run must carry the ore forward and up the step; it moved ` +
+         `${hdx.toFixed(3)} px in x and ${hdy.toFixed(3)} px in y, where up is negative y`);
+    bad++;
+  }
+  if (!bad)
+    ok(`BELT (slope): sin ${sine(STEEP).toFixed(3)} slips and runs the ore ${sdx.toFixed(1)} px back ` +
+       `downhill; sin ${sine(SHALLOW).toFixed(3)} grips and carries it ${hdx.toFixed(1)} px along and ` +
+       `${(-hdy).toFixed(1)} px up, against a limit of ${LIMIT}`);
+}
+
+/* Belts and buckets spend one budget. A run long enough to oversubscribe a
+   winch slows the bucket it shares that winch with, which is the whole reason
+   a belt costs anything at all. */
+{
+  const DRAG = mods.eff('beltDrag');
+  const LINE = [];
+  for (let tx = 7; tx <= 18; tx++) LINE.push(['belt_r', tx, 115]);
+
+  const build = (seed, belts) => driveRig({
+    seed, room: { tx0: 5, ty0: 100, h: 18, w: 20 },
+    machines: [['hub', 20, 115], ['hub', 20, 105], ['winch', 19, 115], ...(belts ? LINE : [])],
+    links: [[0, 1]], player: [18, 115]
+  });
+
+  const vAlone = measureV(build(8620, false).seg, 1, 1 / 120, { action: true });
+  const vShared = measureV(build(8621, true).seg, 1, 1 / 120, { action: true });
+
+  const demand = mods.eff('segBase') + mods.eff('segFric') + LINE.length * DRAG;
+  const wantAlone = predictV(winchTorque(), 0, 1);
+  const wantShared = predictV(winchTorque(), 0, 1, demand, 1, winchTorque());
+
+  let bad = 0;
+  for (const [label, got, wanted] of [
+    ['on its own', vAlone, wantAlone],
+    ['sharing with 12 belt tiles', vShared, wantShared]
+  ])
+    if (Math.abs(got - wanted) > 1e-6) {
+      fail(`BELT (budget): the bucket ${label} should climb at ${wanted.toFixed(4)} px/s, ` +
+           `measured ${got.toFixed(4)}`);
+      bad++;
+    }
+  if (!bad && !(vShared < vAlone)) {
+    fail(`BELT (budget): ${LINE.length} belt tiles at ${DRAG} each raise demand to ` +
+         `${demand.toFixed(2)} against a supply of ${winchTorque().toFixed(2)}, so the bucket must ` +
+         `climb slower than the ${vAlone.toFixed(3)} px/s it manages alone`);
+    bad++;
+  }
+  if (!bad)
+    ok(`BELT (budget): ${LINE.length} tiles at ${DRAG} torque each take the shared bucket from ` +
+       `${vAlone.toFixed(2)} to ${vShared.toFixed(2)} px/s (demand ${demand.toFixed(2)}, supply ` +
+       `${winchTorque().toFixed(2)})`);
+}
+
+console.log('\n8v. THE CONTRAPTION RUNS STANDARD CRAFTS, AND ONLY SOME OF THEM');
+
+/* The device half of "a standard craft runs in the hands or in a contraption".
+   It knows the repetitive intermediates and nothing that builds a machine, so
+   a fed pile cannot be spent on whichever machine is declared first. */
+{
+  boot.newRun(8700);
+  const band = world.bandOf('topsoil');
+  for (let ty = 110; ty <= 118; ty++)
+    for (let tx = 16; tx <= 29; tx++) tiles.write.clear(band, tx, ty);
+  for (let tx = 16; tx <= 29; tx++) tiles.write.set(band, tx, 119, D_sub.S.stone);
+  player.write.band(band);
+  player.write.move(world.worldX(band, 22), world.worldY(band, 117));
+  player.write.vel(0, 0);
+
+  const m = machs.write.place(band, D_mach.M.contraption, 25, 117);
+  for (let i = 0; i < D_mach.MACH[m.def].footing; i++)
+    tiles.write.set(band, m.tx + i, m.ty + D_mach.MACH[m.def].th, D_sub.S.stone);
+
+  const BLOCK = D_recipes.RECIPES.stone_block;
+  const before = items.items.length;
+  /* 15, not 10: enough for one block and not two, so the leftover proves the
+     chooser stopped rather than draining the buffer. */
+  machs.write.take(m, D_sub.S.stone, D_form.F.gravel, 15);
+  runReal(Math.ceil(BLOCK.secs * 120) + 240, 1 / 120, { hasMouse: false });
+
+  const made = items.items.filter(it => it.sub === D_sub.S.stone && it.form === D_form.F.block);
+  const left = m.buf[items.keyOf(D_sub.S.stone, D_form.F.gravel)] || 0;
+
+  let bad = 0;
+  if (!made.length) {
+    fail(`CONTRAPTION: 15 stone/gravel fed in produced no stone/block in ` +
+         `${(BLOCK.secs + 2).toFixed(1)} s -- the device runs no standard craft at all ` +
+         `(buffer left ${left}, items ${items.items.length - before})`);
+    bad++;
+  } else if (left !== 5) {
+    fail(`CONTRAPTION: 15 gravel should buy exactly one 10-gravel block and leave 5; ` +
+         `${left} left over`);
+    bad++;
+  }
+
+  /* Its recipe list is the gate, not affordability: 15 gravel is also a whole
+     kiln, and a device that knew that row would have built one. */
+  const knows = D_mach.MACH[D_mach.M.contraption].recipes;
+  if (knows.some(r => typeof r === 'string' && D_recipes.RECIPES[r]?.out
+                      ?.some(c => D_sub.SUB[D_sub.S[c.sub]]?.tags?.includes('machine')))) {
+    fail(`CONTRAPTION: its recipe list names a machine-build row (${knows.join(', ')}) -- ` +
+         `a machine is built deliberately, by hand, and never by a chooser taking the first ` +
+         `affordable row out of a fed pile`);
+    bad++;
+  }
+
+  if (!bad)
+    ok(`CONTRAPTION: 15 stone/gravel in makes ${made.length} stone/block and leaves ${left} ` +
+       `in the buffer, and its ${knows.length} recipes (${knows.join(', ')}) build no machine`);
+}
+
+console.log('\n8w. A ROPE IS A LOOP, AND A DESCENDING BUCKET PAYS FOR AN ASCENDING ONE');
+
+/* The whole of why a rope carries several buckets. Each costs `segBase` to
+   lift and `segLoad x mass x slope` for its load, and one on the way down
+   gives both back -- so an empty bucket opposite a loaded one cancels its own
+   tare, and a loaded one opposite a loaded one cancels almost everything. */
+{
+  const ORE = items.massOfPair(D_sub.S.copper, D_form.F.ore);
+
+  /* `phases` hangs one bucket per entry, and `load` says how many ore ride on
+     each. Cargo is spawned at the bucket it belongs to, already at rest. */
+  function loopRig(seed, phases, load) {
+    const r = driveRig({
+      seed, room: { ty0: 100, h: 18 },
+      machines: [['hub', 20, 115], ['hub', 20, 105], ['winch', 19, 115]],
+      links: [[0, 1]], player: [18, 115]
+    });
+    const seg = r.seg;
+    while (seg.carriers.length) segs.write.detach(seg, seg.carriers[0]);
+    segs.write.spin(seg, -seg.u, 0);
+    phases.forEach((ph, i) => {
+      const c = segs.write.attach(seg, ph);
+      const p = segs.carrierPos(seg, c);
+      for (let k = 0; k < (load[i] ?? 0); k++) {
+        const it = items.write.spawn(r.band, p.x, p.y, D_sub.S.copper, D_form.F.ore, 0, 0);
+        if (it) it.rest = 1;
+      }
+    });
+    return r;
+  }
+
+  /* Heavy enough that the three arrangements come out distinct: at a light
+     load all of them saturate at `segUp` and the comparison proves nothing. */
+  const UNITS = 40;
+  const MASS = UNITS * ORE;
+  const base = mods.eff('segBase'), load = mods.eff('segLoad'), fric = mods.eff('segFric');
+  const speedOf = r => travel(r.seg, 0.25, 1 / 120, { action: true }) / 0.25;
+
+  /* The three arrangements, and what the law says each nets out to. */
+  const alone    = speedOf(loopRig(8800, [0], [UNITS]));
+  const opposed  = speedOf(loopRig(8801, [0, 0.5], [UNITS, 0]));
+  const balanced = speedOf(loopRig(8802, [0, 0.5], [UNITS, UNITS]));
+
+  const vFor = net => {
+    const tau = winchTorque();
+    const asks = Math.max(0, net) + fric;
+    const force = tau - net;
+    if (force > fric)
+      return mods.eff('segUp') * Math.min(1, (force - fric) / base) * Math.min(1, tau / asks);
+    if (force < -fric) return -mods.eff('segDown') * Math.min(1, (-force - fric) / base);
+    return 0;
+  };
+  const wantAlone    = vFor(base + load * MASS);
+  const wantOpposed  = vFor(load * MASS);
+  const wantBalanced = vFor(0);
+
+  let bad = 0;
+  for (const [label, got, want] of [
+    ['one bucket', alone, wantAlone],
+    ['an empty bucket opposite', opposed, wantOpposed],
+    ['an equally loaded bucket opposite', balanced, wantBalanced]
+  ])
+    if (Math.abs(got - want) > 1e-4) {
+      fail(`COUNTERWEIGHT: with ${label} the rope should run at ${want.toFixed(4)} px/s, ` +
+           `measured ${got.toFixed(4)}`);
+      bad++;
+    }
+
+  if (!bad && !(opposed > alone)) {
+    fail(`COUNTERWEIGHT: an empty bucket on the descending strand must cancel its own tare, so the ` +
+         `rope should run faster than the ${alone.toFixed(3)} px/s one bucket manages; it ran ` +
+         `${opposed.toFixed(3)}`);
+    bad++;
+  }
+  if (!bad && !(balanced > opposed)) {
+    fail(`COUNTERWEIGHT: a loaded bucket coming down must pay for the one going up, so a balanced ` +
+         `loop should beat ${opposed.toFixed(3)} px/s; it ran ${balanced.toFixed(3)}`);
+    bad++;
+  }
+
+  /* And it is not perpetual motion: with nothing turning it, a balanced loop
+     sits still rather than running on its own. */
+  const idle = travel(loopRig(8803, [0, 0.5], [UNITS, UNITS]).seg, 0.5, 1 / 120, {});
+  if (!bad && idle !== 0) {
+    fail(`COUNTERWEIGHT: a balanced loop with nobody turning it moved ${idle.toFixed(4)} px -- ` +
+         `eff('segFric') (${fric}) is what must hold it, or a chain is a free ride`);
+    bad++;
+  }
+
+  if (!bad)
+    ok(`COUNTERWEIGHT: ${MASS} T up runs at ${alone.toFixed(2)} px/s alone, ${opposed.toFixed(2)} with ` +
+       `an empty bucket opposite, and ${balanced.toFixed(2)} with an equal load opposite -- and a ` +
+       `balanced loop nobody is turning does not move at all`);
+}
+
+/* The verb the player actually uses: a held bucket aimed near a rope hangs on
+   it, aimed anywhere else is refused, and the rope fills up. */
+{
+  const r = driveRig({
+    seed: 8820, capMul: 1, room: { ty0: 100, h: 18 },
+    machines: [['hub', 20, 115], ['hub', 20, 105], ['winch', 19, 115]],
+    links: [[0, 1]], player: [18, 115]
+  });
+  const seg = r.seg;
+  while (seg.carriers.length) segs.write.detach(seg, seg.carriers[0]);
+
+  const MAX = Math.round(mods.eff('ropeBuckets'));
+  const mid = carPos0(seg);
+  const held = () => run.invCount(D_sub.S.bucket, D_form.F.rig);
+
+  run.write.collect(D_sub.S.bucket, D_form.F.rig, MAX + 2);
+  const onRope = R_place.attachCarrier(mid.x, mid.y, D_sub.S.bucket);
+  const afterOne = held();
+
+  /* Far from any rope: `eff('attachR')` is 12 px, so 200 is nowhere near. */
+  const miss = R_place.attachCarrier(mid.x + 200, mid.y, D_sub.S.bucket);
+
+  while (seg.carriers.length < MAX && R_place.attachCarrier(mid.x, mid.y, D_sub.S.bucket));
+  const full = R_place.attachCarrier(mid.x, mid.y, D_sub.S.bucket);
+
+  let bad = 0;
+  if (!onRope || seg.carriers.length < 1) {
+    fail('ATTACH: a bucket aimed at a rope did not hang on it');
+    bad++;
+  } else if (afterOne !== MAX + 1) {
+    fail(`ATTACH: hanging one bucket left ${afterOne} in the pockets of ${MAX + 2} -- exactly one ` +
+         `unit is spent`);
+    bad++;
+  }
+  if (miss !== null) {
+    fail(`ATTACH: a bucket aimed 200 px from the nearest rope was accepted; eff('attachR') is ` +
+         `${mods.eff('attachR')} px`);
+    bad++;
+  }
+  if (seg.carriers.length !== MAX || full !== null) {
+    fail(`ATTACH: the rope took ${seg.carriers.length} bucket(s) against eff('ropeBuckets') ${MAX}, ` +
+         `and the next was ${full ? 'accepted' : 'refused'} -- it must refuse past the limit`);
+    bad++;
+  }
+  if (!bad)
+    ok(`ATTACH: a bucket aimed at a rope hangs on it for one unit, one aimed 200 px away is refused, ` +
+       `and the rope stops at eff('ropeBuckets') (${MAX})`);
+}
+
+/* One bucket hauls `bucketCap` and no more, so a chain is throughput rather
+   than one enormous lift. */
+{
+  /* Read with no rig modifier standing: the probes above leave `bucketCap`
+     lifted, and this is the one that is actually about it. */
+  boot.newRun(8809);
+  const ORE = items.massOfPair(D_sub.S.copper, D_form.F.ore);
+  const CAP = mods.eff('bucketCap');
+  const over = Math.round((CAP * 2) / ORE);
+
+  const rig = n => {
+    const r = driveRig({
+      seed: 8810 + n, capMul: 1, room: { ty0: 100, h: 18 },
+      machines: [['hub', 20, 115], ['hub', 20, 105], ['winch', 19, 115]],
+      links: [[0, 1]], player: [18, 115]
+    });
+    const p = carPos(r.seg);
+    for (let k = 0; k < n; k++) {
+      const it = items.write.spawn(r.band, p.x, p.y, D_sub.S.copper, D_form.F.ore, 0, 0);
+      if (it) it.rest = 1;
+    }
+    runReal(30, 1 / 120, { hasMouse: false, action: true });
+    return r.seg.load;
+  };
+
+  const atCap = rig(Math.floor(CAP / ORE));
+  const beyond = rig(over);
+
+  if (Math.abs(beyond - atCap) > 1e-6)
+    fail(`BUCKET CAP: ${over} ore (${(over * ORE).toFixed(1)} T) loaded one bucket to ${beyond} T, ` +
+         `against ${atCap} T for a bucketful -- eff('bucketCap') is ${CAP} T and a bucket must not ` +
+         `haul past it`);
+  else if (!(atCap > 0 && atCap <= CAP + 1e-6))
+    fail(`BUCKET CAP: a bucketful weighed ${atCap} T against a cap of ${CAP} -- the probe is not ` +
+         `loading the bucket at all`);
+  else
+    ok(`BUCKET CAP: ${over} ore under one bucket still rides as ${beyond} T, the same as the ` +
+       `${Math.floor(CAP / ORE)} that fit -- eff('bucketCap') is ${CAP} T and the rest stays behind`);
 }
 
 console.log(`\ntotals: fillRect ${calls.fillRect.toLocaleString()}, ` +

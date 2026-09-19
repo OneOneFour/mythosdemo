@@ -150,7 +150,10 @@ function machineRows() {
 function segmentRows() {
   return segments.map(s => ({
     a: machines.indexOf(s.a), b: machines.indexOf(s.b),
-    t: s.t, dir: s.dir, load: s.load
+    u: s.u, spin: s.spin, load: s.load,
+    /* Phases rather than offsets: a phase is what the player sees, and it
+       restores against the saved `u` without depending on the write order. */
+    cars: s.carriers.map(c => (c.off + s.u) % 1)
   }));
 }
 
@@ -336,7 +339,8 @@ function rowsFault(p) {
     const g = p.segments[i];
     if (!g || !int(g.a, 0, p.machines.length - 1) || !int(g.b, 0, p.machines.length - 1))
       return `segments[${i}]`;
-    if (!num(g.t) || !num(g.dir) || !num(g.load)) return `segments[${i}]`;
+    if (!num(g.u) || !num(g.spin) || !num(g.load)) return `segments[${i}]`;
+    if (!arrOf(g.cars, num)) return `segments[${i}].cars`;
   }
   if (!Array.isArray(p.boons)) return 'boons';
   for (let i = 0; i < p.boons.length; i++)
@@ -528,7 +532,8 @@ export function load(newRun) {
   const placed = applyMachines(p.machines);
   for (const s of p.segments) {
     const seg = segw.link(placed[s.a], placed[s.b]);
-    segw.carrier(seg, s.t, s.dir);
+    segw.spin(seg, s.u, s.spin);
+    for (const phase of s.cars) segw.attach(seg, phase);
     segw.load(seg, s.load);
   }
 
